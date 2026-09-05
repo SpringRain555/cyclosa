@@ -1,4 +1,4 @@
-# template: gitignore v1
+# template: .gitignore v1
 # D:\Projects 共用 .gitignore 基底。各專案在下面接自己的堆疊段落，
 # 上面這一段不要改 —— 改了要回 _meta\templates 改，版本號 +1（CONVENTIONS §14）。
 #

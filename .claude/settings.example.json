@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "_readme": [
+    "複製成 .claude/settings.json 再把佔位符換成實際路徑。那一份不進版控 ——",
+    "它列的是本機私人資料夾的實際名稱。這個 repo 預期會公開，所以更要守住。",
+    "",
+    "使用者層（~\\.claude\\settings.json）已經把整棵私人樹的讀寫設成 ask，",
+    "並用不綁專案名的葉子 pattern 擋掉 *.sqlite / *.db / **/backups/**。",
+    "所以這一份只寫「這個專案自己的資料根多開了什麼、又多擋了什麼」。",
+    "",
+    "**沒有任何寫入放行**：專題資料、快照與筆記全部由 App 自己寫，agent 永遠不需要寫。",
+    "真的需要寫的那一天，基線的 ask 會問一次 —— 那是對的失敗方向。",
+    "",
+    "cases 與 backups 明確 deny，比基線的 ask 更硬 —— 那兩處連問都不該問。",
+    "deny 優先於 allow，所以這幾條也蓋得過日後有人加寬的 allow。",
+    "",
+    "這裡**不列別的專案的資料夾**。那種互指是 N×(N−1) 的維護債（CONVENTIONS §11）。",
+    "",
+    "deny 一定要用 /** 結尾：單一 * 在 glob 裡只 match 一層，會涵蓋資料夾本身",
+    "卻涵蓋不到裡面的檔案。",
+    "",
+    "三個極限：(1) 攔不住 shell；(2) 這是 Node 專案，node -e 完全繞得過 Read 的 deny，",
+    "成文規則才是界線；(3) 不能假設什麼時候生效 —— 要驗就用全新 session 驗。",
+    "",
+    "沒有使用者層基線的人（例如剛 clone 的人），把下面 ask 那五條也加進來：",
+    "  ask: Read/Glob/Grep/Edit/Write(<私人資料樹>/**)",
+    "  deny: Edit/Write(<私人資料樹>/**/*.sqlite)、(<私人資料樹>/**/backups/**)"
+  ],
+  "permissions": {
+    "allow": [
+      "Read(<資料根目錄>/**)",
+      "Glob(<資料根目錄>/**)",
+      "Grep(<資料根目錄>/**)"
+    ],
+    "deny": [
+      "Edit(<資料根目錄>/cases/**)",
+      "Write(<資料根目錄>/cases/**)",
+      "Edit(<資料根目錄>/backups/**)",
+      "Write(<資料根目錄>/backups/**)"
+    ]
+  }
+}

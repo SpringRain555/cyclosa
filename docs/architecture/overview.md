@@ -1,0 +1,125 @@
+# 架構總覽
+
+**這份是分層規則、擷取流程與檔案地圖的權威。** 欄位細節在 `data-model.md`，
+狀態轉移在 `state-machines.md`，兩者都不要在這裡重複。
+
+> **現況：這一份描述的是還沒實作的設計。** 2026-09-05 這個 repo 裡一行程式都沒有。
+> 分層規則寫在這裡是為了讓第一行程式知道自己該放哪 —— 但**下面提到的每個檔案路徑
+> 目前都不存在**，包括那些「由測試守著」的測試。
+
+---
+
+## 一次「擴展」的運作流程
+
+```mermaid
+flowchart TB
+  subgraph IN[輸入]
+    I1[拖入檔案／資料夾]
+    I2[貼上 URL]
+    I3[輸入主題／人物／事件]
+  end
+
+  I3 --> AG["agent 擴展<br/>claude -p ／ codex exec<br/>多視角提問"]
+  AG -->|候選 URL 清單| FQ
+  I2 --> FQ
+  I1 --> LOCAL[本機檔案登記]
+
+  subgraph PIPE[擷取管線 · 唯一出口]
+    FQ[排程佇列<br/>同網域 3-5s · robots · 429 立即停]
+    FQ --> SNAP[["snapshot<br/>原始位元組 + SHA-256 + 抓取時間<br/>不可變"]]
+    SNAP --> EXT[extract<br/>正文 · 語言偵測 · 抽取信心值]
+    EXT --> RND[render<br/>重構排版]
+  end
+
+  LOCAL --> SNAP
+  EXT --> UND
+
+  subgraph UND[理解]
+    NER[實體與具名關係抽取<br/>每條都要引文與字元區間]
+    EMB[向量化]
+    IDX[索引：CJK bigram ／ 拉丁詞彙]
+  end
+
+  UND --> DB[("專題 SQLite<br/>item · entity · edge<br/>edge_evidence · note · run")]
+  DB --> SUB["子圖 API<br/>focus + hops + filters<br/>（沒有整圖端點）"]
+  SUB --> UI3D[3D 關聯圖]
+  SUB --> RDR[閱讀器＋點註]
+  UI3D -.使用者確認／否決／手動連線.-> DB
+  RDR -.點註與筆記.-> DB
+```
+
+**這張圖只有一個要點：`agent` 找到的東西不能自己抓，一律回到 `FQ` 這個唯一出口。**
+節流、robots、雜湊、manifest 只存在於那一層 —— 開第二條路等於讓它們全部失效。
+
+## 分層與允許的匯入方向
+
+```mermaid
+flowchart TB
+  UI["web/ · Vue 3 · 3D 圖 · 閱讀器<br/>i18n/zh-TW.ts 是 UI 字串唯一來源"]
+  IF["interface/ · Fastify 路由 · SSE 進度"]
+  AP["application/ · 用例編排 · 回傳 Result（含 correlation_id）"]
+  DM["domain/ · 圖模型 · 狀態機 · 錯誤碼常數<br/>不 import 任何 infrastructure"]
+  IN["infrastructure/ · db · fetch · extract · providers · fs"]
+
+  UI -->|HTTP／SSE| IF --> AP --> DM
+  AP --> IN
+  IN -.只實作 domain 定義的介面.-> DM
+```
+
+三條最容易違反的：
+
+- **`domain/` 零 I/O。** 不 import `node:fs`、`node:sqlite`，也不 import 其他層。
+  它存在的理由就是讓真正會出錯的規則可以用純函式測試。
+- **`domain/graph` 額外要求零依賴。** 它是 `rubricator` 已知的未來取用點 ——
+  抽成套件的觸發條件寫在 ADR-0014（尚未撰寫）。**現在不抽套件。**
+- **業務規則不要寫進 route handler。** route 只做「解析請求 → 呼叫 service → 對映錯誤」。
+
+## 檔案地圖（規劃，尚未建立）
+
+```
+src/
+├─ main.ts                建 server、掛路由、開資料庫、註冊 provider
+├─ config/                設定載入、指標檔、預設值
+├─ domain/                純邏輯，不 import infrastructure
+│  ├─ case/               專題生命週期與狀態機
+│  ├─ graph/              node／edge 型別、可信度、邊的狀態機、出處規則 ←【零依賴】
+│  ├─ ingest/             擷取階段的狀態機與規則
+│  ├─ note/               W3C 選擇器模型（TextQuote ＋ TextPosition）
+│  ├─ provider/           能力宣告與任務需求的配對規則
+│  └─ errors/             錯誤碼常數 ← error-codes.md 的單一真實來源
+├─ application/           用例編排，一律回 Result{ok,code,correlationId}
+├─ infrastructure/
+│  ├─ db/                 node:sqlite、migrations/、repositories/
+│  ├─ fetch/              節流器、robots、快照寫入、manifest.jsonl
+│  ├─ extract/            readability＋linkedom、語言偵測、bigram／詞彙雙軌索引
+│  ├─ providers/          agent/ chat/ embed/
+│  └─ fs/                 資料根、指標檔、備份
+├─ interface/http/ sse/
+└─ shared/                Result、log、id、時間
+
+web/src/
+├─ views/                 專題清單／關聯圖／閱讀器／作業紀錄／設定
+├─ components/graph/      GraphView.vue（包住 3d-force-graph）、圖例、篩選器、2D 切換
+├─ components/reader/ notes/ common/
+├─ workers/layout.worker.ts
+├─ stores/
+├─ i18n/zh-TW.ts          **所有 UI 字串的唯一來源**
+└─ styles/
+```
+
+## 幾個刻意的選擇
+
+| 選擇 | 為什麼 |
+|---|---|
+| **只提供子圖 API，沒有整圖端點** | 有了整圖端點，前端遲早會呼叫它，然後在 8k 節點時死掉 |
+| **3D 用 `3d-force-graph`，包在自訂 `GraphView` 介面後面** | 換自寫渲染的觸發條件寫在 ADR-0007：**8k 節點時 fps 掉到 30 以下** |
+| **佈局跑 Web Worker** | 力導向會吃滿主執行緒，圖會卡住 |
+| **不引 `sqlite-vec`** | 原生擴充，與「零原生模組」衝突。第一版用 BLOB 存向量、`Float32Array` 純 JS 比對，超過 5 萬筆才重新評估 |
+| **中文檢索自建 bigram，不用 FTS5 `trigram`** | `trigram` 少於 3 個 unicode 字元的查詢**不會 match 任何列**，而中文查詢多半是 2 字詞 |
+
+## 錯誤處理
+
+碼分組 `FETCH_*`／`PARSE_*`／`PROVIDER_*`／`GRAPH_*`／`CASE_*`／`IO_*`。
+**UI 只顯示繁中訊息，碼只進日誌**；每次操作帶 `correlation_id`。
+
+**絕不因為單一項目失敗讓整批失敗** —— `部分失敗` 是一等公民（見 `state-machines.md`）。

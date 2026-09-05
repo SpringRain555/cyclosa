@@ -54,7 +54,7 @@
 | **執行環境** | 系統 Node **24.x**。沒有 conda、沒有 Python、沒有原生模組 —— 資料庫用內建的 `node:sqlite`。**這是規劃，`package.json` 還不存在** |
 | **資料邊界** | 見下一節。**這是這份文件裡最重要的一節** |
 | **產生物，不可手改** | 還沒有任何產生物 |
-| **單一真實來源** | UI 字串 → `web/src/i18n/zh-TW.ts`；錯誤碼 → `src/domain/errors/`；schema → `docs/architecture/data-model.md`。**三者都還不存在**，寫的時候要一併補上守著它們的測試 |
+| **單一真實來源** | schema → `docs/architecture/data-model.md`（✅ 已存在）。UI 字串的 `web/src/i18n/zh-TW.ts` 與錯誤碼的 `src/domain/errors/` **還不存在**；守著三者一致的測試也還不存在，所以目前靠人記得 |
 
 ## 資料位置與讀取邊界
 

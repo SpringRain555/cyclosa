@@ -89,6 +89,20 @@
 | `operations/release-checklist.md` | ⬜ | 發布前的人工驗收步驟 | 自動測試涵蓋的東西 |
 | `operations/maintainer-notes.md` | ⬜ | **症狀 → 哪個檔 ＋ 哪條測試守著**的查找表 | 任何獨立規則 |
 
+> **維運區缺著是刻意的。** 2026-09-06 的跨專案驗收（`D:\Projects` 階段 E）
+> 考慮過現在就寫發版檢查表，結論是不寫：
+>
+> - `maintainer-notes.md` 是「**症狀** → 哪個檔 ＋ 哪條測試守著」，
+>   而這個專案**還沒有症狀，也還沒有測試**。
+> - `release-checklist.md` 對這個專案目前唯一的人工項目
+>   （佔位符不可換成真路徑、AGPL 紅線、設計稿 URL 不進版控）
+>   **已經寫在 `AGENTS.md`／`CLAUDE.md` 的不可違反規則裡**了 ——
+>   再寫一份就是同一件事有兩個權威位置，而那正是這張表要防的事。
+>
+> 這個專案 `remote: none`，**還沒有要公開**。`Test-PublishReadiness.ps1` 會為這一區
+> 報一條 warning，**那是真陽性**：它如實說出「還沒準備好公開」。
+> 消掉它的時機是真的要公開的時候。
+
 跨專案的脈絡（狀態、來源、市場調查的由來、UI 設計稿）在
 `D:\Projects\_meta\cards\cyclosa.md`，**不要在這裡重複**。
 

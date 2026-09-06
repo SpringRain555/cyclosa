@@ -1,3 +1,4 @@
+<!-- agent-doc:sync-notice -->
 # CLAUDE —— Cyclosa
 
 > **這份與 `AGENTS.md` 是平級的兩份完整規則**（Claude Code 只自動載入 `CLAUDE.md`，
@@ -5,7 +6,9 @@
 > **目前兩份的差異只有標題與這段互指聲明** —— 沒有任何工具專屬的規則。
 >
 > 產生器會比對兩份最後被改的 commit，不一致就報 `agent-doc-drift`；
-> 也會剝掉標記區塊之後比內容，不一致就報 `agent-doc-content-drift`。
+> 也會剝掉這對標記之間的內容之後比 hash，不一致就報 `agent-doc-content-drift`。
+> **那條檢查是 opt-in 的** —— 沒有這對標記它根本不會啟動（ADR-0013）。
+<!-- /agent-doc:sync-notice -->
 
 <!-- upstream: D:\Projects v1 -->
 

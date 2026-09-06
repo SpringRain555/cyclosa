@@ -66,7 +66,7 @@
 | `sqlite-vec` | 同上。向量第一版用 BLOB ＋ `Float32Array` 純 JS 比對，超過 5 萬筆才重新評估 |
 | `jsdom` | 只為了餵 readability 一個 DOM 而已，`linkedom` 輕得多 |
 | **`@mermaid-js/mermaid-cli`** | **產圖工具，不進 devDependencies。** 它會拉 Chromium 進 `node_modules`（數百 MB），為一個月用兩次的東西讓每次 `npm ci` 都背著它並不划算。改用 `npx -y '@mermaid-js/mermaid-cli@11'` 用到才下載 —— 做法與 `tagcor-ledger` 一致 |
-| Playwright | 第一版靜態優先，**只有 JS-only 的頁面才升級**。升級路徑寫在 ADR（尚未撰寫）|
+| Playwright | 第一版靜態優先，**只有 JS-only 的頁面才升級**。升級路徑寫在 `../requirements/REQ-0003-fetch-and-render.md` 的「刻意不做」—— 要先有量測到的 JS-only 比例才引 |
 
 ## 授權紅線
 

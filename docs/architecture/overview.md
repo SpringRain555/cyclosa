@@ -71,7 +71,8 @@ flowchart TB
 - **`domain/` 零 I/O。** 不 import `node:fs`、`node:sqlite`，也不 import 其他層。
   它存在的理由就是讓真正會出錯的規則可以用純函式測試。
 - **`domain/graph` 額外要求零依賴。** 它是 `rubricator` 已知的未來取用點 ——
-  抽成套件的觸發條件寫在 ADR-0014（尚未撰寫）。**現在不抽套件。**
+  抽成套件的觸發條件寫在 ADR-0014：**兩邊的複本已經分岔，而那個分岔造成了一個 bug。**
+  **現在不抽套件。**
 - **業務規則不要寫進 route handler。** route 只做「解析請求 → 呼叫 service → 對映錯誤」。
 
 ## 檔案地圖（規劃，尚未建立）

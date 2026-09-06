@@ -1,0 +1,47 @@
+{
+    "note":  "產生物。改了 .md 裡的 mermaid 就重跑 tools/diagrams/Render-Diagrams.ps1。",
+    "diagrams":  [
+                     {
+                         "document":  "data-model.md",
+                         "index":  1,
+                         "svg":  "data-model-1.svg",
+                         "sha256":  "8c4bbeb4e5dc5b6c051e30045e9e1e0e924e9865f8781c5817bcd81a8cd43a88"
+                     },
+                     {
+                         "document":  "overview.md",
+                         "index":  1,
+                         "svg":  "overview-1.svg",
+                         "sha256":  "744234a353360db9b9651eb97641ea905c47a422f8b812e193ac82fa8934b04b"
+                     },
+                     {
+                         "document":  "overview.md",
+                         "index":  2,
+                         "svg":  "overview-2.svg",
+                         "sha256":  "0b6ad0a288c7637565557c81d72d07772a3eebfaa24b317db3c97ab9fe4185c1"
+                     },
+                     {
+                         "document":  "state-machines.md",
+                         "index":  1,
+                         "svg":  "state-machines-1.svg",
+                         "sha256":  "5b7d7df1603abf68e2096efa188a05d3796b68869aafe6f54627f090115c4685"
+                     },
+                     {
+                         "document":  "state-machines.md",
+                         "index":  2,
+                         "svg":  "state-machines-2.svg",
+                         "sha256":  "6041951fa311dc4bf255901d04cd1c227f45e876002e71b9062aefcef38de944"
+                     },
+                     {
+                         "document":  "state-machines.md",
+                         "index":  3,
+                         "svg":  "state-machines-3.svg",
+                         "sha256":  "f97ba1f2aa7dce5d06378e96101443898cf3388a2115154086198e4cae18b767"
+                     },
+                     {
+                         "document":  "state-machines.md",
+                         "index":  4,
+                         "svg":  "state-machines-4.svg",
+                         "sha256":  "bcba070ff210ae09e1a9af585042c419b8aac0968b30b730e7e12bf611a20f3b"
+                     }
+                 ]
+}

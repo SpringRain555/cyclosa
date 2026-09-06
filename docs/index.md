@@ -54,7 +54,7 @@
 | `error-codes.md` | ⬜ | 每個錯誤碼的成因與「使用者該做什麼」 | 錯誤在哪一行被丟出來 |
 | `glossary.md` | ⬜ | 中文詞 ↔ 識別字，以及**不可以叫什麼** | 概念的完整定義 |
 | `multilingual.md` | ⬜ | 語言偵測、雙軌索引、跨語言實體對齊、翻譯的地位 | 檢索實作 |
-| `diagrams/*.svg` | ⬜ | （產生物）mermaid 正本在各文件裡 | —— |
+| `diagrams/*.svg` ＋ `manifest.json` | ✅ | （產生物）**7 個檔**。mermaid 正本在各文件裡，`manifest.json` 記每段原始碼的 SHA-256 | —— |
 
 ### `environment/` —— 環境區
 
@@ -84,8 +84,8 @@
 
 | 文件 | 現況 | 它是什麼的權威 | **不要**寫在這裡 |
 |---|:--:|---|---|
-| `decisions/ADR-0001…0014` | ⬜ | 一個決定當時的處境、選項與理由 | 現況（現況會變，ADR 不改）|
-| `requirements/REQ-0001…0008` | ⬜ | 一項需求的範圍與**邊界（不做什麼）** | 實作方式 |
+| `decisions/ADR-0001…0014` | ✅ | 一個決定當時的處境、選項與理由 | 現況（現況會變，ADR 不改）|
+| `requirements/REQ-0001…0008` | ✅ | 一項需求的範圍與**邊界（不做什麼）** | 實作方式 |
 | `operations/release-checklist.md` | ⬜ | 發布前的人工驗收步驟 | 自動測試涵蓋的東西 |
 | `operations/maintainer-notes.md` | ⬜ | **症狀 → 哪個檔 ＋ 哪條測試守著**的查找表 | 任何獨立規則 |
 
@@ -96,12 +96,16 @@
 
 ## 圖
 
-四張圖的 **mermaid 正本在各架構文件裡**（`overview.md` 兩張、`state-machines.md` 四個
-狀態機、`data-model.md` 一張 ER 圖），`diagrams/` 目前是空的。
+四張圖的 **mermaid 正本在各架構文件裡**，**共 7 段** ——
+`overview.md` 兩段、`state-machines.md` 四個狀態機、`data-model.md` 一張 ER 圖，
+所以 `diagrams/` 裡是 **7 個 SVG**（2026-09-06 產出）。
 
 產生流程用 `tools\diagrams\Render-Diagrams.ps1`，它**人手動跑，不進驗證閘門** ——
 第一次執行會用 `npx` 下載 mermaid-cli 與它帶的 Chromium（數百 MB，需要網路）。
 產出的 SVG **會進版控**，否則沒裝 node 的人（含日後讀這份專案的 LLM）看不到圖。
+
+`manifest.json` 記每一段 mermaid 原始碼的 SHA-256，`-Check` 靠它判斷哪張過期 ——
+**改了 `.md` 裡的 mermaid 就要重跑**，只有變動的那一段會重算。
 
 > **圖是導覽，不是規格。** 狀態機的權威是那些「從 A 能不能到 B」的轉移表 ——
 > 圖回答不了那個問題。

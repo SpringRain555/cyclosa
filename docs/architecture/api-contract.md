@@ -3,7 +3,19 @@
 **這份是端點、請求／回應形狀與錯誤對映的權威。**
 業務規則在 `domain/`（見 `overview.md` 的分層），錯誤碼的意義在 `error-codes.md`。
 
-> **現況：設計，尚未實作。** 下面沒有任何一個端點存在。
+> **現況（2026-09-07，Stage 6）：一部分實作了。**
+>
+> **已經存在**：系統（`/healthz`、資料根）、專題（清單／建立／封存）、
+> **匯入**（`/import/urls`、`/import/file`）、**作業紀錄**（`/runs`、`/runs/:id`、
+> **SSE `/runs/:id/events`**、`/cancel`）、**資料節點與閱讀器**
+> （`/items`、`/items/:id`、`/content`、`/snapshot`、`/read`、`/exclude`、
+> `/restore`、`/retry`）。
+>
+> **還不存在**：子圖 API 與 `/subgraph/size`（Stage 7）、關聯與裁決（Stage 8）、
+> provider 與擴展的 `/runs` 那一組（Stage 9）、點註（Stage 10）、
+> 匯出（Stage 11）、檢索（Stage 12）。
+>
+> **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
 ---
 

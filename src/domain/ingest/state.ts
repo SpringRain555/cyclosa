@@ -5,6 +5,14 @@
 
 // ── 資料節點 Item ──────────────────────────────────────────
 
+/**
+ * 資料節點的型別。值域與 `item.kind` 的 CHECK 一致。
+ *
+ * `note` 在這裡是因為點註也是圖上的節點（ADR-0010），
+ * 但它不走擷取管線 —— 它沒有 snapshot，也不會有 `kind='note'` 的 fetch。
+ */
+export type ItemKind = 'web' | 'pdf' | 'image' | 'text' | 'paper' | 'note';
+
 export type ItemStatus = 'pending' | 'fetched' | 'parsed' | 'included' | 'excluded' | 'failed';
 
 export type ItemAction =

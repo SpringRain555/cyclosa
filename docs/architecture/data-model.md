@@ -3,12 +3,21 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：設計，尚未實作。** 沒有 migration、沒有資料庫、沒有 schema 版本。
-> 下面的欄位名是**規劃**，第一次寫 migration 時要回來把這份改成現況。
+> **現況：`schema v2`，已實作。**
+> 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`），
+> 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
+>
+> - **v1（2026-09-07，Stage 5）**：11 張表、18 個索引、3 條 trigger。
+> - **v2（2026-09-07，Stage 6）**：`item` 補 11 欄、`run` 補 3 欄、
+>   **新增 `run_item`**。理由見下面。
+>
+> **升級既有資料庫之前會先用 `VACUUM INTO` 留一份複本到 `<資料根>\backups\`**，
+> 而且**備份失敗就不 migrate** —— 沒有退路的 migration 是這個專案不該自己製造的風險。
+> 用 `VACUUM INTO` 而不是複製檔案：WAL 模式下 `.sqlite` 那一個檔案
+> **不包含還在 `-wal` 裡的交易**。
 >
 > **2026-09-06 大改**：`edge.layer`、`edge_audit`、`item.read_at`、墓碑索引、
-> 向量的 `model`／`dim`、投影三段 —— 全部來自 2026-09-05 的設計稿與這次的市場調查，
-> 之前一條都沒有。
+> 向量的 `model`／`dim`、投影三段 —— 全部來自 2026-09-05 的設計稿與那次的市場調查。
 
 ---
 
@@ -22,10 +31,13 @@ erDiagram
   EDGE ||--o{ EDGE_AUDIT : "每次狀態轉換一列"
   ITEM ||--o{ EDGE_EVIDENCE : "引文出自"
   ITEM ||--o{ NOTE : "點註錨定於（釘在不可變的 snapshot）"
-  RUN ||--o{ EDGE : "由哪一次擴展新增"
-  RUN ||--o{ ITEM : "由哪一次擴展帶入"
+  RUN ||--o{ EDGE : "由哪一次作業新增"
+  RUN ||--o{ ITEM : "由哪一次作業帶入"
+  RUN ||--|{ RUN_ITEM : "一個輸入一列"
+  RUN_ITEM |o--o| ITEM : "成功時才有"
 
-  ITEM { text kind "web|pdf|image|text|paper|note" text lang text sha256 text status int read_at }
+  ITEM { text kind "web|pdf|image|text|paper|note" text lang text sha256 text status int read_at int low_confidence text error_code }
+  RUN_ITEM { text requested text host text outcome text code int waited_ms }
   ENTITY { text type "person|org|place|event|work|concept" text name_zh text aliases_json text wikidata_qid }
   EDGE { text layer "derived|named|comention|similarity" text rel text origin "machine|human" real confidence text status }
   EDGE_EVIDENCE { text quote int char_start int char_end }
@@ -74,9 +86,44 @@ erDiagram
 | `edge_evidence` | 引文 | `quote` ＋ `char_start` ＋ `char_end`，指向某個 `item` |
 | **`edge_audit`** | **狀態轉換的稽核** | **只增不刪**。校準比例的資料來源 |
 | `note` | 筆記與點註 | 錨點用 W3C 選擇器，**釘在 snapshot 上** |
-| `run` | 一次擴展作業 | 每個新增的 `item`／`edge` 都記得自己來自哪一次 |
+| `run` | 一次擴展或匯入作業 | 每個新增的 `item`／`edge` 都記得自己來自哪一次 |
+| **`run_item`** | **一次作業裡的一個輸入** | **一個輸入不一定會變成一個 `item`** —— 見下面 |
 | `vector` | 向量 | **必記 `model` ＋ `dim`** —— 見下面 |
 | `bigram` | 中文檢索索引 | 應用層自建，見下面 |
+
+## 為什麼 `run_item` 不能用 `item` 代替
+
+一次匯入的**輸入**與它產生的**節點**不是一對一：
+
+| 輸入的結果 | 有沒有 `item` |
+|---|---|
+| 抓到而且抽得出正文 | 有 |
+| 404／逾時／抓到但抽不出東西 | **有**（`status='failed'`，可以重試）|
+| `robots.txt` 不准 | **有**（同上，記著原因）|
+| **內容已經在專題裡了**（SHA-256 相同）| **沒有** —— 指向既有的那一個 |
+| 貼進來的不是網址 | **沒有** |
+| 整批被取消，還沒輪到它 | **沒有** |
+
+作業紀錄那一頁**必須看得到後面三種**，否則「40 個 URL 有 3 個沒進來」
+這句話裡的 3 就沒有地方顯示原因。所以 `run_item` 是「一個輸入的一生」，
+`item` 是「一個節點的一生」，兩者只有在成功時重合。
+
+`run_item` 的欄位直接對應 ui-workflows 的那張表：
+狀態／來源／網域／新增節點／新增關聯／備註，另外多一個 **`waited_ms`** ——
+那是「同網域間隔 ≥ 3 秒」這條驗收條件**量得到的地方**（REQ-0003）。
+
+## `item` 的兩個 URL 欄位
+
+| 欄位 | 存什麼 |
+|---|---|
+| `requested_url` | **使用者實際貼進來的那一個。** 唯一索引，所以同一個 URL 不會建第二個節點 |
+| `source_url` | 轉址跟完之後**真正抓到的位址** |
+
+只留一個的話，短網址與轉址會讓同一份東西進來兩次 ——
+使用者下次再貼一次的是前者，而我們抓到的是後者。
+
+**內容層的去重另外靠 `sha256` 的唯一索引**：兩個不同的 URL 給出同一份位元組時，
+第二個不建節點，作業紀錄記一列 `FETCH_DUPLICATE`（notice，**不是失敗**）。
 
 ## 關聯分四層（ADR-0015）
 
@@ -108,10 +155,29 @@ erDiagram
 3. **`item.sha256` 對應的 snapshot 不可變。** 重跑抽取產生的是新的衍生物，
    不動 snapshot —— 所以點註不會因為抽取演算法改版而漂掉。
 4. **`item.lang` 偵測不出來記 `und`，不猜。**
+   而 2026-09-07 的量測發現 **`franc` 判不出來的時候不會說判不出來** ——
+   69 個字的英文頁被判成法文。所以偵測外面有兩道**用證據推翻標籤**的閘門
+   （字數下限、CJK 比例與標籤矛盾），**兩道都只把答案推向 `und`**。
+   細節在 `multilingual.md`。
 5. **墓碑**：`(source, target, rel)` 被否決過的組合，機器不得再提為 `待查證`
    （例外見 ADR-0016）。**需要 `(source, target, rel)` 的索引** ——
    這是擴展寫入路徑上每一條候選邊都要查一次的東西。
 6. **向量的 `model` 不符就拒絕比對**，不是回一個看起來正常的數字。見下面。
+
+## `item` 的抽取欄位：每一個都有一個畫面在讀它
+
+不是為了完整而存的中繼資料 —— **沒有畫面在讀的欄位不要加**。
+
+| 欄位 | 誰在讀它 |
+|---|---|
+| `low_confidence` ＋ `low_confidence_reasons` | 清單的標記與閱讀器的說明。**理由是使用者唯一能據以判斷的東西** |
+| `mime` ＋ `source_ext` | `sources/<sha256>.<ext>` 要靠 `ext` 才找得到檔案 |
+| `byte_size` | 專題清單的「快照佔用」 |
+| `excerpt` | 清單與檢索結果的摘要 |
+| `extractor_version` | 整批重算時認出哪些 `derived/` 過期了 |
+| `page_count` | 閱讀器的頁碼導覽（PDF，**1-based**）|
+| `image_width` ／ `image_height` | **矩形註記的座標系**（ADR-0019 的 `#xywh=pixel:`）。讀不出來就是 `NULL`，不猜 |
+| `error_code` | 失敗的那一項自己的碼。**不是一個「匯入失敗」** |
 
 ## 向量：BLOB ＋ 純 JS 比對，但必須記住是誰產的
 

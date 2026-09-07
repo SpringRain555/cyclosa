@@ -34,9 +34,9 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 |:--:|---|---|
 | A1 | **文件裡的 `<資料根目錄>`／`<私人資料樹>` 佔位符沒有一個被換成真路徑** —— 包括新寫的文件 | ✅ 現在就能查 |
 | A2 | **截圖裡沒有真實路徑、專題名稱、視窗標題列或其他視窗** —— 這是腳本永遠查不到的 | ⬜ 還沒有截圖 |
-| A3 | **`docs/environment/snapshots/` 的環境快照已去識別化**：沒有使用者名、機器名、絕對路徑 | ⬜ 還沒有快照 |
+| A3 | **`docs/environment/snapshots/` 的環境快照已去識別化**：沒有使用者名、機器名、絕對路徑 | ✅ 現在就能查（2026-09-07 起有一份） |
 | A4 | **`.claude/settings.json` 沒進版控**（範本 `settings.example.json` 才進） | ✅ 現在就能查 |
-| A5 | **測試用的固定資料裡沒有真實來源內容** —— 合成資料要看得出來是合成的 | ⬜ 還沒有測試 |
+| A5 | **測試用的固定資料裡沒有真實來源內容** —— 合成資料要看得出來是合成的 | ✅ 現在就能查。**一個要特別看的地方**：`tests/domain/extract-confidence.test.ts` 裡有 16 個真實網站的**訊號數字與網域名**（沒有內容），那是量測的可執行版本 |
 | A6 | **`docs/research/sources/manifest.jsonl` 裡沒有帶身分的 URL**（含 token 的網址、私人分享連結） | ✅ 現在就能查 |
 | A7 | **設計稿的 artifact URL 沒有進 repo** —— 它是私有的，放進來只會是一條別人打不開的連結 | ✅ 現在就能查 |
 
@@ -44,11 +44,11 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 
 | # | 檢查 | 現況 |
 |:--:|---|---|
-| B1 | **`package.json` 的每一個相依都實查過 `LICENSE`**，結果記在 `docs/environment/versions.md` | ⬜ 還沒有 `package.json` |
+| B1 | **`package.json` 的每一個相依都實查過 `LICENSE`**，結果記在 `docs/environment/versions.md` | ✅ 現在就能查（2026-09-07 掃過整棵相依樹：258 個套件、0 個 GPL 系）|
 | B2 | **沒有任何 AGPL-3.0 的程式碼或依賴**（Datashare／SingleFile／Karakeep／Linkwarden／Zotero） | ✅ 現在就能查 |
 | B3 | **不能只信 GitHub API 的 `license` 欄** —— Zotero 就是反例（API 回 `NOASSERTION`，要開 `COPYING`）。**API 說「不知道」的時候，答案不是「沒有授權」** | ✅ 規則已成文 |
 | B4 | **借來的概念都標明「借的是概念還是程式碼」**（`docs/research/market-scan.md`） | ✅ 現在就能查 |
-| B5 | **從別的專案複製過來的檔案**（例如 CSS token）**在複製的 commit 訊息裡寫明它是複本** | ⬜ 還沒複製 |
+| B5 | **從別的專案複製過來的檔案**（例如 CSS token）**在複製的 commit 訊息裡寫明它是複本** | ✅ **到目前為止沒有複製任何檔案** —— `tokens.css` 是照 ADR-0018 自己寫的，不是 `rubricator` 的複本 |
 
 ## C · 文件誠實度（人工）
 
@@ -66,12 +66,12 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 
 | # | 檢查 | 現況 |
 |:--:|---|---|
-| D1 | **從一個乾淨的 clone ＋ 空的資料根跑一次一鍵啟動**，全程不看文件也走得完。**入口是從檔案總管雙擊 `Start Cyclosa.cmd`** —— 不是在終端機打 `.\Launch.ps1`，那條路徑繞過了「使用者實際會遇到什麼」（2026-09-07 實際踩到：雙擊 `Launch.ps1` 只會打開記事本） | 🟡 Stage 5 起可跑，走得完的只有「建專題」 |
+| D1 | **從一個乾淨的 clone ＋ 空的資料根跑一次一鍵啟動**，全程不看文件也走得完。**入口是從檔案總管雙擊 `Start Cyclosa.cmd`** —— 不是在終端機打 `.\Launch.ps1`，那條路徑繞過了「使用者實際會遇到什麼」（2026-09-07 實際踩到：雙擊 `Launch.ps1` 只會打開記事本） | 🟡 Stage 6 起可跑，走得完的是「建專題 → 匯入 → 閱讀」 |
 | D2 | **故意弄壞指標檔**，畫面要說得出「指標檔在哪、指到哪、那個路徑怎麼了」 | 🟡 Stage 5 起可跑（四種失敗都有 e2e，但**人要親眼看過畫面**） |
-| D3 | **拔掉網路跑一次** —— 除了主動抓取以外的功能要照常，錯誤訊息要說得清楚 | ⬜ 還不能跑 |
+| D3 | **拔掉網路跑一次** —— 除了主動抓取以外的功能要照常，錯誤訊息要說得清楚 | 🟡 Stage 6 起可跑（匯入會報 `FETCH_DNS`；閱讀器與清單不需要網路）|
 | D4 | **停掉 Ollama 跑一次語意檢索** —— 要報能力不足並停手，**全文檢索照常** | ⬜ 還不能跑 |
 | D5 | **診斷匯出的檔案人工看過一遍**，確認裡面沒有來源內容、筆記內容或絕對路徑 | ⬜ 還不能跑 |
-| D6 | **節流真的有 3 秒** —— 看日誌的時間戳序列，不是看程式碼 | ⬜ 還不能跑 |
+| D6 | **節流真的有 3 秒** —— 看日誌的時間戳序列，不是看程式碼 | ✅ 現在就能查（`tests/e2e/ingest-flow.test.ts` 從**伺服器端**量，另外 `run_item.waited_ms` 每一列都記）|
 
 ## E · 卡片與 registry（人工）
 

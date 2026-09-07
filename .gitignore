@@ -46,18 +46,29 @@ coverage/
 *.sqlite-wal
 *.sqlite-shm
 *.db
-cases/
-sources/
-derived/
+/cases/
+/sources/
+/derived/
 .local-data/
 
-# **`docs/environment/snapshots/` 是文件，要進版控。**
-# 這裡本來有一條裸的 `snapshots/`，它同時擋掉了資料側的快照與文件側的環境快照 ——
+# ── 上面那四條為什麼要有 `/` 開頭（2026-09-07 第二次踩到）──────
+#
+# **裸的目錄名在 gitignore 裡是全域比對**，任何一層的同名資料夾都會被擋。
+#
+# 第一次是 `snapshots/`：它同時擋掉資料側的快照與 `docs/environment/snapshots/`，
 # 而後者是 `Verify.ps1 -Report` 的產出、`docs/index.md` 明列的一份文件。
-# 症狀很安靜：檔案產生了、`git status` 看不到它、`docs/index.md` 標著 ✅，
-# 而 clone 下來的人找不到那個檔。
-# 所以改成只擋資料根那一層的名字（`sources/`、`derived/`），
-# 文件側的 `snapshots/` 不在這張清單上。
+# 那次改成「只列資料根會出現的名字」—— 而那個修法是不完整的：
+#
+# **`sources/` 一樣是通用名詞，它正在擋 `docs/research/sources/`**
+# （市場調查的來源 manifest）。那個檔案沒消失只是因為它在規則存在之前就被追蹤了 ——
+# **在那個資料夾裡新增第二個檔案，會安靜地不見。**
+#
+# 所以這一次改成**用 `/` 錨在 repo 根目錄**。代價：如果有人把資料根指到
+# repo 底下的某個子資料夾，這幾條就擋不住了。**那個代價是可以接受的**，
+# 因為真正在守這件事的是 `*.sqlite`、`.githooks/pre-commit` 與
+# `Test-PublishReadiness.ps1`，而不是這四行。
+#
+# 判準：**通用名詞的忽略規則一律加 `/` 錨定，除非你真的要擋每一層。**
 
 # Playwright 的執行紀錄（診斷用，不是產出）
 .playwright-cli/

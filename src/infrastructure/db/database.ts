@@ -5,7 +5,7 @@
  * 引了就需要編譯工具鏈，而一鍵啟動就沒了（ADR-0002、ADR-0009）。
  */
 import { DatabaseSync } from 'node:sqlite';
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,13 +13,25 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, 'migrations');
 
 /** 這一版程式認得的 schema 版本。**比資料庫的版本小就代表資料庫被新版寫過。** */
-export const SUPPORTED_SCHEMA_VERSION = 1;
+export const SUPPORTED_SCHEMA_VERSION = 2;
 
 export type OpenOutcome =
   | { readonly kind: 'ok'; readonly db: DatabaseSync }
   /** 資料庫的 schema 比這個程式新 —— **不要用舊版繼續開，會寫壞資料** */
   | { readonly kind: 'schema-too-new'; readonly found: number; readonly supported: number }
   | { readonly kind: 'migrate-failed'; readonly at: string; readonly reason: string };
+
+export interface OpenOptions {
+  /**
+   * migration 之前把複本放這裡（`<資料根>\backups\`）。
+   *
+   * **不給就不備份** —— 新建的專題不需要（它從 0 直接建到最新版，
+   * 沒有任何東西可以失去）。
+   */
+  readonly backupDir?: string | undefined;
+  /** 備份檔名的前綴，用專題 slug。 */
+  readonly backupLabel?: string | undefined;
+}
 
 async function migrationFiles(): Promise<string[]> {
   const names = await readdir(MIGRATIONS_DIR);
@@ -32,7 +44,10 @@ async function migrationFiles(): Promise<string[]> {
  * `PRAGMA user_version` 當版本號 —— 不另外開一張 `schema_version` 表：
  * 那張表本身也需要一個 migration 才能存在，是先有雞還是先有蛋。
  */
-export async function openCaseDatabase(path: string): Promise<OpenOutcome> {
+export async function openCaseDatabase(
+  path: string,
+  options: OpenOptions = {},
+): Promise<OpenOutcome> {
   const db = new DatabaseSync(path);
 
   // WAL：讀寫不互相擋。這也是「單一實例只是體驗、不是資料保證」的那條依據
@@ -50,6 +65,25 @@ export async function openCaseDatabase(path: string): Promise<OpenOutcome> {
   }
 
   if (current < SUPPORTED_SCHEMA_VERSION) {
+    // **既有資料庫在 migration 之前先留一份複本**（storage-layout 的 `backups\`）。
+    //
+    // 用 `VACUUM INTO` 而不是複製檔案：WAL 模式下 `.sqlite` 那一個檔案
+    // **不包含還在 `-wal` 裡的交易**，複製它會得到一份少了最後幾筆的資料庫。
+    // `VACUUM INTO` 是從這條連線產生的，看得到完整狀態。
+    if (current > 0 && options.backupDir !== undefined) {
+      try {
+        await mkdir(options.backupDir, { recursive: true });
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const name = `${options.backupLabel ?? 'case'}-v${current}-${stamp}.sqlite`;
+        db.prepare('VACUUM INTO ?').run(join(options.backupDir, name));
+      } catch (e) {
+        // **備份失敗就不要 migrate。** 沒有退路的 migration 是這個專案
+        // 最不該自己給自己製造的風險。
+        db.close();
+        return { kind: 'migrate-failed', at: 'backup', reason: String((e as Error).message) };
+      }
+    }
+
     const files = await migrationFiles();
     for (const file of files) {
       const version = Number(file.slice(0, 3));

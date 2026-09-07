@@ -43,6 +43,15 @@ export const ERROR_CODES = {
   IO_UNEXPECTED: 'error',
 
   // ── FETCH_* 擷取 ─────────────────────────────────────────
+  /** 貼進來的東西根本不是一個 http／https 網址。**這是輸入問題，不是網路問題。** */
+  FETCH_BAD_URL: 'partial',
+  /**
+   * 這份內容已經在專題裡了（SHA-256 相同）。
+   *
+   * **notice 而不是 partial** —— 什麼都沒有失敗，
+   * 而且它正是「同一個檔案匯入兩次只會有一個節點」這條規則在運作的證據。
+   */
+  FETCH_DUPLICATE: 'notice',
   FETCH_ROBOTS_DISALLOWED: 'partial',
   FETCH_RATE_LIMITED: 'partial',
   FETCH_TIMEOUT: 'partial',

@@ -14,11 +14,16 @@
 
 ---
 
-## 現況：Stage 5「最小可跑」（v0.1.0）
+## 現況：Stage 6「匯入與閱讀器」（v0.2.0）
 
-**跑得起來，而且只跑得動這些**：建立專題、看專題清單、封存與重新開啟。
-匯入、閱讀器、圖、擴展、筆記、檢索**都還沒有** —— 那是 Stage 6 以後
+**跑得起來，而且只跑得動這些**：建立專題 → 貼網址或拖檔案匯入 →
+在閱讀器裡讀抽出來的正文 → 在作業紀錄看每一項發生了什麼。
+圖、關聯與裁決、LLM 擴展、筆記、檢索介面**都還沒有** —— 那是 Stage 7 以後
 （完整的 Stage 表在 `docs/roadmap.md`）。
+
+匯入時就會做的事：**同網域間隔 3 秒、遵守 `robots.txt`、收到 429／503 立即停不重試、
+原始位元組存成不可變的快照（SHA-256 命名）、中文與拉丁的索引一起寫**。
+其中「間隔 3 秒」是從伺服器端的時間戳序列驗過的，不是看程式碼推論的。
 
 ## 怎麼跑起來
 
@@ -36,13 +41,16 @@
 | `.\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含四條守門）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
 | `.\Verify.ps1 -Report` | ✅ | 另外產出**去識別化**的環境快照 |
 | `npm run dev` ＋ `npm run dev:server` | ✅ | 開發用，有熱重載 |
-| `npm test` | ✅ | 134 個測試 |
+| `npm test` | ✅ | 207 個測試 |
 
 **已經實際跑過的**（2026-09-07，Node v24.15.0）：`Verify.ps1` 全綠、
-build 出來的 server 在 `127.0.0.1:7433` 建得出專題、
-`case.sqlite` 是 schema v1（WAL、18 個索引、3 條 trigger）。
+build 出來的 server 走完一次真實的匯入 —— 4 個網址（其中一個 404、一個被 robots 擋、
+一個內容重複）得到一個 `部分失敗` 的作業，其餘照常寫入；
+拖 Markdown／PNG／PDF 進去也走同一條管線，PDF 抽得出文字層與頁數。
+`case.sqlite` 是 schema v2（WAL、trigger、bigram 與 FTS5 索引）。
 
-技術棧：Node 24 ＋ Fastify ＋ Vue 3 ＋ 內建 `node:sqlite`。
+技術棧：Node 24 ＋ Fastify ＋ Vue 3 ＋ 內建 `node:sqlite`，
+抽取用 `@mozilla/readability` ＋ `linkedom` ＋ `pdfjs-dist` ＋ `franc`。
 **沒有 conda、沒有 Python、沒有原生模組** —— 一鍵啟動只依賴 Node。
 （three.js 與 `3d-force-graph` 要到 Stage 7 才會裝。）
 

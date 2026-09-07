@@ -44,6 +44,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   IO_UNEXPECTED: '存取檔案時出了預期外的問題。請把下面的識別碼交出來。',
 
   // ── 擷取 ──────────────────────────────────────────────
+  FETCH_BAD_URL: '這不是一個網址。檢查看看是不是少了開頭的 https://，或貼到的是一段文字。',
+  FETCH_DUPLICATE: '這一份已經在專題裡了，所以沒有再建一個節點。',
   FETCH_ROBOTS_DISALLOWED:
     '這個網站的 robots.txt 不允許抓取這一頁，所以跳過了。需要的話請自己開瀏覽器讀，再把內容貼進來。',
   FETCH_RATE_LIMITED:
@@ -155,6 +157,7 @@ export const t = {
       pending: '待查證',
       lastRun: '最後擴展',
       folder: '資料夾',
+      open: '匯入',
     },
     empty: {
       title: '還沒有專題',
@@ -197,8 +200,129 @@ export const t = {
     pointerPath: '設定檔位置',
     dataRoot: '它指到',
   },
+  itemStatus: {
+    pending: '待處理',
+    fetched: '已擷取',
+    parsed: '已解析',
+    included: '已納入',
+    excluded: '已排除',
+    failed: '失敗',
+  },
+
+  /** 一次作業的五種收尾狀態。**「部分失敗」不是「失敗」的一種。** */
+  runStatus: {
+    queued: '排隊中',
+    running: '執行中',
+    done: '已完成',
+    partial: '部分失敗',
+    cancelled: '已取消',
+    failed: '失敗',
+  },
+
+  /** 作業裡單一項目的結果。 */
+  runOutcome: {
+    queued: '等待中',
+    running: '進行中',
+    ok: '已寫入',
+    duplicate: '已存在',
+    failed: '失敗',
+    skipped: '略過',
+    cancelled: '已取消',
+  },
+
+  /**
+   * 抽取信心低的理由。
+   *
+   * **每一條都對得上 2026-09-07 那次 34 個真實頁面的量測**，
+   * 所以這裡的說法要講得出「我們看到了什麼」，不是「它可能不好」。
+   */
+  lowConfidenceReason: {
+    'readability-failed': '抽取器完全找不到正文',
+    'too-short': '抽出來的正文很短',
+    'link-heavy': '抽出來的內容大部分是連結 —— 這通常是列表頁或導覽頁',
+    'thin-vs-html': '正文只佔原始網頁的一小部分 —— 可能要 JavaScript 才看得到內容',
+    'pdf-no-text-layer': '這份 PDF 沒有文字層（掃描件）',
+  },
+
+  reader: {
+    tab: '閱讀器',
+    listTitle: '這個專題裡的資料',
+    empty: '這個專題還沒有任何資料。到「作業紀錄」貼一個網址或拖一個檔案進來。',
+    pickOne: '從左邊選一份來讀。',
+    position: '第 {index} 份，共 {total} 份',
+    previous: '上一份',
+    next: '下一份',
+    sortRecent: '最近匯入',
+    sortTitle: '依標題',
+    filterAll: '全部',
+    filterLowConfidence: '只看低信心',
+    filterUnread: '只看未讀',
+    loadMore: '載入更多',
+    source: '來源',
+    fetchedAt: '快照時間',
+    language: '語言',
+    unknownLanguage: '判不出來',
+    size: '大小',
+    pages: '共 {n} 頁',
+    page: '第 {n} 頁',
+    openSnapshot: '看原始快照',
+    original: '原文',
+    translated: '繁體中文',
+    noTranslation: '這一份還沒有譯文。',
+    markRead: '標記為已讀',
+    markUnread: '標記為未讀',
+    read: '已讀',
+    exclude: '排除這一份',
+    restore: '復原',
+    retry: '重試',
+    excluded: '這一份已被排除，不會出現在圖上。',
+    failedNotice: '這一份沒有抽取成功。原始快照還在，可以直接看它。',
+    noContent: '沒有重構後的正文。原始快照還在。',
+    imageOnly: '這是一張圖片。',
+    noTextLayer: '這份 PDF 沒有文字層，只能框選區域。**不是工具壞了。**',
+    lowConfidenceTitle: '這份正文可能抽壞了',
+  },
+
+  runs: {
+    tab: '作業紀錄',
+    title: '作業紀錄',
+    empty: '還沒有任何作業。貼一個網址或拖一個檔案進來就會開始。',
+    newImport: '匯入',
+    urlsLabel: '貼上網址（一行一個）',
+    urlsPlaceholder: 'https://example.com/一篇文章',
+    submitUrls: '開始匯入',
+    dropHint: '或把檔案拖到這裡（網頁存檔、Markdown、純文字、PDF、圖片）',
+    picking: '選一個檔案',
+    uploading: '上傳中…',
+    cancel: '取消這次作業',
+    live: '執行中',
+    counts: '成功 {succeeded}、失敗 {failed}，共 {total} 項',
+    colStatus: '狀態',
+    colSource: '來源',
+    colHost: '網域',
+    colNodes: '新增節點',
+    colEdges: '新增關聯',
+    colNote: '備註',
+    waited: '等了 {ms} 毫秒',
+    openItem: '開啟',
+    /** **這一列一直在畫面上**，因為它是這個工具對外的行為承諾。 */
+    throttleTitle: '對外抓取的規矩',
+    throttleInterval: '同網域間隔 3 秒',
+    throttleBackoff: '收到 429／503 立即停不重試',
+    throttleRobots: '遵守 robots.txt',
+    throttleNow: '正在等 {host}（{ms} 毫秒）',
+  },
+
   common: {
     loading: '載入中…',
     close: '關閉',
+    back: '返回',
   },
 } as const;
+
+/** 把 `{name}` 換成值。**訊息本身仍然只在這個檔案裡。** */
+export function fill(template: string, values: Readonly<Record<string, string | number>>): string {
+  return template.replace(/\{(\w+)\}/g, (whole, key: string) =>
+    key in values ? String(values[key]) : whole,
+  );
+}

@@ -37,13 +37,22 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：Stage 5「最小可跑」（v0.1.0）
+## 現況：Stage 6「匯入與閱讀器」（v0.2.0）
 
-**跑得起來，而且只跑得動這些**：建立專題、專題清單、封存與重新開啟。
-匯入、閱讀器、圖、擴展、筆記、檢索**都還沒有**（Stage 6 以後，見 `docs/roadmap.md`）。
+**跑得起來的是這一條**：建立專題 → 貼網址或拖檔案匯入 → 走完擷取管線 →
+在閱讀器裡讀抽出來的正文 → 在作業紀錄看每一項發生了什麼。
+圖、關聯與裁決、LLM 擴展、筆記、檢索介面**都還沒有**（Stage 7 以後，見 `docs/roadmap.md`）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-**134 個測試**，其中四條是守門測試。
+**207 個測試**，其中四條是守門測試。資料庫是 **schema v2**。
+
+**動擷取管線之前一定要知道的三件**：
+
+1. **擷取管線是唯一出口**（`infrastructure/fetch/crawler.ts`）。節流、`robots.txt`、
+   雜湊、manifest 只存在於那一層 —— 開第二條路等於讓它們全部失效。
+2. **快照不可變**：`sources/<sha256>.<ext>` 用 `wx` 寫。衍生物（`derived/`）
+   可以整批刪掉重算，而點註錨在快照上，所以重算不會讓它漂掉。
+3. **索引在匯入時就寫入**（bigram／FTS5／`title_rank`），不是等 Stage 12。
 
 > **這一節每個 Stage 收尾都要改。** 它是整份文件裡最容易變成謊言的一段 ——
 > 而一份說錯話的 agent 檔會讓下一個人（或 LLM）照著一個不存在的世界動手。
@@ -180,7 +189,7 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 **改完跑這一支，全綠才算收尾**：
 
 ```powershell
-.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 134 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
+.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 207 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
 .\Verify.ps1 -Report  # 另外產出去識別化的環境快照
 ```
 
@@ -188,7 +197,7 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 |---|:--:|
 | `.\Verify.ps1` | ✅ 2026-09-07 實跑全綠 |
 | `Start Cyclosa.cmd`／`.\Launch.ps1` | ✅ 起 server、開瀏覽器 |
-| `npm test`（134 個）| ✅ |
+| `npm test`（207 個）| ✅ |
 | `npm run build` | ✅ |
 
 **四條守門測試**（`tests/guards/`）—— 每一條都用注入真實違規驗過會紅：

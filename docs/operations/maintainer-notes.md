@@ -5,7 +5,7 @@
 
 > **這一份在 2026-09-07 之前是空的，而那是刻意的**：
 > 它需要「症狀」與「測試」，而 Stage 5 之前兩者都不存在。
-> 現在有 134 個測試了，所以它有東西可寫。
+> 現在有 207 個測試了，所以它有東西可寫。
 
 ---
 
@@ -28,6 +28,22 @@
 | 專題資料夾名字跟輸入的不一樣 | `src/domain/case/slug.ts`。中文保留原樣，但結尾的點與空白會被拿掉（Windows 會靜默吃掉它們）| `tests/domain/slug.test.ts` |
 | 建專題失敗之後留下一個空資料夾 | `case-service.ts` 的 `createCase` 有 `finally` 清理 —— 那段被改掉的話就會留 | —— |
 | 「這個專題被較新版本寫過」 | `database.ts` 的 `SUPPORTED_SCHEMA_VERSION` 與 `PRAGMA user_version` | `tests/infrastructure/db-constraints.test.ts` |
+
+## 匯入與擷取
+
+| 症狀 | 看哪裡 | 誰守著 |
+|---|---|---|
+| 匯入很慢（每一項要等三秒）| **那是對的。** 同網域間隔 3 秒是不可違反的規則，不是設定 | `tests/domain/ingest-rules.test.ts`、`tests/e2e/ingest-flow.test.ts`（從伺服器端量）|
+| 某一個網址被跳過，說 robots 不准 | `domain/ingest/robots.ts`。**命中哪一條規則會記在 `run_item.code` 與細節裡** | `tests/domain/robots.test.ts` |
+| 整批突然停了 | 對方回 429／503 → **立即停且不重試**。已寫入的保留，其餘標「已取消」 | `throttle.ts` 的 `isBackOffSignal` |
+| 抓了一個網域卻沒去問 robots | 不該發生。`Crawler` 的 gate **先問 robots 再排節流**，而且**轉址每一跳都重問** | `fetcher.ts` 的 `MAX_REDIRECTS` 那一段 |
+| 同一個網址匯入兩次長出兩個節點 | `item.requested_url` 的唯一索引；內容層另外看 `sha256` | `tests/e2e/ingest-flow.test.ts` |
+| 作業紀錄裡有一列沒有對應的節點 | **正常。** 重複、robots、取消都不會有 `item` —— 這正是 `run_item` 存在的理由 | `data-model.md` |
+| 正文抽出來是空的／很爛 | 先看**抽取信心標記說了什麼理由**。門檻在 `extract-confidence.ts`，量測在 `research/extraction-confidence.md` | `tests/domain/extract-confidence.test.ts` |
+| 中文內容查不到 | 先看 `item.lang`。判成拉丁語系的話只會進 FTS5，而那等於沒有索引 | `multilingual.md`、`tests/domain/search-tokenize.test.ts` |
+| 語言判成一個完全不相干的 | **`franc` 判不出來時不會說判不出來。** 兩道證據閘門在 `extract/language.ts` | `docs/lessons.md` |
+| 改了抽取邏輯，舊的 `derived/` 還在 | `EXTRACTOR_VERSION` 沒有 +1。檔名帶版本，就是為了這件事 | `case-files.ts` |
+| 一鍵啟動打開的是舊版程式 | `Launch.ps1` 會比對 `/healthz` 的版本與 `package.json`，**不一樣就停下來說** | `docs/lessons.md` |
 
 ## 圖與裁決
 

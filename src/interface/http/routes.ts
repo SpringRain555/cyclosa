@@ -7,8 +7,25 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { httpStatusOf } from '../../domain/errors/codes.js';
+import type { ItemStatus } from '../../domain/ingest/state.js';
 import { changeCaseStatus, createCase, listCases } from '../../application/case-service.js';
 import { initDataRoot, resolveDataRootOrExplain } from '../../application/bootstrap-service.js';
+import {
+  cancelRun,
+  channelOf,
+  importFile,
+  startUrlImport,
+} from '../../application/ingest-service.js';
+import {
+  changeItemStatus,
+  getItem,
+  getItemContent,
+  getSnapshot,
+  listItems,
+  markRead,
+  urlForRetry,
+} from '../../application/item-service.js';
+import { getRun, listRuns } from '../../application/run-service.js';
 import type { Result } from '../../shared/result.js';
 
 export interface AppContext {
@@ -87,6 +104,238 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         return reply.code(400).send({ ok: false, code: 'GRAPH_TRANSITION_INVALID' });
       }
       return send(reply, await changeCaseStatus(ctx.dataRoot, req.params.slug, action));
+    },
+  );
+
+  registerIngestRoutes(app, ctx);
+  registerItemRoutes(app, ctx);
+}
+
+/** 資料根還沒好的時候一律回那個原因，**不是回一個空清單**（REQ-0001）。 */
+async function requireDataRoot(ctx: AppContext, reply: FastifyReply): Promise<string | null> {
+  if (ctx.dataRoot !== null) return ctx.dataRoot;
+  await send(reply, await resolveDataRootOrExplain());
+  return null;
+}
+
+/**
+ * 檔名從標頭取出來。
+ *
+ * **一定要 decode**：中文檔名在 HTTP 標頭裡是 percent-encoded 的。
+ * 而 `decodeURIComponent` 對半截的 `%` 會丟例外 —— 那時退回原字串，
+ * 因為一個名字奇怪的檔案還是可以匯入，而一個 500 不行。
+ */
+function decodeFileName(raw: unknown): string {
+  const value = typeof raw === 'string' ? raw : '';
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.post<{ Params: { slug: string }; Body: { urls?: unknown } }>(
+    '/api/cases/:slug/import/urls',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+
+      const raw = req.body?.urls;
+      const urls = Array.isArray(raw)
+        ? raw.map((u) => String(u).trim()).filter((u) => u.length > 0)
+        : typeof raw === 'string'
+          ? raw
+              .split(/[\s,]+/)
+              .map((u) => u.trim())
+              .filter((u) => u.length > 0)
+          : [];
+
+      return send(reply, await startUrlImport(dataRoot, req.params.slug, urls));
+    },
+  );
+
+  app.post<{ Params: { slug: string } }>('/api/cases/:slug/import/file', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+
+    // 檔名走標頭而不是 body —— body 整個都是檔案內容。
+    const fileName = decodeFileName(req.headers['x-file-name']);
+    if (fileName.trim().length === 0) {
+      return reply.code(400).send({ ok: false, code: 'FETCH_BAD_URL' });
+    }
+
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.byteLength === 0) {
+      return reply.code(400).send({ ok: false, code: 'PARSE_EMPTY_CONTENT' });
+    }
+
+    return send(reply, await importFile(dataRoot, req.params.slug, fileName, new Uint8Array(body)));
+  });
+
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/runs', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listRuns(dataRoot, req.params.slug));
+  });
+
+  app.get<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await getRun(dataRoot, req.params.slug, req.params.runId));
+    },
+  );
+
+  app.post<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId/cancel',
+    async (req, reply) => send(reply, cancelRun(req.params.runId)),
+  );
+
+  /**
+   * SSE：逐項進度、節流狀態、目前在做什麼。
+   *
+   * **`reply.hijack()` 是必要的** —— 不呼叫的話 Fastify 會在 handler 結束時
+   * 自己送一份回應，而我們要的是一條開著的串流。
+   */
+  app.get<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId/events',
+    (req, reply) => {
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+
+      const channel = channelOf(req.params.runId);
+      if (channel === null) {
+        // 作業已經結束了 —— 送一個結束事件就好，讓前端改去讀 `/runs/:id`。
+        reply.raw.write('event: closed\ndata: {}\n\n');
+        reply.raw.end();
+        return;
+      }
+
+      const unsubscribe = channel.subscribe((event) => {
+        reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+        if (event.type === 'settled') reply.raw.end();
+      });
+      req.raw.on('close', unsubscribe);
+    },
+  );
+}
+
+function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get<{
+    Params: { slug: string };
+    Querystring: {
+      sort?: string;
+      cursor?: string;
+      limit?: string;
+      status?: string;
+      low?: string;
+      unread?: string;
+    };
+  }>('/api/cases/:slug/items', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+
+    const q = req.query;
+    return send(
+      reply,
+      await listItems(dataRoot, req.params.slug, {
+        sort: q.sort === 'title' ? 'title' : 'recent',
+        ...(q.limit === undefined ? {} : { limit: Number(q.limit) }),
+        cursor: q.cursor,
+        status: q.status as ItemStatus | undefined,
+        lowConfidenceOnly: q.low === '1',
+        unreadOnly: q.unread === '1',
+      }),
+    );
+  });
+
+  app.get<{ Params: { slug: string; itemId: string } }>(
+    '/api/cases/:slug/items/:itemId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await getItem(dataRoot, req.params.slug, req.params.itemId));
+    },
+  );
+
+  app.get<{ Params: { slug: string; itemId: string } }>(
+    '/api/cases/:slug/items/:itemId/content',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await getItemContent(dataRoot, req.params.slug, req.params.itemId));
+    },
+  );
+
+  /**
+   * 原始快照。**這一條不回信封，回的是位元組本身** ——
+   * 它是「看原始快照」那個按鈕要開的東西，瀏覽器要能直接顯示它。
+   */
+  app.get<{ Params: { slug: string; itemId: string } }>(
+    '/api/cases/:slug/items/:itemId/snapshot',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+
+      const result = await getSnapshot(dataRoot, req.params.slug, req.params.itemId);
+      if (!result.ok) return send(reply, result);
+
+      // **快照是外部來的 HTML。** 直接以 text/html 送出去，它就會在
+      // `127.0.0.1:7433` 這個 origin 上執行自己的腳本，而那個 origin 有我們的 API。
+      // 所以：擋掉腳本、擋掉外連、而且不讓它被當成 HTML 之外的東西嗅探。
+      return reply
+        .code(200)
+        .header('content-type', result.data.mime)
+        .header('x-content-type-options', 'nosniff')
+        .header(
+          'content-security-policy',
+          "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+        )
+        .send(result.data.bytes);
+    },
+  );
+
+  app.post<{ Params: { slug: string; itemId: string }; Body: { read?: unknown } }>(
+    '/api/cases/:slug/items/:itemId/read',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const read = req.body?.read !== false;
+      return send(reply, await markRead(dataRoot, req.params.slug, req.params.itemId, read));
+    },
+  );
+
+  for (const action of ['exclude', 'restore'] as const) {
+    app.post<{ Params: { slug: string; itemId: string } }>(
+      `/api/cases/:slug/items/:itemId/${action}`,
+      async (req, reply) => {
+        const dataRoot = await requireDataRoot(ctx, reply);
+        if (dataRoot === null) return reply;
+        return send(
+          reply,
+          await changeItemStatus(dataRoot, req.params.slug, req.params.itemId, action),
+        );
+      },
+    );
+  }
+
+  /** 重試 ＝ 把同一個 URL 再送一次匯入。**不產生第二個節點**（REQ-0003）。 */
+  app.post<{ Params: { slug: string; itemId: string } }>(
+    '/api/cases/:slug/items/:itemId/retry',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+
+      const url = await urlForRetry(dataRoot, req.params.slug, req.params.itemId);
+      if (!url.ok) return send(reply, url);
+      return send(reply, await startUrlImport(dataRoot, req.params.slug, [url.data]));
     },
   );
 }

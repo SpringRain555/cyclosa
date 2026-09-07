@@ -6,7 +6,10 @@
 > **圖是導覽，不是規格。** 下面每一節的**轉移表**才是權威 —— 圖回答不了
 > 「從 A 能不能到 B」這個問題，但表可以。
 
-> **現況：設計，尚未實作。** 2026-09-05 這個 repo 裡一行程式都沒有。
+> **現況（2026-09-07，Stage 6）**：`Case`、`Item`、`Run` 三個狀態機**已實作**
+> （`src/domain/case/state.ts`、`src/domain/ingest/state.ts`），轉移表就是程式裡那幾張表。
+> `Edge` 的六條轉移還只有純函式（`src/domain/graph/edge-state.ts`），
+> 沒有寫入路徑 —— 那是 Stage 8。
 
 ---
 

@@ -139,3 +139,12 @@ export function casesDir(dataRoot: string): string {
 export function caseDir(dataRoot: string, caseId: string): string {
   return join(dataRoot, 'cases', caseId);
 }
+
+/** migration 前的複本放這裡。**不是版本歷史，也不是回收桶**（storage-layout）。 */
+export function backupsDir(dataRoot: string): string {
+  return join(dataRoot, 'backups');
+}
+
+export function logsDir(dataRoot: string): string {
+  return join(dataRoot, 'logs');
+}

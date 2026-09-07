@@ -163,12 +163,15 @@ onMounted(load);
             <th class="num">{{ t.caseList.columns.edges }}</th>
             <th class="num">{{ t.caseList.columns.pending }}</th>
             <th>{{ t.caseList.columns.lastRun }}</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in cases" :key="c.slug">
             <td>
-              <div class="name">{{ c.name }}</div>
+              <RouterLink class="name" :to="`/case/${encodeURIComponent(c.slug)}/reader`">
+                {{ c.name }}
+              </RouterLink>
               <div v-if="c.seed" class="muted small">{{ c.seed }}</div>
             </td>
             <td>{{ t.caseStatus[c.status] }}</td>
@@ -177,6 +180,11 @@ onMounted(load);
             <td class="num">{{ c.stats.edgeCount.toLocaleString() }}</td>
             <td class="num pending">{{ c.stats.pendingNamedEdgeCount.toLocaleString() }}</td>
             <td>{{ when(c.stats.lastRunAt) }}</td>
+            <td>
+              <RouterLink class="open" :to="`/case/${encodeURIComponent(c.slug)}/runs`">
+                {{ t.caseList.columns.open }}
+              </RouterLink>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -290,7 +298,14 @@ th {
   color: var(--edge-pending);
 }
 .name {
+  color: var(--text);
+  text-decoration: none;
   font-weight: 500;
+}
+.open {
+  color: var(--ui-action);
+  text-decoration: none;
+  font-size: 13px;
 }
 .empty,
 .setup {

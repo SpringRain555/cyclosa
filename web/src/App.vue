@@ -2,10 +2,29 @@
 /**
  * 一條共用的頂列 —— **所以永遠知道自己在哪、回得去**（`ui-workflows.md`）。
  *
- * Stage 5 只有專題清單這一層，所以頂列現在只有品牌與「全部專題」。
- * 三個分頁（關聯圖／閱讀器／作業紀錄）在 Stage 7 之後才會有東西可指。
+ * 設計稿的頂列是三個分頁：`[關聯圖│閱讀器│作業紀錄]`。
+ * **這一版只掛得出兩個** —— 關聯圖要到 Stage 7 才有東西可指，
+ * 而一個點了沒反應的分頁比少一個分頁更糟。
  */
+import { computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
+
 import { t } from './i18n/zh-TW';
+import { useCaseStore } from './stores/case-store';
+
+const route = useRoute();
+const store = useCaseStore();
+
+const slug = computed(() => String(route.params['slug'] ?? ''));
+
+watch(
+  slug,
+  (next) => {
+    if (next.length > 0) void store.open(next);
+    else store.clear();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>
@@ -13,7 +32,20 @@ import { t } from './i18n/zh-TW';
     <header class="topbar">
       <span class="brand">{{ t.app.name }}</span>
       <span class="divider"></span>
-      <span class="crumb">{{ t.nav.allCases }}</span>
+      <RouterLink class="crumb" to="/">{{ t.nav.allCases }}</RouterLink>
+
+      <template v-if="slug">
+        <span class="sep">›</span>
+        <span class="crumb current">{{ store.name }}</span>
+        <nav class="tabs">
+          <RouterLink :to="`/case/${encodeURIComponent(slug)}/reader`">
+            {{ t.reader.tab }}
+          </RouterLink>
+          <RouterLink :to="`/case/${encodeURIComponent(slug)}/runs`">
+            {{ t.runs.tab }}
+          </RouterLink>
+        </nav>
+      </template>
     </header>
     <RouterView />
   </div>
@@ -24,6 +56,7 @@ import { t } from './i18n/zh-TW';
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
 .topbar {
   display: flex;
@@ -47,5 +80,36 @@ import { t } from './i18n/zh-TW';
 .crumb {
   color: var(--text-tertiary);
   font-size: 13px;
+  text-decoration: none;
+}
+.crumb:hover {
+  color: var(--text-secondary);
+}
+.crumb.current {
+  color: var(--text);
+}
+.sep {
+  color: var(--text-muted);
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-left: 16px;
+}
+.tabs a {
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  color: var(--text-tertiary);
+  text-decoration: none;
+}
+.tabs a:hover {
+  background: var(--bg-hover);
+}
+/* 選取用青色，跟圖上「選取」是同一個意思、同一個顏色（ADR-0018）。 */
+.tabs a.router-link-active {
+  color: var(--text);
+  background: var(--bg-raised);
+  box-shadow: inset 0 -2px 0 var(--ring-selected);
 }
 </style>

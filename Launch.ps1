@@ -47,14 +47,33 @@ function Stop-WithMessage {
     exit 1
 }
 
-# 回傳 'cyclosa' / 'other' / 'free'
+# 這個 repo 目前的版本。跑著的那一個回報的版本要跟它一樣。
+function Get-RepoVersion {
+    try {
+        $json = Get-Content (Join-Path $root 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        return $json.version
+    } catch { return $null }
+}
+
+# 回傳 'cyclosa' / 'stale' / 'other' / 'free'
 function Get-PortOwner {
     try {
         $res = Invoke-WebRequest -Uri "$url`healthz" -UseBasicParsing -TimeoutSec 2
         $body = $res.Content | ConvertFrom-Json
         # **一定要看可辨識的欄位。** 只看「有沒有回 200」會把別人跑在 7433 的
         # 服務誤認成自己，然後把瀏覽器開到一個不相干的網頁。
-        if ($body.app -eq 'cyclosa') { return 'cyclosa' }
+        if ($body.app -eq 'cyclosa') {
+            # **而且要看版本。** 一個舊版的 Cyclosa 還跑在 7433 上時，
+            # 「已經在執行中，直接開瀏覽器」會把使用者送去看**舊的程式**，
+            # 而畫面上沒有任何地方說得出這件事。
+            # 2026-09-07 實際踩到：改完程式重建，打開的還是早上那一版。
+            $script:runningVersion = $body.version
+            $repoVersion = Get-RepoVersion
+            if ($repoVersion -and $body.version -and ($body.version -ne $repoVersion)) {
+                return 'stale'
+            }
+            return 'cyclosa'
+        }
         return 'other'
     } catch {
         # 連得上但不是我們 → other；完全連不上 → 要再確認埠是不是真的空的
@@ -75,6 +94,16 @@ if ($owner -eq 'cyclosa') {
     Write-Note '不再起第二個，直接開瀏覽器。'
     Start-Process $url
     exit 0
+}
+if ($owner -eq 'stale') {
+    $pids = (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique) -join ', '
+    Stop-WithMessage "已經有一個**舊版**的 Cyclosa 在 $port 執行中" @(
+        "跑著的是 $runningVersion，這份原始碼是 $(Get-RepoVersion)。"
+        '直接開瀏覽器會讓你看到舊的程式，而畫面上不會有任何地方說這件事。'
+        "先關掉那一個（處理程序 $pids）再重跑："
+        "    Stop-Process -Id $pids"
+    )
 }
 if ($owner -eq 'other') {
     Stop-WithMessage "連接埠 $port 被別的程式佔用" @(

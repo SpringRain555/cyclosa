@@ -18,7 +18,7 @@ import {
   updateCaseStatus,
   type CaseStats,
 } from '../infrastructure/db/repositories/case-repo.js';
-import { casesDir } from '../infrastructure/fs/paths.js';
+import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
@@ -73,7 +73,10 @@ export async function listCases(dataRoot: string): Promise<Result<readonly CaseS
     const dbPath = join(folder, CASE_DB_FILE);
     if (!(await pathExists(dbPath))) continue;
 
-    const opened = await openCaseDatabase(dbPath);
+    const opened = await openCaseDatabase(dbPath, {
+      backupDir: backupsDir(dataRoot),
+      backupLabel: slug,
+    });
     if (opened.kind !== 'ok') {
       logger.warn('略過一個打不開的專題', { correlationId: cid, slug, why: opened.kind });
       continue;
@@ -182,7 +185,10 @@ export async function changeCaseStatus(
   const dbPath = join(casesDir(dataRoot), slug, CASE_DB_FILE);
   if (!(await pathExists(dbPath))) return err('CASE_NOT_FOUND', cid, { slug });
 
-  const opened = await openCaseDatabase(dbPath);
+  const opened = await openCaseDatabase(dbPath, {
+    backupDir: backupsDir(dataRoot),
+    backupLabel: slug,
+  });
   if (opened.kind === 'schema-too-new') {
     return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
   }

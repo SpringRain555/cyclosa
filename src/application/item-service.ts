@@ -1,0 +1,238 @@
+/**
+ * 資料節點與閱讀器的用例。
+ *
+ * **閱讀器讀的是 `derived/`，「看原始快照」讀的是 `sources/`** ——
+ * 兩者不是同一份東西，而使用者要能在它們之間切換（ADR-0003、ADR-0010）。
+ */
+import { join } from 'node:path';
+
+import { nextItemStatus, type ItemStatus } from '../domain/ingest/state.js';
+import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
+import { readCase } from '../infrastructure/db/repositories/case-repo.js';
+import * as items from '../infrastructure/db/repositories/item-repo.js';
+import { dropIndexFor } from '../infrastructure/index/writer.js';
+import { readDerived, readSnapshot, type DerivedPayload } from '../infrastructure/fs/case-files.js';
+import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
+import { correlationId } from '../shared/id.js';
+import { err, ok, type Result } from '../shared/result.js';
+
+const CASE_DB_FILE = 'case.sqlite';
+const HEX64 = /^[0-9a-f]{64}$/;
+
+function folderOf(dataRoot: string, slug: string): string {
+  return join(casesDir(dataRoot), slug);
+}
+
+async function withCase<T>(
+  dataRoot: string,
+  slug: string,
+  body: (db: DatabaseSync, folder: string) => Promise<Result<T>> | Result<T>,
+): Promise<Result<T>> {
+  const cid = correlationId();
+  const folder = folderOf(dataRoot, slug);
+  const opened = await openCaseDatabase(join(folder, CASE_DB_FILE), {
+    backupDir: backupsDir(dataRoot),
+    backupLabel: slug,
+  });
+  if (opened.kind === 'schema-too-new')
+    return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
+  if (opened.kind === 'migrate-failed')
+    return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { at: opened.at });
+
+  try {
+    if (readCase(opened.db) === null) return err('CASE_NOT_FOUND', cid, { slug });
+    return await body(opened.db, folder);
+  } finally {
+    opened.db.close();
+  }
+}
+
+export interface ItemListQuery {
+  readonly sort?: 'recent' | 'title';
+  readonly limit?: number;
+  readonly cursor?: string | undefined;
+  readonly status?: ItemStatus | undefined;
+  readonly lowConfidenceOnly?: boolean;
+  readonly unreadOnly?: boolean;
+}
+
+export async function listItems(
+  dataRoot: string,
+  slug: string,
+  query: ItemListQuery,
+): Promise<Result<items.ItemPage>> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    const page = items.listItems(db, {
+      sort: query.sort ?? 'recent',
+      // 上限鎖在 200：這是一頁清單，不是匯出。**沒有「全部拿回來」這個選項。**
+      limit: Math.min(Math.max(query.limit ?? 50, 1), 200),
+      cursor: query.cursor,
+      status: query.status,
+      onlyLowConfidence: query.lowConfidenceOnly === true,
+      unreadOnly: query.unreadOnly === true,
+    });
+    return ok(page, cid);
+  });
+}
+
+export interface ItemDetail {
+  readonly item: items.ItemRow;
+  /** 同一個排序下的前後兩份 —— 閱讀器的「312 份中的第 N 份」要用它。 */
+  readonly neighbours: { readonly previous: string | null; readonly next: string | null };
+  readonly position: { readonly index: number; readonly total: number };
+}
+
+export async function getItem(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+): Promise<Result<ItemDetail>> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    const row = items.getItem(db, itemId);
+    if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
+
+    const ordered = db
+      .prepare("SELECT id FROM item WHERE status != 'excluded' ORDER BY created_at DESC, id DESC")
+      .all() as { id?: unknown }[];
+    const ids = ordered.map((r) => String(r['id']));
+    const index = ids.indexOf(itemId);
+
+    return ok(
+      {
+        item: row,
+        neighbours: {
+          previous: index > 0 ? (ids[index - 1] as string) : null,
+          next: index >= 0 && index + 1 < ids.length ? (ids[index + 1] as string) : null,
+        },
+        position: { index: index < 0 ? 0 : index + 1, total: ids.length },
+      },
+      cid,
+    );
+  });
+}
+
+export interface ItemContent {
+  readonly item: items.ItemRow;
+  readonly derived: DerivedPayload | null;
+}
+
+/** 閱讀器的正文。**`derived/` 不見了不是災難** —— 重抽就有了，快照還在。 */
+export async function getItemContent(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+): Promise<Result<ItemContent>> {
+  return withCase(dataRoot, slug, async (db, folder) => {
+    const cid = correlationId();
+    const row = items.getItem(db, itemId);
+    if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
+    return ok({ item: row, derived: await readDerived(folder, itemId) }, cid);
+  });
+}
+
+export interface SnapshotBytes {
+  readonly bytes: Buffer;
+  readonly mime: string;
+}
+
+/** 原始快照。**不可變**，而且是點註真正錨定的地方。 */
+export async function getSnapshot(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+): Promise<Result<SnapshotBytes>> {
+  return withCase(dataRoot, slug, async (db, folder) => {
+    const cid = correlationId();
+    const row = items.getItem(db, itemId);
+    if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
+    if (row.sha256 === null || row.sourceExt === null) {
+      return err('IO_SNAPSHOT_MISSING', cid, { itemId });
+    }
+    // 雜湊是我們自己寫的，但**檔名會被組進路徑**，所以還是驗一次形狀。
+    if (!HEX64.test(row.sha256)) return err('IO_SNAPSHOT_CORRUPT', cid, { itemId });
+
+    try {
+      const bytes = await readSnapshot(folder, row.sha256, row.sourceExt);
+      return ok({ bytes, mime: row.mime ?? 'application/octet-stream' }, cid);
+    } catch {
+      return err('IO_SNAPSHOT_MISSING', cid, { itemId });
+    }
+  });
+}
+
+/** **已讀是正交旗標，不是狀態轉移。** */
+export async function markRead(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+  read: boolean,
+): Promise<Result<number | null>> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    if (items.getItem(db, itemId) === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
+    const at = read ? Date.now() : null;
+    items.setReadAt(db, itemId, at);
+    return ok(at, cid);
+  });
+}
+
+/**
+ * 已排除／復原。**只有人能做**（state-machines）——
+ * 所以這支的 actor 寫死成 `human`，而不是從呼叫端傳進來。
+ */
+export async function changeItemStatus(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+  action: 'exclude' | 'restore',
+): Promise<Result<ItemStatus>> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    const row = items.getItem(db, itemId);
+    if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
+
+    const to = nextItemStatus(row.status, action, 'human');
+    if (to === null) return err('GRAPH_TRANSITION_INVALID', cid, { from: row.status, action });
+
+    items.setStatus(db, itemId, to, Date.now());
+    // 排除掉的東西不該還出現在檢索結果裡。**復原時會在重抽或重算索引時補回來** ——
+    // 而目前復原之後那一份會回到「待處理」，本來就要重跑一次。
+    if (to === 'excluded') dropIndexFor(db, 'item', itemId);
+    return ok(to, cid);
+  });
+}
+
+/** 要重試的那個 URL。**重試不產生第二個節點**，所以呼叫端拿它去跑匯入。 */
+export async function urlForRetry(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+): Promise<Result<string>> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    const row = items.getItem(db, itemId);
+    if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
+    if (row.requestedUrl === null) {
+      // 上傳的檔案沒有 URL 可以重抓 —— 要重來只能再拖一次檔案。
+      return err('GRAPH_TRANSITION_INVALID', cid, { why: 'no-url' });
+    }
+    return ok(row.requestedUrl, cid);
+  });
+}
+
+export async function caseStats(
+  dataRoot: string,
+  slug: string,
+): Promise<
+  Result<{ readonly snapshotBytes: number; readonly byStatus: Readonly<Record<string, number>> }>
+> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    return ok(
+      { snapshotBytes: items.totalSnapshotBytes(db), byStatus: items.countByStatus(db) },
+      cid,
+    );
+  });
+}

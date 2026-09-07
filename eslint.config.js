@@ -40,7 +40,7 @@ export default tseslint.config(
   },
   {
     // 工具腳本與測試放寬：它們本來就要印東西
-    files: ['tools/**/*.mjs', 'tests/**/*.ts'],
+    files: ['tools/**/*.mjs', 'tools/**/*.ts', 'tests/**/*.ts'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',

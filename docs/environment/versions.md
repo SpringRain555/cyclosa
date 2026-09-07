@@ -3,13 +3,11 @@
 **一條沒有理由的版本界線，下一個人不知道能不能動，於是它永遠不會被動。**
 所以這一份對每個上下界都寫「為什麼是這個範圍」與「什麼情況下可以放寬」。
 
-> **現況（2026-09-07，Stage 5）：`package.json` 存在了**，而且下面的授權欄
-> 是逐一實查 `registry.npmjs.org` 的結果。
+> **現況（2026-09-07，Stage 7）：下面每一條都在 `package.json` 裡了。**
+> 授權欄是逐一實查的結果，**而且是開 `LICENSE` 檔看的，不是只信 metadata**
+> （Zotero 就是那個反例，見 `research/market-scan.md`）。
 >
-> **但只裝了 Stage 5 用得到的那些。** `three`、`3d-force-graph`、`d3-force-3d`
-> 要到 Stage 7，`@mozilla/readability`、`linkedom`、`franc`、`pdfjs-dist` 要到 Stage 6。
-> 那幾條的範圍與授權已經查好寫在下面，**但它們還不在 `package.json` 裡** ——
-> 提早裝進去會讓每次 `npm ci` 背著用不到的東西，而且 lint 會抓不到「有裝沒用」。
+> 每一批都在寫進 `package.json` 的那一天重查一次 —— 這是這份文件自己的要求。
 
 ---
 
@@ -70,6 +68,27 @@
 >
 > 裝完之後掃了整棵相依樹的授權欄位：**258 個套件，沒有任何 GPL／AGPL／SSPL／BUSL**。
 > 有 2 個 MPL-2.0 —— 那是**檔案層級**的 copyleft，當依賴用沒有問題。
+
+> **三個 3D 套件在 2026-09-07（Stage 7）寫進 `package.json` 那天也重查了一次。**
+> 解出來的版本：`three` **0.185.1**、`3d-force-graph` **1.80.0**、
+> `d3-force-3d` **3.0.6**，另外被帶進來的 `three-forcegraph` 1.43.4 與
+> `three-render-objects` 1.42.0 —— **五個都開過 `LICENSE` 檔，全部 MIT。**
+>
+> **`>=0.179 <1` 這個範圍達成了它的目的**：`npm ls three` 顯示
+> `three-forcegraph`、`three-render-objects` 與我們自己的相依
+> **全部 deduped 到同一份 0.185.1**，node_modules 裡只有一個 `three`。
+>
+> 另外加了 **`@types/three` `^0.185`（MIT）** 當開發期相依 ——
+> **`three` 本身不附型別**（它的 `package.json` 沒有 `types` 欄），
+> 而 `3d-force-graph` 的 `.d.ts` 會 `import from 'three'`，少了它 `vue-tsc` 過不了。
+> 版本要跟著 `three` 的 minor 走。
+>
+> **`d3-force-3d` 完全沒有型別**，DefinitelyTyped 上也沒有
+> （`@types/d3-force` 是 2D 版的，形狀不一樣 —— 用它會得到一份看起來對
+> 但少一個維度的型別）。所以 `web/src/types/d3-force-3d.d.ts` 是**手寫的，
+> 而且只宣告實際用到的那幾支** —— 補齊其他的只會跟上游安靜地分岔。
+>
+> 整棵樹重掃：**299 個套件（+41），仍然 0 個 GPL／AGPL／SSPL／BUSL。**
 >
 > **`pdfjs-dist` 是動態載入的**（`await import`），只有真的遇到 PDF 才會被讀進來。
 > 它不小，而啟動時間是一鍵啟動體驗的一部分。

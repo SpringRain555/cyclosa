@@ -54,6 +54,14 @@
 | 可信度顯示成小數 | 不應該發生。連續分數只走 `tierOf`，UI 只拿等級 | ADR-0017 |
 | 「出處 5 筆」但感覺不對 | 要同時看**獨立來源數** —— 5 筆可能只有 2 個獨立來源 | `tests/domain/confidence.test.ts` |
 | 校準比例是「樣本不足」 | 樣本下限 30 條，這是刻意的 | ADR-0017 |
+| **關聯圖是空白的** | 依序看三件：`cooldownTicks`／`cooldownTime` 還是不是無限大、`link` 力是不是被設成 `null`（要留著、強度 0）、有沒有人加回 `numDimensions()`。**三件的症狀都是「圖不動」而不是錯誤訊息** | `GraphView.vue` 開頭的註解、ADR-0007 的補記 |
+| 圖上只有一個孤零零的點 | 焦點落在沒有關聯的節點上。`defaultFocusId` 應該回**連得最多的**那一個 | `docs/lessons.md` |
+| 畫面說「還沒有任何關聯」但明明有 | 判斷式要問 `totalEdgeCount`（整個專題），**不是這一屏的 `edges.length`** | `CaseGraphView.vue` 的註解 |
+| 線中點多了意義不明的小方塊 | 只有**投影出來的**共同提及線才有方塊（`via` 有值）。實體已經是節點時那條邊是普通等寬線 | `tests/domain/render-rules.test.ts` |
+| 相似度線也畫成琥珀虛線 | 查證狀態的畫法**只套用在 `named` 層**。非 `named` 的 `status` 欄沒有意義 | `render-rules.ts` 的 `edgeLineFor`、open-questions Q6 |
+| 標籤大小不對 | `objects.ts` 的 `buildLabel` 從節點邊長回推縮放；語意縮放的兩個門檻從像素回推 | `render-rules.ts` 的 `LABEL_DISTANCE` 註解 |
+| 同一批資料兩次打開長得不一樣 | 節點順序沒有排序。`d3-force-3d` 本身是確定性的（種子固定的 LCG），**不穩定的是餵進去的順序** | `GraphView.vue` 的 `startLayout` |
+| 圖上一條線都沒有，而專題確實有關聯 | 這一階段**匯入不產生關聯**，那是 Stage 8／9。要看四種畫法用 `tools/dev/seed-graph.ts` | `tools/dev/graph-fixture.ts` |
 
 ## 文件與治理
 

@@ -171,6 +171,78 @@ export interface Run {
   live: boolean;
 }
 
+// ── 圖 ──────────────────────────────────────────────────────
+//
+// **`node` 這個字只在明確指「圖上的一個點」時才用**（glossary）——
+// 這幾個型別就是那個情形。`link` 一律不用，一律 `edge`。
+
+export type EdgeLayer = 'derived' | 'named' | 'comention' | 'similarity';
+export type EdgeStatus = 'pending' | 'confirmed' | 'rejected';
+export type ConfidenceTier = 'weak' | 'medium' | 'strong';
+
+export interface SubgraphNode {
+  id: string;
+  kind: 'item' | 'entity';
+  /** `item.kind` 或 `entity.type` */
+  subKind: string;
+  title: string;
+  /** 離焦點幾跳 */
+  hop: number;
+  lang: string | null;
+  readAt: number | null;
+  excluded: boolean;
+  lowConfidence: boolean;
+  excerpt: string;
+  mentionCount: number | null;
+  /** 摺進這個節點的轉載數（「＋3 轉載」）*/
+  derivedFolded: number;
+  hollow: boolean;
+}
+
+export interface SubgraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  layer: EdgeLayer;
+  rel: string;
+  status: EdgeStatus;
+  origin: 'machine' | 'human';
+  /** **只用於排序與線寬 —— 永遠不顯示成小數** */
+  confidence: number;
+  tier: ConfidenceTier;
+  evidenceCount: number;
+  independentSourceCount: number;
+  hasDirectQuote: boolean;
+  previouslyRejected: boolean;
+  /** 共同提及線中點那個方塊是哪個實體 */
+  via: string | null;
+  /** 投影出來的，**資料庫裡沒有這一列** */
+  synthetic: boolean;
+  dashed: boolean;
+  crossed: boolean;
+  directional: boolean;
+  folded: boolean;
+}
+
+export interface Subgraph {
+  focus: string;
+  hops: number;
+  nodes: SubgraphNode[];
+  edges: SubgraphEdge[];
+  visibleNodeCount: number;
+  totalNodeCount: number;
+  totalEdgeCount: number;
+  budget: number;
+  overBudget: boolean;
+  thresholds: { minToDraw: number; minToExpand: number };
+}
+
+export interface HopCounts {
+  counts: Record<string, number>;
+  budget: number;
+  overBudget: string[];
+}
+
 const enc = encodeURIComponent;
 
 export const api = {
@@ -243,4 +315,24 @@ export const api = {
     }),
   itemAction: (slug: string, itemId: string, action: 'exclude' | 'restore' | 'retry') =>
     request<unknown>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/${action}`, { method: 'POST' }),
+
+  // ── 圖 ──────────────────────────────────────────────────
+  //
+  // **沒有 `graph(slug)`。** 不是「有但不建議用」，是不存在（ADR-0008）——
+  // 有了它前端遲早會呼叫，然後在 8k 節點時死掉。
+
+  /** 打開分頁時的起點。**它回一個焦點，不回一張圖。** */
+  subgraphFocus: (slug: string) =>
+    request<{ focus: string | null; totalNodeCount: number }>(
+      `/api/cases/${enc(slug)}/subgraph/focus`,
+    ),
+
+  subgraph: (slug: string, query: Record<string, string>) =>
+    request<Subgraph>(`/api/cases/${enc(slug)}/subgraph?${new URLSearchParams(query).toString()}`),
+
+  /** **只數不拉資料** —— 工具列的跳數格在按下去之前就顯示代價。 */
+  subgraphSize: (slug: string, query: Record<string, string>) =>
+    request<HopCounts>(
+      `/api/cases/${enc(slug)}/subgraph/size?${new URLSearchParams(query).toString()}`,
+    ),
 };

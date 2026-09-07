@@ -4,6 +4,7 @@ import {
   DEFAULT_PROJECTION_THRESHOLDS,
   isValidThresholds,
   nodeEdgeCount,
+  planProjection,
   projectionFor,
 } from '../../src/domain/graph/projection.js';
 
@@ -80,5 +81,70 @@ describe('門檻設定的合法性', () => {
   it('零與小數不合法', () => {
     expect(isValidThresholds({ minToDraw: 0, minToExpand: 3 })).toBe(false);
     expect(isValidThresholds({ minToDraw: 1.5, minToExpand: 3 })).toBe(false);
+  });
+});
+
+describe('投影計畫：三段各自產生什麼', () => {
+  const thresholds = { minToDraw: 2, minToExpand: 3 };
+
+  it('≥3 份 → 空心節點，不產生任何線', () => {
+    const plan = planProjection(
+      [{ id: 'e', mentionCount: 4, mentionedBy: ['a', 'b', 'c', 'd'] }],
+      thresholds,
+    );
+    expect(plan.asNodes).toEqual(['e']);
+    expect(plan.lines).toEqual([]);
+  });
+
+  it('=2 份 → 一條線，線中點掛著那個實體', () => {
+    const plan = planProjection(
+      [{ id: 'e', mentionCount: 2, mentionedBy: ['b', 'a'] }],
+      thresholds,
+    );
+    expect(plan.asNodes).toEqual([]);
+    expect(plan.lines).toEqual([{ entityId: 'e', a: 'a', b: 'b' }]);
+  });
+
+  it('1 份 → 純屬性，不畫也不連線', () => {
+    const plan = planProjection([{ id: 'e', mentionCount: 1, mentionedBy: ['a'] }], thresholds);
+    expect(plan.asAttributes).toEqual(['e']);
+    expect(plan.lines).toEqual([]);
+    expect(plan.asNodes).toEqual([]);
+  });
+
+  /**
+   * 這一條守的是一個會安靜出錯的地方：分段用**全域**提及數，
+   * 連線用**這一屏看得到的**。兩者混用的話，同一個實體在不同視角下
+   * 會一下是節點一下是線 —— 而使用者會以為資料變了。
+   */
+  it('全域 3 份但這一屏只看得到 2 份 → 仍然是節點，不會退化成線', () => {
+    const plan = planProjection(
+      [{ id: 'e', mentionCount: 3, mentionedBy: ['a', 'b'] }],
+      thresholds,
+    );
+    expect(plan.asNodes).toEqual(['e']);
+    expect(plan.lines).toEqual([]);
+  });
+
+  it('全域 2 份但這一屏只看得到 1 份 → 0 條線，不畫一條通往看不見的東西的線', () => {
+    const plan = planProjection([{ id: 'e', mentionCount: 2, mentionedBy: ['a'] }], thresholds);
+    expect(plan.lines).toEqual([]);
+  });
+
+  it('同一對只畫一條線 —— 兩端排序過再組，(a,b) 與 (b,a) 不會變成兩條', () => {
+    const plan = planProjection(
+      [{ id: 'e', mentionCount: 2, mentionedBy: ['b', 'a', 'b', 'a'] }],
+      thresholds,
+    );
+    expect(plan.lines).toHaveLength(1);
+  });
+
+  it('攤平出來的線數就是 comentionEdgeCount 算的那個數', () => {
+    const mentionedBy = ['a', 'b', 'c', 'd'];
+    const plan = planProjection([{ id: 'e', mentionCount: 4, mentionedBy }], {
+      minToDraw: 2,
+      minToExpand: 99,
+    });
+    expect(plan.lines).toHaveLength(comentionEdgeCount(mentionedBy.length));
   });
 });

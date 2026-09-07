@@ -313,6 +313,118 @@ export const t = {
     throttleNow: '正在等 {host}（{ms} 毫秒）',
   },
 
+  graph: {
+    tab: '關聯圖',
+    empty: '這個專題還沒有任何資料。到「作業紀錄」貼一個網址或拖一個檔案進來。',
+    /**
+     * **這一句一定要在。** Stage 7 的圖畫得出節點但畫不出關聯，
+     * 因為關聯要到下一階段才會產生 —— 而一張只有點沒有線的圖
+     * 看起來就像壞掉了。**說出來就不是壞掉，是還沒到。**
+     */
+    noEdges:
+      '這個專題還沒有任何關聯，所以圖上只有資料節點。關聯要到「關聯與出處」與「LLM 擴展」才會產生。',
+    loading: '正在算這一屏…',
+
+    toolbar: {
+      hops: '焦點跳數',
+      hopUnit: '{n} 跳',
+      flat: '2D 平面',
+      solid: '3D',
+      relayout: '重新佈局',
+      counts: '畫面上 {visible}／專題共 {total} 個節點',
+      overBudget: '超過 {budget} 個節點，這一格沒有被驗收過',
+      focusOn: '以此為焦點',
+      openInReader: '在閱讀器開啟',
+    },
+
+    legend: {
+      title: '圖例與篩選',
+      nodes: '節點',
+      nodeItem: '抓回來的',
+      nodeNote: '你寫的',
+      nodeEntity: '實體（空心）',
+      edges: '關聯',
+      layerNamed: '具名關係（漸細＝有方向）',
+      layerComention: '共同提及（線中點是那個實體）',
+      layerSimilarity: '相似度（等寬點線）',
+      layerDerived: '轉載（摺進來源節點）',
+      statusPending: '待查證（琥珀虛線）',
+      statusConfirmed: '已確認（灰實線）',
+      statusRejected: '已否決（打叉，預設隱藏）',
+      showDerived: '把轉載的線畫出來',
+      showRejected: '顯示已否決的',
+      projection: '實體提到幾篇才成為節點',
+      projectionHint: '低於這個數字的實體會被攤平成一條線，只被一篇提到的完全不畫。',
+      minConfidence: '可信度下限',
+      tierAny: '不限',
+      hint: '明暗只表示遠近，不表示程度。',
+    },
+
+    selection: {
+      title: '選取的',
+      none: '在圖上點一個節點，這裡會顯示它的細節。',
+      kind: '型別',
+      mentions: '被 {n} 份文件提到',
+      folded: '摺了 {n} 個轉載',
+      read: '已讀',
+      unread: '未讀',
+      language: '語言',
+      excerpt: '摘要',
+      edgesHere: '它的關聯（畫面上 {n} 條）',
+      edgeTitle: '關聯',
+      between: '兩端',
+      tier: '可信度',
+      facts: '構成事實',
+      evidence: '出處 {n} 筆',
+      independent: '{n} 個獨立來源',
+      independentWarning: '出處筆數不等於獨立來源數 —— 轉載算同一個來源。',
+      hasQuote: '有直接引文',
+      noQuote: '沒有直接引文',
+      previouslyRejected: '曾被否決',
+      synthetic: '這條線是投影出來的，不是資料庫裡的一列。',
+      /** 裁決要到 Stage 8 —— **不放一個按了沒反應的按鈕**。 */
+      adjudicationLater: '確認與否決要到「關聯與出處」那一階段才會有。',
+      calibrationInsufficient: '樣本不足，不顯示比例',
+    },
+
+    tier: {
+      weak: '弱',
+      medium: '中',
+      strong: '強',
+    },
+
+    layer: {
+      derived: '衍生',
+      named: '具名關係',
+      comention: '共同提及',
+      similarity: '相似度',
+    },
+
+    edgeStatus: {
+      pending: '待查證',
+      confirmed: '已確認',
+      rejected: '已否決',
+    },
+
+    entityType: {
+      person: '人物',
+      org: '組織',
+      place: '地點',
+      event: '事件',
+      work: '作品',
+      concept: '概念',
+    },
+
+    itemKind: {
+      web: '網頁',
+      pdf: 'PDF',
+      image: '圖片',
+      text: '純文字',
+      paper: '論文',
+      note: '筆記',
+    },
+  },
+
   common: {
     loading: '載入中…',
     close: '關閉',

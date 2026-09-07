@@ -110,6 +110,25 @@ export function getItem(db: DatabaseSync, id: string): ItemRow | null {
   return row === undefined ? null : toItem(row);
 }
 
+/**
+ * 一次拿一批。子圖畫面上有幾百個節點，**逐個 `getItem` 是幾百次查詢**。
+ *
+ * 分批是因為 `IN (?, ?, …)` 的參數個數有上限，而且一次塞幾千個
+ * 對排查沒有好處 —— 400 這個數字沒有特別的意義，它只是「明顯夠小」。
+ */
+export function loadItems(db: DatabaseSync, ids: readonly string[]): readonly ItemRow[] {
+  const out: ItemRow[] = [];
+  for (let i = 0; i < ids.length; i += 400) {
+    const batch = ids.slice(i, i + 400);
+    if (batch.length === 0) continue;
+    const rows = db
+      .prepare(`SELECT * FROM item WHERE id IN (${new Array(batch.length).fill('?').join(',')})`)
+      .all(...(batch as never[])) as Raw[];
+    for (const row of rows) out.push(toItem(row));
+  }
+  return out;
+}
+
 /** 快照寫好、雜湊算完 —— **`待處理 → 已擷取`**。 */
 export function markFetched(
   db: DatabaseSync,

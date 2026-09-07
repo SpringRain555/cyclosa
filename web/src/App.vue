@@ -2,9 +2,9 @@
 /**
  * 一條共用的頂列 —— **所以永遠知道自己在哪、回得去**（`ui-workflows.md`）。
  *
- * 設計稿的頂列是三個分頁：`[關聯圖│閱讀器│作業紀錄]`。
- * **這一版只掛得出兩個** —— 關聯圖要到 Stage 7 才有東西可指，
- * 而一個點了沒反應的分頁比少一個分頁更糟。
+ * 設計稿的頂列是三個分頁：`[關聯圖│閱讀器│作業紀錄]`，**Stage 7 起三個都在**。
+ * （Stage 5–6 期間只掛得出兩個 —— 一個點了沒反應的分頁比少一個分頁更糟。
+ * 設定那一個現在仍然沒有，理由相同。）
  */
 import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -16,6 +16,22 @@ const route = useRoute();
 const store = useCaseStore();
 
 const slug = computed(() => String(route.params['slug'] ?? ''));
+
+/**
+ * 分頁的選取狀態**自己算，不用 `router-link-active`**。
+ *
+ * 關聯圖的路徑是 `/case/:slug`，而它是另外兩頁的前綴 ——
+ * `router-link-active` 是前綴比對，所以在閱讀器上關聯圖那一格也會亮。
+ * 改用 `exact` 又會讓閱讀器在 `/reader/:itemId` 上不亮。**兩邊都不對，所以自己算。**
+ */
+const tabs = computed(() => {
+  const base = `/case/${encodeURIComponent(slug.value)}`;
+  return [
+    { to: base, label: t.graph.tab, on: route.name === 'graph' },
+    { to: `${base}/reader`, label: t.reader.tab, on: route.name === 'reader' },
+    { to: `${base}/runs`, label: t.runs.tab, on: route.name === 'runs' },
+  ];
+});
 
 watch(
   slug,
@@ -38,11 +54,15 @@ watch(
         <span class="sep">›</span>
         <span class="crumb current">{{ store.name }}</span>
         <nav class="tabs">
-          <RouterLink :to="`/case/${encodeURIComponent(slug)}/reader`">
-            {{ t.reader.tab }}
-          </RouterLink>
-          <RouterLink :to="`/case/${encodeURIComponent(slug)}/runs`">
-            {{ t.runs.tab }}
+          <RouterLink
+            v-for="tab in tabs"
+            :key="tab.to"
+            :to="tab.to"
+            :class="{ on: tab.on }"
+            active-class=""
+            exact-active-class=""
+          >
+            {{ tab.label }}
           </RouterLink>
         </nav>
       </template>
@@ -107,7 +127,7 @@ watch(
   background: var(--bg-hover);
 }
 /* 選取用青色，跟圖上「選取」是同一個意思、同一個顏色（ADR-0018）。 */
-.tabs a.router-link-active {
+.tabs a.on {
   color: var(--text);
   background: var(--bg-raised);
   box-shadow: inset 0 -2px 0 var(--ring-selected);

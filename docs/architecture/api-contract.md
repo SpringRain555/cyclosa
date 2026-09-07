@@ -3,7 +3,7 @@
 **這份是端點、請求／回應形狀與錯誤對映的權威。**
 業務規則在 `domain/`（見 `overview.md` 的分層），錯誤碼的意義在 `error-codes.md`。
 
-> **現況（2026-09-07，Stage 6）：一部分實作了。**
+> **現況（2026-09-07，Stage 7）：一部分實作了。**
 >
 > **已經存在**：系統（`/healthz`、資料根）、專題（清單／建立／封存）、
 > **匯入**（`/import/urls`、`/import/file`）、**作業紀錄**（`/runs`、`/runs/:id`、
@@ -11,9 +11,10 @@
 > （`/items`、`/items/:id`、`/content`、`/snapshot`、`/read`、`/exclude`、
 > `/restore`、`/retry`）。
 >
-> **還不存在**：子圖 API 與 `/subgraph/size`（Stage 7）、關聯與裁決（Stage 8）、
-> provider 與擴展的 `/runs` 那一組（Stage 9）、點註（Stage 10）、
-> 匯出（Stage 11）、檢索（Stage 12）。
+> **Stage 7 新增**：`/subgraph`、`/subgraph/size`、**`/subgraph/focus`**。
+>
+> **還不存在**：關聯與裁決（Stage 8）、provider 與擴展的 `/runs` 那一組（Stage 9）、
+> 點註（Stage 10）、匯出（Stage 11）、檢索（Stage 12）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
@@ -69,12 +70,43 @@
 | `status` | 查證狀態篩選。**預設排除 `已否決`** |
 | `minConfidence` | 可信度下限（`weak`／`medium`／`strong`）|
 | `since` / `until` | 時間範圍 |
-| `projection` | 實體投影門檻，預設 `3`（見 `data-model.md` 的三段）|
+| `projection` | 實體投影門檻（**展開成節點需要幾篇**），預設 `3`（見 `data-model.md` 的三段）|
+
+> **只有「展開成節點」那一個門檻可以調，「畫不畫」那一個沒有暴露出來。**
+> 不是漏掉的：一個只被 1 份文件提到的實體，攤平出來是 *n(n−1)/2* = **0 條線** ——
+> 它畫成「線」跟畫成「純屬性」在畫面上一模一樣。
+> **給一個改了什麼都不會變的旋鈕，比不給更糟。**
+
+**不合法的參數一律丟掉，不回 400** —— 這兩支在工具列上每動一下就跑一次，
+而一個 400 會讓整張圖消失。跳數超過上限是**夾到上限**，不是錯誤。
 
 回傳節點與邊，**外加每條 `named` 邊的可信度等級與獨立來源數** ——
 否則側欄為了顯示一行「出處 5 筆 · 2 個獨立來源」要再打一次 API。
 
 **超過渲染上限時回 `GRAPH_SUBGRAPH_TOO_LARGE`（413），不是回一個巨大的結果。**
+
+**預算與硬上限是兩個不同的數字，這是刻意的**：
+`2,000` 是預算（REQ-0005 驗收過互動 fps 的規模，超過只標琥珀、仍然按得下去），
+`8,000` 才是拒絕的那一條 —— **而 8,000 就是 ADR-0007「換掉 `3d-force-graph`」的觸發條件**。
+兩者相同的話，琥珀色警示就無事可警了。
+
+> **回傳的邊裡有一種在資料庫裡不存在**：實體低於展開門檻時攤平出來的
+> 共同提及線。它們的 `id` 帶 `proj:` 前綴、`synthetic: true`、`via` 指著被攤平的那個實體。
+> **不可以拿它們去做任何寫入** —— 那一列不存在。
+
+### `GET /api/cases/:caseId/subgraph/focus`
+
+**`focus` 是必填的，而打開分頁的時候前端沒有東西可以給它。**
+所以有這一支：**它回一個起點，不回一張圖。**
+
+```jsonc
+{ "ok": true, "data": { "focus": "01J…", "totalNodeCount": 312 } }
+```
+
+回的是**連得最多的那一個節點**，不是最近匯入的那一個。
+那是 Stage 7 第一次人工驗收改掉的：最後匯入的那一份剛好一條關聯都沒有，
+於是打開專題看到的是畫面正中央一個孤零零的點 —— 技術上完全正確，
+**但它讓人以為圖壞了**。專題是空的就回 `focus: null`，畫面顯示空狀態。
 
 ### `GET /api/cases/:caseId/subgraph/size`
 
@@ -136,6 +168,7 @@
 | `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言 |
 | `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）|
 | `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）|
+| `GET …/subgraph/focus` | 打開關聯圖時的起點。**回一個焦點，不回一張圖** |
 | `POST …/items/:itemId/read` | 標記已讀。**正交旗標，不是狀態轉移** |
 | `POST …/items/:itemId/exclude` ／ `/restore` | 已排除／復原。**只有人能做** |
 | `POST …/items/:itemId/retry` | 重試失敗的項目。**不產生第二個節點** |

@@ -3,12 +3,14 @@
 **這份是分層規則、擷取流程與檔案地圖的權威。** 欄位細節在 `data-model.md`，
 狀態轉移在 `state-machines.md`，兩者都不要在這裡重複。
 
-> **現況（2026-09-07，Stage 6）**：分層骨架、擷取管線、抽取、索引寫入、
-> 閱讀器與作業紀錄都存在了。下面的檔案地圖裡**還不存在的只有**
-> `domain/provider/`、`infrastructure/providers/`（Stage 9）、
-> `components/graph/`、`workers/`（Stage 7）。
+> **現況（2026-09-07，Stage 7）**：分層骨架、擷取管線、抽取、索引寫入、
+> 閱讀器、作業紀錄、**子圖 API 與 3D 關聯圖**都存在了。
+> 下面的檔案地圖裡**還不存在的只有** `domain/provider/`、
+> `infrastructure/providers/`（Stage 9）、`components/reader/`、`components/notes/`
+> （Stage 10）。
 >
-> 四條守門測試從 Stage 5 起存在，**而且每一條都注入過真實違規驗證它會紅**。
+> 守門測試從 Stage 5 起有四條，**Stage 7 加第五條**（沒有整圖端點）。
+> **每一條都注入過真實違規驗證它會紅。**
 
 ---
 
@@ -107,6 +109,7 @@ src/
 web/src/
 ├─ views/                 專題清單／關聯圖／閱讀器／作業紀錄／設定
 ├─ components/graph/      GraphView.vue（包住 3d-force-graph）、圖例、篩選器、2D 切換
+│                         objects.ts —— three.js 的幾何與材質工廠（顏色仍然只從 tokens.css 讀）
 ├─ components/reader/ notes/ common/
 ├─ workers/layout.worker.ts
 ├─ stores/

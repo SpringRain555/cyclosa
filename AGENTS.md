@@ -37,14 +37,28 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：Stage 6「匯入與閱讀器」（v0.2.0）
+## 現況：Stage 7「圖」（v0.3.0）
 
 **跑得起來的是這一條**：建立專題 → 貼網址或拖檔案匯入 → 走完擷取管線 →
-在閱讀器裡讀抽出來的正文 → 在作業紀錄看每一項發生了什麼。
-圖、關聯與裁決、LLM 擴展、筆記、檢索介面**都還沒有**（Stage 7 以後，見 `docs/roadmap.md`）。
+在閱讀器裡讀抽出來的正文 → 在作業紀錄看每一項發生了什麼 →
+**在 3D 關聯圖上瀏覽**（可旋轉、可點選、可切 2D）。
+關聯與裁決、LLM 擴展、筆記、檢索介面**都還沒有**（Stage 8 以後，見 `docs/roadmap.md`）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-**207 個測試**，其中四條是守門測試。資料庫是 **schema v2**。
+**280 個測試**，其中**五條**是守門測試。資料庫是 **schema v2**。
+
+**動關聯圖之前一定要知道的三件**：
+
+1. **`3d-force-graph` 只出現在 `web/src/components/graph/GraphView.vue`**。
+   換掉它的觸發條件是數字（8k 節點 fps < 30，ADR-0007），
+   而那一天要改的只有那一個檔案。**`link` 這個字也只准出現在那裡**（glossary）。
+2. **佈局在 Web Worker 裡算，套件自己的力被拿掉了。**
+   `charge`／`center` 設 `null`，**但 `link` 力要留著**（強度設 0）——
+   把邊的兩端從字串換成節點物件是那個力做的。而且 `cooldownTicks`／`cooldownTime`
+   要設成無限大，否則引擎停掉之後座標不會再同步到畫面。
+   **這三條漏任何一條，症狀都是「圖不動」而不是錯誤訊息。**
+3. **接管了套件的職責之後，對應的 API 就是陷阱。**
+   切 2D **不呼叫** `numDimensions()` —— 它會重跑佈局初始化，按下去整張圖空白。
 
 **動擷取管線之前一定要知道的三件**：
 
@@ -189,7 +203,7 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 **改完跑這一支，全綠才算收尾**：
 
 ```powershell
-.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 207 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
+.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 280 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
 .\Verify.ps1 -Report  # 另外產出去識別化的環境快照
 ```
 
@@ -197,15 +211,16 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 |---|:--:|
 | `.\Verify.ps1` | ✅ 2026-09-07 實跑全綠 |
 | `Start Cyclosa.cmd`／`.\Launch.ps1` | ✅ 起 server、開瀏覽器 |
-| `npm test`（207 個）| ✅ |
+| `npm test`（280 個）| ✅ |
 | `npm run build` | ✅ |
 
-**四條守門測試**（`tests/guards/`）—— 每一條都用注入真實違規驗過會紅：
+**五條守門測試**（`tests/guards/`）—— 每一條都用注入真實違規驗過會紅：
 
 1. `domain/` 零 I/O、不 import 其他層、不 import 任何 npm 套件
 2. `domain/graph/` 額外零依賴（連 `domain/` 的其他資料夾都不能 import）
 3. `web/src/` 在 `i18n/` 以外不得出現中文字面值（**用 AST，所以中文註解不會誤報**）
 4. 錯誤碼三邊對照：`src/domain/errors/codes.ts` ↔ `error-codes.md` ↔ `i18n/zh-TW.ts`
+5. **沒有整圖端點**：前後端都不得出現 `/api/**/graph` 這種字串（ADR-0008）
 
 > **一條不會紅的守門測試，跟一條不存在的守門測試長得一模一樣。**
 > 加新的守門測試時，**先寫一個會違反它的東西驗它真的會紅**，再刪掉。

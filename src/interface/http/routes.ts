@@ -26,6 +26,17 @@ import {
   urlForRetry,
 } from '../../application/item-service.js';
 import { getRun, listRuns } from '../../application/run-service.js';
+import {
+  defaultFocus,
+  subgraph,
+  subgraphSize,
+  type SubgraphQuery,
+} from '../../application/graph-service.js';
+import {
+  DEFAULT_PROJECTION_THRESHOLDS,
+  normalizeFilters,
+  normalizeHops,
+} from '../../domain/graph/index.js';
 import type { Result } from '../../shared/result.js';
 
 export interface AppContext {
@@ -109,6 +120,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   registerIngestRoutes(app, ctx);
   registerItemRoutes(app, ctx);
+  registerGraphRoutes(app, ctx);
 }
 
 /** 資料根還沒好的時候一律回那個原因，**不是回一個空清單**（REQ-0001）。 */
@@ -223,6 +235,80 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
         if (event.type === 'settled') reply.raw.end();
       });
       req.raw.on('close', unsubscribe);
+    },
+  );
+}
+
+/** 子圖查詢的參數在兩支端點上完全一樣 —— **一樣就只解析一次**。 */
+interface SubgraphQuerystring {
+  focus?: string;
+  hops?: string;
+  layers?: string;
+  status?: string;
+  minConfidence?: string;
+  types?: string;
+  since?: string;
+  until?: string;
+  projection?: string;
+}
+
+function parseSubgraphQuery(q: SubgraphQuerystring): SubgraphQuery {
+  /**
+   * **只有 `minToExpand` 可調，`minToDraw` 沒有暴露出來。**
+   *
+   * 不是漏掉的：一個只被 1 份文件提到的實體，攤平出來是
+   * *n(n−1)/2* = 0 條線 —— **它畫成「線」跟畫成「純屬性」在畫面上一模一樣**。
+   * 給一個改了什麼都不會變的旋鈕，比不給更糟。
+   */
+  const expand = Number(q.projection);
+  const thresholds = Number.isInteger(expand)
+    ? { minToDraw: DEFAULT_PROJECTION_THRESHOLDS.minToDraw, minToExpand: expand }
+    : DEFAULT_PROJECTION_THRESHOLDS;
+
+  return {
+    focus: typeof q.focus === 'string' && q.focus.length > 0 ? q.focus : null,
+    hops: normalizeHops(q.hops),
+    filters: normalizeFilters(q),
+    thresholds,
+  };
+}
+
+function registerGraphRoutes(app: FastifyInstance, ctx: AppContext): void {
+  /**
+   * 打開分頁時的起點。**它回一個焦點，不回一張圖** ——
+   * 前端沒有東西可以當 `focus`，而 `focus` 是必填的（ADR-0008）。
+   */
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/subgraph/focus', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await defaultFocus(dataRoot, req.params.slug));
+  });
+
+  /**
+   * **只數不拉資料。** 工具列的跳數格在使用者按下去之前就顯示代價，
+   * 所以它的效能預算是 50 ms（Stage 13 量測）。
+   *
+   * 這一條要放在 `/subgraph` 前面登記嗎？不用 —— Fastify 的路由樹
+   * 對靜態片段（`size`）與參數的優先順序是確定的，而這兩條路徑不重疊。
+   */
+  app.get<{ Params: { slug: string }; Querystring: SubgraphQuerystring }>(
+    '/api/cases/:slug/subgraph/size',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await subgraphSize(dataRoot, req.params.slug, parseSubgraphQuery(req.query)),
+      );
+    },
+  );
+
+  app.get<{ Params: { slug: string }; Querystring: SubgraphQuerystring }>(
+    '/api/cases/:slug/subgraph',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await subgraph(dataRoot, req.params.slug, parseSubgraphQuery(req.query)));
     },
   );
 }

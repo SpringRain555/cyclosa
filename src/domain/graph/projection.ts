@@ -66,6 +66,79 @@ export function nodeEdgeCount(mentionCount: number): number {
   return mentionCount;
 }
 
+/** 一條投影出來的共同提及線。**它不在資料庫裡** —— 每一屏各自算。 */
+export interface ComentionLine {
+  /** 線中點那個方塊就是這個實體 */
+  readonly entityId: string;
+  /** 兩端的 `item`。**排序過**，所以同一對不會產生兩條方向相反的線 */
+  readonly a: string;
+  readonly b: string;
+}
+
+export interface ProjectionPlan {
+  /** 展開成空心節點的實體 */
+  readonly asNodes: readonly string[];
+  /** 攤平成線的實體所產生的那些線 */
+  readonly lines: readonly ComentionLine[];
+  /** 純屬性 —— **根本不畫**。它仍然在側欄的「這篇提到的實體」裡 */
+  readonly asAttributes: readonly string[];
+}
+
+export interface EntityMentions {
+  readonly id: string;
+  /**
+   * **全專題**被幾份文件提到。
+   *
+   * ⚠️ 用全域的數字而不是這一屏的數字：同一個實體在不同的視角下
+   * **必須長得一樣**，否則使用者會以為它變了。
+   */
+  readonly mentionCount: number;
+  /** 這一屏之內提到它的 `item`。攤平出來的線只連得到看得見的東西 */
+  readonly mentionedBy: readonly string[];
+}
+
+/**
+ * 把一批實體分成三段，並算出攤平後要畫哪些線。
+ *
+ * **這是投影的全部** —— 三段的判斷、線的產生、以及「哪些根本不畫」，
+ * 全部在這一支純函式裡，所以它測得到。
+ *
+ * 兩個容易寫錯的地方：
+ * 1. **分段用全域提及數，連線用這一屏看得到的**。
+ *    一個全域被 2 份提到、但這一屏只看得到 1 份的實體，會產生 0 條線 ——
+ *    **那是對的**，我們不畫一條通往看不見的東西的線。
+ * 2. **同一對只畫一條線。** 兩端排序過再組鍵，否則 (a,b) 與 (b,a) 會變成兩條。
+ */
+export function planProjection(
+  entities: readonly EntityMentions[],
+  thresholds: ProjectionThresholds = DEFAULT_PROJECTION_THRESHOLDS,
+): ProjectionPlan {
+  const asNodes: string[] = [];
+  const asAttributes: string[] = [];
+  const lines: ComentionLine[] = [];
+
+  for (const entity of entities) {
+    const projection = projectionFor(entity.mentionCount, thresholds);
+    if (projection === 'node') {
+      asNodes.push(entity.id);
+      continue;
+    }
+    if (projection === 'attribute') {
+      asAttributes.push(entity.id);
+      continue;
+    }
+
+    const visible = [...new Set(entity.mentionedBy)].sort();
+    for (let i = 0; i < visible.length; i += 1) {
+      for (let j = i + 1; j < visible.length; j += 1) {
+        lines.push({ entityId: entity.id, a: visible[i] as string, b: visible[j] as string });
+      }
+    }
+  }
+
+  return { asNodes, lines, asAttributes };
+}
+
 /**
  * 門檻設定必須合法：`minToDraw <= minToExpand`，而且兩個都至少是 1。
  * 設反了的話會出現「展開成節點但不畫」這種矛盾狀態。

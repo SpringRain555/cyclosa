@@ -35,11 +35,15 @@ export function tierOf(confidence: number): ConfidenceTier {
  * `derivedGroups` 由呼叫端提供（它要查 `layer='derived'` 的邊，那是 I/O）——
  * **這支函式只做分群，不碰資料庫。**
  *
+ * 參數型別刻意只要求 `{ itemId }` 而不是完整的 `Evidence` ——
+ * **這支只看出處出自哪一份**，引文內容與字元區間跟分群無關。
+ * 要求完整的 `Evidence` 會逼呼叫端為了呼叫它而組出一堆空欄位。
+ *
  * @param evidence 這條邊的全部出處
  * @param derivedGroups 每一組是一群「互為轉載」的 itemId
  */
 export function countIndependentSources(
-  evidence: readonly Evidence[],
+  evidence: readonly { readonly itemId: string }[],
   derivedGroups: readonly (readonly string[])[],
 ): number {
   // itemId → 它屬於哪一個轉載群（沒有的話自成一群）

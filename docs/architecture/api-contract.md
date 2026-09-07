@@ -32,8 +32,8 @@
 | `code` 開頭或性質 | HTTP |
 |---|---|
 | 找不到（`*_NOT_FOUND`、`CASE_NOT_FOUND`）| 404 |
-| 使用者輸入問題（`*_EMPTY`、`*_DUPLICATE`、`GRAPH_SELF_EDGE`）| 400 |
-| 前提不成立（`CASE_ARCHIVED`、`GRAPH_EVIDENCE_REQUIRED`、`PROVIDER_*`）| 409 |
+| **請求本身不合法**（`*_EMPTY`、`GRAPH_SELF_EDGE`）| 400 |
+| **跟既有狀態衝突**（`*_DUPLICATE`、`CASE_FOLDER_EXISTS`、`CASE_ARCHIVED`、`GRAPH_EVIDENCE_REQUIRED`、`PROVIDER_*`）| 409 |
 | 超過界線（`GRAPH_SUBGRAPH_TOO_LARGE`、`FETCH_TOO_LARGE`）| 413 |
 | 逾時（`*_TIMEOUT`）| 504 |
 | 其餘 `*_UNEXPECTED`、`IO_*` | 500 |

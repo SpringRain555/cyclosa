@@ -170,3 +170,77 @@ vite 8.2.2 · engines.node = ^20.19.0 || >=22.12.0
 > 而**推論不算理由**。一條沒有來源標示的理由，下一個人沒辦法判斷該不該信它。
 
 **影響範圍**：全域
+
+## PowerShell 5.1 把原生指令的 stderr 當成錯誤，於是驗證閘門對成功的指令報失敗
+
+**日期**：2026-09-07
+
+**症狀**：`Verify.ps1` 在「測試」那一步中斷，訊息是
+
+```
+node.exe : {"ts":"...","level":"warn","msg":"資料根尚未就緒",...}
+At line:1 char:1
+    + CategoryInfo          : NotSpecified: (...) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+```
+
+**而那 134 個測試全部通過。** 被當成錯誤的那一行是測試裡的 app 自己印的一則 warn。
+
+**原因**：兩件事疊在一起。
+
+1. PS 5.1 把原生指令**寫到 stderr 的每一行**都包成 `ErrorRecord`；
+   配上 `$ErrorActionPreference = 'Stop'`，那就直接中斷腳本 ——
+   **即使那個指令最後回傳 exit code 0**。
+2. e2e 測試刻意製造失敗（指標檔壞掉、指到不存在的路徑），
+   所以 app 的 warn 日誌本來就會出現，而且**它出現正代表測試在做對的事**。
+
+**兩層都要修，只修一層都不夠**：
+
+- 應用層：`CYCLOSA_LOG_LEVEL` 加一個 `silent`，`vitest.config.ts` 把它設成 `silent`。
+  測試輸出本來就不該被 app 日誌淹掉。
+- 腳本層：`Verify.ps1` 的 `Invoke-Check` 在呼叫原生指令時把
+  `$ErrorActionPreference` 降成 `Continue`，**只信 exit code**。
+
+**只修應用層不夠** —— 任何 lint 或測試工具都可能用 stderr 印進度，
+下一支這樣的工具會再撞一次。**只修腳本層也不夠** —— 測試輸出照樣被淹沒。
+
+> **這一條與 `Get-Content -Raw` 讀成 Big5 是同一個家族**：
+> PS 5.1 的預設行為對「跟原生工具互動」這件事是敵意的，
+> 而它的失敗訊息永遠指向被呼叫的那個工具，不是指向 PowerShell 自己。
+>
+> 判準：**看到 `NativeCommandError` 就先問「那個指令的 exit code 是多少」**，
+> 而不是先去讀它印了什麼。
+
+**影響範圍**：全域
+
+## 一條裸的 `snapshots/` 把文件區的環境快照一起擋掉了，而且沒有任何徵兆
+
+**日期**：2026-09-07
+
+**症狀**：`Verify.ps1 -Report` 印出「寫出 `docs\environment\snapshots\2026-09-07.md`」，
+檔案也真的在那裡 —— 但 `git status` 看不到它。
+同一時間 `docs/index.md` 剛把那一格從 ⬜ 改成 ✅。
+
+**如果沒發現，結果會是**：clone 下來的人照著索引去找那份文件，找不到。
+而索引用權威的語氣說它存在 —— 正是這個專案花最多力氣在防的那件事。
+
+**原因**：`.gitignore` 的 Cyclosa 段落有一條裸的 `snapshots/`。
+它的用意是「萬一有人把資料根指錯地方，至少專題快照不會直接進版控」，
+而**裸的目錄名在 gitignore 裡是全域比對** —— 它擋的是任何一層的 `snapshots/`，
+包括 `docs/environment/snapshots/`。
+
+**怎麼修的**：換成只擋資料根實際會出現的名字（`cases/`、`sources/`、`derived/`、
+`.local-data/`），並在那一段寫明文件側的 `snapshots/` 為什麼不在清單上。
+順便補上 `*.sqlite-wal`／`*.sqlite-shm` —— WAL 模式會產生那兩個檔。
+
+> **這個失敗沒有錯誤訊息、沒有紅燈、也沒有任何指令會抱怨。**
+> 它只在「有人去 clone 然後照著文件找檔案」的時候才顯現，而那通常是很久以後。
+>
+> 判準：**寫一條擋東西的規則時，問它會不會擋到同名的其他目錄。**
+> `cases/`、`sources/`、`derived/`、`snapshots/` 這種通用名詞特別危險 ——
+> 它們在文件區、測試 fixture、範例資料夾裡都可能再出現一次。
+>
+> 更一般地：**加完 gitignore 規則之後跑一次 `git status`，確認該看到的還看得到。**
+> 只確認「該擋的擋住了」是一半的驗證。
+
+**影響範圍**：全域

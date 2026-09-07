@@ -1,0 +1,45 @@
+{
+  "name": "cyclosa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "從一個「點」出發，用 LLM 主動擴展成一張每條關聯都帶出處的網。純本機，資料存在專案外的資料根目錄。",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "tsx watch src/main.ts",
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.build.json && node tools/build/copy-assets.mjs",
+    "build:web": "vite build",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit && vue-tsc -p tsconfig.web.json --noEmit",
+    "lint": "eslint . && prettier --check .",
+    "lint:fix": "eslint . --fix && prettier --write .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.12.3",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.4.1",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.11.0",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.69.0",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0",
+    "vue-tsc": "^3.3.11"
+  }
+}

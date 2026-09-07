@@ -43,11 +43,26 @@ coverage/
 # 萬一有人把資料夾指錯地方，至少不會直接進版控。
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
 *.db
 cases/
-snapshots/
+sources/
+derived/
 .local-data/
+
+# **`docs/environment/snapshots/` 是文件，要進版控。**
+# 這裡本來有一條裸的 `snapshots/`，它同時擋掉了資料側的快照與文件側的環境快照 ——
+# 而後者是 `Verify.ps1 -Report` 的產出、`docs/index.md` 明列的一份文件。
+# 症狀很安靜：檔案產生了、`git status` 看不到它、`docs/index.md` 標著 ✅，
+# 而 clone 下來的人找不到那個檔。
+# 所以改成只擋資料根那一層的名字（`sources/`、`derived/`），
+# 文件側的 `snapshots/` 不在這張清單上。
 
 # Playwright 的執行紀錄（診斷用，不是產出）
 .playwright-cli/
 output/playwright/
+
+# build 產出
+dist/
+web/dist/

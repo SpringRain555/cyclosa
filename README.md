@@ -14,22 +14,33 @@
 
 ---
 
-## ⚠️ 現況：文件齊了，一行程式還是沒有
+## 現況：Stage 5「最小可跑」（v0.1.0）
 
-2026-09-05 建立。**文件在 2026-09-06 補完** —— 20 份 ADR、8 份 REQ、10 份架構文件、
-帶來源雜湊的市場調查。但這個 repo 仍然**沒有 `package.json`、沒有 `src/`、
-沒有任何跑得起來的東西**。
-
-**下面「怎麼跑起來」是空的，而那是誠實不是遺漏。**
-在第一行程式寫出來之前，這份 README 不會用現在式描述任何指令。
+**跑得起來，而且只跑得動這些**：建立專題、看專題清單、封存與重新開啟。
+匯入、閱讀器、圖、擴展、筆記、檢索**都還沒有** —— 那是 Stage 6 以後
+（完整的 Stage 表在 `docs/roadmap.md`）。
 
 ## 怎麼跑起來
 
-**還不能。** 有東西可跑的時候，這一節會寫實際跑過的指令，並分
-「✅ 跑得動 ／ ❌ 還不存在」兩欄。
+**雙擊 `Start Cyclosa.cmd`。** 它會檢查 Node 版本 → 需要時 `npm ci` 與建置 →
+起 server → 開瀏覽器。第一次啟動會請你選一個資料根目錄。
 
-規劃中的技術棧：Node 24 ＋ Fastify ＋ Vue 3 ＋ three.js ＋ 內建 `node:sqlite`。
-沒有 conda、沒有 Python、沒有原生模組 —— 一鍵啟動只依賴 Node。
+| 指令 | 現況 | 做什麼 |
+|---|:--:|---|
+| `Start Cyclosa.cmd`（雙擊）| ✅ | 一鍵啟動。等同 `.\Launch.ps1` |
+| `.\Launch.ps1` | ✅ | 同上。`-SkipBuild` 可跳過建置檢查 |
+| `.\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含四條守門）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
+| `.\Verify.ps1 -Report` | ✅ | 另外產出**去識別化**的環境快照 |
+| `npm run dev` ＋ `npm run dev:server` | ✅ | 開發用，有熱重載 |
+| `npm test` | ✅ | 134 個測試 |
+
+**已經實際跑過的**（2026-09-07，Node v24.15.0）：`Verify.ps1` 全綠、
+build 出來的 server 在 `127.0.0.1:7433` 建得出專題、
+`case.sqlite` 是 schema v1（WAL、18 個索引、3 條 trigger）。
+
+技術棧：Node 24 ＋ Fastify ＋ Vue 3 ＋ 內建 `node:sqlite`。
+**沒有 conda、沒有 Python、沒有原生模組** —— 一鍵啟動只依賴 Node。
+（three.js 與 `3d-force-graph` 要到 Stage 7 才會裝。）
 
 擴展與語意檢索會用到兩個**外部**的東西（都不是 npm 套件）：
 `claude` CLI 當 agent、本機 Ollama ＋ `bge-m3` 當 chat 與 embed。
@@ -40,11 +51,12 @@
 
 專題資料庫、原始快照、筆記、日誌都在**專案外**的一個資料根目錄裡，
 底下四個頂層資料夾：`cases`（每個專題一個子資料夾）、`backups`、`logs`、`tmp`。
-那個資料夾在哪，會記在 `%LOCALAPPDATA%\Cyclosa\system_paths.json`。
-
-> 指標檔目前**還不存在** —— App 還沒跑到寫它那一步。
+那個資料夾在哪，記在 `%LOCALAPPDATA%\Cyclosa\system_paths.json`（第一次啟動時寫）。
 
 **文件裡一律寫「資料根目錄」而不寫實際路徑**，因為這個 repo 預期會公開。
+
+> 指標檔壞掉或指到不存在的地方時，畫面會說出**「指標檔在哪、它指到哪、那個路徑怎麼了」**
+> —— 不是顯示一個空清單。四種失敗四種訊息，各自有測試守著。
 
 ## 這個工具刻意不做的事
 

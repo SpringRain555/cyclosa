@@ -1,0 +1,16 @@
+dist/
+web/dist/
+node_modules/
+package-lock.json
+docs/architecture/diagrams/
+docs/research/sources/
+
+# **Markdown 不給 prettier 動。**
+# 這個專案的文件排版是刻意的：窄表格、對齊的欄位、全形標點與強調符號的用法
+# 都是為了讓人在 80–100 字元寬度下讀得順。prettier 會把表格撐成兩百字元寬
+# （每一欄補滿空白），並把 *強調* 換成 _強調_ ——
+# 兩者都讓 diff 變得無法閱讀，而 diff 正是這些文件被 review 的方式。
+*.md
+
+# 給人讀與編輯的範本，prettier 會把它的陣列擠成一行
+.claude/

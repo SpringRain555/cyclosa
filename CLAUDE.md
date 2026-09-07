@@ -37,15 +37,18 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## ⚠️ 現況：文件齊了，一行程式還是沒有
+## 現況：Stage 5「最小可跑」（v0.1.0）
 
-2026-09-05 建立。**文件在 2026-09-06 的 Stage 4.5 補完**（20 份 ADR、8 份 REQ、
-10 份架構文件、市場調查與可回溯的來源紀錄），但這個 repo 仍然**沒有 `package.json`、
-沒有 `src/`、沒有任何跑得起來的東西**。
+**跑得起來，而且只跑得動這些**：建立專題、專題清單、封存與重新開啟。
+匯入、閱讀器、圖、擴展、筆記、檢索**都還沒有**（Stage 6 以後，見 `docs/roadmap.md`）。
 
-**所以下面「怎麼驗證」那一節是空的，而那是誠實不是遺漏。**
+`src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
+**134 個測試**，其中四條是守門測試。
 
-> **在第一行程式寫出來之前，不要在文件裡用現在式描述任何指令。**
+> **這一節每個 Stage 收尾都要改。** 它是整份文件裡最容易變成謊言的一段 ——
+> 而一份說錯話的 agent 檔會讓下一個人（或 LLM）照著一個不存在的世界動手。
+
+> **不要在文件裡用現在式描述還不存在的指令。**
 > 隔壁的 `rubricator` 就是這樣長出一份叫人執行不存在的 `Verify.cmd` 的 agent 檔，
 > 而它的 `docs/index.md` 列了 18 份文件、只有 4 份真的存在。
 > 那份文件不是寫錯字，是**用權威的語氣描述了一個還沒發生的世界**。
@@ -67,10 +70,10 @@
 
 | | |
 |---|---|
-| **執行環境** | 系統 Node **24.x**。沒有 conda、沒有 Python、沒有原生模組 —— 資料庫用內建的 `node:sqlite`。**這是規劃，`package.json` 還不存在** |
+| **執行環境** | 系統 Node **24.x**（`engines` 與 `.node-version` 都宣告）。沒有 conda、沒有 Python、沒有原生模組 —— 資料庫用內建的 `node:sqlite`。**下界 24 只有一個理由：`node:sqlite`**（「Vite 8 要 Node 24」是假的，見 `docs/lessons.md`）|
 | **資料邊界** | 見下一節。**這是這份文件裡最重要的一節** |
-| **產生物，不可手改** | `docs/architecture/diagrams/*.svg` ＋ `manifest.json`（跑 `tools\diagrams\Render-Diagrams.ps1`）。其餘還沒有 |
-| **單一真實來源** | schema → `docs/architecture/data-model.md`｜錯誤碼 → `src/domain/errors/`（文件是 `docs/architecture/error-codes.md`）｜UI 字串 → `web/src/i18n/zh-TW.ts`｜顏色 → `web/src/styles/tokens.css`｜**後三者都還不存在**，守著它們一致的測試也還不存在，所以目前靠人記得 |
+| **產生物，不可手改** | `dist/`、`web/dist/`（跑 `npm run build`）｜`docs/architecture/diagrams/*.svg` ＋ `manifest.json`（跑 `tools\diagrams\Render-Diagrams.ps1`）｜`AGENTS.md`（跑 `tools\Sync-AgentDocs.ps1`，本文取自 `CLAUDE.md`）｜`docs/environment/snapshots/`（跑 `.\Verify.ps1 -Report`）|
+| **單一真實來源** | schema → `docs/architecture/data-model.md`（migration 在 `src/infrastructure/db/migrations/`）｜錯誤碼 → `src/domain/errors/codes.ts`｜UI 字串 → `web/src/i18n/zh-TW.ts`｜顏色 → `web/src/styles/tokens.css`。**前三者由 `tests/guards/` 守著**（三邊對照、任一邊多一個少一個就紅）|
 | **命名** | 動手前讀 `docs/architecture/glossary.md` 的「**不可以叫什麼**」那一節。`document`／`node`／`link`／`score`／`report`／`user` 都是有具體壞法的名字 |
 
 ## 資料位置與讀取邊界
@@ -151,7 +154,7 @@
    Zotero 就是反例：API 回 `NOASSERTION`，要開 `COPYING` 才看得到 AGPLv3。
    **API 說「不知道」的時候，答案不是「沒有授權」。**
 
-## 分層（由 AST 測試守著，測試還不存在）
+## 分層（由 `tests/guards/` 的 AST 測試守著）
 
 ```
 web/            Vue 3、3D 圖、閱讀器      →（HTTP／SSE）→ interface/
@@ -174,10 +177,29 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 
 ## 怎麼驗證
 
-**目前沒有任何可以跑的驗證。** 沒有 `package.json`、沒有測試、沒有 `Verify.ps1`。
+**改完跑這一支，全綠才算收尾**：
 
-第一次有東西可跑的時候，這一節要寫**實際跑過的指令與它的輸出**，
-並照 `rubricator` 的做法分「✅ 跑得動／❌ 還不存在」。
+```powershell
+.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 134 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
+.\Verify.ps1 -Report  # 另外產出去識別化的環境快照
+```
+
+| | 現況 |
+|---|:--:|
+| `.\Verify.ps1` | ✅ 2026-09-07 實跑全綠 |
+| `Start Cyclosa.cmd`／`.\Launch.ps1` | ✅ 起 server、開瀏覽器 |
+| `npm test`（134 個）| ✅ |
+| `npm run build` | ✅ |
+
+**四條守門測試**（`tests/guards/`）—— 每一條都用注入真實違規驗過會紅：
+
+1. `domain/` 零 I/O、不 import 其他層、不 import 任何 npm 套件
+2. `domain/graph/` 額外零依賴（連 `domain/` 的其他資料夾都不能 import）
+3. `web/src/` 在 `i18n/` 以外不得出現中文字面值（**用 AST，所以中文註解不會誤報**）
+4. 錯誤碼三邊對照：`src/domain/errors/codes.ts` ↔ `error-codes.md` ↔ `i18n/zh-TW.ts`
+
+> **一條不會紅的守門測試，跟一條不存在的守門測試長得一模一樣。**
+> 加新的守門測試時，**先寫一個會違反它的東西驗它真的會紅**，再刪掉。
 
 ## 不要做什麼
 

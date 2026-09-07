@@ -3,8 +3,13 @@
 **一條沒有理由的版本界線，下一個人不知道能不能動，於是它永遠不會被動。**
 所以這一份對每個上下界都寫「為什麼是這個範圍」與「什麼情況下可以放寬」。
 
-> **現況：`package.json` 還不存在。** 下面是**建的時候要照著填的**，
-> 不是現在檔案裡的內容。每一條都要在真的寫進 `package.json` 那天再確認一次。
+> **現況（2026-09-07，Stage 5）：`package.json` 存在了**，而且下面的授權欄
+> 是逐一實查 `registry.npmjs.org` 的結果。
+>
+> **但只裝了 Stage 5 用得到的那些。** `three`、`3d-force-graph`、`d3-force-3d`
+> 要到 Stage 7，`@mozilla/readability`、`linkedom`、`franc`、`pdfjs-dist` 要到 Stage 6。
+> 那幾條的範圍與授權已經查好寫在下面，**但它們還不在 `package.json` 裡** ——
+> 提早裝進去會讓每次 `npm ci` 背著用不到的東西，而且 lint 會抓不到「有裝沒用」。
 
 ---
 

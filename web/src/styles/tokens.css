@@ -1,0 +1,137 @@
+/**
+ * 顏色與記號的**唯一來源**（ADR-0018）。
+ *
+ * **元件裡不寫顏色字面值。** 要加一個新顏色之前先問「它能不能不上圖」，
+ * 再問「能不能用形狀」—— 色相已經用完了，那是掃過 149 個候選算出來的。
+ *
+ * 三條規則：
+ *   1. 每個顏色只有一個意思
+ *   2. 每個狀態都有第二重編碼（形狀、線型、圖示或文字）
+ *   3. **明暗只表示遠近**，不表示程度
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ── E 層 · 骨架（介面本身，不帶意義）────────────────── */
+  --bg-app: #0f1115;
+  --bg-panel: #171a21;
+  --bg-raised: #1e222b;
+  --bg-hover: #252a35;
+
+  --line-subtle: #242832;
+  --line: #313745;
+  --line-strong: #3a4150;
+  --line-muted: #4a5160;
+
+  --text: #e6e8ee;
+  --text-secondary: #c9ccd6;
+  --text-tertiary: #9aa0ae;
+  --text-muted: #6b7280;
+
+  /* ── A 層 · 填色 ＝ 這是什麼（永久不變）──────────────── */
+  /* 冷色＝外面抓回來的，暖色＝你自己寫的。這一對是有意義的軸。
+     色盲 ΔE 15.9 · 正常 26.5 —— 所有候選裡最好的。 */
+  --node-item: #3987e5;
+  --node-note: #d55181;
+  /* 實體用空心，靠實心／空心分，不靠顏色 —— 第三色不存在。 */
+  --node-entity: #8b93a3;
+
+  /* ── B2 層 · 查證狀態（線上唯一的彩色）───────────────── */
+  --edge-pending: #d29922; /* 虛線 */
+  --edge-confirmed: #8b93a3; /* 實線 */
+  --edge-rejected: #6b7280; /* 中間打叉，預設隱藏 */
+
+  /* ── C 層 · 環（現在的狀態，暫時、可疊加）────────────── */
+  --ring-selected: #35d6c4; /* 青色外環 */
+  --ring-read: #8b93a3; /* 灰色內環，長期狀態 */
+
+  /* ── D 層 · 只在面板與文字，不上關聯圖 ──────────────── */
+  /* 綠對紅在綠紅色盲下只差 ΔE 2.2 —— 所以這四個一律配圖示或文字。 */
+  --ui-success: #3fb950;
+  --ui-danger: #f85149; /* 真的壞掉了。關聯圖上永不出現 */
+  --ui-action: #58a6ff;
+  --ui-selected: #35d6c4;
+
+  /* ── 尺寸與節奏 ─────────────────────────────────────── */
+  --radius: 6px;
+  --radius-lg: 10px;
+  --gap: 12px;
+  --font:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  --mono: ui-monospace, 'Cascadia Mono', 'Consolas', monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--ui-action);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 6px 14px;
+}
+
+button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--line-strong);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--ui-action);
+  border-color: var(--ui-action);
+  color: #0b1220;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--ui-action);
+}
+
+input[type='text'] {
+  font: inherit;
+  background: var(--bg-app);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 7px 10px;
+  width: 100%;
+}
+
+input[type='text']:focus {
+  outline: none;
+  border-color: var(--ui-action);
+}
+
+.mono {
+  font-family: var(--mono);
+}

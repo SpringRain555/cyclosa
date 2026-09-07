@@ -37,15 +37,34 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：Stage 7「圖」（v0.3.0）
+## 現況：Stage 8「關聯與出處」（v0.4.0）
 
 **跑得起來的是這一條**：建立專題 → 貼網址或拖檔案匯入 → 走完擷取管線 →
 在閱讀器裡讀抽出來的正文 → 在作業紀錄看每一項發生了什麼 →
-**在 3D 關聯圖上瀏覽**（可旋轉、可點選、可切 2D）。
-關聯與裁決、LLM 擴展、筆記、檢索介面**都還沒有**（Stage 8 以後，見 `docs/roadmap.md`）。
+**在 3D 關聯圖上瀏覽**（可旋轉、可點選、可切 2D）→
+**手動連線、確認、否決、撤回、改判，每一次都留稽核紀錄**。
+LLM 擴展、筆記、檢索介面**都還沒有**（Stage 9 以後，見 `docs/roadmap.md`）。
+
+> **匯入不產生任何關聯** —— 機器產生的邊要到 Stage 9。
+> 所以真實資料的圖上目前只有你自己連的線。
+> 要看四層與四種畫法，用 `tools/dev/seed-graph.ts`（它只肯往空專題寫）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-**280 個測試**，其中**五條**是守門測試。資料庫是 **schema v2**。
+**357 個測試**，其中**五條**是守門測試。資料庫是 **schema v3**。
+
+**動裁決之前一定要知道的三件**：
+
+1. **「能不能裁決」的判準不是層別，是「這條邊會不會被重算蓋掉」**
+   （`mayAdjudicate`，open-questions Q6 的答案）。
+   機器建的非 `named` 不可裁決；**人建的每一層都可以**，
+   因為重算永遠不碰人建的列。
+2. **機器建的邊不能直接 INSERT 成 `confirmed`。**
+   trigger 對「機器 ＋ 已確認」的 INSERT 無條件擋下 ——
+   出處有 `edge_id` 外鍵，邊不存在時寫不進去。
+   **順序只有一種**：先 `pending` → 寫出處 → 再 UPDATE。
+3. **兩支守門函式必須照順序問**：既有那一列是 `rejected` 就走 `evaluateProposal`
+   （墓碑有明文例外），其餘走 `machineMayUpdateStatus`（重跑只附加出處）。
+   **問錯順序的症狀是安靜的** —— 不是報錯，是墓碑例外從此不觸發。
 
 **動關聯圖之前一定要知道的三件**：
 
@@ -203,15 +222,15 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 **改完跑這一支，全綠才算收尾**：
 
 ```powershell
-.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 280 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
+.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 357 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
 .\Verify.ps1 -Report  # 另外產出去識別化的環境快照
 ```
 
 | | 現況 |
 |---|:--:|
-| `.\Verify.ps1` | ✅ 2026-09-07 實跑全綠 |
+| `.\Verify.ps1` | ✅ 2026-09-08 實跑全綠 |
 | `Start Cyclosa.cmd`／`.\Launch.ps1` | ✅ 起 server、開瀏覽器 |
-| `npm test`（280 個）| ✅ |
+| `npm test`（357 個）| ✅ |
 | `npm run build` | ✅ |
 
 **五條守門測試**（`tests/guards/`）—— 每一條都用注入真實違規驗過會紅：

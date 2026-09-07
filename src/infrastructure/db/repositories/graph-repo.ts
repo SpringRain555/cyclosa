@@ -1,5 +1,5 @@
 /**
- * 子圖的讀取。**只讀不寫** —— 寫入路徑是 Stage 8 的事。
+ * 子圖的讀取。**這一份只讀不寫** —— 單條邊的讀寫與裁決在 `edge-repo.ts`。
  *
  * **snake_case ↔ camelCase 的轉換只在這一層做一次。**
  *
@@ -100,7 +100,14 @@ function toEntity(row: Raw): EntityRow {
   };
 }
 
-function toEdge(row: Raw): EdgeRow {
+/**
+ * `edge` 的一列 → `EdgeRow`。
+ *
+ * **`edge-repo.ts` 也用這一支** —— 寫入路徑讀回來的邊，跟子圖讀到的邊
+ * 必須是同一個形狀。兩邊各寫一份映射的話，遲早有一邊少轉一個欄位，
+ * 而那種錯不會丟例外，只會讓某個畫面上的數字是舊的。
+ */
+export function toEdge(row: Raw): EdgeRow {
   return {
     id: String(row['id']),
     layer: String(row['layer']) as EdgeLayer,

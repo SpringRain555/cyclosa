@@ -26,6 +26,24 @@ export function tierOf(confidence: number): ConfidenceTier {
 }
 
 /**
+ * `tierOf` 的反函式：**一個等級對應的分數區間 `[下限, 上限)`**。
+ *
+ * 校準比例是分段的（ADR-0017 的「段」＝ `rel` × 等級），
+ * 而分段的查詢在 SQL 裡是**分數區間比較，不是字串比較** ——
+ * 等級是顯示用的，**存的一直是連續分數**（glossary 的 `score` 那一條）。
+ *
+ * 上限開區間，所以 `strong` 的上限要大於 1（`confidence` 的值域上界）——
+ * 用 1 的話，一條可信度剛好是 1 的邊會從每一段裡漏掉。
+ * **人手動建的邊 `confidence` 正好就是 1**，所以那不是假想的邊界情況。
+ */
+export function tierRange(tier: ConfidenceTier): readonly [number, number] {
+  const ABOVE_MAX = 2;
+  if (tier === 'strong') return [TIER_CUTOFFS.strong, ABOVE_MAX];
+  if (tier === 'medium') return [TIER_CUTOFFS.medium, TIER_CUTOFFS.strong];
+  return [0, TIER_CUTOFFS.medium];
+}
+
+/**
  * 獨立來源數（ADR-0015）。
  *
  * **出處 5 筆可能只有 2 個獨立來源** —— 如果其中三筆是同一則的轉載。

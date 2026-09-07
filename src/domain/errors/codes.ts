@@ -90,7 +90,20 @@ export const ERROR_CODES = {
   GRAPH_HUMAN_ROW_IMMUTABLE: 'error',
   GRAPH_TOMBSTONED: 'notice',
   GRAPH_TRANSITION_INVALID: 'error',
+  /**
+   * 想裁決一條**下次重算就會被蓋掉**的邊（open-questions Q6）。
+   *
+   * 不是「這個動作不合法」（那是 `GRAPH_TRANSITION_INVALID`）——
+   * 動作本身在轉移表上，是**這條邊不該被裁決**。
+   */
+  GRAPH_LAYER_NOT_ADJUDICABLE: 'error',
   GRAPH_NODE_NOT_FOUND: 'error',
+  GRAPH_EDGE_NOT_FOUND: 'error',
+  /** 這兩個節點之間已經有一條同樣關係型別的邊了。**衝突不是格式錯 → 409。** */
+  GRAPH_EDGE_EXISTS: 'error',
+  GRAPH_AUDIT_APPEND_ONLY: 'error',
+  /** 手動建立具名關係，但沒有寫關係型別。**一條沒有名字的具名關係不是主張。** */
+  GRAPH_REL_EMPTY: 'error',
   GRAPH_SELF_EDGE: 'error',
   GRAPH_SUBGRAPH_TOO_LARGE: 'error',
   GRAPH_SUBGRAPH_TIMEOUT: 'error',
@@ -143,6 +156,7 @@ export function httpStatusOf(code: ErrorCode): number {
   if (
     code === 'CASE_NAME_EMPTY' ||
     code === 'GRAPH_SELF_EDGE' ||
+    code === 'GRAPH_REL_EMPTY' ||
     code === 'SEARCH_QUERY_EMPTY' ||
     code === 'EXPORT_EMPTY_SELECTION'
   ) {

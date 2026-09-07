@@ -11,8 +11,9 @@
  *
  * ⚠️ 零依賴（ADR-0014）。
  */
+import { mayAdjudicate } from './edge-state.js';
 import { requiresAdjudication } from './types.js';
-import type { EdgeLayer, EdgeStatus, ItemKind, NodeKind } from './types.js';
+import type { EdgeLayer, EdgeOrigin, EdgeStatus, ItemKind, NodeKind } from './types.js';
 import type { Projection } from './projection.js';
 
 /**
@@ -107,6 +108,53 @@ export function edgeLineFor(layer: EdgeLayer, status: EdgeStatus): EdgeLine {
     crossed: adjudicated && status === 'rejected',
     directional: drawing === 'tapered',
     hiddenByDefault: drawing === 'folded' || (adjudicated && status === 'rejected'),
+  };
+}
+
+/**
+ * 一條邊的面板上，**哪幾欄是有意義的**。
+ *
+ * ## 為什麼這是一條規則而不是幾個 `v-if`
+ *
+ * `edge` 有幾個欄位，**在某些列上永遠是同一個值** ——
+ * 它們存在是為了讓 schema 簡單，不是為了帶資訊：
+ *
+ * | 欄位 | 在哪些列上沒有意義 | 為什麼 |
+ * |---|---|---|
+ * | `status` | 裁決不動的邊 | 永遠是 `pending`（migration 003 逼的）|
+ * | `confidence` | 人建的邊 | 存的 1 是為了線寬，**不是量出來的** |
+ * | 出處與校準 | 人建的邊 | 那兩樣回答的是「機器提的這條憑什麼」|
+ *
+ * **顯示一個結構性的值，會讓它看起來像測量結果。**
+ * 2026-09-08 人工驗收一次照出兩個：一條共同提及線的標題旁寫著「待查證」，
+ * 而正下方寫著「沒有確認與否決」—— 同一屏上兩句話互相矛盾；
+ * 以及一條剛手動連好的線旁邊寫著「可信度：強」。
+ *
+ * 那時這條規則散在面板的四個 `v-if` 裡。**一條規則寫在四個地方，
+ * 就是四個各自會漂的地方**，而且沒有一個測得到 —— 所以搬來這裡。
+ */
+export interface EdgePanelFields {
+  /** 查證狀態（待查證／已確認／已否決）*/
+  readonly status: boolean;
+  /** 可信度等級 */
+  readonly tier: boolean;
+  /** 構成事實（出處筆數、獨立來源數、有無引文）與校準比例 */
+  readonly evidenceFacts: boolean;
+  /** 裁決按鈕、出處清單、裁決歷史 */
+  readonly adjudication: boolean;
+}
+
+export function edgePanelFieldsFor(edge: {
+  readonly layer: EdgeLayer;
+  readonly origin: EdgeOrigin;
+}): EdgePanelFields {
+  const adjudicable = mayAdjudicate(edge);
+  const machine = edge.origin === 'machine';
+  return {
+    status: adjudicable,
+    tier: machine && edge.layer === 'named',
+    evidenceFacts: adjudicable && machine,
+    adjudication: adjudicable,
   };
 }
 

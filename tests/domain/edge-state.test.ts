@@ -3,8 +3,10 @@ import {
   actionsFrom,
   EDGE_TRANSITIONS,
   machineMayUpdateStatus,
+  mayAdjudicate,
   transition,
 } from '../../src/domain/graph/edge-state.js';
+import { EDGE_LAYERS } from '../../src/domain/graph/types.js';
 import type { EdgeStatus } from '../../src/domain/graph/types.js';
 
 const ALL: EdgeStatus[] = ['pending', 'confirmed', 'rejected'];
@@ -86,5 +88,41 @@ describe('機器永遠不得覆寫人工判定', () => {
   it('沒有人碰過但已經是已確認／已否決的，機器仍然不能動', () => {
     expect(machineMayUpdateStatus('confirmed', false)).toBe(false);
     expect(machineMayUpdateStatus('rejected', false)).toBe(false);
+  });
+});
+
+/**
+ * open-questions Q6 的答案（2026-09-08，Stage 8）。
+ *
+ * **判準不是層別，是「這條邊會不會被重算蓋掉」** ——
+ * 所以規則裡有 `origin`，正如 Q6 自己預料的那樣。
+ */
+describe('哪些邊裁決得動', () => {
+  it('機器建的具名關係可以 —— 它就是為了給人判斷才存在的', () => {
+    expect(mayAdjudicate({ layer: 'named', origin: 'machine' })).toBe(true);
+  });
+
+  it.each(['comention', 'similarity', 'derived'] as const)(
+    '機器建的 %s 不行 —— 下次重算會把判斷蓋掉',
+    (layer) => {
+      expect(mayAdjudicate({ layer, origin: 'machine' })).toBe(false);
+    },
+  );
+
+  it('**人建的邊每一層都可以** —— 重算永遠不碰人建的列', () => {
+    for (const layer of EDGE_LAYERS) {
+      expect(mayAdjudicate({ layer, origin: 'human' })).toBe(true);
+    }
+  });
+
+  /**
+   * 這一條不是重複上面兩條 —— 它守的是**理由**。
+   * 如果哪天有人把規則簡化成「只有 named 能裁決」，上面那三條仍然全綠，
+   * 而這一條會紅：人手動建了一條轉載之後就再也拿不掉它了
+   * （api-contract 沒有刪除端點）。
+   */
+  it('人建錯一條轉載，撤回得動 —— 否則它永遠拿不掉', () => {
+    expect(mayAdjudicate({ layer: 'derived', origin: 'human' })).toBe(true);
+    expect(actionsFrom('confirmed')).toContain('withdraw');
   });
 });

@@ -73,8 +73,14 @@
 | 在元件裡寫了中文就紅 | 全部走 `web/src/i18n/zh-TW.ts` | `tests/guards/i18n-literals.test.ts` |
 | 在 `domain/` import 東西就紅 | `domain/` 零 I/O；`domain/graph/` 更嚴，**連 `domain/` 的其他資料夾都不能 import** | `tests/guards/layering.test.ts`、`domain-graph-deps.test.ts` |
 | prettier 想重排 `docs/` 的 Markdown | **不該發生** —— `.prettierignore` 裡有 `*.md`。理由寫在那個檔案裡 | —— |
+| 裁決一條相似度／共同提及／轉載的線，回 `GRAPH_LAYER_NOT_ADJUDICABLE` | **那是設計。** 判準不是層別而是「這條邊會不會被重算蓋掉」（`mayAdjudicate`）。**人建的那些層可以裁決** | `tests/domain/edge-state.test.ts` |
+| 手動建一條邊回 `GRAPH_EDGE_EXISTS` | 同一個（來源, 目標, 關係型別）已經有一列了。**同一個主張存兩列會讓獨立來源數重複計算** | `tests/e2e/adjudication-flow.test.ts` |
+| 機器建的邊 INSERT 成 `confirmed` 就炸 | **順序只有一種**：先 `pending` → 寫出處 → 再 UPDATE。出處有 `edge_id` 外鍵，邊不存在時寫不進去 | `tests/infrastructure/db-constraints.test.ts` |
+| 重跑之後否決過的關聯又出現在佇列 | 它帶著**新的 `item`** 回來（ADR-0016 的墓碑例外），面板上會標「曾被否決」。同一份文件換一段話不算 | `tests/e2e/adjudication-flow.test.ts` |
+| 校準比例一直是「樣本不足」 | **它是分段的**（`rel` × 可信度等級），不是全域的。同一段要滿 30 條 | `tests/e2e/adjudication-flow.test.ts` |
+| 改 `edge_audit` 的列就炸 | 只增不刪 —— 校準比例是從它算出來的。**邊自己被刪掉時的 cascade 不受限** | `tests/infrastructure/db-constraints.test.ts` |
 
-## 兩個「看起來像 bug 但不是」
+## 四個「看起來像 bug 但不是」
 
 1. **`Start Cyclosa.cmd` 開了瀏覽器卻沒起新的 server。**
    那是單一實例：7433 上已經有一個 Cyclosa，所以它開既有的那一個（ADR-0020）。
@@ -82,6 +88,15 @@
 2. **一批匯入有幾項失敗，但 run 標的是「部分失敗」而不是「失敗」。**
    那是設計。40 個 URL 有 3 個 404，其餘 37 個的內容不該跟著消失 ——
    **只有一個都沒成功才是 `failed`**（`settleRun`）。
+
+3. **一條共同提及線的面板上沒有「待查證／已確認」那個標籤。**
+   那是設計。那一欄在那些列上**永遠是 `pending`**（trigger 逼的），
+   它不帶資訊 —— 顯示它會讓一個結構性的值看起來像測量結果
+   （`edgePanelFieldsFor`，`lessons.md` 有那一條）。
+   **人手動建的邊有那個標籤**，因為它的狀態是真的會變的。
+
+4. **一條你自己連的邊沒有「可信度」。**
+   同上：`confidence` 那一欄存的 1 是為了讓線畫得夠粗，**不是量出來的**。
 
 ## 加一條新的守門測試時
 

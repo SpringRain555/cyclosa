@@ -13,7 +13,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, 'migrations');
 
 /** 這一版程式認得的 schema 版本。**比資料庫的版本小就代表資料庫被新版寫過。** */
-export const SUPPORTED_SCHEMA_VERSION = 2;
+export const SUPPORTED_SCHEMA_VERSION = 3;
 
 export type OpenOutcome =
   | { readonly kind: 'ok'; readonly db: DatabaseSync }
@@ -109,6 +109,36 @@ export async function openCaseDatabase(
   }
 
   return { kind: 'ok', db };
+}
+
+/**
+ * 把一組寫入包成一個交易。
+ *
+ * **Stage 8 之前不需要這一支** —— 在那之前每個寫入都是單一敘述，
+ * 而單一敘述本來就是原子的。裁決不是：建立一條已確認的機器邊要
+ * 「INSERT 成待查證 → 寫出處 → UPDATE 成已確認」**三步**
+ * （`edge-repo.ts` 解釋了為什麼順序只有這一種），
+ * 而中途斷掉會留下一條**看起來還在等人裁決、實際上出處已經齊了**的邊。
+ *
+ * 用 `BEGIN IMMEDIATE` 而不是 `BEGIN`：後者要等到第一次寫入才拿鎖，
+ * 於是「讀完現況 → 依現況決定寫什麼」中間有一個空隙。
+ * 墓碑檢查整個就是那個形狀（先查有沒有墓碑，再決定寫不寫），
+ * 所以那個空隙正好會讓墓碑失效。
+ */
+export function withTransaction<T>(db: DatabaseSync, body: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const out = body();
+    db.exec('COMMIT');
+    return out;
+  } catch (e) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // ROLLBACK 自己失敗時沒有更好的辦法 —— 讓原本的例外帶著原因往上走
+    }
+    throw e;
+  }
 }
 
 export type { DatabaseSync };

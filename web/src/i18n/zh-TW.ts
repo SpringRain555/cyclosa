@@ -98,7 +98,20 @@ export const errorMessages: Readonly<Record<string, string>> = {
   GRAPH_TOMBSTONED:
     '這條關聯你先前否決過，所以不會再放進待查證。若之後出現新的出處，它會帶著「曾被否決」的標記重新出現。',
   GRAPH_TRANSITION_INVALID: '這個狀態變更不被允許。請把下面的識別碼交出來。',
+  /**
+   * **這一句要解釋「為什麼不給裁決」，不是只說不行。**
+   * 使用者看到一條相似度線覺得不對而想否決它，是完全合理的念頭 ——
+   * 錯的是那個念頭沒有地方去，而不是那個念頭本身。所以這句話給出去處。
+   */
+  GRAPH_LAYER_NOT_ADJUDICABLE:
+    '共同提及、相似度、轉載這三種是算出來的結果，不是需要你判斷的主張，所以它們不能被確認或否決 —— 下次重算會把判斷蓋掉。要記錄一個判斷，請在這兩個節點之間手動建立一條具名關係。',
   GRAPH_NODE_NOT_FOUND: '找不到這個節點，它可能已經被刪掉了。回專題清單重新進來。',
+  GRAPH_EDGE_NOT_FOUND:
+    '找不到這條關聯。它可能已經被刪掉了，或者它是投影出來的線 —— 那種線不是資料庫裡的一列，沒有東西可以裁決。',
+  GRAPH_EDGE_EXISTS: '這兩個節點之間已經有一條同樣型別的關聯了。請去改既有的那一條，不要建第二條。',
+  GRAPH_AUDIT_APPEND_ONLY:
+    '有東西試圖修改裁決紀錄，已經擋下來了。那份紀錄只增不刪。請把下面的識別碼交出來。',
+  GRAPH_REL_EMPTY: '請寫下這是什麼關係（例如「收購」「任職於」）。沒有名字的關係日後也篩不出來。',
   GRAPH_SELF_EDGE: '不能把一個節點連到它自己。請選兩個不同的節點。',
   GRAPH_SUBGRAPH_TOO_LARGE: '這個範圍太大了。請縮小跳數，或加上篩選條件。',
   GRAPH_SUBGRAPH_TIMEOUT: '查詢這個範圍花太久了。請縮小跳數或加上篩選條件。',
@@ -382,9 +395,97 @@ export const t = {
       noQuote: '沒有直接引文',
       previouslyRejected: '曾被否決',
       synthetic: '這條線是投影出來的，不是資料庫裡的一列。',
-      /** 裁決要到 Stage 8 —— **不放一個按了沒反應的按鈕**。 */
-      adjudicationLater: '確認與否決要到「關聯與出處」那一階段才會有。',
       calibrationInsufficient: '樣本不足，不顯示比例',
+      openEdge: '看這條關聯',
+    },
+
+    /** 裁決（Stage 8）。 */
+    adjudication: {
+      title: '這條關聯',
+      back: '回到節點',
+      loading: '正在讀這一條…',
+      origin: '來源',
+      originHuman: '你手動建立的',
+      originMachine: '機器抽取的',
+      createdAt: '建立於',
+
+      /**
+       * **動詞，不是名詞。** 按鈕上寫「確認」而不是「已確認」——
+       * 前者說的是按下去會發生什麼，後者說的是現在的狀態。
+       */
+      confirm: '確認',
+      reject: '否決',
+      withdraw: '撤回確認',
+      reclassify: '改判',
+      restore: '復原',
+
+      /** 每個動作按下去之前先說它會做什麼 —— 六條轉移沒有一條是明顯的。 */
+      hint: {
+        confirm: '這條關聯成立，把它當成已知的事實用下去。',
+        reject: '這條關聯不成立。它會被隱藏，而且機器不會再提第二次。',
+        withdraw: '收回先前的確認，讓它回到待查證。出處與歷史都留著。',
+        reclassify: '改掉先前的判斷。舊的判斷會留在歷史裡，不會被蓋掉。',
+        restore: '把它從已否決放回待查證，重新考慮。',
+      },
+
+      /** **否決可以復原。紅色留給真的壞掉的東西**（ui-workflows）。 */
+      rejectedNotice: '已否決的關聯預設不會畫在圖上。它沒有被刪掉 —— 隨時可以復原。',
+      needsEvidence: '這條是機器抽出來的，而且一筆引文都沒有，所以確認不了。',
+      notAdjudicable:
+        '這是算出來的結果，不是需要你判斷的主張，所以沒有確認與否決 —— 下次重算會把判斷蓋掉。',
+
+      evidence: '出處與引文',
+      noEvidence: '沒有引文。',
+      humanNoEvidence: '這條是你自己連的，出處就是你。',
+      fromItem: '出自',
+      charRange: '第 {start}–{end} 字',
+
+      history: '裁決歷史',
+      noHistory: '還沒有人裁決過這一條。',
+      byHuman: '你',
+      byMachine: '機器',
+      /** **稽核紀錄裡唯一一種機器動作** —— 它要解釋得夠清楚 */
+      revived: '機器帶著新的出處把它放回待查證',
+      action: {
+        confirm: '確認',
+        reject: '否決',
+        withdraw: '撤回確認',
+        reclassify: '改判',
+        restore: '復原',
+      },
+
+      calibration: '同一段的關聯，你過去確認了 {confirmed}%、否決 {rejected}%（採樣 {n} 條）',
+      calibrationShort: '你的裁決：確認 {confirmed}%／否決 {rejected}%（{n} 條）',
+    },
+
+    /** 裁決佇列。**沒有獨立畫面** —— 它是關聯圖上的一條 */
+    queue: {
+      pending: '待查證 {n} 條',
+      none: '沒有待查證的關聯',
+      next: '跳到下一條',
+      onlyNamed: '只有具名關係需要你判斷。',
+    },
+
+    /** 手動連線。 */
+    connect: {
+      start: '建立關聯',
+      /** **進行中的模式一定要說出來**，否則下一次點擊會做出使用者沒預期的事 */
+      picking: '正在拉一條線：請在圖上點另一個節點當終點。',
+      from: '起點',
+      to: '終點',
+      rel: '這是什麼關係',
+      relPlaceholder: '例如：收購、任職於、引用',
+      layer: '關聯種類',
+      layerNamed: '具名關係（你的主張，需要判斷）',
+      layerDerived: '轉載（同一則的另一個版本）',
+      create: '建立',
+      cancel: '取消',
+      /**
+       * **未來式。** 這一句顯示在「建立」按下去**之前**，
+       * 而第一版寫成「已建立，而且…」—— 讀起來像已經發生了，
+       * 於是使用者會以為不必再按那個按鈕。
+       */
+      createdNotice: '建立之後它就是「已確認」，不需要引文 —— 出處就是你。',
     },
 
     tier: {

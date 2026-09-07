@@ -13,7 +13,9 @@
 >
 > **Stage 7 新增**：`/subgraph`、`/subgraph/size`、**`/subgraph/focus`**。
 >
-> **還不存在**：關聯與裁決（Stage 8）、provider 與擴展的 `/runs` 那一組（Stage 9）、
+> **Stage 8 新增**：`/edges/:edgeId`、`POST /edges`、`/edges/:edgeId/transition`、`/queue`。
+>
+> **還不存在**：provider 與擴展的 `/runs` 那一組（Stage 9）、
 > 點註（Stage 10）、匯出（Stage 11）、檢索（Stage 12）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
@@ -177,10 +179,26 @@
 
 | 端點 | 說明 |
 |---|---|
-| `GET …/edges/:edgeId` | 含引文、獨立來源數、可信度等級與構成事實、校準比例 |
+| `GET …/edges/:edgeId` | 含引文、獨立來源數、可信度等級與構成事實、校準比例、裁決歷史 |
 | `POST …/edges` | **手動建立。一建立就是 `已確認` ＋ `origin='human'`** |
-| `POST …/edges/:edgeId/transition` | `{action}`：`confirm`／`reject`／`withdraw`／`restore`。**六條轉移都走這一個端點**，不在轉移表上的組合回 `GRAPH_TRANSITION_INVALID` |
+| `POST …/edges/:edgeId/transition` | `{action}`：`confirm`／`reject`／`withdraw`／`reclassify`／`restore`。**六條轉移都走這一個端點**，不在轉移表上的組合回 `GRAPH_TRANSITION_INVALID` |
 | `GET …/queue` | 裁決佇列。**只有 `layer='named'` 的邊會出現在這裡** |
+
+> **五個動詞，六條轉移** —— `reclassify` 是雙向的（已確認→已否決、已否決→已確認），
+> 從哪一邊出發由目前的狀態決定。2026-09-06 寫這張表時漏了它，
+> 而那一格旁邊就寫著「六條轉移都走這一個端點」——
+> **一張自己跟自己矛盾的表**，2026-09-08 動手接端點時才發現。
+
+> **沒有「機器提出一條邊」的端點，而那是刻意的。**
+> 那條路只有擴展作業走得到（Stage 9），而擴展是從 `POST …/runs` 進來的。
+> 開一個公開的寫入端點，等於給了一條**繞過墓碑檢查與出處要求**的路。
+
+**`GET …/edges/:edgeId` 回的東西裡有一個 `fields`**，說明這條邊的面板上
+哪幾欄有意義（狀態／可信度／構成事實／裁決）。
+理由是有些欄位在某些列上**永遠是同一個值** —— `status` 對機器建的非 `named` 邊
+永遠是 `pending`，`confidence` 對人建的邊永遠是 1（那個 1 是為了線寬，不是量出來的）。
+**顯示一個結構性的值，會讓它看起來像測量結果。**
+規則在 `domain/graph/render-rules.ts`，不在元件裡。
 
 ### 擴展作業
 

@@ -243,6 +243,94 @@ export interface HopCounts {
   overBudget: string[];
 }
 
+// ── 關聯與裁決（Stage 8）────────────────────────────────────
+
+/** 六條轉移的動作名稱。**改判是雙向的，所以只有五個動詞。** */
+export type EdgeAction = 'confirm' | 'reject' | 'withdraw' | 'reclassify' | 'restore';
+
+export interface EvidenceView {
+  id: string;
+  itemId: string;
+  /** **面板上不出現 id** —— 使用者不認得它 */
+  itemTitle: string;
+  quote: string;
+  charStart: number;
+  charEnd: number;
+  createdAt: number;
+}
+
+export interface AuditView {
+  fromStatus: string;
+  toStatus: string;
+  action: string;
+  /** `machine` 只有一種情形：墓碑例外讓一條否決過的邊復活（ADR-0016）*/
+  actor: 'human' | 'machine';
+  at: number;
+}
+
+export type Calibration =
+  | { kind: 'insufficient-sample'; sampleSize: number }
+  | { kind: 'ok'; sampleSize: number; confirmedRate: number; rejectedRate: number };
+
+export interface EdgeDetail {
+  id: string;
+  layer: EdgeLayer;
+  rel: string;
+  source: string;
+  sourceTitle: string;
+  target: string;
+  targetTitle: string;
+  status: EdgeStatus;
+  origin: 'machine' | 'human';
+  tier: ConfidenceTier;
+  evidenceCount: number;
+  independentSourceCount: number;
+  hasDirectQuote: boolean;
+  previouslyRejected: boolean;
+  createdAt: number;
+  evidence: EvidenceView[];
+  audit: AuditView[];
+  /** 現在按得下去的動作。**空陣列代表這條邊不進裁決** */
+  actions: EdgeAction[];
+  adjudicable: boolean;
+  /**
+   * 面板上哪幾欄有意義。**規則在 `domain/graph/render-rules.ts`，不在元件裡** ——
+   * 有些欄位在某些列上永遠是同一個值（`status` 永遠 `pending`、
+   * 人建的邊的 `confidence` 永遠是 1），顯示它們會讓結構性的值
+   * 看起來像測量結果。
+   */
+  fields: {
+    status: boolean;
+    tier: boolean;
+    evidenceFacts: boolean;
+    adjudication: boolean;
+  };
+  /** 「確認」按不下去，因為它是機器建的而且一筆出處都沒有 */
+  confirmNeedsEvidence: boolean;
+  calibration: Calibration;
+}
+
+export interface QueueEntry {
+  id: string;
+  rel: string;
+  source: string;
+  sourceTitle: string;
+  target: string;
+  targetTitle: string;
+  tier: ConfidenceTier;
+  previouslyRejected: boolean;
+}
+
+/**
+ * **佇列不帶校準比例，而那是刻意的。**
+ * 校準比例是分段的（ADR-0017：段 ＝ `rel` × 可信度等級），
+ * 所以它只在「某一條邊」的脈絡下有意義 —— 它在 `EdgeDetail` 裡。
+ */
+export interface QueuePayload {
+  total: number;
+  entries: QueueEntry[];
+}
+
 const enc = encodeURIComponent;
 
 export const api = {
@@ -335,4 +423,32 @@ export const api = {
     request<HopCounts>(
       `/api/cases/${enc(slug)}/subgraph/size?${new URLSearchParams(query).toString()}`,
     ),
+
+  // ── 關聯與裁決 ──────────────────────────────────────────
+  //
+  // **沒有「機器提出一條邊」的函式。** 那條路只有擴展作業走得到（Stage 9），
+  // 而它在伺服器端 —— 前端能呼叫的話，墓碑與出處要求就有一條繞道。
+
+  edge: (slug: string, edgeId: string) =>
+    request<EdgeDetail>(`/api/cases/${enc(slug)}/edges/${enc(edgeId)}`),
+
+  /** **一建立就是「已確認」＋ `origin=human`。** 出處就是那個人。 */
+  createEdge: (
+    slug: string,
+    body: { source: string; target: string; rel: string; layer?: string },
+  ) =>
+    request<EdgeDetail>(`/api/cases/${enc(slug)}/edges`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  /** **六條轉移都走這一支。** */
+  transitionEdge: (slug: string, edgeId: string, action: EdgeAction) =>
+    request<EdgeDetail>(`/api/cases/${enc(slug)}/edges/${enc(edgeId)}/transition`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+
+  /** 還在等人判斷的。**只有具名關係。** */
+  queue: (slug: string) => request<QueuePayload>(`/api/cases/${enc(slug)}/queue`),
 };

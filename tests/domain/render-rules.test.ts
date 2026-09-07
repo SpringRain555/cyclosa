@@ -14,6 +14,7 @@ import {
   edgeDrawingFor,
   edgeDrawingOf,
   edgeLineFor,
+  edgePanelFieldsFor,
   emphasisFor,
   NEIGHBOUR_OPACITY,
   nodeGlyphFor,
@@ -180,5 +181,68 @@ describe('投影與畫法是同一個決定的兩面', () => {
   it('只有展開那一段才是節點', () => {
     expect(drawsAsNode('node')).toBe(true);
     expect(drawsAsNode('edge')).toBe(false);
+  });
+});
+
+/**
+ * 面板上哪幾欄有意義。
+ *
+ * **這一段是 2026-09-08 人工驗收照出來的兩個錯的固化。**
+ * 兩個都不是「算錯」而是「顯示了一個結構性的值」——
+ * 而 345 個測試沒有一個抓得到，因為資料全部是對的。
+ */
+describe('關聯面板上哪幾欄有意義', () => {
+  it('機器抽的具名關係：四樣都有 —— 它就是要給人判斷的那一種', () => {
+    expect(edgePanelFieldsFor({ layer: 'named', origin: 'machine' })).toEqual({
+      status: true,
+      tier: true,
+      evidenceFacts: true,
+      adjudication: true,
+    });
+  });
+
+  it.each(['comention', 'similarity', 'derived'] as const)(
+    '機器建的 %s：四樣都沒有 —— 沒有判斷可做，那四樣就都是雜訊',
+    (layer) => {
+      expect(edgePanelFieldsFor({ layer, origin: 'machine' })).toEqual({
+        status: false,
+        tier: false,
+        evidenceFacts: false,
+        adjudication: false,
+      });
+    },
+  );
+
+  /**
+   * **`status` 在那些列上永遠是 `pending`**（migration 003 逼的）。
+   * 顯示它的話，標題旁邊會寫著「待查證」而正下方寫著「沒有確認與否決」——
+   * 同一屏上兩句話互相矛盾，而那正是第一版的樣子。
+   */
+  it('狀態不顯示在裁決不動的邊上 —— 否則同一屏會自相矛盾', () => {
+    expect(edgePanelFieldsFor({ layer: 'comention', origin: 'machine' }).status).toBe(false);
+  });
+
+  /**
+   * 人建的邊 `confidence` 存的是 1，**那是為了線寬，不是量出來的**。
+   * 顯示成「可信度：強」會讓它看起來像有東西評估過它。
+   */
+  it('人建的邊：可以裁決（建錯要拿得掉），但沒有可信度也沒有構成事實', () => {
+    for (const layer of EDGE_LAYERS) {
+      const fields = edgePanelFieldsFor({ layer, origin: 'human' });
+      expect(fields.adjudication).toBe(true);
+      expect(fields.status).toBe(true);
+      expect(fields.tier).toBe(false);
+      expect(fields.evidenceFacts).toBe(false);
+    }
+  });
+
+  /**
+   * **構成事實與校準比例回答的是「機器提的這條憑什麼」。**
+   * 對一條你自己連的邊，「出處 0 筆 · 沒有直接引文」讀起來像它很弱，
+   * 而在這個工具的模型裡，人親手連的線是最強的那一種。
+   */
+  it('構成事實只出現在機器抽的邊上', () => {
+    expect(edgePanelFieldsFor({ layer: 'named', origin: 'human' }).evidenceFacts).toBe(false);
+    expect(edgePanelFieldsFor({ layer: 'named', origin: 'machine' }).evidenceFacts).toBe(true);
   });
 });

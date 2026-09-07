@@ -174,6 +174,9 @@ function makeEdgeObject(edge: EdgeDatum): Object3D {
     opacity: emphasisFor(2, props.selectedId !== null),
     radius: radiusOf(edge),
     boxColor: token('--node-entity'),
+    // 已否決在線中點打叉。**顏色之外的第二重編碼**（ADR-0018 規則 2）——
+    // 少了它，已否決跟已確認只差一階灰，而那一階灰的意思是遠近
+    crossed: edge.crossed,
   });
   const shaft = group.children.find((child) => child.name === 'shaft');
   if (shaft !== undefined) edgeShafts.push({ shaft, color, ...idsOf(edge) });

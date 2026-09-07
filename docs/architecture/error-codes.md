@@ -113,7 +113,12 @@
 | `GRAPH_HUMAN_ROW_IMMUTABLE` | error | **有東西試圖修改 `origin='human'` 的列** | 這是程式的 bug，不是使用者的操作問題。把 `correlation_id` 交出來 |
 | `GRAPH_TOMBSTONED` | **notice** | 機器想提出一條被否決過的關聯 | **它不會進佇列。** 若它帶著新出處，會以「曾被否決」的標記進待查證（ADR-0016）|
 | `GRAPH_TRANSITION_INVALID` | error | 不在轉移表上的狀態變更 | 程式的 bug。把 `correlation_id` 交出來 |
+| `GRAPH_LAYER_NOT_ADJUDICABLE` | error | 想裁決一條**下次重算就會被蓋掉**的邊（機器建的共同提及／相似度／衍生）| 那三層是**算出來的結果，不是主張**，所以它們不進裁決佇列（ADR-0015）。要記錄一個判斷就手動建一條具名關係 |
 | `GRAPH_NODE_NOT_FOUND` | error | 焦點節點不存在（被刪掉了）| 回專題清單重新進來 |
+| `GRAPH_EDGE_NOT_FOUND` | error | 要裁決或查看的關聯不存在 | 重新整理這一屏。**投影出來的線（`proj:` 開頭）本來就不是資料庫裡的一列**，它沒有東西可以裁決 |
+| `GRAPH_EDGE_EXISTS` | error | 手動建立的關聯，這個（來源, 目標, 關係型別）已經有了 | 去改既有的那一條，不要建第二條。**同一個主張存兩列會讓獨立來源數重複計算** |
+| `GRAPH_AUDIT_APPEND_ONLY` | error | **有東西試圖改或刪 `edge_audit` 的列** | 這是程式的 bug。稽核紀錄只增不刪，因為校準比例是從它算出來的。把 `correlation_id` 交出來 |
+| `GRAPH_REL_EMPTY` | error | 手動建立具名關係時沒有寫關係型別 | 寫一個動詞或名詞（「收購」「任職於」）。**一條沒有名字的具名關係不是主張**，日後也篩不出來 |
 | `GRAPH_SELF_EDGE` | error | 想把一個節點連到它自己 | 選兩個不同的節點 |
 | `GRAPH_SUBGRAPH_TOO_LARGE` | error | 子圖查詢的結果超過渲染上限 | **「這個範圍太大，請縮小 hops 或加篩選」。** 工具列的跳數格會顯示每一格會帶進幾個節點 |
 | `GRAPH_SUBGRAPH_TIMEOUT` | error | 子圖查詢逾時 | 縮小 hops 或加篩選。反覆發生代表索引有問題 |

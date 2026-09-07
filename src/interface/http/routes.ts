@@ -32,10 +32,15 @@ import {
   subgraphSize,
   type SubgraphQuery,
 } from '../../application/graph-service.js';
+import { createEdge, getEdge, listQueue, transitionEdge } from '../../application/edge-service.js';
 import {
   DEFAULT_PROJECTION_THRESHOLDS,
+  EDGE_ACTIONS,
+  EDGE_LAYERS,
   normalizeFilters,
   normalizeHops,
+  type EdgeAction,
+  type EdgeLayer,
 } from '../../domain/graph/index.js';
 import type { Result } from '../../shared/result.js';
 
@@ -121,6 +126,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerIngestRoutes(app, ctx);
   registerItemRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
+  registerEdgeRoutes(app, ctx);
 }
 
 /** 資料根還沒好的時候一律回那個原因，**不是回一個空清單**（REQ-0001）。 */
@@ -309,6 +315,78 @@ function registerGraphRoutes(app: FastifyInstance, ctx: AppContext): void {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
       return send(reply, await subgraph(dataRoot, req.params.slug, parseSubgraphQuery(req.query)));
+    },
+  );
+}
+
+/**
+ * 關聯與裁決（Stage 8）。
+ *
+ * **沒有「機器提出一條邊」的端點。** 那條路只有擴展作業走得到，
+ * 而擴展是從 `POST …/runs` 進來的（Stage 9）——
+ * 開一個公開的寫入端點等於給了一條繞過墓碑與出處要求的路。
+ */
+function registerEdgeRoutes(app: FastifyInstance, ctx: AppContext): void {
+  /** 還在等人判斷的。**只有具名關係**（ADR-0015）。 */
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/queue', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listQueue(dataRoot, req.params.slug));
+  });
+
+  app.get<{ Params: { slug: string; edgeId: string } }>(
+    '/api/cases/:slug/edges/:edgeId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await getEdge(dataRoot, req.params.slug, req.params.edgeId));
+    },
+  );
+
+  app.post<{
+    Params: { slug: string };
+    Body: { source?: unknown; target?: unknown; rel?: unknown; layer?: unknown };
+  }>('/api/cases/:slug/edges', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+
+    const source = typeof req.body?.source === 'string' ? req.body.source : '';
+    const target = typeof req.body?.target === 'string' ? req.body.target : '';
+    if (source.length === 0 || target.length === 0) {
+      return reply.code(404).send({ ok: false, code: 'GRAPH_NODE_NOT_FOUND' });
+    }
+
+    /**
+     * **層預設是具名關係。** 手動連一條線的意思幾乎一定是
+     * 「我主張這兩份之間有這個關係」，而那就是 `named` 的定義。
+     * 另外三層要明講 —— 例如「這篇是那篇的轉載」就是 `derived`。
+     */
+    const raw = req.body?.layer;
+    const layer: EdgeLayer =
+      typeof raw === 'string' && (EDGE_LAYERS as readonly string[]).includes(raw)
+        ? (raw as EdgeLayer)
+        : 'named';
+    const rel = typeof req.body?.rel === 'string' ? req.body.rel : '';
+
+    return send(reply, await createEdge(dataRoot, req.params.slug, { source, target, rel, layer }));
+  });
+
+  /** **六條轉移都走這一個端點**（api-contract）。 */
+  app.post<{ Params: { slug: string; edgeId: string }; Body: { action?: unknown } }>(
+    '/api/cases/:slug/edges/:edgeId/transition',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+
+      const raw = req.body?.action;
+      if (typeof raw !== 'string' || !(EDGE_ACTIONS as readonly string[]).includes(raw)) {
+        // 連動作名稱都不認得 —— 這是請求本身壞掉，不是狀態機的問題
+        return reply.code(409).send({ ok: false, code: 'GRAPH_TRANSITION_INVALID' });
+      }
+      return send(
+        reply,
+        await transitionEdge(dataRoot, req.params.slug, req.params.edgeId, raw as EdgeAction),
+      );
     },
   );
 }

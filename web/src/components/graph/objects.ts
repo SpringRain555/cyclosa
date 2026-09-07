@@ -133,6 +133,18 @@ export interface LineSpec {
   readonly radius: number;
   /** 共同提及線中點那個方塊的顏色。其餘畫法用不到 */
   readonly boxColor?: string | undefined;
+  /**
+   * 已否決 —— **線中點打一個叉**（ADR-0018 規則 2：每個狀態都有第二重編碼）。
+   *
+   * 少了它，已否決的線跟已確認的線只差在灰色深了一階
+   * （`#6b7280` 對 `#8b93a3`）—— 那既是「只靠顏色說話」，
+   * 而且用的還是**明暗**，而明暗在這張圖上的意思是遠近。
+   *
+   * Stage 7 沒做，因為那時**沒有任何路徑可以否決一條邊**：
+   * 合成資料裡一條已否決的都沒有，圖例上那一行是空頭支票。
+   * Stage 8 一把裁決接上去，第一次按下「否決」就看得見了。
+   */
+  readonly crossed?: boolean | undefined;
 }
 
 function geometryFor(spec: LineSpec): BufferGeometry {
@@ -155,6 +167,9 @@ export function buildLine(spec: LineSpec): Group {
   shaft.name = 'shaft';
   group.add(shaft);
 
+  // 方塊與叉**互斥**：方塊只出現在共同提及線上，叉只出現在具名關係上
+  // （`edgeLineFor` 保證 `crossed` 只給 `named`）。共用 `midpoint` 這個名字，
+  // 因為 `placeLine` 對兩者要做的事完全一樣 —— 擺到線的中點。
   if (spec.drawing === 'boxed') {
     // **方塊就是那個實體** —— 它不是裝飾，是被攤平的那個節點本人
     const box = new Mesh(
@@ -163,6 +178,15 @@ export function buildLine(spec: LineSpec): Group {
     );
     box.name = 'midpoint';
     group.add(box);
+  } else if (spec.crossed === true) {
+    const cross = sprite(
+      texture('cross-edge', () => crossTexture(token('--edge-rejected'))),
+      // 節點上的叉是 1.2；線上的叉略小一點，但**不能小到要瞇眼找** ——
+      // 它是這條線唯一不靠顏色的辨識依據
+      NODE_SIZE * 1.1,
+    );
+    cross.name = 'midpoint';
+    group.add(cross);
   }
   return group;
 }

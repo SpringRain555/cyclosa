@@ -122,6 +122,90 @@ describe('約束二：origin=human 的列只能新增不能改', () => {
   });
 });
 
+/**
+ * open-questions Q6 的答案在資料庫這一半（migration 003）。
+ *
+ * **這一段守的是「那一欄不帶資訊」**：機器建的非 `named` 邊只能是 `pending`，
+ * 所以看到 `pending` 不代表有人在等你判斷 —— 那三層根本不進裁決佇列。
+ */
+describe('約束三：機器建的非 named 邊只能是待查證（Q6）', () => {
+  it.each(['comention', 'similarity', 'derived'])('%s 不能以 confirmed 插入', (layer) => {
+    expect(() => insertEdge('m1', { origin: 'machine', status: 'confirmed', layer })).toThrow(
+      /GRAPH_LAYER_NOT_ADJUDICABLE/,
+    );
+  });
+
+  it.each(['comention', 'similarity', 'derived'])('%s 不能被改成 rejected', (layer) => {
+    insertEdge('m1', { origin: 'machine', status: 'pending', layer });
+    expect(() => db.prepare(`UPDATE edge SET status='rejected' WHERE id='m1'`).run()).toThrow(
+      /GRAPH_LAYER_NOT_ADJUDICABLE/,
+    );
+  });
+
+  it('**但人手動建的轉載可以是已確認** —— 規則裡有 origin，不只有 layer', () => {
+    expect(() =>
+      insertEdge('h-derived', { origin: 'human', status: 'confirmed', layer: 'derived' }),
+    ).not.toThrow();
+  });
+
+  it('人建的非 named 邊也撤回得動 —— 重算永遠不碰人建的列，所以沒有東西會蓋掉它', () => {
+    insertEdge('h-derived', { origin: 'human', status: 'confirmed', layer: 'derived' });
+    expect(() =>
+      db
+        .prepare(`UPDATE edge SET status='pending', updated_at=? WHERE id='h-derived'`)
+        .run(NOW + 1),
+    ).not.toThrow();
+  });
+
+  it('機器建的具名關係不受這一條影響 —— 它本來就是要給人裁決的', () => {
+    insertEdge('m-named', { origin: 'machine', status: 'pending', layer: 'named' });
+    expect(() =>
+      db.prepare(`UPDATE edge SET status='rejected' WHERE id='m-named'`).run(),
+    ).not.toThrow();
+  });
+});
+
+/**
+ * 稽核紀錄只增不刪（ADR-0016）。
+ *
+ * **校準比例是從它算出來的** —— 一列被改掉的紀錄會讓那個百分比
+ * 安靜地變成另一個數字，而使用者沒有任何辦法發現。
+ */
+describe('約束四：edge_audit 只增不刪', () => {
+  beforeEach(() => {
+    insertEdge('a1', { origin: 'machine', status: 'pending' });
+    db.prepare(
+      `INSERT INTO edge_audit (id, edge_id, from_status, to_status, action, actor, at)
+       VALUES ('au1','a1','pending','rejected','reject','human',?)`,
+    ).run(NOW);
+  });
+
+  it('改一列會被擋下來', () => {
+    expect(() =>
+      db.prepare(`UPDATE edge_audit SET to_status='confirmed' WHERE id='au1'`).run(),
+    ).toThrow(/GRAPH_AUDIT_APPEND_ONLY/);
+  });
+
+  it('單獨刪一列會被擋下來', () => {
+    expect(() => db.prepare(`DELETE FROM edge_audit WHERE id='au1'`).run()).toThrow(
+      /GRAPH_AUDIT_APPEND_ONLY/,
+    );
+  });
+
+  /**
+   * **這一條是那個 trigger 的 `WHEN` 子句存在的理由。**
+   * 邊被刪掉時 `ON DELETE CASCADE` 會連帶刪它的稽核紀錄，
+   * 而那不是竄改 —— 沒有這個例外，一條邊就永遠刪不掉了。
+   */
+  it('但邊自己被刪掉時，連帶刪掉的稽核紀錄不算竄改', () => {
+    expect(() => db.prepare(`DELETE FROM edge WHERE id='a1'`).run()).not.toThrow();
+    const n = db.prepare(`SELECT COUNT(*) n FROM edge_audit WHERE edge_id='a1'`).get() as {
+      n: number;
+    };
+    expect(n.n).toBe(0);
+  });
+});
+
 describe('其他 schema 層的約束', () => {
   it('不能把一個節點連到它自己', () => {
     expect(() =>

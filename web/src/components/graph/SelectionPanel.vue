@@ -7,24 +7,66 @@
  *
  * 可信度那一段照 ADR-0017 的三件事一起出現：
  * **等級（不給小數）＋ 構成事實攤開 ＋ 校準比例**。
- * 校準比例要 30 條以上的樣本才顯示 —— 這一版還沒有裁決紀錄，
- * 所以它固定顯示「樣本不足」，**而那句話是誠實的**。
+ *
+ * ## 裁決的入口在這裡，但裁決本身在 `EdgePanel`
+ *
+ * 在 3D 空間裡點中一條線，比點中一個節點難得多 ——
+ * 而裁決是這個工具最不該點錯的動作。所以流程是
+ * **先選一個節點，再從它的關聯清單裡挑一條**（ADR-0007：精確操作在右側欄）。
  */
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 
-import type { SubgraphEdge, SubgraphNode } from '../../api';
+import type { EdgeLayer, SubgraphEdge, SubgraphNode } from '../../api';
 import { fill, t } from '../../i18n/zh-TW';
 
 const props = defineProps<{
   node: SubgraphNode | null;
   edges: SubgraphEdge[];
   nodes: SubgraphNode[];
+  /** 正在拉一條線的起點。**不是 null 就代表下一次點節點是在選終點** */
+  connectFrom: string | null;
 }>();
 
 const emit = defineEmits<{
   (event: 'focus', id: string): void;
   (event: 'open-reader', id: string): void;
+  (event: 'open-edge', id: string): void;
+  (event: 'start-connect', id: string): void;
+  (event: 'cancel-connect'): void;
+  (event: 'create-edge', payload: { target: string; rel: string; layer: EdgeLayer }): void;
 }>();
+
+const rel = ref('');
+const layer = ref<EdgeLayer>('named');
+
+/** 換了一個終點就把輸入清掉 —— 留著上一次打的字只會被誤送出去。 */
+watch(
+  () => props.node?.id,
+  () => {
+    rel.value = '';
+  },
+);
+
+/**
+ * 現在正在挑終點：有起點，而且選取的節點**不是**起點本身。
+ * 選回起點時不顯示表單 —— 那是「我看一下起點是誰」，不是「終點就是它」。
+ */
+const pickingTarget = computed(
+  () => props.connectFrom !== null && props.node !== null && props.node.id !== props.connectFrom,
+);
+
+const connectFromTitle = computed(() =>
+  props.connectFrom === null ? '' : titleOf(props.connectFrom),
+);
+
+/** 具名關係一定要有名字。**沒有名字的關係日後也篩不出來。** */
+const canCreate = computed(() => layer.value !== 'named' || rel.value.trim().length > 0);
+
+function submit(): void {
+  const target = props.node?.id;
+  if (target === undefined || !canCreate.value) return;
+  emit('create-edge', { target, rel: rel.value.trim(), layer: layer.value });
+}
 
 const kindLabel = computed(() => {
   const node = props.node;
@@ -90,6 +132,55 @@ function relLabel(edge: SubgraphEdge): string {
         </button>
       </div>
 
+      <!-- ── 手動連一條線 ────────────────────────────────── -->
+      <div v-if="pickingTarget" class="connect">
+        <p class="pair">
+          <span class="muted">{{ t.graph.connect.from }}</span> {{ connectFromTitle }}
+          <br />
+          <span class="muted">{{ t.graph.connect.to }}</span> {{ node.title }}
+        </p>
+
+        <label class="field">
+          <span class="muted">{{ t.graph.connect.layer }}</span>
+          <select v-model="layer">
+            <option value="named">{{ t.graph.connect.layerNamed }}</option>
+            <option value="derived">{{ t.graph.connect.layerDerived }}</option>
+          </select>
+        </label>
+
+        <label v-if="layer === 'named'" class="field">
+          <span class="muted">{{ t.graph.connect.rel }}</span>
+          <input
+            v-model="rel"
+            type="text"
+            :placeholder="t.graph.connect.relPlaceholder"
+            @keyup.enter="submit()"
+          />
+        </label>
+
+        <div class="actions">
+          <button type="button" :disabled="!canCreate" @click="submit()">
+            {{ t.graph.connect.create }}
+          </button>
+          <button type="button" @click="emit('cancel-connect')">
+            {{ t.graph.connect.cancel }}
+          </button>
+        </div>
+        <p class="hint">{{ t.graph.connect.createdNotice }}</p>
+      </div>
+
+      <div v-else-if="connectFrom !== null" class="connect">
+        <!-- **進行中的模式一定要說出來**，否則下一次點擊會做出使用者沒預期的事 -->
+        <p class="hint">{{ t.graph.connect.picking }}</p>
+        <button type="button" @click="emit('cancel-connect')">
+          {{ t.graph.connect.cancel }}
+        </button>
+      </div>
+
+      <button v-else type="button" class="wide" @click="emit('start-connect', node.id)">
+        {{ t.graph.connect.start }}
+      </button>
+
       <h3 class="section">{{ fill(t.graph.selection.edgesHere, { n: edges.length }) }}</h3>
 
       <ul class="edges">
@@ -123,10 +214,12 @@ function relLabel(edge: SubgraphEdge): string {
           </template>
 
           <p v-if="edge.synthetic" class="hint">{{ t.graph.selection.synthetic }}</p>
+          <!-- **投影出來的線沒有東西可以打開** —— 它不是資料庫裡的一列 -->
+          <button v-else type="button" class="link" @click="emit('open-edge', edge.id)">
+            {{ t.graph.selection.openEdge }}
+          </button>
         </li>
       </ul>
-
-      <p class="hint later">{{ t.graph.selection.adjudicationLater }}</p>
     </template>
   </aside>
 </template>
@@ -230,9 +323,64 @@ h2 {
   color: var(--text-muted);
   line-height: 1.5;
 }
-.later {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-subtle);
+.link {
+  padding: 0;
+  margin-top: 2px;
+  border: 0;
+  background: none;
+  color: var(--ui-action);
+  font: inherit;
+  cursor: pointer;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.wide {
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 0;
+  font-size: 12px;
+}
+.connect {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--bg-raised);
+  border-radius: 4px;
+}
+.connect .actions {
+  margin-top: 8px;
+}
+.connect .actions button {
+  font-size: 12px;
+  padding: 4px 0;
+}
+.connect .actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pair {
+  margin: 0 0 8px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.muted {
+  color: var(--text-muted);
+}
+.field {
+  display: block;
+  margin-bottom: 6px;
+}
+.field span {
+  display: block;
+  margin-bottom: 2px;
+}
+.field input,
+.field select {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+}
+.connect .hint {
+  margin-top: 6px;
 }
 </style>

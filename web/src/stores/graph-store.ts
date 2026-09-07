@@ -1,7 +1,16 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
-import { api, type ApiError, type ConfidenceTier, type EdgeLayer, type Subgraph } from '../api';
+import {
+  api,
+  type ApiError,
+  type ConfidenceTier,
+  type EdgeAction,
+  type EdgeDetail,
+  type EdgeLayer,
+  type QueuePayload,
+  type Subgraph,
+} from '../api';
 
 /**
  * 關聯圖這一頁的狀態。
@@ -36,6 +45,30 @@ export const useGraphStore = defineStore('graph', () => {
   const error = ref<ApiError | null>(null);
   /** 專題是空的 —— **這不是錯誤**，是還沒有東西 */
   const empty = ref(false);
+
+  // ── 裁決（Stage 8）────────────────────────────────────────
+
+  /** 選取的那一條關聯。**節點與關聯不會同時被選取** —— 右側欄只有一個 */
+  const selectedEdgeId = ref<string | null>(null);
+  const edgeDetail = ref<EdgeDetail | null>(null);
+  const edgeLoading = ref(false);
+
+  /**
+   * 裁決失敗要顯示在**面板裡**，不是把整頁換成錯誤畫面。
+   *
+   * 用 `error` 的話，按錯一個按鈕就會讓整張圖消失，
+   * 而使用者其實只是想知道「為什麼這個按鈕沒用」。
+   */
+  const actionError = ref<ApiError | null>(null);
+
+  const queue = ref<QueuePayload | null>(null);
+  const pendingCount = computed(() => queue.value?.total ?? 0);
+
+  /**
+   * 正在拉一條線：起點是哪個節點。
+   * **不是 null 就代表下一次點節點是在選終點**，而畫面要說出這件事。
+   */
+  const connectFrom = ref<string | null>(null);
 
   const nodes = computed(() => subgraph.value?.nodes ?? []);
   const edges = computed(() => subgraph.value?.edges ?? []);
@@ -78,7 +111,7 @@ export const useGraphStore = defineStore('graph', () => {
       return;
     }
     focus.value = start.data.focus;
-    await reload();
+    await Promise.all([reload(), loadQueue()]);
   }
 
   async function reload(): Promise<void> {
@@ -120,6 +153,98 @@ export const useGraphStore = defineStore('graph', () => {
 
   function select(id: string | null): void {
     selectedId.value = id;
+    // 選了節點就不再是在看某一條關聯 —— 右側欄同時只顯示一個東西
+    selectedEdgeId.value = null;
+    edgeDetail.value = null;
+    actionError.value = null;
+  }
+
+  // ── 裁決 ──────────────────────────────────────────────────
+
+  async function loadQueue(): Promise<void> {
+    if (slug.value.length === 0) return;
+    const r = await api.queue(slug.value);
+    if (r.ok) queue.value = r.data;
+  }
+
+  /**
+   * 打開一條關聯的細節。
+   *
+   * **投影出來的線（`proj:` 開頭）沒有東西可以打開** —— 它不是資料庫裡的一列。
+   * 在這裡先擋掉，而不是送出去等 404：那條請求注定失敗，
+   * 而使用者要的答案（「這條線是投影出來的」）畫面上已經寫著了。
+   */
+  async function openEdge(edgeId: string): Promise<void> {
+    if (edgeId.startsWith('proj:')) return;
+    selectedEdgeId.value = edgeId;
+    actionError.value = null;
+    edgeLoading.value = true;
+    const r = await api.edge(slug.value, edgeId);
+    edgeLoading.value = false;
+    if (r.ok) edgeDetail.value = r.data;
+    else {
+      edgeDetail.value = null;
+      actionError.value = r.error;
+    }
+  }
+
+  function closeEdge(): void {
+    selectedEdgeId.value = null;
+    edgeDetail.value = null;
+    actionError.value = null;
+  }
+
+  /**
+   * 一次裁決。成功之後**要重畫圖** —— 狀態變了，線的顏色與虛實就變了。
+   *
+   * 重畫的是整一屏而不是那一條線：前端手上沒有資料可以自己重算
+   * （獨立來源數、可信度等級、校準比例全部在伺服器端算）。
+   */
+  async function adjudicate(edgeId: string, action: EdgeAction): Promise<void> {
+    actionError.value = null;
+    const r = await api.transitionEdge(slug.value, edgeId, action);
+    if (!r.ok) {
+      actionError.value = r.error;
+      return;
+    }
+    edgeDetail.value = r.data;
+    await Promise.all([reload(), loadQueue()]);
+  }
+
+  function startConnect(from: string): void {
+    connectFrom.value = from;
+    actionError.value = null;
+  }
+
+  function cancelConnect(): void {
+    connectFrom.value = null;
+  }
+
+  /** 手動建立一條關聯。**一建立就是「已確認」＋ `origin=human`。** */
+  async function createEdge(target: string, rel: string, layer: EdgeLayer): Promise<boolean> {
+    const from = connectFrom.value;
+    if (from === null) return false;
+    actionError.value = null;
+
+    const r = await api.createEdge(slug.value, { source: from, target, rel, layer });
+    if (!r.ok) {
+      actionError.value = r.error;
+      return false;
+    }
+    connectFrom.value = null;
+    edgeDetail.value = r.data;
+    selectedEdgeId.value = r.data.id;
+    await Promise.all([reload(), loadQueue()]);
+    return true;
+  }
+
+  /** 跳到佇列裡的下一條：把焦點移到它的來源，並打開它。 */
+  async function focusNextPending(): Promise<void> {
+    const next = queue.value?.entries[0];
+    if (next === undefined) return;
+    selectedId.value = next.source;
+    await setFocus(next.source);
+    await openEdge(next.id);
   }
 
   return {
@@ -150,5 +275,22 @@ export const useGraphStore = defineStore('graph', () => {
     setFocus,
     setHops,
     select,
+
+    // 裁決（Stage 8）
+    selectedEdgeId,
+    edgeDetail,
+    edgeLoading,
+    actionError,
+    queue,
+    pendingCount,
+    connectFrom,
+    loadQueue,
+    openEdge,
+    closeEdge,
+    adjudicate,
+    startConnect,
+    cancelConnect,
+    createEdge,
+    focusNextPending,
   };
 });

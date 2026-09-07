@@ -6,7 +6,7 @@
  *
  * ⚠️ 零依賴（ADR-0014）：這個檔案不 import 任何東西。
  */
-import type { EdgeOrigin, EdgeStatus } from './types.js';
+import type { EdgeLayer, EdgeOrigin, EdgeStatus } from './types.js';
 
 /**
  * 六個動作。**沒有一個的執行者是機器。**
@@ -103,4 +103,29 @@ export function actionsFrom(from: EdgeStatus): readonly EdgeAction[] {
 export function machineMayUpdateStatus(current: EdgeStatus, everAdjudicated: boolean): boolean {
   if (everAdjudicated) return false;
   return current === 'pending';
+}
+
+/**
+ * 這條邊裁決得動嗎 —— **open-questions Q6 的答案**（2026-09-08，Stage 8）。
+ *
+ * ## 判準不是層別，是「它會不會被重算蓋掉」
+ *
+ * 直覺的規則是「只有 `named` 能裁決」，因為只有那一層進裁決佇列（ADR-0015）。
+ * **但那條規則的理由不是層別本身**：另外三層是可重算的計算結果
+ * （`isRecomputable`），而**在一個下次重算就會被蓋掉的東西上按「已確認」，
+ * 比不給按更糟** —— 使用者的判斷會安靜地消失，
+ * 而那正是狀態機規則 1 要擋的那件事。
+ *
+ * 那個理由對 `origin='human'` 的列**不成立**：重算永遠不碰人建的列
+ * （規則 1 ＋ `trg_edge_human_row_immutable`），所以一條人手動建的「轉載」
+ * 沒有任何東西會蓋掉它，撤回得動也應該撤回得動 ——
+ * 否則人建錯一條就再也拿不掉（api-contract 沒有刪除端點）。
+ *
+ * 所以規則裡有 `origin`，正如 Q6 自己預料的那樣。
+ */
+export function mayAdjudicate(input: {
+  readonly layer: EdgeLayer;
+  readonly origin: EdgeOrigin;
+}): boolean {
+  return input.layer === 'named' || input.origin === 'human';
 }

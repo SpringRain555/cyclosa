@@ -16,9 +16,11 @@
 import { computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import type { EdgeLayer } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import { useGraphStore } from '../stores/graph-store';
 import ErrorPanel from '../components/ErrorPanel.vue';
+import EdgePanel from '../components/graph/EdgePanel.vue';
 import GraphLegend from '../components/graph/GraphLegend.vue';
 import GraphView from '../components/graph/GraphView.vue';
 import SelectionPanel from '../components/graph/SelectionPanel.vue';
@@ -66,6 +68,10 @@ watch(
 function openInReader(itemId: string): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(itemId)}`);
 }
+
+function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }): void {
+  void store.createEdge(payload.target, payload.rel, payload.layer);
+}
 </script>
 
 <template>
@@ -101,6 +107,18 @@ function openInReader(itemId: string): void {
 
         <button type="button" @click="store.reload()">{{ t.graph.toolbar.relayout }}</button>
 
+        <!--
+          裁決佇列**沒有自己的畫面** —— 頂列只有三個分頁（ui-workflows），
+          而多開一個分頁只為了顯示一個數字並不划算。
+          它在這裡：數字 ＋ 一個「跳到下一條」。
+        -->
+        <span v-if="store.pendingCount > 0" class="queue">
+          <span class="pending">{{ fill(t.graph.queue.pending, { n: store.pendingCount }) }}</span>
+          <button type="button" @click="store.focusNextPending()">
+            {{ t.graph.queue.next }}
+          </button>
+        </span>
+
         <span class="spacer"></span>
 
         <span v-if="store.loading" class="hint">{{ t.graph.loading }}</span>
@@ -115,6 +133,18 @@ function openInReader(itemId: string): void {
       </div>
 
       <p v-if="hasNoEdges" class="notice">{{ t.graph.noEdges }}</p>
+
+      <!--
+        裁決或建立關聯失敗。**一條，兩種情況共用。**
+        各自放在自己的面板裡的話，建立失敗的訊息會落在一個
+        當下沒有掛載的元件裡 —— 於是完全看不見。
+
+        **它不會把整張圖換掉**（那是 `store.error` 的事）——
+        按錯一個按鈕不該讓使用者失去正在看的東西。
+      -->
+      <div v-if="store.actionError !== null" class="action-error">
+        <ErrorPanel :error="store.actionError" />
+      </div>
 
       <div class="body">
         <GraphLegend
@@ -139,12 +169,30 @@ function openInReader(itemId: string): void {
           />
         </div>
 
+        <!--
+          右側欄同時只顯示一個東西：**一個節點，或一條關聯。**
+          兩個並排的話 296px 會塞不下引文，而引文正是裁決要看的東西。
+        -->
+        <EdgePanel
+          v-if="store.selectedEdgeId !== null"
+          :detail="store.edgeDetail"
+          :loading="store.edgeLoading"
+          @act="store.adjudicate(store.selectedEdgeId, $event)"
+          @focus="store.setFocus($event)"
+          @close="store.closeEdge()"
+        />
         <SelectionPanel
+          v-else
           :node="store.selected"
           :edges="store.selectedEdges"
           :nodes="store.nodes"
+          :connect-from="store.connectFrom"
           @focus="store.setFocus($event)"
           @open-reader="openInReader"
+          @open-edge="store.openEdge($event)"
+          @start-connect="store.startConnect($event)"
+          @cancel-connect="store.cancelConnect()"
+          @create-edge="createEdge"
         />
       </div>
     </template>
@@ -221,6 +269,20 @@ button.on {
   border-bottom: 1px solid var(--line-subtle);
   color: var(--text-tertiary);
   font-size: 12px;
+}
+.action-error {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line-subtle);
+}
+.queue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+/* 琥珀 ＝ 等你裁決（ADR-0018）。**那個顏色只有這一個意思** */
+.pending {
+  color: var(--edge-pending);
 }
 .body {
   display: flex;

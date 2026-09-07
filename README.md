@@ -14,10 +14,11 @@
 
 ---
 
-## ⚠️ 現況：只有文件，一行程式都還沒有
+## ⚠️ 現況：文件齊了，一行程式還是沒有
 
-2026-09-05 建立。這個 repo 目前**只有治理檔與文件** —— 沒有 `package.json`、
-沒有 `src/`、沒有任何跑得起來的東西。
+2026-09-05 建立。**文件在 2026-09-06 補完** —— 20 份 ADR、8 份 REQ、10 份架構文件、
+帶來源雜湊的市場調查。但這個 repo 仍然**沒有 `package.json`、沒有 `src/`、
+沒有任何跑得起來的東西**。
 
 **下面「怎麼跑起來」是空的，而那是誠實不是遺漏。**
 在第一行程式寫出來之前，這份 README 不會用現在式描述任何指令。
@@ -29,6 +30,11 @@
 
 規劃中的技術棧：Node 24 ＋ Fastify ＋ Vue 3 ＋ three.js ＋ 內建 `node:sqlite`。
 沒有 conda、沒有 Python、沒有原生模組 —— 一鍵啟動只依賴 Node。
+
+擴展與語意檢索會用到兩個**外部**的東西（都不是 npm 套件）：
+`claude` CLI 當 agent、本機 Ollama ＋ `bge-m3` 當 chat 與 embed。
+**兩個都可以沒有** —— 沒有的話那些功能會明確報「能力不足」並停手，
+其餘照常（全文檢索是純 SQLite，完全不需要模型）。
 
 ## 資料放哪
 
@@ -54,13 +60,21 @@
   特別是**資料邊界**與**五條不可違反的規則**。
 - **想了解有哪些文件、哪一份管哪件事** → `docs/index.md`
 - **踩到坑之前** → `docs/lessons.md`（append-only 的失敗紀錄，先掃標題）
+- **要命名一個東西之前** → `docs/architecture/glossary.md` 的「**不可以叫什麼**」
+- **想知道為什麼不是抄現成的** → `docs/research/market-scan.md`
+  （七個賽道**怎麼解同一個問題**，每條標了借的是概念還是程式碼）
 
 ## 授權
 
 **MIT。** 見 `LICENSE`。
 
-> 市場調查裡有幾個 **AGPL-3.0** 的專案（Datashare、SingleFile、Karakeep、Zotero）——
-> **只讀概念，一行程式碼都不抄、也不當依賴。** 每條判讀都要標明「借的是概念還是程式碼」。
+> 市場調查裡有幾個 **AGPL-3.0** 的專案（Datashare、SingleFile、Karakeep、
+> Linkwarden、Zotero）—— **只讀概念，一行程式碼都不抄、也不當依賴。**
+> 每條判讀都要標明「借的是概念還是程式碼」。
+>
+> 授權是 2026-09-06 逐一實查的（`docs/research/query-log.md`）。
+> **不能只信 GitHub API 的 `license` 欄** —— Zotero 就是反例，它回 `NOASSERTION`，
+> 要開 `COPYING` 才看得到 AGPLv3。
 
 ---
 

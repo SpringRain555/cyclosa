@@ -5,6 +5,10 @@
 
 > **現況：設計，尚未實作。** 沒有 migration、沒有資料庫、沒有 schema 版本。
 > 下面的欄位名是**規劃**，第一次寫 migration 時要回來把這份改成現況。
+>
+> **2026-09-06 大改**：`edge.layer`、`edge_audit`、`item.read_at`、墓碑索引、
+> 向量的 `model`／`dim`、投影三段 —— 全部來自 2026-09-05 的設計稿與這次的市場調查，
+> 之前一條都沒有。
 
 ---
 
@@ -14,39 +18,89 @@
 erDiagram
   ITEM ||--o{ EDGE : "來源／目標"
   ENTITY ||--o{ EDGE : "來源／目標"
-  EDGE ||--|{ EDGE_EVIDENCE : "必須至少一筆，否則只能是「待查證」"
+  EDGE ||--|{ EDGE_EVIDENCE : "named 層必須至少一筆"
+  EDGE ||--o{ EDGE_AUDIT : "每次狀態轉換一列"
   ITEM ||--o{ EDGE_EVIDENCE : "引文出自"
   ITEM ||--o{ NOTE : "點註錨定於（釘在不可變的 snapshot）"
   RUN ||--o{ EDGE : "由哪一次擴展新增"
   RUN ||--o{ ITEM : "由哪一次擴展帶入"
 
-  ITEM { text kind "web|pdf|image|text|paper|note" text lang text sha256 text status }
+  ITEM { text kind "web|pdf|image|text|paper|note" text lang text sha256 text status int read_at }
   ENTITY { text type "person|org|place|event|work|concept" text name_zh text aliases_json text wikidata_qid }
-  EDGE { text rel text origin "machine|human" real confidence text status }
+  EDGE { text layer "derived|named|comention|similarity" text rel text origin "machine|human" real confidence text status }
   EDGE_EVIDENCE { text quote int char_start int char_end }
+  EDGE_AUDIT { text from_status text to_status text actor int at }
 ```
 
 ## 為什麼是「雙層」而不是把實體畫在線上
 
 一個被 *n* 份文件提到的實體，**當節點**要 *n* 條邊，**當邊上的標籤**要
-*n(n−1)/2* 條邊。**交叉點在 n=3**：三份文件以上的共同實體，畫成節點反而比較少線。
+*n(n−1)/2* 條邊（那 *n* 份兩兩相連）。**交叉點在 n=3**。
 
-所以：**儲存永遠是雙層（bipartite）**，而「要不要把實體攤平成文件之間的連線」
-是**每一個畫面各自算的投影**，預設門檻 3。這是顯示層的決定，不進資料庫。
+設計稿實際模擬過 **500 篇／250 個實體／每篇 5 個**：
+
+| | 線數 |
+|---|---|
+| 全部當節點 | **2,500** |
+| 全部標在線上 | **33,949** ← 13.6 倍 |
+
+還有一件更根本的：*n* 份共用一個實體，畫成線是一個 *n* 點的完全圖 ——
+**那麼多條線只帶 1 bit 的資訊**（「這 n 篇共用 X」）。當成一個節點，
+同樣 1 bit 只花 *n* 條線，**而且看得出來共用的是「誰」**。
+
+**所以儲存永遠是雙層（bipartite）**，投影只在當下這一屏算 ——
+資料庫不會被平方級的邊撐爆。
+
+### 投影分三段，門檻都可調、都不進資料庫
+
+| 被幾份文件提到 | 怎麼畫 |
+|---|---|
+| **1 份** | **純屬性，根本不畫** —— 一個只出現過一次的實體對圖沒有貢獻，它只是那份文件的屬性 |
+| **≤2 份** | **投影成線**，線中點放一個方塊，方塊就是那個實體（`layer='comention'`）|
+| **≥3 份** | **展開成空心節點** |
+
+**這三個門檻是顯示層的決定，改它們不需要 migration。**
+`open-questions.md` Q1 記著「門檻 3 是算出來的但沒實測過」——
+做成可調正是回答那個問題的方式。
 
 ## 表
 
 | 表 | 存什麼 | 關鍵約束 |
 |---|---|---|
 | `case` | 專題本身 | 一個專題一個 SQLite 檔，這張表在檔內只有一列 |
-| `item` | 資料節點 | `sha256` 對應不可變的 snapshot；`status` 見狀態機 |
+| `item` | 資料節點 | `sha256` 對應不可變的 snapshot；`status` 見狀態機；`read_at` 是正交旗標 |
 | `entity` | 實體節點 | `aliases_json` 存 `[{name, lang, script}]`；`wikidata_qid` 選填 |
-| `edge` | 關聯 | `origin`（`machine`／`human`）與 `status` **分開存** |
+| `edge` | 關聯 | `layer` 決定它走不走裁決；`origin` 與 `status` **分開存** |
 | `edge_evidence` | 引文 | `quote` ＋ `char_start` ＋ `char_end`，指向某個 `item` |
+| **`edge_audit`** | **狀態轉換的稽核** | **只增不刪**。校準比例的資料來源 |
 | `note` | 筆記與點註 | 錨點用 W3C 選擇器，**釘在 snapshot 上** |
 | `run` | 一次擴展作業 | 每個新增的 `item`／`edge` 都記得自己來自哪一次 |
+| `vector` | 向量 | **必記 `model` ＋ `dim`** —— 見下面 |
+| `bigram` | 中文檢索索引 | 應用層自建，見下面 |
 
-## 四個會被違反的約束
+## 關聯分四層（ADR-0015）
+
+`edge.layer` 的四個值決定它**要不要人裁決**與**怎麼畫**：
+
+| `layer` | 是什麼 | 進裁決佇列 | 產生方式 |
+|---|---|:--:|---|
+| `derived` | 轉載、翻譯、鏡像 | **否** | 機器可驗（雜湊／URL／重疊率），**可重算** |
+| `named` | 世界上的主張 | **是** | LLM 抽取，要引文 |
+| `comention` | 實體投影出來的線 | 否 | 投影，**可重算** |
+| `similarity` | 算出來的分數 | 否 | 向量比對，**可重算** |
+
+**只有 `named` 走 `state-machines.md` 的那個狀態機。** 另外三層是計算結果 ——
+把可驗證的東西送去人工裁決，會讓人開始不看內容就按確認。
+
+### 獨立來源數：即時算，不存
+
+把一條邊的 `edge_evidence` 依「它們的 `item` 之間有沒有 `derived` 關係」分群，
+**每一群算一個獨立來源**。UI 顯示「出處 5 筆 · 2 個獨立來源」。
+
+**不存起來**：它會隨新的 `derived` 邊出現而改變，
+**存起來的那一刻就開始過期，而過期的可信度比沒有可信度糟**。
+
+## 六個會被違反的約束
 
 1. **`edge.status='已確認'` 需要至少一筆 `edge_evidence`**，除非 `origin='human'`。
    由資料庫層守，不是靠 UI 記得。
@@ -54,6 +108,31 @@ erDiagram
 3. **`item.sha256` 對應的 snapshot 不可變。** 重跑抽取產生的是新的衍生物，
    不動 snapshot —— 所以點註不會因為抽取演算法改版而漂掉。
 4. **`item.lang` 偵測不出來記 `und`，不猜。**
+5. **墓碑**：`(source, target, rel)` 被否決過的組合，機器不得再提為 `待查證`
+   （例外見 ADR-0016）。**需要 `(source, target, rel)` 的索引** ——
+   這是擴展寫入路徑上每一條候選邊都要查一次的東西。
+6. **向量的 `model` 不符就拒絕比對**，不是回一個看起來正常的數字。見下面。
+
+## 向量：BLOB ＋ 純 JS 比對，但必須記住是誰產的
+
+第一版用 BLOB 存向量、`Float32Array` 純 JS 暴力比對。**超過 5 萬筆才重新評估**
+（ADR-0009；理由是 `sqlite-vec` 是原生擴充，與「零原生模組、一鍵啟動」衝突）。
+
+**`vector` 表必須有 `model`、`dim`、`created_at` 三欄，而且查詢時模型不符要拒絕。**
+
+> ### 為什麼這一條是硬約束
+>
+> LightRAG 的文件明寫（2026-09-06 實查，A 級）：嵌入模型**一旦選定就不能換**，
+> 換了要把所有東西重新算一遍。
+>
+> 而危險的地方在於**它不會報錯** —— 兩個不同模型產生的向量，
+> 餘弦相似度**照樣算得出一個數字**。使用者看到的是「搜尋結果變爛了」，
+> 不是「模型換了，舊向量作廢」。
+>
+> **這是一個靜默失效，而這個專案對靜默失效的立場很明確**（見 `lessons.md`）。
+> 所以：記下 `model` 與 `dim`，不符就**報錯**，並告訴使用者要重算。
+>
+> 第一版的模型是 **`bge-m3`（1024 維）**，走本機 Ollama。
 
 ## 中文檢索：自建 bigram，不用 FTS5 的 `trigram`
 
@@ -62,12 +141,8 @@ erDiagram
 
 那是 `trigram` 的設計（少於 3 個 unicode 字元不 match），不是 bug ——
 但中文查詢多半是 2 字詞（「疫情」「台積」）。**所以中文走應用層自建的 bigram 索引**，
-拉丁／西里爾等走 FTS5 `unicode61`，依 `item.lang` 選路。
-
-## 向量：第一版不引 `sqlite-vec`
-
-BLOB 存向量、`Float32Array` 純 JS 暴力比對。**超過 5 萬筆才重新評估。**
-理由是 `sqlite-vec` 是原生擴充，與「零原生模組、一鍵啟動」衝突。
+拉丁／西里爾等走 FTS5 `unicode61`，依 `item.lang` 選路；
+**`und` 的內容兩條路都建索引**。
 
 ## 排序與 collation
 
@@ -78,8 +153,33 @@ BLOB 存向量、`Float32Array` 純 JS 暴力比對。**超過 5 萬筆才重新
 > 這一條是從 `rubricator` 借來的 —— 它踩過同一個坑，寫在它的
 > `docs/environment/versions.md`。兩個專案都用 `node:sqlite`，同一個限制。
 
+## 點註的錨點：一個欄位裝三種來源（ADR-0019）
+
+`note.selector_json` 存 W3C Web Annotation 的**選擇器陣列**，型別由每個元素的
+`type` 分。**不為三種來源開三張表** —— W3C 模型本身就是為這件事設計的。
+
+| 來源 | 存哪些選擇器 |
+|---|---|
+| 網頁／Markdown／純文字 | `TextQuoteSelector` ＋ `TextPositionSelector` |
+| **PDF** | 同上，但 `char_start`／`char_end` **相對於那一頁**，頁碼放在 `refinedBy` |
+| **圖片** | `FragmentSelector`：`#xywh=pixel:x,y,w,h`（**`pixel:` 不是 `percent:`**）|
+
+**PDF 的字元區間相對於頁而不是整份文件** —— 整份文件的位移會被前面任何一頁的
+抽取差異推移，**一頁抽錯會讓後面每一頁全漂**。失敗要能被局部化。
+
 ## 翻譯是衍生物，永不覆蓋原文
 
 圖上外語節點顯示「繁中標題（原文標題）」，原文一鍵可切回，
 翻譯要標記來源模型與時間。**不自建跨語言對照表** ——
 實體對齊靠 LLM 判定（要出處）與選填的 Wikidata QID 當權威錨點。
+
+## 實體型別的值域
+
+`entity.type`：`person`／`org`／`place`／`event`／`work`／`concept`。
+
+> **參考先例**：`alephdata/followthemoney`（MIT）有 70 個 schema，
+> 而我們只取六個。**刻意收斂** —— 它是為投查記者的結構化資料設計的
+> （`BankAccount`、`Passport`、`ContractAward`…），而這個工具的來源是一般文件。
+>
+> 型別不夠用的時候要加，但**加之前先問「使用者會用它來篩選嗎」** ——
+> 一個沒有人拿來篩選的型別只是多一個要填的欄位。

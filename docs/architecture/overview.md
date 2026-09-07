@@ -83,16 +83,19 @@ src/
 ├─ config/                設定載入、指標檔、預設值
 ├─ domain/                純邏輯，不 import infrastructure
 │  ├─ case/               專題生命週期與狀態機
-│  ├─ graph/              node／edge 型別、可信度、邊的狀態機、出處規則 ←【零依賴】
+│  ├─ graph/              node／edge 型別、四層、可信度、邊的狀態機、
+│  │                      墓碑比對鍵、出處規則、投影三段 ←【零依賴】
 │  ├─ ingest/             擷取階段的狀態機與規則
-│  ├─ note/               W3C 選擇器模型（TextQuote ＋ TextPosition）
+│  ├─ note/               W3C 選擇器模型（TextQuote／TextPosition／Fragment）
+│  ├─ search/             查詢解析、bigram 切分、混合排序 ←【純函式】
 │  ├─ provider/           能力宣告與任務需求的配對規則
 │  └─ errors/             錯誤碼常數 ← error-codes.md 的單一真實來源
 ├─ application/           用例編排，一律回 Result{ok,code,correlationId}
 ├─ infrastructure/
 │  ├─ db/                 node:sqlite、migrations/、repositories/
 │  ├─ fetch/              節流器、robots、快照寫入、manifest.jsonl
-│  ├─ extract/            readability＋linkedom、語言偵測、bigram／詞彙雙軌索引
+│  ├─ extract/            readability＋linkedom、pdfjs、語言偵測、抽取信心
+│  ├─ index/              bigram 表寫入、FTS5、title_rank、向量 BLOB
 │  ├─ providers/          agent/ chat/ embed/
 │  └─ fs/                 資料根、指標檔、備份
 ├─ interface/http/ sse/
@@ -105,8 +108,12 @@ web/src/
 ├─ workers/layout.worker.ts
 ├─ stores/
 ├─ i18n/zh-TW.ts          **所有 UI 字串的唯一來源**
-└─ styles/
+└─ styles/tokens.css      **顏色與記號的唯一來源**（ADR-0018）
 ```
+
+> **`domain/search/` 是純函式，`infrastructure/index/` 才碰資料庫。**
+> 分開的理由跟 `domain/graph` 一樣：查詢怎麼切 bigram、混合排序怎麼加權，
+> 那些是會出錯而且值得用純函式測的規則；**寫進索引表**才是 I/O。
 
 ## 幾個刻意的選擇
 

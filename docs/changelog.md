@@ -51,6 +51,49 @@
 - `versions.md` 的 Playwright 升級路徑本來寫「ADR（尚未撰寫）」，改成指向 REQ-0003。
 - `overview.md` 的 ADR-0014 引用補上實際的觸發條件。
 
+### 2026-09-06　Stage 4.5：設計稿回寫 ＋ 市場調查重跑
+
+**這一階段不在原本的計畫裡。** 要開始寫程式之前重讀整個專案，發現兩個洞。
+
+**洞一：Stage 0 的 UI 設計稿裡有 16 條決定從來沒有回寫進 `docs/`**，
+其中 3 條與現有文件牴觸 —— 最嚴重的是關聯狀態機（文件 5 條轉移、已確認是終點；
+設計稿 6 條，允許撤回與改判，而且它自己寫著「原本缺這條」）。
+**文件比設計稿晚寫，卻比它舊**（記進 `lessons.md`）。
+
+逐條與使用者確認之後全部採用，回寫成：
+
+- **ADR-0015** 關聯四層與獨立來源數 · **ADR-0016** 已否決是墓碑 ＋ 稽核紀錄 ·
+  **ADR-0017** 可信度三段等級與裁決校準 · **ADR-0018** 顏色與記號（含 CVD 實測數字）·
+  **ADR-0019** PDF 頁碼與圖片矩形錨點 · **ADR-0020** 埠 7433 與單一實例
+- 改 `state-machines.md`（6 條轉移、墓碑、已讀是正交旗標不是狀態）、
+  `data-model.md`（`edge.layer`、`edge_audit`、`item.read_at`、投影三段、向量要記模型）、
+  `overview.md`（補 `domain/search/` 與 `infrastructure/index/`）
+- 新增 7 份架構文件：`ui-workflows`／`graph-view`／`api-contract`／`storage-layout`／
+  `error-codes`／`glossary`／`multilingual`
+- 新增 `operations/release-checklist.md`（26 項，**每項標了「現在能不能查」**）。
+  `maintainer-notes.md` 仍然留白 —— 還沒有症狀也還沒有測試，理由沒變
+
+**洞二：Stage 表裡沒有任何一階段交付「檢索」**，而 ADR-0009 與 REQ-0007
+已經把整套雙軌索引設計完了。補上 **Stage 12（檢索）** 與 **Stage 13（規模驗收與公開前自檢）**。
+
+**市場調查提前重跑**（觸發條件是「要開始實作」與「要加 24 個依賴」，不是時間到）。
+從第一個查詢就記 `query-log.md` ＋ `sources/manifest.jsonl`（**55 列，52 列有 SHA-256**，
+沒有雜湊的 3 列寫明原因）。四件值得記的：
+
+- **三條授權更正**：Zotero 用 GitHub API 查回 `NOASSERTION`（要讀 `COPYING` 才看得到
+  AGPL-3.0）—— **2026-09-04 那份宣稱的方法問不出它宣稱的答案**；
+  Linkwarden 是 AGPL 卻不在紅線名單上；`cosmos.gl` 的 repo 路徑是 `cosmosgl/graph`
+- **Aleph 已日落**（開源版維護到 2025-12-31，轉向專有的 Aleph Pro）。
+  這個賽道真正還活著的可借部分是 `followthemoney`
+- **`followthemoney` 的 70 個 schema 裡有 `Mention` 與 `Similar`** ——
+  獨立於我們的設計，收斂到同一個「關聯要分層」的結論
+- **一條改了資料模型的發現**：嵌入模型換掉之後舊向量全部作廢，
+  **而餘弦相似度照樣算得出數字** —— 所以 `vector` 表必須記 `model` ＋ `dim`，不符就拒絕比對
+
+順帶更正 `versions.md`：**「Vite 8 要 Node 24」是假的**（實際是 `^20.19.0 || >=22.12.0`），
+Node 下界現在只剩 `node:sqlite` 一條腿；TypeScript 卡在 `~6.0`
+（`typescript-eslint` 8.69 的 peer 是 `<6.1.0`，所以已經 latest 的 TS 7 不能用）。
+
 ### 2026-09-06　Stage 4：四張圖的 SVG
 
 跑 `tools\diagrams\Render-Diagrams.ps1`，**7 段 mermaid → 7 個 SVG**

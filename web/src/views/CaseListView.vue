@@ -23,11 +23,20 @@ const newSeed = ref('');
 const createError = ref<ApiError | null>(null);
 
 const setupPath = ref('');
-const needsSetup = computed(
-  () =>
-    error.value !== null &&
-    (error.value.code === 'IO_POINTER_MISSING' || error.value.code === 'IO_POINTER_MALFORMED'),
-);
+
+// **第一次啟動不是「出了問題」。** 兩種情況的下一步都是「選一個資料夾」，
+// 但成因完全不同：指標檔不存在是全新安裝的正常狀態，指標檔壞掉才是故障。
+// 對前者顯示紅邊面板與識別碼，會讓一個順利的第一次啟動看起來像壞了
+// （2026-09-07 使用者第一次手動驗收時就是這個反應）。
+const isFirstRun = computed(() => error.value?.code === 'IO_POINTER_MISSING');
+const pointerBroken = computed(() => error.value?.code === 'IO_POINTER_MALFORMED');
+const needsSetup = computed(() => isFirstRun.value || pointerBroken.value);
+
+// 指標檔的路徑在兩種情況下都要說 —— 差別只在用什麼語氣說。
+const pointerPath = computed(() => {
+  const v = error.value?.detail?.['pointerPath'];
+  return typeof v === 'string' ? v : null;
+});
 
 const totals = computed(() => ({
   cases: cases.value.length,
@@ -102,7 +111,11 @@ onMounted(load);
     <section v-else-if="needsSetup" class="setup">
       <h2>{{ t.setup.title }}</h2>
       <p class="muted">{{ t.setup.body }}</p>
-      <ErrorPanel :error="error!" />
+      <!-- 只有「指標檔壞掉」是故障，要給路徑與識別碼；第一次啟動不給故障面板 -->
+      <ErrorPanel v-if="pointerBroken" :error="error!" />
+      <p v-else-if="pointerPath" class="muted pointer-note">
+        {{ t.setup.pointerNote }} <code class="mono">{{ pointerPath }}</code>
+      </p>
       <label class="field">
         <span>{{ t.setup.pathLabel }}</span>
         <input v-model="setupPath" type="text" @keyup.enter="submitSetup" />
@@ -290,6 +303,12 @@ th {
 .empty > *,
 .setup > * {
   margin-bottom: 12px;
+}
+.pointer-note {
+  font-size: 13px;
+}
+.pointer-note code {
+  word-break: break-all;
 }
 .field {
   display: block;

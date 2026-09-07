@@ -25,10 +25,14 @@
 **雙擊 `Start Cyclosa.cmd`。** 它會檢查 Node 版本 → 需要時 `npm ci` 與建置 →
 起 server → 開瀏覽器。第一次啟動會請你選一個資料根目錄。
 
+> **不要雙擊 `Launch.ps1`。** Windows 對 `.ps1` 的預設動作是「編輯」——
+> 雙擊它會打開記事本，而且看起來就像什麼都沒發生。
+> `Start Cyclosa.cmd` 存在的唯一理由就是這個。
+
 | 指令 | 現況 | 做什麼 |
 |---|:--:|---|
 | `Start Cyclosa.cmd`（雙擊）| ✅ | 一鍵啟動。等同 `.\Launch.ps1` |
-| `.\Launch.ps1` | ✅ | 同上。`-SkipBuild` 可跳過建置檢查 |
+| `.\Launch.ps1` | ✅ | 同上，**但要從終端機跑**。`-SkipBuild` 可跳過建置檢查 |
 | `.\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含四條守門）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
 | `.\Verify.ps1 -Report` | ✅ | 另外產出**去識別化**的環境快照 |
 | `npm run dev` ＋ `npm run dev:server` | ✅ | 開發用，有熱重載 |

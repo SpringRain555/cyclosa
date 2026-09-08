@@ -9,9 +9,10 @@
  * provider 是這台機器的事實。放進分頁列會讓人以為每個專題各有一組模型設定。
  * 它 Stage 9 才出現，而在那之前不掛 —— 同一條「點了沒反應更糟」的理由。
  */
-import { computed, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
+import { api } from './api';
 import { t } from './i18n/zh-TW';
 import { useCaseStore } from './stores/case-store';
 
@@ -34,6 +35,26 @@ const tabs = computed(() => {
     { to: `${base}/reader`, label: t.reader.tab, on: route.name === 'reader' },
     { to: `${base}/runs`, label: t.runs.tab, on: route.name === 'runs' },
   ];
+});
+
+/**
+ * 現在正在用哪個模型。**要在按下去之前看得到，不是想起來的時候。**
+ *
+ * 這裡刻意不開一個新分頁：頂列那三格是「目的地」，
+ * 而模型是一個**狀態**，狀態該常駐、不該佔一個目的地。
+ * 名稱、版本、用途那三欄在設定頁裡 —— 點這一行就過去。
+ *
+ * 讀的是 `/api/providers`，而那一支不會產生費用
+ * （agent 只跑 `--version`、chat 只讀 `/api/tags`）。
+ */
+const activeModels = ref<string[]>([]);
+
+onMounted(async () => {
+  const r = await api.providers();
+  if (!r.ok) return;
+  activeModels.value = r.data.statuses
+    .filter((s) => s.state === 'ready' && s.detail.length > 0)
+    .map((s) => s.detail);
 });
 
 watch(
@@ -71,6 +92,8 @@ watch(
       </template>
 
       <RouterLink class="settings-link" to="/settings" active-class="on" exact-active-class="on">
+        <span v-if="activeModels.length > 0" class="models">{{ activeModels.join(' · ') }}</span>
+        <span v-else class="models none">{{ t.settings.activeNone }}</span>
         {{ t.nav.settings }}
       </RouterLink>
     </header>
@@ -139,6 +162,18 @@ watch(
   background: var(--bg-raised);
   box-shadow: inset 0 -2px 0 var(--ring-selected);
 }
+/* 現在用的模型常駐在設定連結旁邊 —— **狀態不佔一個目的地。** */
+.models {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-right: 8px;
+  font-family: ui-monospace, monospace;
+}
+
+.models.none {
+  font-family: inherit;
+}
+
 /* 設定靠最右 —— 它不屬於分頁列那一組（它跟專題無關）。 */
 .settings-link {
   margin-left: auto;

@@ -24,16 +24,37 @@ export interface ProviderStatus {
   readonly configured: string;
   readonly state: 'ready' | 'not-configured' | 'unreachable';
   readonly detail: string;
+  /** 版本。agent 是 CLI 的版本號，chat 是參數量與量化格式。**問不到就是 `null`。** */
+  readonly version: string | null;
+  /**
+   * 授權來自哪裡。**畫面上要說出來** ——
+   * 「沒設定金鑰」與「設了一個環境變數但那個變數是空的」是兩種完全不同的處境，
+   * 而它們的症狀（打不通）一模一樣。
+   */
+  readonly auth: 'none' | 'env-set' | 'env-missing';
   readonly capabilities: ProviderCapabilities;
 }
 
-function statusOf(role: ProviderRole, configured: string, probe: ProbeResult): ProviderStatus {
+function authOf(apiKeyEnv: string | null, env: NodeJS.ProcessEnv): ProviderStatus['auth'] {
+  if (apiKeyEnv === null || apiKeyEnv.length === 0) return 'none';
+  const value = env[apiKeyEnv];
+  return typeof value === 'string' && value.trim().length > 0 ? 'env-set' : 'env-missing';
+}
+
+function statusOf(
+  role: ProviderRole,
+  configured: string,
+  probe: ProbeResult,
+  auth: ProviderStatus['auth'] = 'none',
+): ProviderStatus {
   if (probe.kind === 'ready') {
     return {
       role,
       configured,
       state: 'ready',
       detail: probe.model,
+      version: probe.version,
+      auth,
       capabilities: probe.capabilities,
     };
   }
@@ -43,10 +64,20 @@ function statusOf(role: ProviderRole, configured: string, probe: ProbeResult): P
       configured,
       state: 'unreachable',
       detail: probe.detail,
+      version: null,
+      auth,
       capabilities: NO_CAPABILITIES,
     };
   }
-  return { role, configured, state: 'not-configured', detail: '', capabilities: NO_CAPABILITIES };
+  return {
+    role,
+    configured,
+    state: 'not-configured',
+    detail: '',
+    version: null,
+    auth,
+    capabilities: NO_CAPABILITIES,
+  };
 }
 
 /**
@@ -70,7 +101,7 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
   const chat =
     config.chat === null || config.chat.model.length === 0
       ? null
-      : createOllamaChat(config.chat.baseUrl, config.chat.model);
+      : createOllamaChat(config.chat.baseUrl, config.chat.model, config.chat.apiKeyEnv, env);
   const agentCommand = config.agent?.command ?? '';
   const agentArgs = config.agent?.args ?? [];
   return {
@@ -121,7 +152,12 @@ export async function describeProviders(
   return {
     statuses: [
       statusOf('agent', agentConfigured, agentProbe),
-      statusOf('chat', chatConfigured, chatProbe),
+      statusOf(
+        'chat',
+        chatConfigured,
+        chatProbe,
+        authOf(providers.config.chat?.apiKeyEnv ?? null, env),
+      ),
       statusOf('embed', '', { kind: 'not-configured' }),
     ],
     chatModels,

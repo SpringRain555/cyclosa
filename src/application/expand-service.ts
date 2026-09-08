@@ -47,7 +47,6 @@ import {
   EMPTY_BUDGET_STATE,
   MAX_SELECTED_ANGLES,
   charge,
-  entityKey,
   locateQuote,
   mayContinue,
   missingFor,
@@ -761,19 +760,27 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
   let quoteMisses = 0;
   const newEdges = withTransaction(db, () => {
     const now = Date.now();
-    const existing = entities.findEntitiesByNames(
-      db,
-      extraction.entities.map((e) => e.name),
-    );
+    // **本名、別名、括號裡的都算**（Stage 10.5）。
+    //
+    // 之前這裡只認一模一樣的寫法，於是「TSMC」與「台灣積體電路製造（TSMC）」
+    // 是兩個實體 —— 而投影門檻是「被 ≥3 份提到才畫」，
+    // **兩個都低於門檻，所以圖上一個都不會出現**。
+    // 那不是「多一個節點」，那是少了唯一那一個。
+    let known = entities.listEntities(db);
     const idOf = new Map<string, string>();
     for (const draft of extraction.entities) {
-      const found = existing.get(entityKey(draft.name));
-      if (found !== undefined) {
+      const found = entities.findEntityFor(known, draft.name, draft.type);
+      if (found !== null) {
         idOf.set(draft.name, found.id);
+        // **記下這個新的寫法。** 下一份文件用同一種寫法時就直接對得上，
+        // 而使用者也看得到「這個實體在你的資料裡有幾種叫法」。
+        entities.addAlias(db, found.id, draft.name, now);
         continue;
       }
       const id = newId();
       entities.insertEntity(db, { id, type: draft.type, name: draft.name, now });
+      // 同一次抽取裡的第二個寫法要對得到剛剛建的那一個，所以清單要跟著長。
+      known = [...known, { id, name: draft.name, type: draft.type, aliases: [], mergedInto: null }];
       idOf.set(draft.name, id);
     }
 

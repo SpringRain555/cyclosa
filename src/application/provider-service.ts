@@ -23,7 +23,11 @@ import {
   loadProviders,
   type ProvidersView,
 } from '../infrastructure/providers/registry.js';
-import { writeProvidersConfig, type ProvidersConfig } from '../infrastructure/providers/config.js';
+import {
+  apiKeyEnvOf,
+  writeProvidersConfig,
+  type ProvidersConfig,
+} from '../infrastructure/providers/config.js';
 import { tmpDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
@@ -74,6 +78,9 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
       ? {
           baseUrl: String((chatRaw as Record<string, unknown>)['baseUrl'] ?? '').trim(),
           model: String((chatRaw as Record<string, unknown>)['model'] ?? '').trim(),
+          // **存的是環境變數的名字，不是金鑰。** 形狀不對的一律當成沒設定，
+          // 所以一把不小心貼進來的金鑰不會被寫進設定檔。
+          apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),
         }
       : null;
   const agentCommand = String(

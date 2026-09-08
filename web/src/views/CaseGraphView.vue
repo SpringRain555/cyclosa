@@ -22,6 +22,7 @@ import { useGraphStore } from '../stores/graph-store';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import EdgePanel from '../components/graph/EdgePanel.vue';
 import GraphLegend from '../components/graph/GraphLegend.vue';
+import MergePanel from '../components/graph/MergePanel.vue';
 import GraphView from '../components/graph/GraphView.vue';
 import SelectionPanel from '../components/graph/SelectionPanel.vue';
 
@@ -159,12 +160,17 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
       </div>
 
       <div class="body">
-        <GraphLegend
-          v-model:projection="store.projection"
-          v-model:min-tier="store.minTier"
-          v-model:show-derived="store.showDerived"
-          v-model:show-rejected="store.showRejected"
-        />
+        <div class="side">
+          <GraphLegend
+            v-model:projection="store.projection"
+            v-model:min-tier="store.minTier"
+            v-model:show-derived="store.showDerived"
+            v-model:show-rejected="store.showRejected"
+          />
+          <!-- 合併建議放在圖例底下 —— **它講的是「圖上為什麼少了東西」**，
+               而那正是看著圖的時候會問的問題。 -->
+          <MergePanel v-if="slug" :slug="slug" @merged="store.reload()" />
+        </div>
 
         <div class="stage">
           <GraphView
@@ -212,6 +218,35 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 </template>
 
 <style scoped>
+/* 側欄的寬度跟圖例一樣（232px）—— **它是同一欄的兩塊，不是兩欄。**
+   沒有這一條的話合併面板會撐出去蓋到圖上。 */
+.side {
+  display: flex;
+  flex-direction: column;
+  width: 232px;
+  flex: none;
+  overflow-y: auto;
+  min-height: 0;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--line-subtle);
+}
+
+/* 圖例本來自己是一欄（含寬度與右邊界），現在它是這一欄裡的一塊。 */
+.side :deep(.legend) {
+  width: auto;
+  border-right: 0;
+}
+
+.side > * {
+  flex: none;
+}
+
+/* 合併面板在圖例底下，靠一條分隔線分開。 */
+.side :deep(.merges) {
+  padding: 14px 12px 20px;
+  border-top: 1px solid var(--line-subtle);
+}
+
 .page {
   display: flex;
   flex-direction: column;

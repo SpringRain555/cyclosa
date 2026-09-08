@@ -28,6 +28,16 @@ export interface ChatConfig {
   /** OpenAI 相容端點的根位址，例如 `http://127.0.0.1:11434` */
   readonly baseUrl: string;
   readonly model: string;
+  /**
+   * 帶金鑰的話，**金鑰在哪個環境變數裡** —— 不是金鑰本身。
+   *
+   * 這是 2026-09-08 定的：接雲端端點需要一把金鑰，
+   * 而**這個設定檔會被備份、會被同步、會在求助的時候被整份貼出來**。
+   * 所以這裡存的是名字，值只在送出請求的那一刻從環境讀一次。
+   *
+   * `null` ＝ 不帶授權標頭（本機 Ollama 就是這樣）。
+   */
+  readonly apiKeyEnv: string | null;
 }
 
 export interface AgentConfig {
@@ -63,9 +73,23 @@ export interface ProvidersConfig {
  */
 export const DEFAULT_CONFIG: ProvidersConfig = {
   version: 1,
-  chat: { baseUrl: 'http://127.0.0.1:11434', model: '' },
+  chat: { baseUrl: 'http://127.0.0.1:11434', model: '', apiKeyEnv: null },
   agent: null,
 };
+
+/**
+ * 環境變數的名字有一個形狀（大寫、底線、數字），而**這裡要擋的不是打錯字**，
+ * 是**有人把金鑰本身貼進這一欄**。
+ * 真正的金鑰含有 `-`、`.`、小寫或很長 —— 那些一律不通過，
+ * 所以它不會被寫進設定檔。
+ */
+const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+export function apiKeyEnvOf(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim();
+  return ENV_NAME.test(name) ? name : null;
+}
 
 export function providersFilePath(env: NodeJS.ProcessEnv = process.env): string {
   return join(dirname(pointerFilePath(env)), 'providers.json');
@@ -100,6 +124,7 @@ export async function readProvidersConfig(
         ? {
             baseUrl: str((chatRaw as Record<string, unknown>)['baseUrl']),
             model: str((chatRaw as Record<string, unknown>)['model']),
+            apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),
           }
         : null;
     const agentArgs = (agentRaw as Record<string, unknown> | null)?.['args'];

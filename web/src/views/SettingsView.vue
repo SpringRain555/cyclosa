@@ -24,15 +24,20 @@ import {
 } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
+import SourcesPanel from '../components/SourcesPanel.vue';
 
 const payload = ref<ProvidersPayload | null>(null);
 const error = ref<ApiError | null>(null);
 const saving = ref(false);
 const savedAt = ref(0);
 
+const tab = ref<'models' | 'sources'>('models');
+
 const baseUrl = ref('');
 const model = ref('');
 const command = ref('');
+/** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
+const apiKeyEnv = ref('');
 
 const testing = ref<ProviderRole | null>(null);
 const testResult = ref<{ role: ProviderRole; text: string } | null>(null);
@@ -49,6 +54,7 @@ async function load(): Promise<void> {
   baseUrl.value = r.data.config.chat?.baseUrl ?? '';
   model.value = r.data.config.chat?.model ?? '';
   command.value = r.data.config.agent?.command ?? '';
+  apiKeyEnv.value = r.data.config.chat?.apiKeyEnv ?? '';
 }
 onMounted(() => void load());
 
@@ -82,7 +88,11 @@ async function save(): Promise<void> {
     chat:
       baseUrl.value.trim().length === 0
         ? null
-        : { baseUrl: baseUrl.value.trim(), model: model.value.trim() },
+        : {
+            baseUrl: baseUrl.value.trim(),
+            model: model.value.trim(),
+            apiKeyEnv: apiKeyEnv.value.trim().length === 0 ? null : apiKeyEnv.value.trim(),
+          },
     agent: command.value.trim().length === 0 ? null : { command: command.value.trim(), args: [] },
   });
   saving.value = false;
@@ -115,82 +125,162 @@ async function test(role: ProviderRole): Promise<void> {
 <template>
   <main class="settings">
     <h1>{{ t.settings.title }}</h1>
-    <ErrorPanel v-if="error" :error="error" />
 
-    <p class="no-fallback">{{ t.settings.noFallback }}</p>
+    <nav class="tabs">
+      <button :class="{ on: tab === 'models' }" @click="tab = 'models'">
+        {{ t.settings.tabs.models }}
+      </button>
+      <button :class="{ on: tab === 'sources' }" @click="tab = 'sources'">
+        {{ t.settings.tabs.sources }}
+      </button>
+    </nav>
 
-    <section v-for="status in statuses" :key="status.role" class="role">
-      <header>
-        <h2>{{ t.settings.roles[status.role] }}</h2>
-        <span :class="['state', status.state]">{{ t.settings.state[status.state] }}</span>
-        <span v-if="status.detail" class="detail">{{ status.detail }}</span>
-      </header>
-      <p class="what">{{ t.settings.roleWhat[status.role] }}</p>
+    <SourcesPanel v-if="tab === 'sources'" />
 
-      <!-- chat：位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
-      <div v-if="status.role === 'chat'" class="form">
-        <label>
-          <span>{{ t.settings.chatBaseUrl }}</span>
-          <input v-model="baseUrl" type="text" />
-        </label>
-        <label>
-          <span>{{ t.settings.chatModel }}</span>
-          <select v-if="payload?.chatModels?.length" v-model="model">
-            <option value="">{{ t.settings.chatModelPick }}</option>
-            <option v-for="name in payload.chatModels" :key="name" :value="name">{{ name }}</option>
-          </select>
-          <input v-else v-model="model" type="text" />
-        </label>
-        <p v-if="payload && payload.chatModels === null" class="hint">
-          {{ t.settings.chatModelsUnreachable }}
-        </p>
+    <template v-else>
+      <ErrorPanel v-if="error" :error="error" />
+
+      <p class="no-fallback">{{ t.settings.noFallback }}</p>
+
+      <section v-for="status in statuses" :key="status.role" class="role">
+        <header>
+          <h2>{{ t.settings.roles[status.role] }}</h2>
+          <span :class="['state', status.state]">{{ t.settings.state[status.state] }}</span>
+          <span v-if="status.detail" class="detail">{{ status.detail }}</span>
+        </header>
+        <p class="what">{{ t.settings.roleWhat[status.role] }}</p>
+
+        <!-- 名稱、版本、用途 —— 三件事分開列。**版本問不到就說問不到**，
+           不要編一個看起來像版本號的東西。 -->
+        <dl v-if="status.state === 'ready'" class="facts">
+          <dt>{{ t.settings.version }}</dt>
+          <dd :class="{ muted: !status.version }">
+            {{ status.version || t.settings.versionUnknown }}
+          </dd>
+        </dl>
+
+        <!-- chat：位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
+        <div v-if="status.role === 'chat'" class="form">
+          <label>
+            <span>{{ t.settings.chatBaseUrl }}</span>
+            <input v-model="baseUrl" type="text" />
+          </label>
+          <label>
+            <span>{{ t.settings.chatModel }}</span>
+            <select v-if="payload?.chatModels?.length" v-model="model">
+              <option value="">{{ t.settings.chatModelPick }}</option>
+              <option v-for="name in payload.chatModels" :key="name" :value="name">
+                {{ name }}
+              </option>
+            </select>
+            <input v-else v-model="model" type="text" />
+          </label>
+          <p v-if="payload && payload.chatModels === null" class="hint">
+            {{ t.settings.chatModelsUnreachable }}
+          </p>
+          <!-- **只填變數的名字。** 金鑰本身不進任何一個檔（2026-09-08）。 -->
+          <label>
+            <span>{{ t.settings.apiKeyEnv }}</span>
+            <input v-model="apiKeyEnv" type="text" placeholder="OPENAI_API_KEY" />
+          </label>
+          <p class="hint">{{ t.settings.apiKeyEnvHint }}</p>
+          <p v-if="status.auth && status.auth !== 'none'" :class="['hint', status.auth]">
+            {{ t.settings.auth[status.auth] }}
+          </p>
+        </div>
+
+        <div v-else-if="status.role === 'agent'" class="form">
+          <label>
+            <span>{{ t.settings.agentCommand }}</span>
+            <input v-model="command" type="text" placeholder="claude" />
+          </label>
+          <p class="hint">{{ t.settings.agentCommandHint }}</p>
+        </div>
+
+        <!-- 能力宣告攤開來。**它是配對規則真正看的東西** -->
+        <div v-if="status.state === 'ready'" class="caps">
+          <span class="caps-label">{{ t.settings.capabilities }}</span>
+          <span
+            v-for="flag in CAPABILITY_FLAGS"
+            :key="flag"
+            :class="['cap', { on: status.capabilities[flag] }]"
+          >
+            {{ t.settings.capabilityNames[flag] }}
+          </span>
+          <span class="cap ctx">{{ contextText(status) }}</span>
+        </div>
+
+        <p v-if="missingText(status.role)" class="missing">{{ missingText(status.role) }}</p>
+
+        <div v-if="status.role !== 'embed'" class="actions">
+          <button :disabled="testing !== null" @click="test(status.role)">
+            {{ testing === status.role ? t.settings.testing : t.settings.test }}
+          </button>
+          <!-- **會不會花錢要在按之前就說。** agent 是外部服務，chat 是本機 -->
+          <span class="hint">
+            {{ status.role === 'agent' ? t.settings.testCostsMoney : t.settings.testFree }}
+          </span>
+          <span v-if="testResult?.role === status.role" class="test-result">
+            {{ testResult.text }}
+          </span>
+        </div>
+      </section>
+
+      <div class="save">
+        <button class="primary" :disabled="saving" @click="save">{{ t.settings.save }}</button>
+        <span v-if="savedAt" class="hint">{{ t.settings.saved }}</span>
       </div>
-
-      <div v-else-if="status.role === 'agent'" class="form">
-        <label>
-          <span>{{ t.settings.agentCommand }}</span>
-          <input v-model="command" type="text" placeholder="claude" />
-        </label>
-        <p class="hint">{{ t.settings.agentCommandHint }}</p>
-      </div>
-
-      <!-- 能力宣告攤開來。**它是配對規則真正看的東西** -->
-      <div v-if="status.state === 'ready'" class="caps">
-        <span class="caps-label">{{ t.settings.capabilities }}</span>
-        <span
-          v-for="flag in CAPABILITY_FLAGS"
-          :key="flag"
-          :class="['cap', { on: status.capabilities[flag] }]"
-        >
-          {{ t.settings.capabilityNames[flag] }}
-        </span>
-        <span class="cap ctx">{{ contextText(status) }}</span>
-      </div>
-
-      <p v-if="missingText(status.role)" class="missing">{{ missingText(status.role) }}</p>
-
-      <div v-if="status.role !== 'embed'" class="actions">
-        <button :disabled="testing !== null" @click="test(status.role)">
-          {{ testing === status.role ? t.settings.testing : t.settings.test }}
-        </button>
-        <!-- **會不會花錢要在按之前就說。** agent 是外部服務，chat 是本機 -->
-        <span class="hint">
-          {{ status.role === 'agent' ? t.settings.testCostsMoney : t.settings.testFree }}
-        </span>
-        <span v-if="testResult?.role === status.role" class="test-result">
-          {{ testResult.text }}
-        </span>
-      </div>
-    </section>
-
-    <div class="save">
-      <button class="primary" :disabled="saving" @click="save">{{ t.settings.save }}</button>
-      <span v-if="savedAt" class="hint">{{ t.settings.saved }}</span>
-    </div>
+    </template>
   </main>
 </template>
 
 <style scoped>
+.tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.tabs button {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.tabs button.on {
+  border-color: var(--ui-selected);
+  color: var(--text);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 6px 0 0;
+  font-size: 12px;
+}
+
+.facts dt {
+  color: var(--text-tertiary);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.facts dd.muted {
+  color: var(--text-muted);
+}
+
+.hint.env-missing {
+  color: var(--edge-pending);
+}
+
 .settings {
   padding: 20px 24px 60px;
   overflow-y: auto;

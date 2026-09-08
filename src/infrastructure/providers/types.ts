@@ -29,7 +29,19 @@ export type CallOutcome<T> =
 
 /** provider 目前的狀態。**「沒設定」與「設定了但連不上」要分得開。** */
 export type ProbeResult =
-  | { readonly kind: 'ready'; readonly model: string; readonly capabilities: ProviderCapabilities }
+  | {
+      readonly kind: 'ready';
+      readonly model: string;
+      /**
+       * 版本。**跟模型名分開的欄位**，因為兩個角色的答案形狀不同：
+       * agent 是 CLI 的版本號，chat 是那個模型的參數量與量化格式。
+       *
+       * 之前 agent 把版本塞進 `model`，於是設定頁上兩個角色的同一欄
+       * 一個顯示模型名、一個顯示版本號 —— **同一欄兩種意思。**
+       */
+      readonly version: string | null;
+      readonly capabilities: ProviderCapabilities;
+    }
   | { readonly kind: 'not-configured' }
   | { readonly kind: 'unreachable'; readonly detail: string };
 

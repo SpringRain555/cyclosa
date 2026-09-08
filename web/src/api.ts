@@ -227,6 +227,8 @@ export interface ProviderCapabilities {
 }
 
 export interface ProviderStatus {
+  readonly version?: string | null;
+  readonly auth?: 'none' | 'env-set' | 'env-missing';
   role: ProviderRole;
   configured: string;
   state: 'ready' | 'not-configured' | 'unreachable';
@@ -240,7 +242,7 @@ export interface ProvidersPayload {
   chatModels: string[] | null;
   config: {
     version: 1;
-    chat: { baseUrl: string; model: string } | null;
+    chat: { baseUrl: string; model: string; apiKeyEnv: string | null } | null;
     agent: { command: string; args: string[] } | null;
   };
   readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
@@ -465,6 +467,56 @@ export interface RebuildReport {
   };
 }
 
+export interface SiteHistory {
+  readonly attempts: number;
+  readonly byAccess: Readonly<Record<string, number>>;
+  readonly lastAt: number | null;
+  readonly lastCode: string | null;
+}
+
+export interface SourceRow {
+  readonly host: string;
+  readonly nameZh: string;
+  readonly kind: 'api' | 'site';
+  readonly category: string;
+  readonly probe: string | null;
+  readonly noteZh: string;
+  readonly enabled: boolean;
+  readonly builtIn: boolean;
+  readonly discovered: boolean;
+  readonly expected: 'open' | 'login' | 'mixed' | null;
+  readonly history: SiteHistory;
+  readonly lastProbe: { access: string; code: string | null; at: number; url: string } | null;
+  readonly verdict: {
+    readonly access: string;
+    readonly basis: 'history' | 'probe' | 'none';
+    readonly at: number | null;
+    readonly attempts: number;
+  };
+  readonly preference: 'prefer' | 'neutral' | 'deprioritise';
+}
+
+export interface EntitySide {
+  readonly id: string;
+  readonly name: string;
+  readonly type: string;
+  readonly aliases: readonly string[];
+  readonly mentions: number;
+}
+
+export interface MergeCandidate {
+  readonly keep: EntitySide;
+  readonly merge: EntitySide;
+  readonly reason: 'same-key' | 'alias' | 'parenthetical';
+}
+
+export interface MergeResult {
+  readonly keptId: string;
+  readonly mergedId: string;
+  readonly movedEdges: number;
+  readonly duplicateEdges: number;
+}
+
 export const api = {
   dataRoot: () => request<DataRootInfo>('/api/system/data-root'),
   setDataRoot: (dataRoot: string) =>
@@ -646,4 +698,30 @@ export const api = {
     }),
   rebuild: (slug: string) =>
     request<RebuildReport>(`/api/cases/${enc(slug)}/rebuild`, { method: 'POST' }),
+
+  // ── 來源網站與實體對齊（Stage 10.5）─────────────────────
+
+  sources: () => request<SourceRow[]>('/api/sources'),
+  saveSource: (input: Partial<SourceRow> & { host: string }) =>
+    request<SourceRow[]>('/api/sources', { method: 'POST', body: JSON.stringify(input) }),
+  removeSource: (host: string) =>
+    request<SourceRow[]>(`/api/sources/${enc(host)}`, { method: 'DELETE' }),
+  /** **會送出真的請求** —— 走同一條擷取管線。 */
+  checkSources: (hosts?: string[]) =>
+    request<SourceRow[]>('/api/sources/check', {
+      method: 'POST',
+      body: JSON.stringify(hosts === undefined ? {} : { hosts }),
+    }),
+
+  mergeCandidates: (slug: string) =>
+    request<MergeCandidate[]>(`/api/cases/${enc(slug)}/entities/merges`),
+  mergeEntities: (slug: string, keptId: string, mergedId: string) =>
+    request<MergeResult>(`/api/cases/${enc(slug)}/entities/merge`, {
+      method: 'POST',
+      body: JSON.stringify({ keptId, mergedId }),
+    }),
+  unmergeEntity: (slug: string, entityId: string) =>
+    request<{ restored: number }>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/unmerge`, {
+      method: 'POST',
+    }),
 };

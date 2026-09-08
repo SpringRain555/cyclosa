@@ -3,9 +3,9 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v5`，已實作。**
+> **現況：`schema v6`，已實作。**
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
-> `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`），
+> `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07，Stage 5）**：11 張表、18 個索引、3 條 trigger。
@@ -18,6 +18,12 @@
 > - **v4（2026-09-08，Stage 9）**：`run` 補 4 欄、**新增 `run_angle`**、
 >   一條 trigger 與一個索引。全部繞著同一句話：**擴展不是黑箱** ——
 >   勾了哪幾條、沒勾哪幾條、花了幾次呼叫、多少錢，都要留下來。
+> - **v6（2026-09-08，Stage 10.5）**：`entity` 補兩欄、**新增 `entity_merge`**、
+>   一條 trigger、一個索引。解的是一個從 Stage 9 就寫在
+>   `entity-repo.ts` 開頭的取捨：「同一個東西的兩種寫法會變成兩個節點」。
+>   **那個取捨漏算了投影門檻** —— 拆成三種叫法的實體三個都低於「被 ≥3 份提到」，
+>   所以圖上一個都不會出現。合併**不刪任何一列**，而且
+>   `entity_merge.moved_json` 記著動了哪幾條邊，所以取消得掉。
 > - **v5（2026-09-08，Stage 10）**：`note` 補 **一欄**、一條 trigger、一個索引。
 >   `note` 那張表 v1 就在了 —— 這一版加的是**兩條之前只寫在註解裡的規則**：
 >   點註錨的是**哪一份快照**（`snapshot_sha256`），

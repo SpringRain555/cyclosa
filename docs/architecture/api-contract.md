@@ -21,6 +21,10 @@
 > **Stage 10 新增**：`POST`／`GET …/items/:itemId/notes`、`GET …/notes`、
 > `PATCH`／`DELETE …/notes/:noteId`、**`POST …/rebuild`**（`derived/` 整批重算）。
 >
+> **Stage 10.5 新增**：`GET`／`POST /api/sources`、`DELETE /api/sources/:host`、
+> `POST /api/sources/check`；`GET …/entities/merges`、`POST …/entities/merge`、
+> `POST …/entities/:entityId/unmerge`。
+>
 > **還不存在**：匯出（Stage 11）、檢索（Stage 12）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。

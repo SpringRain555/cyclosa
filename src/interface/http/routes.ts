@@ -43,6 +43,18 @@ import {
   updateNote,
 } from '../../application/note-service.js';
 import { rebuildDerived } from '../../application/rebuild-service.js';
+import {
+  listSources,
+  probeSources,
+  removeSource,
+  saveSource,
+  type SourceInput,
+} from '../../application/source-service.js';
+import {
+  listMergeCandidates,
+  mergeEntity,
+  unmergeEntity,
+} from '../../application/entity-service.js';
 import { PROVIDER_ROLES, type ProviderRole } from '../../domain/provider/index.js';
 import {
   DEFAULT_PROJECTION_THRESHOLDS,
@@ -663,4 +675,64 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (dataRoot === null) return reply;
     return send(reply, await rebuildDerived(dataRoot, req.params.slug));
   });
+
+  // ── 來源網站（Stage 10.5）───────────────────────────────
+
+  /**
+   * 來源網站清單。
+   *
+   * **判斷的主要依據是你自己抓過的結果**（`run_item` 聚合出來的），
+   * 不是探測 —— 出版社的首頁一律回 200 而文章回 403，
+   * 所以「探測一下這個站」對它們幾乎沒有用。
+   */
+  app.get('/api/sources', async (_req, reply) => send(reply, await listSources(ctx.dataRoot)));
+
+  app.post<{ Body: Partial<SourceInput> & { host?: unknown } }>(
+    '/api/sources',
+    async (req, reply) => {
+      const raw = req.body ?? {};
+      if (typeof raw.host !== 'string') return send(reply, await listSources(ctx.dataRoot));
+      return send(reply, await saveSource({ ...raw, host: raw.host } as SourceInput));
+    },
+  );
+
+  app.delete<{ Params: { host: string } }>('/api/sources/:host', async (req, reply) =>
+    send(reply, await removeSource(req.params.host)),
+  );
+
+  /** 檢查。**走的是同一條擷取管線** —— robots、同網域間隔、429／503 立刻停。 */
+  app.post<{ Body: { hosts?: unknown } }>('/api/sources/check', async (req, reply) => {
+    const raw = req.body?.hosts;
+    const hosts = Array.isArray(raw) ? raw.map((h) => String(h)) : null;
+    return send(reply, await probeSources(ctx.dataRoot, hosts));
+  });
+
+  // ── 實體對齊（Stage 10.5）───────────────────────────────
+
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/entities/merges', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listMergeCandidates(dataRoot, req.params.slug));
+  });
+
+  /** 合併。**不刪任何一列**，而且動了哪幾條邊記下來 —— 所以取消得掉。 */
+  app.post<{ Params: { slug: string }; Body: { keptId?: unknown; mergedId?: unknown } }>(
+    '/api/cases/:slug/entities/merge',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const keptId = String(req.body?.keptId ?? '');
+      const mergedId = String(req.body?.mergedId ?? '');
+      return send(reply, await mergeEntity(dataRoot, req.params.slug, keptId, mergedId));
+    },
+  );
+
+  app.post<{ Params: { slug: string; entityId: string } }>(
+    '/api/cases/:slug/entities/:entityId/unmerge',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await unmergeEntity(dataRoot, req.params.slug, req.params.entityId));
+    },
+  );
 }

@@ -173,7 +173,8 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
           }
           resolve({
             kind: 'ready',
-            model: stdout.trim().split('\n')[0] ?? options.command,
+            model: options.command,
+            version: stdout.trim().split('\n')[0] ?? null,
             capabilities: { ...CLAUDE_CAPABILITIES },
           });
         });

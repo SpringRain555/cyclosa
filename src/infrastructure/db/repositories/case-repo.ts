@@ -75,7 +75,8 @@ export function readStats(db: DatabaseSync): CaseStats {
   return {
     itemCount: one("SELECT COUNT(*) AS n FROM item WHERE status != 'excluded' AND kind != 'note'"),
     noteCount: one("SELECT COUNT(*) AS n FROM item WHERE status != 'excluded' AND kind = 'note'"),
-    entityCount: one('SELECT COUNT(*) AS n FROM entity'),
+    // 被合併掉的實體還在表裡（那是為了取消得掉），**但它不再是一個節點**。
+    entityCount: one('SELECT COUNT(*) AS n FROM entity WHERE merged_into IS NULL'),
     edgeCount: one("SELECT COUNT(*) AS n FROM edge WHERE status != 'rejected'"),
     pendingNamedEdgeCount: one(
       "SELECT COUNT(*) AS n FROM edge WHERE layer = 'named' AND status = 'pending'",

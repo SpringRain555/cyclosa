@@ -294,7 +294,7 @@ export const t = {
     failedNotice: '這一份沒有抽取成功。原始快照還在，可以直接看它。',
     noContent: '沒有重構後的正文。原始快照還在。',
     imageOnly: '這是一張圖片。',
-    noTextLayer: '這份 PDF 沒有文字層，只能框選區域。**不是工具壞了。**',
+    noTextLayer: '這份 PDF 沒有文字層，只能框選區域。不是工具壞了。',
     lowConfidenceTitle: '這份正文可能抽壞了',
   },
 
@@ -342,6 +342,93 @@ export const t = {
     notesShifted: '{n} 則的位置移動過（錨點已經跟著走）。',
     notesUnresolved: '{n} 則對不上原文 —— 內容都留著。',
     noNotes: '這個專題還沒有點註。',
+  },
+
+  /** 來源網站清單（Stage 10.5）。 */
+  sources: {
+    title: '來源網站',
+    intro:
+      '這一頁決定 agent 優先往哪裡找。它不擋任何東西 —— 讀不到的來源仍然會出現在清單上，只是不優先。',
+    /** 判斷的依據要說出來，因為「探測」與「你自己抓過」的可信度差很多。 */
+    basisHistory: '依你抓過的 {n} 次',
+    basisProbe: '依一次檢查',
+    basisNone: '還沒有依據',
+    access: {
+      open: '讀得到',
+      login: '要登入或訂閱',
+      throttled: '對方限流中',
+      unreachable: '連不到',
+      disallowed: 'robots 不准',
+      'js-only': '靜態抓不到',
+      unknown: '不知道',
+    },
+    expected: {
+      open: '一般開放',
+      login: '一般要訂閱',
+      mixed: '看單篇',
+    },
+    kind: { api: 'API', site: '網站' },
+    category: {
+      'scholarly-api': '書目 API',
+      preprint: '預印本',
+      'open-repository': '開放全文庫',
+      publisher: '出版社',
+      official: '官方',
+      reference: '參考',
+    },
+    columns: {
+      site: '來源',
+      status: '現在讀不讀得到',
+      attempts: '抓過',
+      checked: '檢查時間',
+      actions: '',
+    },
+    check: '檢查全部',
+    checkOne: '檢查',
+    checking: '檢查中…',
+    /** 檢查要說清楚它會送出真的請求，因為這個工具對外的行為是有承諾的。 */
+    checkNote:
+      '檢查會對有探針的來源各送一個請求，走的是同一條擷取管線（遵守 robots、同網域間隔 3 秒、收到 429／503 立刻停）。',
+    noProbe: '沒有探針',
+    noProbeWhy:
+      '出版社的首頁一律回 200 而文章回 403，所以探首頁沒有意義。這一列的判斷完全來自你自己抓過的結果。',
+    builtIn: '內建',
+    disable: '關掉',
+    enable: '打開',
+    disabled: '已關掉',
+    addTitle: '自己加一個',
+    addHost: '網域（例如 example.org）',
+    addName: '顯示名稱',
+    addProbe: '探針網址（選填）',
+    add: '加進清單',
+    empty: '清單是空的。',
+    lastCheckedNever: '還沒檢查過',
+  },
+
+  /** 實體對齊（Stage 10.5）。 */
+  entities: {
+    mergeTitle: '看起來是同一個',
+    /** 這個數字要說出後果，不然它只是一個待辦。 */
+    mergeWhy:
+      '同一個東西的兩種寫法會變成兩個節點，而投影門檻是「被 3 份以上提到才畫」—— 拆成三種叫法的實體可能一個都不會出現在圖上。',
+    mergeNone: '沒有看起來重複的實體。',
+    reason: {
+      'same-key': '正規化之後完全一樣',
+      alias: '別名對得上',
+      parenthetical: '括號裡的寫法對得上',
+    },
+    keep: '留下',
+    mergeInto: '併進去',
+    mentions: '被 {n} 份提到',
+    aliases: '別名：{list}',
+    merge: '合併',
+    merged: '已合併 {moved} 條關聯。',
+    duplicates: '其中 {n} 條變成了平行線 —— 兩條同樣的關係並排。可以否決其中一條。',
+    undo: '取消合併',
+    undone: '已還原 {n} 條關聯。',
+    /** 合併要人按，而且理由要寫在按鈕旁邊。 */
+    confirmMerge:
+      '把「{merge}」併進「{keep}」？\n\n併完之後圖上顯示的是「{keep}」，而「{merge}」會變成它的別名。這個動作取消得掉。',
   },
 
   runs: {
@@ -623,7 +710,27 @@ export const t = {
   },
 
   settings: {
-    title: '模型設定',
+    title: '設定',
+    tabs: {
+      models: '模型',
+      sources: '來源網站',
+    },
+    /** 現在正在用哪一個 —— **要在按下去之前看得到，不是想起來的時候。** */
+    activeNone: '還沒設定模型',
+    activeLabel: '模型',
+    version: '版本',
+    versionUnknown: '問不到版本',
+    purpose: '用途',
+    /** 金鑰只從環境變數讀，不存進任何一個檔。 */
+    apiKeyEnv: '金鑰的環境變數名稱',
+    apiKeyEnvHint:
+      '只填變數的名字（例如 OPENAI_API_KEY），不要填金鑰本身 —— 這個設定檔會被備份，也會在求助時被整份貼出來。留空代表不帶授權標頭（本機 Ollama 就是這樣）。',
+    auth: {
+      none: '不帶金鑰',
+      'env-set': '偵測到這個環境變數',
+      'env-missing': '找不到這個環境變數 —— 設好之後要重新啟動這個工具。',
+    },
+    lastUsed: '上次用於',
     /** 三個角色都列出來 —— 少列一個，使用者會以為只有兩種模型 */
     roles: {
       agent: '找來源（agent）',

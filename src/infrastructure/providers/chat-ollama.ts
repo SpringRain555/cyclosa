@@ -28,7 +28,11 @@ import type { CallOutcome, ChatProvider, ProbeResult } from './types.js';
 interface TagsModel {
   readonly name?: unknown;
   readonly capabilities?: unknown;
-  readonly details?: { readonly context_length?: unknown };
+  readonly details?: {
+    readonly context_length?: unknown;
+    readonly parameter_size?: unknown;
+    readonly quantization_level?: unknown;
+  };
 }
 
 /** 連不上與逾時要分得開，所以逾時自己帶一個訊號。 */
@@ -82,6 +86,22 @@ export function capabilitiesOf(model: TagsModel): ProviderCapabilities {
   };
 }
 
+/**
+ * 這個模型的「版本」。
+ *
+ * 本機模型沒有版本號，**而它有兩個真的會改變輸出的事實**：
+ * 參數量與量化格式。`qwen3:8b` 的 Q4 與 Q8 是同一個名字、不同的東西，
+ * 而**兩者抽出來的關聯不一樣** —— 所以那兩個字串就是這裡的版本。
+ *
+ * 兩個都問不到就回 `null`。**不要編一個看起來像版本號的東西。**
+ */
+export function versionOf(model: TagsModel): string | null {
+  const parts = [model.details?.parameter_size, model.details?.quantization_level]
+    .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    .map((v) => v.trim());
+  return parts.length === 0 ? null : parts.join(' · ');
+}
+
 /** 偵測到的模型清單。**設定頁要用它** —— 不然使用者只能猜模型名怎麼拼。 */
 export async function listOllamaModels(
   baseUrl: string,
@@ -101,13 +121,41 @@ export async function listOllamaModels(
   }
 }
 
-export function createOllamaChat(baseUrl: string, model: string): ChatProvider {
+/**
+ * 這個端點要不要帶金鑰，以及金鑰從哪來。
+ *
+ * ## 金鑰只從環境變數讀，不存進任何一個檔
+ *
+ * 這個工具到 Stage 10.5 為止一個機密都不存 —— 兩個 provider 都是本機的。
+ * 接雲端端點會改變那件事，而**改變它的代價不只是「多一個欄位」**：
+ * 設定檔會被備份、會被同步、會在求助時被整份貼出來。
+ *
+ * 所以設定裡存的是**環境變數的名字**，不是值。
+ * 畫面上顯示「偵測到／沒偵測到」，而值只在送出請求的那一刻讀一次。
+ */
+function authHeader(
+  apiKeyEnv: string | null,
+  env: NodeJS.ProcessEnv,
+): Readonly<Record<string, string>> {
+  if (apiKeyEnv === null || apiKeyEnv.length === 0) return {};
+  const value = env[apiKeyEnv];
+  if (typeof value !== 'string' || value.trim().length === 0) return {};
+  return { authorization: `Bearer ${value.trim()}` };
+}
+
+export function createOllamaChat(
+  baseUrl: string,
+  model: string,
+  apiKeyEnv: string | null = null,
+  env: NodeJS.ProcessEnv = process.env,
+): ChatProvider {
   const root = baseUrl.replace(/\/$/, '');
+  const auth = (): Readonly<Record<string, string>> => authHeader(apiKeyEnv, env);
 
   async function findModel(signal?: AbortSignal): Promise<TagsModel | null | 'unreachable'> {
     const t = withTimeout(PROBE_TIMEOUT_MS, signal);
     try {
-      const res = await fetch(`${root}/api/tags`, { signal: t.signal });
+      const res = await fetch(`${root}/api/tags`, { signal: t.signal, headers: auth() });
       if (!res.ok) return 'unreachable';
       const body = (await res.json()) as { models?: unknown };
       const models = Array.isArray(body.models) ? (body.models as TagsModel[]) : [];
@@ -129,7 +177,12 @@ export function createOllamaChat(baseUrl: string, model: string): ChatProvider {
       // **設定了一個沒有拉下來的模型 ＝ 沒設定。**
       // 設定頁會把偵測到的清單列出來，所以「為什麼」看得見。
       if (found === null) return { kind: 'not-configured' };
-      return { kind: 'ready', model, capabilities: capabilitiesOf(found) };
+      return {
+        kind: 'ready',
+        model,
+        version: versionOf(found),
+        capabilities: capabilitiesOf(found),
+      };
     },
 
     async json(input, signal): Promise<CallOutcome<unknown>> {
@@ -140,7 +193,7 @@ export function createOllamaChat(baseUrl: string, model: string): ChatProvider {
       try {
         const res = await fetch(`${root}/api/chat`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', ...auth() },
           body: JSON.stringify({
             model,
             stream: false,

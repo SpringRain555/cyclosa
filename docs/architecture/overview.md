@@ -3,13 +3,16 @@
 **這份是分層規則、擷取流程與檔案地圖的權威。** 欄位細節在 `data-model.md`，
 狀態轉移在 `state-machines.md`，兩者都不要在這裡重複。
 
-> **現況（2026-09-08，Stage 9）**：分層骨架、擷取管線、抽取、索引寫入、
-> 閱讀器、作業紀錄、子圖 API 與 3D 關聯圖、**人工裁決**、
-> **`domain/provider/` 與 `infrastructure/providers/`（LLM 擴展）**都存在了。
-> 下面的檔案地圖裡**還不存在的只有** `components/reader/`、`components/notes/`
-> （Stage 10）。
+> **現況（2026-09-08，Stage 11）**：下面的檔案地圖**每一格都存在了**
+> —— 除了 `domain/note/`，它實際上叫 `domain/annotation/`（Stage 10 改的名，
+> 因為它裝的是選擇器與錨點解析，不是「筆記」這個概念）。
+> Stage 11 另外加了 `domain/export/`。
 >
-> 守門測試從 Stage 5 起有四條，**Stage 7 加第五條**（沒有整圖端點）。
+> **一次完整流程的順序**（從匯入到匯出，以及每一步用不用模型）在
+> `walkthrough.md`，不在這一份。
+>
+> 守門測試從 Stage 5 起有四條，Stage 7 加第五條（沒有整圖端點），
+> Stage 10.5 再加三條（版本號、schema 版本、i18n 純文字）—— **現在八條**。
 > **每一條都注入過真實違規驗證它會紅。**
 
 ---
@@ -80,7 +83,7 @@ flowchart TB
   **現在不抽套件。**
 - **業務規則不要寫進 route handler。** route 只做「解析請求 → 呼叫 service → 對映錯誤」。
 
-## 檔案地圖（規劃，尚未建立）
+## 檔案地圖
 
 ```
 src/
@@ -91,7 +94,11 @@ src/
 │  ├─ graph/              node／edge 型別、四層、可信度、邊的狀態機、
 │  │                      墓碑比對鍵、出處規則、投影三段 ←【零依賴】
 │  ├─ ingest/             擷取階段的狀態機與規則
-│  ├─ note/               W3C 選擇器模型（TextQuote／TextPosition／Fragment）
+│  ├─ annotation/         W3C 選擇器模型（TextQuote／TextPosition／Fragment）與錨點解析
+│  ├─ text/               空白等價的比對與原文座標 ←【引文與點註共用同一支】
+│  ├─ entity/             實體識別鍵、別名比對、合併建議
+│  ├─ sources/            來源網站的可讀性判定（歷史優先）
+│  ├─ export/             證據包的形狀與它的 Markdown／JSONL ←【純函式】
 │  ├─ search/             查詢解析、bigram 切分、混合排序 ←【純函式】
 │  ├─ provider/           能力宣告與任務需求的配對規則
 │  └─ errors/             錯誤碼常數 ← error-codes.md 的單一真實來源
@@ -111,6 +118,7 @@ web/src/
 ├─ components/graph/      GraphView.vue（包住 3d-force-graph）、圖例、篩選器、2D 切換
 │                         objects.ts —— three.js 的幾何與材質工廠（顏色仍然只從 tokens.css 讀）
 ├─ components/reader/ notes/ common/
+│                         graph/ExportPanel.vue —— 證據包匯出（Stage 11）
 ├─ workers/layout.worker.ts
 ├─ stores/
 ├─ i18n/zh-TW.ts          **所有 UI 字串的唯一來源**

@@ -80,6 +80,19 @@
 | 一次擴展花了幾次呼叫看不出來 | `run.requests`，作業紀錄那一頁顯示。**產生角度那一次也算** | `tests/e2e/expansion-flow.test.ts` |
 | 畫面說「本機執行，無金額成本」但用的是 `claude` | 那句話只在 `cost_usd = 0` 時出現。**`NULL` 是「這個模型沒有回報金額」** —— 兩者不同 | `data-model.md` |
 
+## 證據包匯出（Stage 11）
+
+| 症狀 | 看哪裡 | 誰守著 |
+|---|---|---|
+| 匯出的引文標著「位置已移動」 | **那是設計。** `derived/` 重算過，位移平移了。引文一字不差，檔案裡兩組數字都寫 | `tests/domain/export.test.ts` |
+| 匯出的引文標著「回溯不到」 | 那一份的 `derived/` 不在了，或正文裡真的找不到那一段。**檔案照樣產生**，`notice` 是 `EXPORT_EVIDENCE_MISSING` | `tests/e2e/export-flow.test.ts` |
+| 匯出之後資料庫裡的位置沒變 | **那是設計。** 匯出是唯讀的 —— 把位置對回去是 `POST …/rebuild` 的事 | `tests/e2e/export-flow.test.ts` |
+| 畫面上看得到的線，證據包裡沒有 | 投影出來的共同提及線**不在資料庫裡**，沒有出處可以附。檔案的「沒有匯出的」那一節會說出條數 | `tests/domain/export.test.ts` |
+| 出處那一份不在選取範圍裡，但它出現在 `sources.md` | **那是設計。** 不自帶它的話，回溯的終點會落在這份檔案外面 | `tests/e2e/export-flow.test.ts` |
+| 共同提及／相似度／轉載沒有排在「待查證」裡 | 它們不是主張（ADR-0015）。列在「其餘三層」那一張表 —— **混進去會讓一條開放問題看起來像九條** | `tests/domain/export.test.ts` |
+| `EXPORT_EMPTY_SELECTION`，但畫面上明明有東西 | 送了一個空的 `nodeIds`。**沒送＝整塊，送空陣列＝一個都沒選** | `api-contract.md` |
+| 匯出的東西跟畫面上的不一樣 | 不該發生 —— 兩邊是同一支 `subgraph()`。先確認送出的參數跟畫面同一組（`store.query()`）| `export-service.ts` 的檔頭 |
+
 ## 文件與治理
 
 | 症狀 | 看哪裡 | 誰守著 |

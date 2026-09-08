@@ -43,6 +43,7 @@ import {
   updateNote,
 } from '../../application/note-service.js';
 import { rebuildDerived } from '../../application/rebuild-service.js';
+import { exportEvidence } from '../../application/export-service.js';
 import {
   listSources,
   probeSources,
@@ -157,6 +158,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerItemRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
   registerEdgeRoutes(app, ctx);
+  registerExportRoutes(app, ctx);
 }
 
 /**
@@ -735,4 +737,34 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
       return send(reply, await unmergeEntity(dataRoot, req.params.slug, req.params.entityId));
     },
   );
+}
+
+/**
+ * 證據包匯出（Stage 11）。
+ *
+ * **參數跟子圖那兩支一模一樣**，因為「選一塊子圖」的意思就是
+ * 「你現在看到的那一塊」—— 換一組參數就等於換了一塊，
+ * 而那時匯出的東西跟畫面上的對不起來。
+ *
+ * 走 `POST` 不是 `GET`：它**會在磁碟上產生檔案**，
+ * 而一個會產生東西的動作不該長得像一次讀取（可以被預抓、被快取、被重試）。
+ */
+function registerExportRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.post<{
+    Params: { slug: string };
+    Body: SubgraphQuerystring & { nodeIds?: unknown };
+  }>('/api/cases/:slug/export/evidence', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    const body = req.body ?? {};
+    const raw = body.nodeIds;
+    return send(
+      reply,
+      await exportEvidence(dataRoot, req.params.slug, {
+        ...parseSubgraphQuery(body),
+        // **`null` 與 `[]` 不一樣**：沒送就是整塊，送了一個空陣列是「一個都沒選」。
+        nodeIds: Array.isArray(raw) ? raw.map((id) => String(id)) : null,
+      }),
+    );
+  });
 }

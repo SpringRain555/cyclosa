@@ -19,8 +19,15 @@ export interface SystemPaths {
   readonly updatedAt: string;
 }
 
-/** 資料根底下的四個頂層資料夾。 */
-export const TOP_LEVEL_DIRS = ['cases', 'backups', 'logs', 'tmp'] as const;
+/**
+ * 資料根底下的頂層資料夾。
+ *
+ * `exports` 是 Stage 11 加的，而它**刻意在專題資料夾外面**：
+ * 一個專題資料夾的規矩是「整個複製走，在另一台機器上打得開」（REQ-0001），
+ * 而證據包是**要拿出去的東西** —— 放進那個資料夾只會讓要複製的東西
+ * 隨著每次匯出變大，而且下一次匯出還會把上一次的一起帶走。
+ */
+export const TOP_LEVEL_DIRS = ['cases', 'backups', 'logs', 'tmp', 'exports'] as const;
 
 /**
  * `%LOCALAPPDATA%\Cyclosa\system_paths.json`。
@@ -145,11 +152,22 @@ export function backupsDir(dataRoot: string): string {
   return join(dataRoot, 'backups');
 }
 
-/** 四個頂層資料夾的最後一個。**任何專題都不擁有它**，所以一次性的東西放這裡。 */
+/** **任何專題都不擁有它**，所以一次性的東西放這裡。 */
 export function tmpDir(dataRoot: string): string {
   return join(dataRoot, 'tmp');
 }
 
 export function logsDir(dataRoot: string): string {
   return join(dataRoot, 'logs');
+}
+
+/**
+ * 匯出的證據包：`<資料根>\exports\<專題>\<時間戳>\`。
+ *
+ * **一次匯出一個資料夾，不覆寫上一次。** 證據包是拿去給別人看的東西，
+ * 而「我上禮拜寄出去的那一份」必須還在原地 ——
+ * 覆寫掉的話，收到那份檔案的人手上拿的東西就再也對不回來了。
+ */
+export function exportsDir(dataRoot: string, slug?: string): string {
+  return slug === undefined ? join(dataRoot, 'exports') : join(dataRoot, 'exports', slug);
 }

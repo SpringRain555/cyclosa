@@ -5,15 +5,15 @@
  * 三件事，順序就是重要性：
  * 看到累積起來的東西長什麼樣 → 找到某個東西附近有什麼 → 把選出來的一塊帶走。
  *
- * 這一版做得到前兩件。**第三件（匯出證據包）不在工具列上** ——
- * 一個點了沒反應的按鈕比少一個按鈕更糟，那是 Stage 11。
+ * 三件都做得到了。**匯出那一顆在工具列上，而面板開在左欄** ——
+ * 匯出完要顯示「檔案在哪」與三個引文數字，那些東西在一顆按鈕旁邊放不下。
  *
  * ## 焦點跳數不是一個下拉選單
  *
  * 每一格直接顯示**會帶進來幾個節點**，數字即時算、超預算的標琥珀色。
  * 「把跳數變成節點預算，那個常數就不再是拍出來的」（`api-contract.md`）。
  */
-import { computed, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import type { EdgeLayer } from '../api';
@@ -22,6 +22,7 @@ import { useGraphStore } from '../stores/graph-store';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import EdgePanel from '../components/graph/EdgePanel.vue';
 import GraphLegend from '../components/graph/GraphLegend.vue';
+import ExportPanel from '../components/graph/ExportPanel.vue';
 import MergePanel from '../components/graph/MergePanel.vue';
 import GraphView from '../components/graph/GraphView.vue';
 import SelectionPanel from '../components/graph/SelectionPanel.vue';
@@ -33,6 +34,9 @@ const store = useGraphStore();
 const slug = computed(() => String(route.params['slug'] ?? ''));
 
 const hopChoices = [1, 2, 3];
+
+/** 匯出面板預設收起來 —— 它平常不佔位置，要用的時候才長出來。 */
+const exportOpen = ref(false);
 
 /**
  * **整個專題一條關聯都沒有** —— 說出來，否則一團沒有線的點看起來像壞掉。
@@ -121,6 +125,15 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
         <button type="button" @click="openExpand">{{ t.expand.open }}</button>
 
         <!--
+          匯出的入口在工具列上（設計稿與 `ui-workflows` 都這樣寫），
+          **而面板開在左欄** —— 匯出完要顯示檔案位置與三個引文數字，
+          那些東西塞不進工具列，而它們正是匯出之後唯一要看的東西。
+        -->
+        <button type="button" :class="{ on: exportOpen }" @click="exportOpen = !exportOpen">
+          {{ t.exportPack.open }}
+        </button>
+
+        <!--
           裁決佇列**沒有自己的畫面** —— 頂列只有三個分頁（ui-workflows），
           而多開一個分頁只為了顯示一個數字並不划算。
           它在這裡：數字 ＋ 一個「跳到下一條」。
@@ -161,6 +174,14 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 
       <div class="body">
         <div class="side">
+          <ExportPanel
+            v-if="exportOpen && slug && store.subgraph !== null"
+            :slug="slug"
+            :query="store.query()"
+            :hops="store.hops"
+            :node-count="store.subgraph.visibleNodeCount"
+            :edge-count="store.edges.length"
+          />
           <GraphLegend
             v-model:projection="store.projection"
             v-model:min-tier="store.minTier"

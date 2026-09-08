@@ -517,6 +517,23 @@ export interface MergeResult {
   readonly duplicateEdges: number;
 }
 
+export interface ExportSummary {
+  /** 匯出到哪。**畫面要顯示它** —— 不然使用者找不到剛剛產生的檔案。 */
+  folder: string;
+  files: string[];
+  nodeCount: number;
+  edgeCount: number;
+  noteCount: number;
+  sourceCount: number;
+  quoteCount: number;
+  verified: number;
+  shifted: number;
+  missing: number;
+  projectedOmitted: number;
+  /** 有引文回溯不到。**檔案照樣產生，而且在檔案裡標明了。** */
+  notice: string | null;
+}
+
 export const api = {
   dataRoot: () => request<DataRootInfo>('/api/system/data-root'),
   setDataRoot: (dataRoot: string) =>
@@ -723,5 +740,17 @@ export const api = {
   unmergeEntity: (slug: string, entityId: string) =>
     request<{ restored: number }>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/unmerge`, {
       method: 'POST',
+    }),
+
+  // ── 證據包匯出（Stage 11）───────────────────────────────
+
+  /**
+   * **參數跟 `subgraph` 那一支一模一樣** —— 匯出的就是你現在看到的那一塊。
+   * `nodeIds` 沒送代表整塊；送一個空陣列是「一個都沒選」，那是一個錯誤。
+   */
+  exportEvidence: (slug: string, query: Record<string, string>, nodeIds?: string[]) =>
+    request<ExportSummary>(`/api/cases/${enc(slug)}/export/evidence`, {
+      method: 'POST',
+      body: JSON.stringify(nodeIds === undefined ? query : { ...query, nodeIds }),
     }),
 };

@@ -25,7 +25,9 @@
 > `POST /api/sources/check`；`GET …/entities/merges`、`POST …/entities/merge`、
 > `POST …/entities/:entityId/unmerge`。
 >
-> **還不存在**：匯出（Stage 11）、檢索（Stage 12）。
+> **Stage 11 新增**：**`POST …/export/evidence`**（證據包匯出）。
+>
+> **還不存在**：檢索（Stage 12）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
@@ -285,6 +287,35 @@
 |---|---|
 | `POST …/export/evidence` | 選取子圖的證據包。**每條引文可回溯到 `item` 與字元區間** |
 | `POST /api/diagnostics` | 去識別化的診斷檔。**產生檔案，不往外送** |
+
+`POST …/export/evidence` 的 body **跟 `GET …/subgraph` 的查詢參數一模一樣**
+（`focus`／`hops`／`layers`／`status`／`minConfidence`／`projection`…），
+另加一個選填的 `nodeIds`：
+
+| | 意思 |
+|---|---|
+| 沒送 `nodeIds` | 整塊子圖 |
+| `nodeIds: [...]` | 只匯出這幾個節點，**以及兩端都在裡面的那些邊** |
+| `nodeIds: []` | 「一個都沒選」→ `EXPORT_EMPTY_SELECTION`（400）。**跟沒送不一樣** |
+
+參數一致不是巧合：**「選一塊子圖」的意思就是「你現在看到的那一塊」**，
+換一組參數就等於換了一塊，而那時匯出的東西跟畫面上的對不起來。
+伺服器端也是同一支 `subgraph()` —— 兩份遍歷實作遲早不一致，
+而**不一致的時候使用者沒有辦法發現**：兩份都看起來很正常。
+
+回應是一份摘要（不是檔案內容）：檔案落在
+`<資料根>\exports\<專題>\<時間戳>\`，回的是**那個資料夾的路徑**、
+三個檔名，以及節點／關聯／引文的數量。引文那三個數字**分開回**
+（已核對／位置已移動／回溯不到），合成一個總數就把第三種藏起來了。
+
+有回溯不到的引文時**仍然回 200**，`notice` 帶 `EXPORT_EVIDENCE_MISSING` ——
+檔案照樣產生，而且那幾條在檔案裡標明了。
+
+> **`POST` 不是 `GET`**：它會在磁碟上產生檔案，
+> 而一個會產生東西的動作不該長得像一次讀取（可以被預抓、被快取、被重試）。
+
+> **匯出不寫資料庫。** 引文的位置在正文重算之後變了也不更新 `edge_evidence`，
+> 點註的 `anchor_ok` 也不重寫 —— 把位置對回去是 `POST …/rebuild` 的事。
 
 ---
 

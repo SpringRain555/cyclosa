@@ -138,7 +138,11 @@ function targetOf(item: items.ItemRow, derived: DerivedPayload | null) {
  */
 const NOT_FOUND: AnchorHit = { kind: 'not-found' };
 
-async function resolveMany(
+/**
+ * **匯出也用這一支**（Stage 11）—— 一則點註「現在解到哪裡」只能有一個答案，
+ * 而閱讀器與證據包如果各算各的，兩邊遲早會對同一則給出不同的位置。
+ */
+export async function resolveNotes(
   db: DatabaseSync,
   folder: string,
   rows: readonly notes.NoteRow[],
@@ -231,7 +235,7 @@ export async function reresolveAll(
   readonly unresolved: number;
 }> {
   const rows = notes.listNotes(db, Number.MAX_SAFE_INTEGER);
-  const resolved = await resolveMany(db, folder, rows);
+  const resolved = await resolveNotes(db, folder, rows);
   const now = Date.now();
 
   let exact = 0;
@@ -465,7 +469,7 @@ export async function listNotesForItem(
   return withCase(dataRoot, slug, async (db, folder) => {
     const cid = correlationId();
     const rows = notes.listNotesFor(db, itemId);
-    return ok(await resolveMany(db, folder, rows), cid);
+    return ok(await resolveNotes(db, folder, rows), cid);
   });
 }
 
@@ -475,7 +479,7 @@ export async function listAllNotes(
 ): Promise<Result<readonly ResolvedNote[]>> {
   return withCase(dataRoot, slug, async (db, folder) => {
     const cid = correlationId();
-    return ok(await resolveMany(db, folder, notes.listNotes(db)), cid);
+    return ok(await resolveNotes(db, folder, notes.listNotes(db)), cid);
   });
 }
 
@@ -520,7 +524,7 @@ export async function updateNote(
       page === undefined ? null : Number(page),
     );
 
-    const [resolved] = await resolveMany(db, folder, [updated]);
+    const [resolved] = await resolveNotes(db, folder, [updated]);
     return ok(
       {
         note: resolved as ResolvedNote,

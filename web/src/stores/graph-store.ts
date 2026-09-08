@@ -275,6 +275,9 @@ export const useGraphStore = defineStore('graph', () => {
     setFocus,
     setHops,
     select,
+    // 匯出要送出跟這一次查詢**一模一樣**的參數（Stage 11）——
+    // 換一組就等於換了一塊，而那時匯出的東西跟畫面上的對不起來。
+    query,
 
     // 裁決（Stage 8）
     selectedEdgeId,

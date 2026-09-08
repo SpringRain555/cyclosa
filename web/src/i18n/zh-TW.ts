@@ -188,8 +188,9 @@ export const t = {
     rootIs: '專題根目前是',
     rootChangeable: '，可在設定改。程式與資料是分開的。',
     never: '尚未擴展',
-    pickHint: '點一列選取，再對它操作。',
+    pickHint: '點一列選取，再對它操作。點第二下直接開關聯圖。',
     picked: '選取：{name}',
+    clearPick: '取消選取',
     openGraph: '關聯圖',
     rename: '改名',
     renameSave: '存檔',
@@ -486,8 +487,8 @@ export const t = {
     /** 有作業在跑的時候，確認要說出那個數字。 */
     confirmBusy:
       '有 {n} 個作業正在跑。結束的話它們會中斷。\n\n已經寫進去的東西會留著（取消不回滾），但沒做完的那幾項會停在原地。要結束嗎？',
-    done: 'Cyclosa 已經關掉了。可以關掉這個分頁。',
-    failed: '關不掉。可以直接關掉那個命令列視窗。',
+    done: 'Cyclosa 已經關掉了。這個分頁沒有自己關掉的話，是因為瀏覽器只讓網頁關掉自己開的分頁 —— 手動關掉它就可以了。',
+    failed: '關不掉。先重新整理看看它是不是其實已經停了；還在的話，用工作管理員結束 node.exe。',
   },
 
   runs: {

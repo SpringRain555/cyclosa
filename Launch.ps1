@@ -17,17 +17,32 @@
     生命週期（ADR-0020）：
       · 埠 7433 被佔用而且那是 Cyclosa 自己 → **開既有的那一個**，不起第二個
       · 埠被別的程式佔用                    → 說清楚是哪一種情況再結束
-      · 關掉這個視窗                        → server 一起結束
+      · **這個視窗做完就關掉**              → server 在背景繼續跑
+      · 要結束 Cyclosa                      → 用畫面右上角那顆「結束 Cyclosa」
+
+    **這個視窗不是 Cyclosa 的開關。** 它是一個檢查清單：檢查完、確認 server
+    真的接受連線了、開好瀏覽器，它就沒事了。server 用 `-WindowStyle Hidden`
+    起在自己的（隱藏的）主控台上，所以這個視窗關掉不會把它一起帶走。
+
+    上一版是共用主控台（`-NoNewWindow`）＋ 一句「關掉這個視窗就會結束」。
+    那樣關得掉，代價是**一個必須一直開著的黑框**，而它唯一的功能是當開關 ——
+    v0.9.0 之後畫面上已經有一顆真正的結束鍵了。
 
 .PARAMETER SkipBuild
     跳過建置檢查。改了程式之後不要用。
 
+.PARAMETER Foreground
+    server 留在這個視窗裡跑，日誌直接印出來，不自動開瀏覽器。
+    **「它開不起來」的時候用這個看完整錯誤。**
+
 .EXAMPLE
     .\Launch.ps1
+    .\Launch.ps1 -Foreground
 #>
 [CmdletBinding()]
 param(
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$Foreground
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +53,28 @@ $url = "http://127.0.0.1:$port/"
 function Write-Step { param([string]$Text) Write-Host "`n=== $Text" -ForegroundColor Cyan }
 function Write-Ok { param([string]$Text) Write-Host "  OK    $Text" -ForegroundColor Green }
 function Write-Note { param([string]$Text) Write-Host "        $Text" -ForegroundColor DarkGray }
+
+# **原生指令寫到 stderr 不等於失敗。**
+#
+# `vite build` 成功的時候也會印一段「chunk 大於 500 kB」的警告，而在
+# `$ErrorActionPreference = 'Stop'` 之下、只要輸出被導向（從另一支腳本呼叫、
+# 或在會收集輸出的終端機裡跑），PowerShell 5.1 就會把 stderr 每一行包成
+# ErrorRecord，然後**把一個警告變成終止性錯誤** —— 畫面上是「建置失敗」，
+# 而 npm 其實回了 0。2026-09-09 實際踩到。
+#
+# 真正的判準只有一個：**離開碼**。所以原生指令一律走這裡。
+#
+# **輸出要走 `Out-Host`，不能讓它落回管線。** `& $Command` 的輸出會變成這個函式的
+# 回傳值，於是回傳的是「所有輸出 ＋ 離開碼」的一個陣列 —— 而 PowerShell 對陣列的
+# `-ne 0` 是**篩選**不是比較，它回傳一個非空陣列，在 `if` 裡永遠為真。
+# 症狀是「建置成功但啟動器說建置失敗」，跟這個函式要修的那個坑一模一樣。
+function Invoke-Native {
+    param([scriptblock]$Command)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $Command | Out-Host } finally { $ErrorActionPreference = $previous }
+    return $LASTEXITCODE
+}
 
 function Stop-WithMessage {
     param([string]$Title, [string[]]$Lines)
@@ -142,8 +179,7 @@ if (-not (Test-Path (Join-Path $root 'node_modules'))) {
     Write-Host '  node_modules 不存在，執行 npm ci…' -ForegroundColor Yellow
     Push-Location $root
     try {
-        & npm ci
-        if ($LASTEXITCODE -ne 0) {
+        if ((Invoke-Native { & npm ci }) -ne 0) {
             Stop-WithMessage 'npm ci 失敗' @('先手動跑一次看完整訊息：', "    cd $root", '    npm ci')
         }
     } finally { Pop-Location }
@@ -185,8 +221,7 @@ if ($SkipBuild) {
 if ($needBuild) {
     Push-Location $root
     try {
-        & npm run build
-        if ($LASTEXITCODE -ne 0) {
+        if ((Invoke-Native { & npm run build }) -ne 0) {
             Stop-WithMessage '建置失敗' @('先手動跑一次看完整訊息：', "    cd $root", '    npm run build')
         }
     } finally { Pop-Location }
@@ -199,37 +234,76 @@ Write-Ok '產物就緒'
 # 砍掉它砍不到真正的 server，於是「關掉視窗」之後 7433 還在被佔用。
 # rubricator 2026-09-04 實測踩過，記在它的 docs\lessons.md。
 Write-Step '啟動'
-# **-NoNewWindow：跟這個視窗共用同一個主控台。**
+
+# **背景執行沒有主控台，所以 server 的輸出要有個去處。**
+# 放在指標檔旁邊而不是資料根底下 —— 「資料根讀不到」正是最需要看日誌的那一種故障，
+# 而一個存在資料根裡的日誌在那個情況下寫不出來。
+$logDir = Join-Path $env:LOCALAPPDATA 'Cyclosa\logs'
+$logFile = Join-Path $logDir 'server.log'
+try {
+    New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+    # 每次啟動留兩份：這一次與上一次。**不做輪替就會長成一個沒有人會刪的檔案。**
+    if (Test-Path -LiteralPath $logFile) {
+        Move-Item -LiteralPath $logFile -Destination (Join-Path $logDir 'server.prev.log') -Force
+    }
+    $env:CYCLOSA_LOG_FILE = $logFile
+} catch {
+    # 日誌寫不了不該讓程式起不來 —— 但要說出來，不然「怎麼沒有日誌」會變成第二個謎。
+    Write-Note "寫不了日誌（$logDir），這一次不留紀錄。"
+    $logFile = $null
+}
+
+if ($Foreground) {
+    # 前景模式：留在這個視窗裡。**這條路是給「它為什麼開不起來」用的**，
+    # 所以不自動開瀏覽器 —— 要看的是這裡印出來的東西。
+    Write-Note "前景模式：server 跑在這個視窗裡，Ctrl+C 結束。網址是 $url"
+    Write-Host ''
+    exit (Invoke-Native { & $node $serverEntry })
+}
+
+# **-WindowStyle Hidden：自己的主控台，而且是隱藏的。**
 #
-# 第一版是 `-WindowStyle Minimized`，而那有兩個問題，第二個嚴重得多：
+# 這是三種做法裡唯一兩件事都成立的：
 #
-# 1. 多一個沒有人會去看的視窗
-# 2. **子程序有自己的主控台，所以按 X 關掉這個視窗殺不到它** ——
-#    實測過：這樣起的子程序在父程序死掉之後還活著。
-#    於是畫面上那句「關掉這個視窗就會結束 Cyclosa」只有按 Enter 那半是真的，
-#    而剩下那個 server 是最小化的，你不會注意到它還在佔著 7433。
+# | 做法 | 有沒有黑框 | 關掉啟動器之後還活著嗎 |
+# |---|---|---|
+# | `-NoNewWindow`（v0.8.1–v0.9.0）| 有，而且要一直開著 | 不會 —— 共用主控台，關窗等於送 CTRL_CLOSE |
+# | `-WindowStyle Minimized` | 有（縮在工作列）| 會 |
+# | `-WindowStyle Hidden` | **沒有** | **會** |
 #
-# 共用主控台之後，關掉視窗時 Windows 會把 CTRL_CLOSE_EVENT 送給
-# 掛在這個主控台上的每一個程序 —— **兩條路都真的會結束。**
+# 走 ShellExecute 的那兩個不繼承這個主控台，所以這個視窗可以先走 ——
+# 而共用主控台的那一個，會讓視窗一直開到 server 結束為止。
+# （webscouts 的 `_scripts\Start-WebScouts.ps1` 是同一個結論，理由也一樣。）
 $proc = Start-Process -FilePath $node -ArgumentList @($serverEntry) `
-    -WorkingDirectory $root -PassThru -NoNewWindow
+    -WorkingDirectory $root -PassThru -WindowStyle Hidden
+
+function Stop-WithLog {
+    param([string]$Title, [string[]]$Lines)
+    $extra = @()
+    if ($logFile -and (Test-Path -LiteralPath $logFile)) {
+        $tail = Get-Content -LiteralPath $logFile -Tail 15 -Encoding UTF8
+        if ($tail) { $extra = @('', 'server 最後印的幾行：') + $tail }
+        $extra += @('', "完整紀錄：$logFile")
+    }
+    Stop-WithMessage $Title ($Lines + $extra)
+}
 
 # **等它真的接受連線，不是傻等固定秒數。**
 $ready = $false
 for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Milliseconds 400
     if ($proc.HasExited) {
-        Stop-WithMessage 'server 啟動後隨即結束' @(
-            '手動跑一次看它印了什麼：'
+        Stop-WithLog 'server 啟動後隨即結束' @(
+            '看完整錯誤：'
             "    cd $root"
-            '    node dist\main.js'
+            '    .\Launch.ps1 -Foreground'
         )
     }
     if ((Get-PortOwner) -eq 'cyclosa') { $ready = $true; break }
 }
 if (-not $ready) {
     if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Stop-WithMessage '等不到 server 回應' @("預期位置：$url", '手動跑 node dist\main.js 看看它印了什麼')
+    Stop-WithLog '等不到 server 回應' @("預期位置：$url", '看完整錯誤：.\Launch.ps1 -Foreground')
 }
 
 Write-Ok "已啟動：$url"
@@ -237,11 +311,9 @@ Start-Process $url
 
 Write-Host ''
 Write-Host '  資料存在專案外的資料根目錄 —— 第一次啟動會請你選一個位置。' -ForegroundColor DarkGray
-Write-Host '  關掉這個視窗（或按 Enter）就會結束 Cyclosa。' -ForegroundColor DarkYellow
-Write-Host '  下面開始是 server 自己的紀錄。' -ForegroundColor DarkGray
+# **要結束的路只有一條，而且不在這裡。** 這個視窗等一下就不見了，
+# 所以它不能是關掉 Cyclosa 的方法 —— 那件事在畫面右上角。
+Write-Host '  要結束 Cyclosa，用畫面右上角的「結束 Cyclosa」。' -ForegroundColor DarkYellow
+if ($logFile) { Write-Host "  server 的紀錄：$logFile" -ForegroundColor DarkGray }
 Write-Host ''
-Read-Host '按 Enter 結束'
-
-if (-not $proc.HasExited) {
-    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-}
+exit 0

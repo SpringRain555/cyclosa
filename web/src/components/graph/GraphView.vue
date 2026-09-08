@@ -30,7 +30,12 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import ForceGraph3D, { type ForceGraph3DInstance } from '3d-force-graph';
 import type { Object3D } from 'three';
 
-import { edgeDrawingOf, emphasisFor, zoomLevelFor } from '@domain/graph/render-rules';
+import {
+  edgeDrawingOf,
+  emphasisFor,
+  labelWeightFor,
+  zoomLevelFor,
+} from '@domain/graph/render-rules';
 import type { SubgraphEdge, SubgraphNode } from '../../api';
 import LayoutWorker from '../../workers/layout.worker?worker';
 import type { LayoutMessage, LayoutRequest } from '../../workers/layout.worker';
@@ -146,7 +151,6 @@ function makeNodeObject(node: Datum): Object3D {
     hollow: node.hollow,
     opacity: opacityOf(node.id),
     selected: node.id === props.selectedId,
-    read: node.readAt !== null,
     isFocus: node.id === props.focusId,
     crossed: node.excluded,
   });
@@ -154,7 +158,13 @@ function makeNodeObject(node: Datum): Object3D {
   // **標籤有上限**：每個標籤是一張自己的貼圖，而且超過那個數量畫面上的字
   // 早就疊在一起了 —— 這個上限同時是效能界線與可讀性界線
   if (labelsInScene.length < MAX_LABELS) {
-    const label = buildLabel(node.title, token('--text-secondary'));
+    // **未讀粗體、已讀正常**（ADR-0024）。判斷在 domain 裡，
+    // 因為「哪一種節點有已讀這件事」是一條規則，不是一個畫法。
+    const label = buildLabel(
+      node.title,
+      token('--text-secondary'),
+      labelWeightFor({ kind: node.kind, readAt: node.readAt }) === 'bold',
+    );
     if (label !== null) {
       group.add(label);
       labelsInScene.push(label);

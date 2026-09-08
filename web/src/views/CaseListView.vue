@@ -8,6 +8,7 @@
  * 資料根有問題時，這一頁顯示的是**那個問題**，不是一個空清單。
  */
 import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { api, type ApiError, type CaseSummary, type DataRootInfo } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
@@ -94,13 +95,29 @@ async function submitCreate(): Promise<void> {
 /**
  * 選取一列。**單一專題的操作都掛在這個選取上**，不散在每一列。
  *
- * 再點一次同一列會取消選取 —— 「我不想選它了」要有一個做得到的動作。
+ * **點第二下就進關聯圖。** 那是這一頁最常見的下一步，而它原本要走兩步
+ * （選一列、再按操作列上的「關聯圖」）。名稱本來是一個連到閱讀器的連結，
+ * 現在拿掉了 —— 同一列有兩個目的地，按下去之前分不出會去哪一個。
+ *
+ * 「我不想選它了」改由操作列上的一顆小按鈕負責 ——
+ * 原本靠「再點一次」取消選取，而那個位置現在拿去開關聯圖了。
  */
+const router = useRouter();
 const pickedSlug = ref<string | null>(null);
 const selected = computed(() => cases.value.find((c) => c.slug === pickedSlug.value) ?? null);
 
 function pick(slug: string): void {
-  pickedSlug.value = pickedSlug.value === slug ? null : slug;
+  if (pickedSlug.value === slug) {
+    void router.push(`/case/${encodeURIComponent(slug)}`);
+    return;
+  }
+  pickedSlug.value = slug;
+  renaming.value = false;
+  renameError.value = null;
+}
+
+function clearPick(): void {
+  pickedSlug.value = null;
   renaming.value = false;
   renameError.value = null;
 }
@@ -223,6 +240,9 @@ onMounted(load);
         <span class="picked-name">{{
           selected === null ? t.caseList.pickHint : fill(t.caseList.picked, { name: selected.name })
         }}</span>
+        <button v-if="selected && !renaming" type="button" class="clear" @click="clearPick">
+          {{ t.caseList.clearPick }}
+        </button>
         <span class="spacer"></span>
 
         <template v-if="renaming">
@@ -280,8 +300,9 @@ onMounted(load);
         </thead>
         <tbody>
           <!--
-            **整列可以點來選取，而名字仍然是一個連結。**
-            兩者不衝突：點名字是「我要進去」，點別的地方是「我要對它做點什麼」。
+            **整列可以點：第一下選取，第二下進關聯圖。**
+            名字不是連結了 —— 一列上有兩個目的地的話，按下去之前分不出會去哪一個。
+            進閱讀器改走頂列的分頁（關聯圖 │ 閱讀器 │ 作業紀錄）。
           -->
           <tr
             v-for="c in cases"
@@ -290,9 +311,7 @@ onMounted(load);
             @click="pick(c.slug)"
           >
             <td>
-              <RouterLink class="name" :to="`/case/${encodeURIComponent(c.slug)}/reader`">
-                {{ c.name }}
-              </RouterLink>
+              <span class="name">{{ c.name }}</span>
               <div v-if="c.seed" class="muted small">{{ c.seed }}</div>
             </td>
             <td>{{ t.caseStatus[c.status] }}</td>
@@ -415,7 +434,6 @@ th {
 }
 .name {
   color: var(--text);
-  text-decoration: none;
   font-weight: 500;
 }
 .open {
@@ -471,6 +489,18 @@ th {
 .actions button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+/* 「取消選取」**不是一個操作，是收回一個選擇** —— 所以它比右邊那幾顆輕，
+   而且沒選的時候它整顆不在（沒有東西可以收回）。 */
+.actions button.clear {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-tertiary);
+  padding: 2px 6px;
+}
+.actions button.clear:hover {
+  color: var(--text);
+  background: var(--bg-hover);
 }
 
 tbody tr {

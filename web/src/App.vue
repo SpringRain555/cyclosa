@@ -80,6 +80,17 @@ async function quit(): Promise<void> {
 
   const done = await api.shutdown(true);
   quitMessage.value = done.ok ? t.shutdown.done : t.shutdown.failed;
+  if (!done.ok) return;
+
+  // **順手把分頁關掉，但不能假設關得成。**
+  //
+  // 瀏覽器只允許腳本關掉「腳本自己開的」分頁，而這一個是啟動器用網址開的 ——
+  // 所以這一行在多數瀏覽器裡會被忽略（主控台留下一句警告，畫面什麼都不會發生）。
+  // 它仍然值得呼叫：關得成的時候使用者就少一個動作。
+  //
+  // **關不成的時候畫面上那句話就是後路** —— 所以訊息要先設好再呼叫，
+  // 而且那句話要說出「為什麼要你自己關」，不然看起來像是這顆按鈕沒做完事。
+  window.close();
 }
 
 onMounted(async () => {

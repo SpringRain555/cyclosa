@@ -7,6 +7,8 @@
  *    而最省事的做法是一開始就不要把它們寫進日誌 ——
  *    事後過濾一份已經寫進去的日誌，永遠會漏掉一種欄位。
  */
+import { appendFileSync } from 'node:fs';
+
 import type { ErrorCode } from '../domain/errors/codes.js';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -62,11 +64,40 @@ function threshold(): number {
   return ORDER.info;
 }
 
+/**
+ * 同時寫一份到檔案（`CYCLOSA_LOG_FILE`）。
+ *
+ * **一鍵啟動之後 server 沒有主控台**（v0.9.1 起它跑在背景），
+ * 所以 stdout 寫到哪裡都沒有人看得到。啟動器把這個變數指到
+ * `%LOCALAPPDATA%\Cyclosa\logs\server.log`，讓「它自己死掉了」留得下線索。
+ *
+ * 三件事是刻意的：
+ *
+ * · **同步寫。** 要看的就是程式當掉之前的最後一行，而非同步的那一行會掉。
+ *   這個工具的日誌量是一秒幾行，不是一秒幾千行。
+ * · **寫不出去就靜靜放棄。** 日誌寫不了不該讓程式起不來 ——
+ *   而且這裡丟例外的話，第一個受害者是「正在回報另一個錯誤」的那條路。
+ * · 走的是同一個 `sanitize`。**檔案不是另一條規則比較鬆的路。**
+ *
+ * 每次讀一次環境變數而不是快取：跟 `threshold()` 同一個做法，
+ * 這樣測試設得動它，而代價只是一次 map 查詢。
+ */
+function appendToFile(line: string): void {
+  const path = process.env['CYCLOSA_LOG_FILE'];
+  if (path === undefined || path.length === 0) return;
+  try {
+    appendFileSync(path, line + '\n', 'utf8');
+  } catch {
+    // 見上面第二點
+  }
+}
+
 function write(level: LogLevel, msg: string, fields: LogFields = {}): void {
   if (ORDER[level] < threshold()) return;
   const line = JSON.stringify({ ts: new Date().toISOString(), level, msg, ...sanitize(fields) });
   if (level === 'error' || level === 'warn') process.stderr.write(line + '\n');
   else process.stdout.write(line + '\n');
+  appendToFile(line);
 }
 
 export const logger: Logger = {

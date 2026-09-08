@@ -26,8 +26,10 @@ import {
   CanvasTexture,
   Color,
   CylinderGeometry,
+  DoubleSide,
   EdgesGeometry,
   Group,
+  LatheGeometry,
   LineBasicMaterial,
   LineSegments,
   Mesh,
@@ -37,7 +39,7 @@ import {
   Quaternion,
   Sprite,
   SpriteMaterial,
-  TorusGeometry,
+  Vector2,
   Vector3,
   type Material,
 } from 'three';
@@ -234,7 +236,6 @@ export interface NodeSpec {
   readonly hollow: boolean;
   readonly opacity: number;
   readonly selected: boolean;
-  readonly read: boolean;
   readonly isFocus: boolean;
   readonly crossed: boolean;
 }
@@ -292,18 +293,67 @@ function sprite(map: CanvasTexture, scale: number): Sprite {
   return item;
 }
 
-// **比第一版小、但比第一版粗。** 顏色換成紫之後它不必靠大小搶注意力，
-// 而細環在 3D 裡側看幾乎會消失 —— 一個時有時無的記號比一個大記號更難讀。
-// 半徑 1.6 倍、管徑 0.95：外緣落在 1.74 倍，而標籤在 2.2 倍，兩者不重疊。
-const horizonGeometry = new TorusGeometry(NODE_SIZE * 1.6, 0.95, 10, 64);
+// 焦點環是**一條緞帶圍成的圈**，不是一根圓管。
+//
+// 那個差別是為了跟選取環分開，而且分開的方式不是顏色：
+// 選取環是一個永遠正對鏡頭的 sprite（一圈細線，從哪個角度看都是正圓），
+// 焦點環是真的躺在 XZ 平面上的幾何。**方形截面把那件事講得更清楚** ——
+// 轉動的時候你看得到那條帶子從正面收成側面，而一根圓管轉到哪都是同一根管子。
+//
+// **緞帶是站著繞的，不是躺著繞的** —— 像纏在一個圓筒外面那一圈，
+// 不是躺在桌上的那一圈。躺著繞的時候，正對它看是一片很寬的實心圓環
+// （2.9 寬），而它蓋住的正好是節點四周你要讀的東西。
+//
+// 站著繞之後兩個方向都是 1.1 到 2.2 之間：正對看是一圈 1.1 寬的細環，
+// 側看是一條 2.2 高的帶子。**沒有一個角度它會胖到擋路，也沒有一個角度它會消失。**
+//
+// 半徑 1.6 倍、截面 1.1（沿半徑）× 2.2（沿環的軸）
+// → 內緣 1.52 倍、外緣 1.68 倍，而標籤在 2.2 倍，兩者不重疊。
+const RIBBON_RADIUS = NODE_SIZE * 1.6;
+/** 沿半徑的厚度 —— 正對著環看的時候看到的就是這個寬度。 */
+const RIBBON_DEPTH = 1.1;
+/** 沿環的軸（Y）的高度 —— 側看時看到的是這條帶子的這一邊。 */
+const RIBBON_HEIGHT = 2.2;
+
+/**
+ * 長方形截面繞 Y 軸轉一圈。
+ *
+ * `LatheGeometry` 的軸就是 Y，所以**它一出生就躺在 XZ 平面上** ——
+ * 圓環（`TorusGeometry`）是建在 XY 平面上的、要再轉 90° 才躺平，這一個不用。
+ *
+ * 四個點是截面的四個角，第五個點回到起點把它封起來：
+ * 下緣、外側、上緣、內側各一圈，四個面都是真的面（沒有退化的那一排）。
+ * **外側那一圈就是緞帶的正面** —— 它朝外，所以側看時看到的是它。
+ */
+function ribbonGeometry(): LatheGeometry {
+  const inner = RIBBON_RADIUS - RIBBON_DEPTH / 2;
+  const outer = RIBBON_RADIUS + RIBBON_DEPTH / 2;
+  const half = RIBBON_HEIGHT / 2;
+  return new LatheGeometry(
+    [
+      new Vector2(inner, -half),
+      new Vector2(outer, -half),
+      new Vector2(outer, half),
+      new Vector2(inner, half),
+      new Vector2(inner, -half),
+    ],
+    64,
+  );
+}
+
+const horizonGeometry = ribbonGeometry();
 let sharedHorizonMaterial: MeshBasicMaterial | null = null;
 
 function horizonMaterial(): MeshBasicMaterial {
   sharedHorizonMaterial ??= new MeshBasicMaterial({
     color: new Color(token('--focus-marker')),
     transparent: true,
-    // 白色的時候要壓到 0.55 才不刺眼；紫色本來就沒那麼響，所以反而調高 ——
-    // **看得清楚的細環比看不清楚的粗環干擾更小。**
+    // **兩面都要畫。** 旋轉面的正反由點的順序決定，而這條帶子從上面看是一面、
+    // 從下面看是另一面 —— 只畫單面的話，鏡頭移到另一側它會整條消失。
+    side: DoubleSide,
+    // 白色的時候要壓到 0.55 才不刺眼；紫色本來就沒那麼響，所以反而調高。
+    // 帶子比圓管寬，正面遮住的東西也多一點 —— 這個 0.85 是讓底下的線
+    // **看得出有東西**、但不會跟帶子搶讀。
     opacity: 0.85,
   });
   return sharedHorizonMaterial;
@@ -361,16 +411,12 @@ export function buildNode(spec: NodeSpec): Group {
   // 選取每換一次就重建幾百個節點物件是看得出來的卡頓，
   // 而兩個共用貼圖的 sprite 幾乎不花東西。
 
-  // **內環＝讀過了**，長期狀態。貼著節點，不搶外環的位置
-  const readRing = sprite(
-    texture('read', () => ringTexture(token('--ring-read'), 6)),
-    NODE_SIZE * 1.5,
-  );
-  readRing.name = 'ring-read';
-  readRing.visible = spec.read;
-  group.add(readRing);
-
-  // **外環＝你在哪。** 比內環大一圈，所以兩個可以同時看得見
+  // **外環＝你在哪。**
+  //
+  // 這裡以前還有一個「已讀」的灰色內環，2026-09-09 拿掉了（ADR-0024）：
+  // 它畫在半徑 4.76 的地方，而方塊的側影邊緣在 4.95（正對面）到 5.71（角對著你）之間
+  // —— 所以方塊永遠吃掉它一部分，**吃掉多少還隨著轉動在變**。
+  // 已讀改標在標籤的字重上：未讀粗體、已讀正常。
   const selectedRing = sprite(
     texture('selected', () => ringTexture(token('--ring-selected'), 9)),
     NODE_SIZE * 2.6,
@@ -388,17 +434,18 @@ export function buildNode(spec: NodeSpec): Group {
     group.add(cross);
   }
 
-  // 焦點：**一個傾斜環，不是兩個記號。**
+  // 焦點：**一條躺平的緞帶，不是兩個記號。**
   //
   // 第一版是「平面準星 ＋ 傾斜環」，而那兩個講的是同一件事
   // （這裡是轉動中心）—— 於是它們一起把標籤壓在中間，
   // 而標籤是這張圖上你真正要讀的東西。
   //
-  // 留下來的是傾斜環：它躺在 XZ 平面上，所以**跟著透視傾斜** ——
+  // 留下來的是躺在 XZ 平面上的那一條，所以**它跟著透視傾斜** ——
   // 轉動時最先看到的就是它在轉，那正是「轉動中心」這個資訊本身。
   // 平面準星是永遠正對鏡頭的，它給不出那個資訊。
+  //
+  // **這裡不轉 90°** —— `ribbonGeometry` 是繞 Y 軸旋轉出來的，已經躺平了。
   const horizon = new Mesh(horizonGeometry, horizonMaterial());
-  horizon.rotation.x = -Math.PI / 2;
   horizon.name = 'focus-horizon';
   horizon.visible = spec.isFocus;
   group.add(horizon);
@@ -417,9 +464,15 @@ export function buildNode(spec: NodeSpec): Group {
  */
 export const MAX_LABELS = 300;
 
-const LABEL_FONT = '500 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+/**
+ * 標籤的字型。**兩個字重是「未讀／已讀」**（ADR-0024）——
+ * 700 與 400 都是實際存在的字重，不是合成出來的：中間值（500、600）在
+ * 只有 Regular 與 Bold 的字型上會被捨進去，於是兩種狀態長得一模一樣。
+ */
+const LABEL_FONT_UNREAD = '700 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
+const LABEL_FONT_READ = '400 30px "Noto Sans TC", "Microsoft JhengHei", sans-serif';
 
-export function buildLabel(text: string, color: string): Sprite | null {
+export function buildLabel(text: string, color: string, bold: boolean): Sprite | null {
   const trimmed = text.trim();
   if (trimmed.length === 0) return null;
   const shown = trimmed.length > 18 ? `${trimmed.slice(0, 18)}…` : trimmed;
@@ -428,13 +481,16 @@ export function buildLabel(text: string, color: string): Sprite | null {
   const ctx = canvas.getContext('2d');
   if (ctx === null) return null;
 
-  ctx.font = LABEL_FONT;
+  const font = bold ? LABEL_FONT_UNREAD : LABEL_FONT_READ;
+  ctx.font = font;
+  // **粗體比較寬，所以量寬度一定要用同一個字重量。**
+  // 量完才換字重的話，粗體的最後一兩個字會被裁掉。
   const width = Math.ceil(ctx.measureText(shown).width) + 16;
   canvas.width = width;
   canvas.height = 44;
 
   // 設過 canvas 尺寸之後 context 會重置，字型要再設一次
-  ctx.font = LABEL_FONT;
+  ctx.font = font;
   ctx.textBaseline = 'middle';
   ctx.fillStyle = color;
   ctx.fillText(shown, 8, 24);
@@ -446,7 +502,7 @@ export function buildLabel(text: string, color: string): Sprite | null {
   // 以「字高約等於節點邊長的 0.8」回推縮放，寬度照 canvas 比例走。
   const scale = (NODE_SIZE * 0.8) / canvas.height;
   item.scale.set(canvas.width * scale, canvas.height * scale, 1);
-  // **1.1 倍會被焦點環壓住。** 環的外緣在 1.7 倍，所以標籤要在它上面 ——
+  // **1.1 倍會被焦點環壓住。** 那條緞帶的外緣在 1.68 倍，所以標籤要在它上面 ——
   // 這個數字不是排版偏好，它是被 `horizonGeometry` 的半徑決定的。
   item.position.set(0, NODE_SIZE * 2.2, 0);
   item.name = 'label';

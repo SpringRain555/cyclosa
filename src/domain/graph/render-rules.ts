@@ -196,30 +196,51 @@ export function nodeGlyphFor(input: {
 }
 
 /**
- * 環。**外環＝你在哪，內環＝讀過了**，兩者可以同時存在。
+ * 環。**外環＝你在哪，焦點環＝轉動中心**，兩者可以同時存在。
  *
  * 「剛讀過」**不是獨立狀態，它就是選取**（ADR-0018）——
- * 點下一個節點時選取自然轉移，舊的留下灰內環。不為它再發明一個記號。
+ * 點下一個節點時選取自然轉移。不為它再發明一個記號。
+ *
+ * **「已讀」以前是第三個環，現在不是了**（ADR-0024）——
+ * 它改標在標籤的字重上，見 `labelWeightFor`。
  */
 export interface NodeRings {
   /** 青色外環 */
   readonly selected: boolean;
-  /** 灰色內環，長期狀態 */
-  readonly read: boolean;
-  /** 白色準星 ＋ 傾斜環**疊在上面**，不取代節點自己的畫法 */
+  /** 紫色的傾斜緞帶環**疊在上面**，不取代節點自己的畫法 */
   readonly focus: boolean;
 }
 
 export function ringsFor(input: {
   readonly selected?: boolean | undefined;
-  readonly readAt?: number | null | undefined;
   readonly isFocus?: boolean | undefined;
 }): NodeRings {
   return {
     selected: input.selected === true,
-    read: typeof input.readAt === 'number',
     focus: input.isFocus === true,
   };
+}
+
+/**
+ * 標籤的字重 —— **未讀是粗體，已讀是正常**（ADR-0024，就是 Gmail 那個做法）。
+ *
+ * 已讀原本是一個灰色內環，而它有兩個毛病：環畫在方塊的側影裡面，所以方塊的角
+ * 會吃掉它一部分，**吃掉多少還隨著轉動在變**；而焦點節點上會疊成三圈同心圓。
+ *
+ * 字重是**還沒有人用的通道**。不透明度不能用（一跳提亮在用），
+ * 明暗不能用（那是遠近，ADR-0018 規則 3），色相在 149 個候選那一輪就用完了。
+ *
+ * **實體沒有「已讀」這件事** —— 它不是一份可以讀的東西，所以一律正常字重。
+ * 它跟「已讀的資料」靠形狀分得開：實體是空心線框。
+ */
+export type LabelWeight = 'bold' | 'normal';
+
+export function labelWeightFor(input: {
+  readonly kind: NodeKind;
+  readonly readAt?: number | null | undefined;
+}): LabelWeight {
+  if (input.kind === 'entity') return 'normal';
+  return typeof input.readAt === 'number' ? 'normal' : 'bold';
 }
 
 /**

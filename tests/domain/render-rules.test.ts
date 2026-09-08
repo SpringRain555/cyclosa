@@ -16,6 +16,7 @@ import {
   edgeLineFor,
   edgePanelFieldsFor,
   emphasisFor,
+  labelWeightFor,
   NEIGHBOUR_OPACITY,
   nodeGlyphFor,
   REST_OPACITY,
@@ -129,21 +130,36 @@ describe('節點：只有兩個顏色，第三色不存在', () => {
   });
 });
 
-describe('環：外環＝你在哪，內環＝讀過了', () => {
+describe('環：外環＝你在哪，焦點環＝轉動中心', () => {
   it('兩個可以同時存在', () => {
-    const rings = ringsFor({ selected: true, readAt: 1_700_000_000_000 });
+    const rings = ringsFor({ selected: true, isFocus: true });
     expect(rings.selected).toBe(true);
-    expect(rings.read).toBe(true);
+    expect(rings.focus).toBe(true);
   });
 
-  it('「剛讀過」不是獨立狀態 —— 沒讀過的選取節點只有外環', () => {
-    expect(ringsFor({ selected: true, readAt: null }).read).toBe(false);
-  });
-
-  it('焦點的準星疊在上面，不取代節點自己的畫法', () => {
+  it('焦點環疊在上面，不取代節點自己的畫法', () => {
     const rings = ringsFor({ isFocus: true });
     expect(rings.focus).toBe(true);
     expect(rings.selected).toBe(false);
+  });
+});
+
+describe('已讀標在標籤的字重上，不再是第三個環（ADR-0024）', () => {
+  it('沒讀過的資料是粗體', () => {
+    expect(labelWeightFor({ kind: 'item', readAt: null })).toBe('bold');
+  });
+
+  it('讀過的資料回到正常字重', () => {
+    expect(labelWeightFor({ kind: 'item', readAt: 1_700_000_000_000 })).toBe('normal');
+  });
+
+  it('**實體沒有已讀這件事** —— 它一律正常字重，靠空心跟已讀的資料分開', () => {
+    expect(labelWeightFor({ kind: 'entity', readAt: null })).toBe('normal');
+    expect(labelWeightFor({ kind: 'entity', readAt: 1_700_000_000_000 })).toBe('normal');
+  });
+
+  it('沒有給 readAt 就當作沒讀過 —— 少一個欄位不該讓它看起來像讀完了', () => {
+    expect(labelWeightFor({ kind: 'item' })).toBe('bold');
   });
 });
 

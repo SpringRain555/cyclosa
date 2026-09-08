@@ -18,6 +18,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { buildServer } from '../../src/server.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import { proposeEdges } from '../../src/application/edge-service.js';
+import { scoreFor } from '../../src/domain/graph/index.js';
 import { writeSyntheticGraph } from '../../tools/dev/graph-fixture.js';
 
 let sandbox: string;
@@ -48,6 +49,7 @@ interface EdgeDetailShape {
   origin: string;
   layer: string;
   rel: string;
+  tier: string;
   evidenceCount: number;
   independentSourceCount: number;
   previouslyRejected: boolean;
@@ -133,15 +135,32 @@ afterEach(async () => {
 // ══ 一條邊的細節 ═══════════════════════════════════════════
 
 describe('看一條邊憑什麼', () => {
-  it('出處 4 筆，但**只有 2 個獨立來源** —— 三份互為轉載算一個', async () => {
+  it('出處 5 筆，但**只有 3 個獨立來源** —— 三份互為轉載算一個', async () => {
     const d = await detail('edg-acquire');
-    expect(d.evidenceCount).toBe(4);
-    expect(d.independentSourceCount).toBe(2);
+    expect(d.evidenceCount).toBe(5);
+    expect(d.independentSourceCount).toBe(3);
+  });
+
+  /**
+   * **可信度是從那 3 個獨立來源數出來的，不是誰填的。**
+   *
+   * 合成資料也走 `recomputeConfidence`（`graph-fixture.ts` 結尾），
+   * 所以這一條同時在驗「那份合成資料是真實路徑產得出來的」。
+   */
+  it('三個獨立來源 → 強，而那個分數是算出來的', async () => {
+    const d = await detail('edg-acquire');
+    expect(d.tier).toBe('strong');
+    const c = await inDb((db) =>
+      db.prepare(`SELECT confidence c FROM edge WHERE id='edg-acquire'`).get(),
+    );
+    expect((c as { c: number }).c).toBeCloseTo(
+      scoreFor({ independentSourceCount: 3, hasDirectQuote: true }),
+    );
   });
 
   it('引文帶著它出自哪一份的**標題**，不是 id —— 使用者不認得 id', async () => {
     const d = await detail('edg-acquire');
-    expect(d.evidence).toHaveLength(4);
+    expect(d.evidence).toHaveLength(5);
     for (const e of d.evidence) {
       expect(e.itemTitle.length).toBeGreaterThan(0);
       expect(e.itemTitle).not.toBe(e.itemId);
@@ -459,13 +478,13 @@ describe('已否決是墓碑（ADR-0016）', () => {
    * 任何新的事，只會讓下一次的「新出處」判斷更難成立。
    */
   it('被擋下來時什麼都不寫 —— 出處筆數與稽核紀錄都不動', async () => {
-    // edg-acquire 有 4 筆出處（mirror-a／b／c ＋ partner），先把它改判成已否決。
+    // edg-acquire 有 5 筆出處（mirror-a／b／c ＋ partner ＋ target），先把它改判成已否決。
     // **是 `reclassify` 不是 `reject`** —— 從已確認出發沒有「否決」這條轉移，
     // 而寫成 `reject` 的第一版**這一步安靜地失敗了**，於是整條測試在測別的東西
     expect((await act('edg-acquire', 'reclassify')).ok).toBe(true);
     const before = await detail('edg-acquire');
     expect(before.status).toBe('rejected');
-    expect(before.evidenceCount).toBe(4);
+    expect(before.evidenceCount).toBe(5);
 
     const r = await proposeEdges(dataRoot, slug, [
       proposal({
@@ -482,7 +501,7 @@ describe('已否決是墓碑（ADR-0016）', () => {
 
     const after = await detail('edg-acquire');
     expect(after.status).toBe('rejected');
-    expect(after.evidenceCount).toBe(4);
+    expect(after.evidenceCount).toBe(5);
     expect(after.audit).toHaveLength(before.audit.length);
   });
 
@@ -599,29 +618,65 @@ describe('重跑之後，人的判斷一個都沒有變（Phase E 的驗收條�
 
     const after = await detail('edg-acquire');
     expect(after.status).toBe('confirmed');
-    expect(after.evidenceCount).toBe(5); // 出處**有**增加
+    expect(after.evidenceCount).toBe(6); // 出處**有**增加
     const confidence = await inDb((db) =>
       db.prepare(`SELECT confidence c FROM edge WHERE id='edg-acquire'`).get(),
     );
-    expect((confidence as { c: number }).c).toBeCloseTo(0.85); // 但可信度沒有被改
+    // **多了一個獨立來源，但可信度沒有跟著動** —— 這條邊被人碰過了。
+    // 沒有這一條的話，機器會用一個新的分數把使用者看過的那個蓋掉。
+    expect((confidence as { c: number }).c).toBeCloseTo(
+      scoreFor({ independentSourceCount: 3, hasDirectQuote: true }),
+    );
   });
 
-  it('沒有人碰過的待查證邊，重跑可以更新可信度', async () => {
-    await proposeEdges(dataRoot, slug, [proposal({ confidence: 0.95 })]);
-    const c = await inDb((db) =>
+  /**
+   * **可信度不是提案帶進來的數字，是從出處數出來的。**
+   *
+   * 這一條的第一版是「提案帶一個比較高的 confidence 進來，看它有沒有生效」——
+   * 而那正好是要避免的形狀：每一次提案都是「一份文件、一句引文」，
+   * 所以提案帶來的分數永遠一樣，拿它比大小的話**多幾個獨立來源永遠不會讓分數動**。
+   */
+  it('沒有人碰過的待查證邊，多一個獨立來源就多一分', async () => {
+    await proposeEdges(dataRoot, slug, [
+      proposal({
+        evidence: [{ itemId: 'itm-quiet', quote: '第一個來源說的話', charStart: 0, charEnd: 8 }],
+      }),
+    ]);
+    const one = await inDb((db) =>
       db.prepare(`SELECT confidence c FROM edge WHERE id='edg-employ'`).get(),
     );
-    expect((c as { c: number }).c).toBeCloseTo(0.95);
+    expect((one as { c: number }).c).toBeCloseTo(
+      scoreFor({ independentSourceCount: 1, hasDirectQuote: true }),
+    );
+
+    await proposeEdges(dataRoot, slug, [
+      proposal({
+        evidence: [{ itemId: 'itm-partner', quote: '第二個來源說的話', charStart: 0, charEnd: 8 }],
+      }),
+    ]);
+    const two = await inDb((db) =>
+      db.prepare(`SELECT confidence c FROM edge WHERE id='edg-employ'`).get(),
+    );
+    expect((two as { c: number }).c).toBeCloseTo(
+      scoreFor({ independentSourceCount: 2, hasDirectQuote: true }),
+    );
   });
 
   it('**人碰過之後就不行了** —— 撤回也算碰過', async () => {
     await actOk('edg-employ', 'reject');
     await actOk('edg-employ', 'restore'); // 回到待查證，但已經有稽核紀錄了
-    await proposeEdges(dataRoot, slug, [proposal({ confidence: 0.95 })]);
+    await proposeEdges(dataRoot, slug, [
+      proposal({
+        evidence: [{ itemId: 'itm-quiet', quote: '一個新的來源', charStart: 0, charEnd: 6 }],
+      }),
+    ]);
     const c = await inDb((db) =>
       db.prepare(`SELECT confidence c FROM edge WHERE id='edg-employ'`).get(),
     );
-    expect((c as { c: number }).c).toBeCloseTo(0.3); // 沒有被改
+    // 出處進去了，但可信度**沒有**跟著動 —— 這條邊被人碰過了
+    expect((c as { c: number }).c).toBeCloseTo(
+      scoreFor({ independentSourceCount: 0, hasDirectQuote: false }),
+    );
   });
 });
 
@@ -642,7 +697,19 @@ describe('校準比例（ADR-0017）', () => {
    * 兩端從 9 份合成資料裡輪，湊出 n 個不重複的（來源, 目標）。
    */
   const CAL_REL = '收購';
-  const CAL_CONFIDENCE = 0.85; // ≥ 0.7 → strong，與 edg-acquire 同一段
+  /**
+   * **三個獨立來源 → 0.7 → 強**，與 `edg-acquire` 同一段。
+   *
+   * 這裡不寫一個手挑的數字（第一版寫 0.85），理由跟 `graph-fixture.ts`
+   * 結尾那一段一樣：**「1 筆出處 ＋ 可信度 0.85」是真實路徑產生不出來的狀態**，
+   * 而一旦有東西對它重新提案，它的可信度就會被算回去、跳出這一段 ——
+   * 那時失敗的測試看起來會像是校準比例壞了。
+   */
+  const CAL_SOURCES = ['itm-partner', 'itm-similar', 'itm-mirror-a'] as const;
+  const CAL_CONFIDENCE = scoreFor({
+    independentSourceCount: CAL_SOURCES.length,
+    hasDirectQuote: true,
+  });
 
   async function seedNamed(n: number): Promise<string[]> {
     const items = [
@@ -676,13 +743,13 @@ describe('校準比例（ADR-0017）', () => {
       );
       const insertEv = db.prepare(
         `INSERT INTO edge_evidence (id, edge_id, item_id, quote, char_start, char_end, created_at)
-         VALUES (?, ?, 'itm-partner', '合成引文', 0, 4, 1)`,
+         VALUES (?, ?, ?, '合成引文', 0, 4, 1)`,
       );
       for (let i = 0; i < n; i += 1) {
         const id = `edg-cal-${i}`;
         const [source, target] = pairs[i] as [string, string];
         insertEdge.run(id, CAL_REL, source, target, CAL_CONFIDENCE);
-        insertEv.run(`evd-cal-${i}`, id);
+        CAL_SOURCES.forEach((itemId, k) => insertEv.run(`evd-cal-${i}-${k}`, id, itemId));
         ids.push(id);
       }
     });
@@ -769,14 +836,16 @@ describe('校準比例（ADR-0017）', () => {
     expect(mid.sampleSize).toBe(30); // 還是 30 條，只是其中一票變成否決
     expect(mid.confirmedRate).toBeCloseTo(29 / 30);
 
-    // 機器帶著新出處把它復活 —— 寫的是一列 actor='machine'
+    // 機器帶著新出處把它復活 —— 寫的是一列 actor='machine'。
+    //
+    // **新出處來自第四個獨立來源，所以它復活之後仍然是「強」** ——
+    // 掉出這一段的話，分母會因為別的理由變動，這條測試就驗不到它要驗的事。
     const revived = await proposeEdges(dataRoot, slug, [
       proposal({
         source: row.s,
         target: row.t,
         rel: '收購',
-        confidence: 0.85,
-        evidence: [{ itemId: 'itm-quiet', quote: '新出處', charStart: 0, charEnd: 3 }],
+        evidence: [{ itemId: 'itm-quiet', quote: '新出處在這裡', charStart: 0, charEnd: 6 }],
       }),
     ]);
     expect(revived.ok).toBe(true);

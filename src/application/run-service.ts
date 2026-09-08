@@ -11,7 +11,8 @@ import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
-import { isActive } from './ingest-service.js';
+import { isActive } from './run-registry.js';
+import { viewAngles, type AngleView } from './expand-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
 
@@ -57,6 +58,13 @@ export async function listRuns(
 export interface RunDetail {
   readonly run: RunSummary;
   readonly items: readonly runs.RunItemRow[];
+  /**
+   * 切入角度（擴展才有，匯入是空陣列）。
+   *
+   * **沒被勾的那幾條也在裡面** —— 「工具提了六條、你只要兩條」
+   * 是這次作業發生過的事實的一部分。
+   */
+  readonly angles: readonly AngleView[];
 }
 
 export async function getRun(
@@ -70,7 +78,14 @@ export async function getRun(
   try {
     const row = runs.getRun(db, runId);
     if (row === null) return err('CASE_NOT_FOUND', cid, { runId });
-    return ok({ run: { ...row, live: isActive(runId) }, items: runs.listRunItems(db, runId) }, cid);
+    return ok(
+      {
+        run: { ...row, live: isActive(runId) },
+        items: runs.listRunItems(db, runId),
+        angles: viewAngles(db, runId),
+      },
+      cid,
+    );
   } finally {
     db.close();
   }

@@ -344,6 +344,39 @@ export interface Traversal {
 }
 
 /**
+ * 這一批實體裡，哪幾個是某條**看得見的具名關係**的一端。
+ *
+ * **「看得見的」＝ 通過目前狀態篩選的** —— 已否決的邊預設不在篩選裡，
+ * 所以一個只帶著被否決關係的實體不會因此被拉到畫面上。
+ *
+ * 用途是投影：帶著一條要人裁決的主張的實體**一律畫成節點**
+ * （`projectionFor` 的檔頭寫了為什麼）。
+ */
+function entitiesCarryingNamedEdges(
+  db: DatabaseSync,
+  ids: readonly string[],
+  filters: SubgraphFilters,
+): ReadonlySet<string> {
+  const out = new Set<string>();
+  const where = edgeWhere({ ...filters, layers: ['named'] });
+  for (const batch of chunk(ids)) {
+    if (batch.length === 0) continue;
+    const p = placeholders(batch.length);
+    const rows = db
+      .prepare(
+        `SELECT source_id AS id FROM edge
+           WHERE source_kind = 'entity' AND source_id IN (${p})${where.sql}
+         UNION
+         SELECT target_id AS id FROM edge
+           WHERE target_kind = 'entity' AND target_id IN (${p})${where.sql}`,
+      )
+      .all(...([...batch, ...where.params, ...batch, ...where.params] as never[])) as Raw[];
+    for (const row of rows) out.add(String(row['id']));
+  }
+  return out;
+}
+
+/**
  * 從焦點往外走 `maxHops` 跳。**只拿 id，不拿內容** ——
  * `/subgraph/size` 用的就是這一支，而它的效能預算是 50 ms。
  *
@@ -374,6 +407,7 @@ export function traverse(
     const raw = neighboursOf(db, frontier, filters);
     const entityIds = [...new Set(raw.filter((n) => n.kind === 'entity').map((n) => n.id))];
     const counts = mentionCounts(db, entityIds);
+    const carrying = entitiesCarryingNamedEdges(db, entityIds, filters);
 
     const arrived: string[] = [];
     const transparent: string[] = [];
@@ -383,7 +417,11 @@ export function traverse(
         arrived.push(neighbour.id);
         continue;
       }
-      const projection = projectionFor(counts.get(neighbour.id) ?? 0, thresholds);
+      const projection = projectionFor(
+        counts.get(neighbour.id) ?? 0,
+        thresholds,
+        carrying.has(neighbour.id),
+      );
       if (projection === 'node') {
         expandedEntities.add(neighbour.id);
         arrived.push(neighbour.id);

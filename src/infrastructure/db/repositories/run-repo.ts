@@ -25,6 +25,14 @@ export interface RunRow {
   readonly startedAt: number | null;
   readonly endedAt: number | null;
   readonly createdAt: number;
+  // ── 擴展才有的（schema v4）──────────────────────────────
+  /** 匯入沒有主題，所以是 `null` —— **兩種 run 共用一張表** */
+  readonly topic: string | null;
+  /** `{"chat":"…","agent":"…"}`。換了模型重跑結果會不一樣，所以要留 */
+  readonly providers: string | null;
+  readonly requests: number;
+  /** **`null` 與 0 是兩件事**：本機模型真的是 0，沒回報的是不知道 */
+  readonly costUsd: number | null;
 }
 
 export interface RunItemRow {
@@ -59,6 +67,10 @@ function toRun(row: Raw): RunRow {
     startedAt: num(row['started_at']),
     endedAt: num(row['ended_at']),
     createdAt: Number(row['created_at']),
+    topic: str(row['topic']),
+    providers: str(row['providers_json']),
+    requests: Number(row['requests'] ?? 0),
+    costUsd: num(row['cost_usd']),
   };
 }
 
@@ -87,12 +99,43 @@ export function insertRun(
     readonly total: number;
     readonly correlationId: string;
     readonly now: number;
+    readonly topic?: string | null;
+    readonly providers?: string | null;
   },
 ): void {
   db.prepare(
-    `INSERT INTO run (id, kind, status, label, total, correlation_id, created_at)
-     VALUES (?, ?, 'queued', ?, ?, ?, ?)`,
-  ).run(input.id, input.kind, input.label, input.total, input.correlationId, input.now);
+    `INSERT INTO run (id, kind, status, label, total, correlation_id, created_at, topic, providers_json)
+     VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.kind,
+    input.label,
+    input.total,
+    input.correlationId,
+    input.now,
+    input.topic ?? null,
+    input.providers ?? null,
+  );
+}
+
+/**
+ * 記這一次作業總共打了幾次模型、花了多少。
+ *
+ * **`costUsd` 是 `null` 就不要寫 0 進去** —— 那一欄存在的全部理由
+ * 就是把「本機執行，金額成本真的是 0」跟「這個 provider 沒回報」分開。
+ */
+export function updateRunBudget(
+  db: DatabaseSync,
+  id: string,
+  requests: number,
+  costUsd: number | null,
+): void {
+  db.prepare('UPDATE run SET requests = ?, cost_usd = ? WHERE id = ?').run(requests, costUsd, id);
+}
+
+/** 總項目數在擴展裡是「勾了幾條角度」，而那要等使用者勾完才知道。 */
+export function updateRunTotal(db: DatabaseSync, id: string, total: number): void {
+  db.prepare('UPDATE run SET total = ? WHERE id = ?').run(total, id);
 }
 
 export function startRun(db: DatabaseSync, id: string, now: number): void {
@@ -181,4 +224,111 @@ export function cancelPendingItems(db: DatabaseSync, runId: string, now: number)
     )
     .run(now, runId);
   return Number(result.changes);
+}
+
+// ── 切入角度（schema v4）────────────────────────────────────
+
+export interface RunAngleRow {
+  readonly id: string;
+  readonly runId: string;
+  readonly ord: number;
+  readonly question: string;
+  readonly stance: string;
+  /** 這條角度是從專題裡既有的哪幾份長出來的（`item.id`）*/
+  readonly seeds: readonly string[];
+  readonly selected: boolean;
+  readonly foundUrls: number;
+  readonly newNodes: number;
+  readonly newEdges: number;
+  readonly code: string | null;
+}
+
+function toAngle(row: Raw): RunAngleRow {
+  let seeds: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(String(row['seeds_json'] ?? '[]'));
+    if (Array.isArray(parsed)) seeds = parsed.map((s) => String(s));
+  } catch {
+    // 壞掉的 JSON 就當成沒有種子。**這一欄是說明，不是規則** ——
+    // 為了它讓整張作業紀錄打不開，代價不成比例。
+  }
+  return {
+    id: String(row['id']),
+    runId: String(row['run_id']),
+    ord: Number(row['ord'] ?? 0),
+    question: String(row['question'] ?? ''),
+    stance: String(row['stance'] ?? ''),
+    seeds,
+    selected: Number(row['selected'] ?? 0) === 1,
+    foundUrls: Number(row['found_urls'] ?? 0),
+    newNodes: Number(row['new_nodes'] ?? 0),
+    newEdges: Number(row['new_edges'] ?? 0),
+    code: str(row['code']),
+  };
+}
+
+export function insertAngle(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly runId: string;
+    readonly ord: number;
+    readonly question: string;
+    readonly stance: string;
+    readonly seeds: readonly string[];
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    `INSERT INTO run_angle (id, run_id, ord, question, stance, seeds_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.runId,
+    input.ord,
+    input.question,
+    input.stance,
+    JSON.stringify(input.seeds),
+    input.now,
+  );
+}
+
+export function listAngles(db: DatabaseSync, runId: string): readonly RunAngleRow[] {
+  const rows = db
+    .prepare('SELECT * FROM run_angle WHERE run_id = ? ORDER BY ord')
+    .all(runId) as Raw[];
+  return rows.map(toAngle);
+}
+
+/**
+ * 勾選。**沒被勾的那幾條留著而且留成「沒被勾」** ——
+ * 「工具提了六條、你只要兩條」是這次作業發生過的事實的一部分。
+ */
+export function selectAngles(db: DatabaseSync, runId: string, ids: readonly string[]): number {
+  db.prepare('UPDATE run_angle SET selected = 0 WHERE run_id = ?').run(runId);
+  if (ids.length === 0) return 0;
+  const stmt = db.prepare('UPDATE run_angle SET selected = 1 WHERE run_id = ? AND id = ?');
+  let changed = 0;
+  for (const id of ids) changed += Number(stmt.run(runId, id).changes);
+  return changed;
+}
+
+export function finishAngle(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly foundUrls: number;
+    readonly newNodes: number;
+    readonly newEdges: number;
+    readonly code: string | null;
+  },
+): void {
+  db.prepare(
+    'UPDATE run_angle SET found_urls = ?, new_nodes = ?, new_edges = ?, code = ? WHERE id = ?',
+  ).run(input.foundUrls, input.newNodes, input.newEdges, input.code, input.id);
+}
+
+/** 一條作業項目寫進去幾條邊。匯入那一條路永遠是 0，所以它沒有這一支。 */
+export function setRunItemEdges(db: DatabaseSync, id: string, newEdges: number): void {
+  db.prepare('UPDATE run_item SET new_edges = ? WHERE id = ?').run(newEdges, id);
 }

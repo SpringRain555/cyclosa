@@ -33,12 +33,14 @@ import type {
   EdgeStatus,
 } from '../../../domain/graph/index.js';
 import {
+  countIndependentSources,
   evaluateProposal,
   machineMayUpdateStatus,
+  scoreFor,
   tierRange,
 } from '../../../domain/graph/index.js';
 import { newId } from '../../../shared/id.js';
-import { toEdge, type EdgeRow } from './graph-repo.js';
+import { derivedGroups, toEdge, type EdgeRow } from './graph-repo.js';
 
 type Raw = Record<string, unknown>;
 
@@ -382,6 +384,9 @@ export function applyProposal(db: DatabaseSync, proposal: Proposal, now: number)
       now,
     );
     insertEvidence(db, id, proposal.evidence, now);
+    // **分數的規則只寫在一個地方。** 第一次寫入時它跟提案帶來的值一樣，
+    // 但把它也走一次，重跑那一條路才不會是唯一算得對的路。
+    recomputeConfidence(db, id, proposal.layer, now);
     return { kind: 'created', edgeId: id };
   }
 
@@ -420,6 +425,7 @@ export function applyProposal(db: DatabaseSync, proposal: Proposal, now: number)
       runId: proposal.runId ?? null,
       at: now,
     });
+    recomputeConfidence(db, existing.id, proposal.layer, now);
     return { kind: 'revived', edgeId: existing.id };
   }
 
@@ -429,9 +435,46 @@ export function applyProposal(db: DatabaseSync, proposal: Proposal, now: number)
 
   // 沒有人判斷過的待查證邊可以更新可信度（沒有東西被覆寫）
   if (machineMayUpdateStatus(existing.status, everAdjudicated(db, existing.id))) {
-    if (proposal.confidence > existing.confidence) {
-      setConfidence(db, existing.id, proposal.confidence, now);
-    }
+    recomputeConfidence(db, existing.id, proposal.layer, now);
   }
   return { kind: 'merged', edgeId: existing.id, addedEvidence: fresh.length };
+}
+
+/**
+ * 依**這條邊現在真的有的出處**重算可信度。
+ *
+ * ## 為什麼不能直接用提案帶來的那個數字
+ *
+ * 每一次提案都是「一份文件、一句引文」，所以提案帶來的分數永遠是
+ * 「1 個獨立來源 ＋ 有引文」那個值 —— **它每次都一樣**。
+ * 拿它跟既有值比大小的話，第二個來源、第三個來源全部不會讓分數動，
+ * 而「獨立來源越多越可信」正是 `scoreFor` 唯一在說的事。
+ *
+ * 症狀會是安靜的：面板上「出處 3 筆 · 3 個獨立來源」與「可信度：弱」
+ * 同時出現，而沒有任何地方看得出那兩行是矛盾的。
+ *
+ * ## 只算 `named`
+ *
+ * 其餘三層的分數不是從出處來的（`comention` 是骨架、`derived` 是機器可驗、
+ * `similarity` 是相似度本身），**照這一支重算會把它們全部歸零。**
+ */
+export function recomputeConfidence(
+  db: DatabaseSync,
+  edgeId: string,
+  layer: EdgeLayer,
+  now: number,
+): void {
+  if (layer !== 'named') return;
+  const rows = evidenceRows(db, edgeId);
+  const score = scoreFor({
+    independentSourceCount: countIndependentSources(
+      rows,
+      derivedGroups(
+        db,
+        rows.map((r) => r.itemId),
+      ),
+    ),
+    hasDirectQuote: rows.some((r) => r.quote.trim().length > 0),
+  });
+  setConfidence(db, edgeId, score, now);
 }

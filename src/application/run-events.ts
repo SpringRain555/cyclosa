@@ -18,6 +18,22 @@ export type RunEvent =
       readonly code: string | null;
       readonly itemId: string | null;
     }
+  /**
+   * 一條切入角度做完了（Stage 9）。
+   *
+   * **跟 `item` 是兩個層級**：一條角度會產生好幾個 `item` 事件。
+   * 併成一種的話，作業紀錄那一頁就分不出「這幾個網址是哪一條角度找來的」——
+   * 而那正是「擴展不是黑箱」要說的事。
+   */
+  | {
+      readonly type: 'angle';
+      readonly angleId: string;
+      readonly question: string;
+      readonly foundUrls: number;
+      readonly newNodes: number;
+      readonly newEdges: number;
+      readonly code: string | null;
+    }
   | { readonly type: 'progress'; readonly done: number; readonly total: number }
   | {
       readonly type: 'settled';

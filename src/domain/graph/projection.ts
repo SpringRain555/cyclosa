@@ -45,7 +45,20 @@ export const DEFAULT_PROJECTION_THRESHOLDS: ProjectionThresholds = {
 export function projectionFor(
   mentionCount: number,
   thresholds: ProjectionThresholds = DEFAULT_PROJECTION_THRESHOLDS,
+  carriesNamedEdge = false,
 ): Projection {
+  // **帶著一條具名關係的實體一律畫成節點，不管有幾份文件提到它。**
+  //
+  // 投影門檻回答的是「這個實體值不值得佔一個節點」，而它用的證據是
+  // 「有幾份文件提到它」。**一條要人裁決的主張已經回答了那個問題** ——
+  // 有人得看它一眼，而看不見的東西沒辦法被看。
+  //
+  // 這一條是 2026-09-08 第一次真的跑完一次擴展時發現的：
+  // 一份文件抽出 5 個實體與 3 條待查證的具名關係，
+  // **而圖上只有一個節點** —— 因為每個實體都只被那一份提到。
+  // 工具列同時寫著「待查證 3 條」。
+  // **同一屏上兩句話互相矛盾**，而使用者沒有任何線索知道該去調哪個門檻。
+  if (carriesNamedEdge) return 'node';
   if (mentionCount >= thresholds.minToExpand) return 'node';
   if (mentionCount >= thresholds.minToDraw) return 'edge';
   return 'attribute';
@@ -95,6 +108,14 @@ export interface EntityMentions {
   readonly mentionCount: number;
   /** 這一屏之內提到它的 `item`。攤平出來的線只連得到看得見的東西 */
   readonly mentionedBy: readonly string[];
+  /**
+   * 它是不是某條**看得見的具名關係**的一端。
+   *
+   * **是的話一律畫成節點** —— 理由寫在 `projectionFor`。
+   * 「看得見的」＝ 通過目前狀態篩選的：已否決的邊預設不畫，
+   * 所以一個只帶著被否決關係的實體不會因此被拉出來。
+   */
+  readonly carriesNamedEdge?: boolean;
 }
 
 /**
@@ -118,7 +139,11 @@ export function planProjection(
   const lines: ComentionLine[] = [];
 
   for (const entity of entities) {
-    const projection = projectionFor(entity.mentionCount, thresholds);
+    const projection = projectionFor(
+      entity.mentionCount,
+      thresholds,
+      entity.carriesNamedEdge === true,
+    );
     if (projection === 'node') {
       asNodes.push(entity.id);
       continue;

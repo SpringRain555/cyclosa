@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  angleOutcome,
   nextItemStatus,
   nextRunStatus,
   producedUsableOutput,
+  settleAngles,
   settleRun,
 } from '../../src/domain/ingest/state.js';
 
@@ -75,5 +77,64 @@ describe('部分失敗是一等公民', () => {
 
   it('只有 failed 沒有產出', () => {
     expect(producedUsableOutput('failed')).toBe(false);
+  });
+});
+
+/**
+ * **一條切入角度有三種結局，不是兩種**（Stage 9）。
+ *
+ * 這一組測試來自一次真的跑出來的結果：agent 找到 6 個學術來源、
+ * 5 個是付費牆、剩下那一個寫進了 1 個節點與 9 條關聯，
+ * 而模型給的引文有幾條在原文裡找不到。
+ * **第一版把它標成「失敗」** —— 而畫面上同時列著它寫進去的東西。
+ */
+describe('切入角度的三種結局', () => {
+  it('沒有碼就是乾淨的', () => {
+    expect(angleOutcome({ code: null, fatal: false, produced: true })).toBe('clean');
+  });
+
+  it('**有碼但做出了東西 ＝ 只做成一部分，不是失敗**', () => {
+    expect(angleOutcome({ code: 'PROVIDER_QUOTE_NOT_FOUND', fatal: false, produced: true })).toBe(
+      'degraded',
+    );
+  });
+
+  it('有碼而且什麼都沒做出來才是失敗', () => {
+    expect(angleOutcome({ code: 'PROVIDER_TIMEOUT', fatal: false, produced: false })).toBe(
+      'failed',
+    );
+  });
+
+  /** `error` 級的碼要整批停下來 —— 已經寫進去的東西不會因此消失，但這一條是失敗。 */
+  it('`error` 級的碼一律是失敗，即使做出了東西', () => {
+    expect(angleOutcome({ code: 'PROVIDER_SANDBOX_VIOLATION', fatal: true, produced: true })).toBe(
+      'failed',
+    );
+  });
+
+  it('全部乾淨 → 已完成', () => {
+    expect(settleAngles(['clean', 'clean'])).toBe('complete');
+  });
+
+  /** **這一條就是那次驗收抓到的東西。** */
+  it('一條角度做出了東西但有碼 → 部分失敗，不是失敗', () => {
+    expect(settleAngles(['degraded'])).toBe('complete-partial');
+  });
+
+  it('有乾淨的也有失敗的 → 部分失敗', () => {
+    expect(settleAngles(['clean', 'failed'])).toBe('complete-partial');
+  });
+
+  it('一條都沒做出東西才是失敗', () => {
+    expect(settleAngles(['failed', 'failed'])).toBe('fail');
+  });
+
+  /**
+   * **這條路走不到** —— `chooseAngles` 對空選擇回 `EXPORT_EMPTY_SELECTION`。
+   * 釘住它只是為了讓「`every` 對空陣列回 true」這件事是被寫下來的，
+   * 而不是下一個人讀這支函式時要自己想一遍。
+   */
+  it('空陣列回 complete（呼叫端擋在前面，所以走不到這裡）', () => {
+    expect(settleAngles([])).toBe('complete');
   });
 });

@@ -10,7 +10,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { api, type ApiError, type Run, type RunItem } from '../api';
+import { api, type Angle, type ApiError, type Run, type RunItem } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 
@@ -26,7 +26,20 @@ const runId = computed(() => {
 const runList = ref<Run[]>([]);
 const run = ref<Run | null>(null);
 const runItems = ref<RunItem[]>([]);
+const runAngles = ref<Angle[]>([]);
 const error = ref<ApiError | null>(null);
+
+// ── 擴展（Stage 9）────────────────────────────────────────
+//
+// **兩階段之間有一個人。** `startExpansion` 回的是子問題清單而不會開始抓，
+// 使用者勾選之後 `chooseAngles` 才真的開始（REQ-0004 的驗收條件）。
+const topic = ref('');
+const expanding = ref(false);
+/** 第一階段的結果。**不是 null 就代表「等你勾」**，而畫面要說出這件事 */
+const draft = ref<{ runId: string; angles: Angle[]; seededFrom: number } | null>(null);
+const picked = ref<Set<string>>(new Set());
+/** 跟 `MAX_SELECTED_ANGLES` 一致 —— 每條角度要花 2 次呼叫 */
+const MAX_PICK = 5;
 
 const urls = ref('');
 const busy = ref(false);
@@ -53,6 +66,7 @@ async function loadRun(): Promise<void> {
   closeStream();
   run.value = null;
   runItems.value = [];
+  runAngles.value = [];
   if (id === null) return;
 
   const result = await api.run(slug.value, id);
@@ -62,6 +76,7 @@ async function loadRun(): Promise<void> {
   }
   run.value = result.data.run;
   runItems.value = result.data.items;
+  runAngles.value = result.data.angles;
 
   // 還在跑就接上 SSE。**跑完了就不接** —— 那條端點會立刻回一個結束事件。
   if (result.data.run.live) subscribe(id);
@@ -74,7 +89,7 @@ function subscribe(id: string): void {
     if (event['type'] === 'throttled') {
       throttleNow.value = { host: String(event['host']), ms: Number(event['waitedMs']) };
     }
-    if (event['type'] === 'item' || event['type'] === 'settled') {
+    if (event['type'] === 'item' || event['type'] === 'angle' || event['type'] === 'settled') {
       throttleNow.value = null;
       void refreshRun(id);
     }
@@ -91,6 +106,7 @@ async function refreshRun(id: string): Promise<void> {
   if (!result.ok) return;
   run.value = result.data.run;
   runItems.value = result.data.items;
+  runAngles.value = result.data.angles;
 }
 
 watch(slug, () => void loadRuns(), { immediate: true });
@@ -136,6 +152,79 @@ async function submitFiles(files: FileList | null): Promise<void> {
 function onDrop(event: DragEvent): void {
   dragging.value = false;
   void submitFiles(event.dataTransfer?.files ?? null);
+}
+
+// ── 擴展的兩步 ────────────────────────────────────────────
+
+async function proposeAngles(): Promise<void> {
+  const value = topic.value.trim();
+  if (value.length === 0) return;
+  expanding.value = true;
+  error.value = null;
+  const result = await api.startExpansion(slug.value, value);
+  expanding.value = false;
+  if (!result.ok) {
+    error.value = result.error;
+    return;
+  }
+  draft.value = {
+    runId: result.data.runId,
+    angles: result.data.angles,
+    seededFrom: result.data.seededFrom,
+  };
+  picked.value = new Set();
+}
+
+function togglePick(id: string): void {
+  const next = new Set(picked.value);
+  if (next.has(id)) next.delete(id);
+  else if (next.size < MAX_PICK) next.add(id);
+  picked.value = next;
+}
+
+async function startPicked(): Promise<void> {
+  const current = draft.value;
+  if (current === null || picked.value.size === 0) return;
+  expanding.value = true;
+  const result = await api.chooseAngles(slug.value, current.runId, [...picked.value]);
+  expanding.value = false;
+  if (!result.ok) {
+    error.value = result.error;
+    return;
+  }
+  topic.value = '';
+  draft.value = null;
+  await loadRuns();
+  openRun(current.runId);
+}
+
+/**
+ * 「花了多少」這一句有三種，**而它們說的是三件不同的事**（ADR-0006 的補記）。
+ *
+ * `null` ＝ provider 沒回報；`0` ＝ 本機執行、金額成本真的是零。
+ * 兩者都寫成「$0.00」的話，對前者是一句謊。
+ */
+/**
+ * 這一次用了哪些模型。
+ *
+ * **換一個模型重跑，結果會不一樣** —— 而沒有這一行的話，
+ * 兩次結果不同時沒有任何地方查得出「換了模型」這件事。
+ */
+function providerLabel(r: Run): string {
+  if (r.providers === null) return '';
+  try {
+    const parsed = JSON.parse(r.providers) as { chat?: unknown; agent?: unknown };
+    return [parsed.chat, parsed.agent].filter((v) => typeof v === 'string').join(' ＋ ');
+  } catch {
+    // 這一欄是說明不是規則 —— 壞掉就不顯示，不要為它讓整頁失敗
+    return '';
+  }
+}
+
+function costText(r: Run): string {
+  if (r.costUsd === null) return t.expand.costUnknown;
+  if (r.costUsd === 0) return t.expand.costLocal;
+  return fill(t.expand.cost, { usd: r.costUsd.toFixed(4) });
 }
 
 async function cancel(): Promise<void> {
@@ -195,6 +284,75 @@ function openItem(id: string | null): void {
       </div>
     </section>
 
+    <!--
+      擴展。**兩階段之間有一個人**（REQ-0004）——
+      第一步只產生子問題，畫面上要說出「還沒有開始抓」。
+    -->
+    <section class="expand">
+      <h2>{{ t.expand.title }}</h2>
+
+      <label class="field">
+        <span>{{ t.expand.topicLabel }}</span>
+        <input v-model="topic" type="text" :placeholder="t.expand.topicPlaceholder" />
+      </label>
+
+      <div class="import-actions">
+        <button :disabled="expanding || topic.trim().length === 0" @click="proposeAngles">
+          {{ expanding ? t.expand.working : t.expand.submit }}
+        </button>
+      </div>
+
+      <div v-if="draft" class="angles">
+        <h3>{{ t.expand.anglesTitle }}</h3>
+        <!-- **這一句一定要在。** 第一階段結束時什麼都還沒抓 -->
+        <p class="not-yet">{{ t.expand.notYet }}</p>
+        <p class="muted">
+          {{
+            draft.seededFrom > 0
+              ? fill(t.expand.seededFrom, { n: draft.seededFrom })
+              : t.expand.seededFromNothing
+          }}
+        </p>
+
+        <ul class="angle-list">
+          <li v-for="angle in draft.angles" :key="angle.id">
+            <label :class="{ picked: picked.has(angle.id) }">
+              <input
+                type="checkbox"
+                :checked="picked.has(angle.id)"
+                @change="togglePick(angle.id)"
+              />
+              <span class="q">{{ angle.question }}</span>
+              <span v-if="angle.stance" class="stance">{{ angle.stance }}</span>
+            </label>
+            <!--
+              **設計稿在這裡寫的是「預估會找到幾個」** —— 那個數字只可能是模型猜的。
+              這一行是我們查得到也驗得了的：這條角度是從你已有的哪幾份長出來的。
+            -->
+            <p class="seeds">
+              <template v-if="angle.seeds.length > 0">
+                {{ t.expand.seedsLabel }}：{{ angle.seeds.map((s) => s.title).join('、') }}
+              </template>
+              <template v-else>{{ t.expand.noSeeds }}</template>
+            </p>
+          </li>
+        </ul>
+
+        <div class="import-actions">
+          <button class="primary" :disabled="expanding || picked.size === 0" @click="startPicked">
+            {{ fill(t.expand.start, { n: picked.size }) }}
+          </button>
+          <span class="muted small">
+            {{
+              picked.size === 0 ? t.expand.pickAtLeastOne : fill(t.expand.tooMany, { n: MAX_PICK })
+            }}
+          </span>
+        </div>
+
+        <p class="muted small">{{ t.expand.machineOnly }}</p>
+      </div>
+    </section>
+
     <!-- **這一列一直在畫面上。** 它是這個工具對外的行為承諾。 -->
     <section class="throttle">
       <span class="label">{{ t.runs.throttleTitle }}</span>
@@ -229,10 +387,15 @@ function openItem(id: string | null): void {
       <section v-if="run" class="detail">
         <header class="detail-head">
           <h2>{{ run.label }}</h2>
+          <!--
+            **擴展數的是角度，匯入數的是網址** —— 兩種 run 的「一項」不一樣，
+            所以句子也不一樣。共用一句的話，畫面上會出現「共 1 項」
+            配著下面六列網址。
+          -->
           <p class="counts">
             <span :class="['badge', run.status]">{{ t.runStatus[run.status] }}</span>
             {{
-              fill(t.runs.counts, {
+              fill(run.kind === 'expand' ? t.expand.counts : t.runs.counts, {
                 succeeded: run.succeeded,
                 failed: run.failed,
                 total: run.total,
@@ -241,6 +404,54 @@ function openItem(id: string | null): void {
           </p>
           <button v-if="run.live" @click="cancel">{{ t.runs.cancel }}</button>
         </header>
+
+        <!--
+          擴展這一次花了什麼。**請求數是主要上限**（ADR-0006 的補記），
+          而金額只在 provider 真的回報時才是一個數字。
+        -->
+        <!--
+          **主題不在這裡。** 擴展的 `label` 就是 `topic` ——
+          上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
+        -->
+        <p v-if="run.kind === 'expand'" class="budget">
+          <span>{{ fill(t.expand.requests, { n: run.requests }) }}</span>
+          <span>{{ costText(run) }}</span>
+          <span v-if="run.providers" class="mono">{{
+            fill(t.expand.usedProviders, { chat: providerLabel(run) })
+          }}</span>
+        </p>
+
+        <!-- 沒被勾的那幾條也在這裡 —— 作業紀錄要看得出當時有哪些選項 -->
+        <table v-if="runAngles.length > 0" class="angle-table">
+          <thead>
+            <tr>
+              <th>{{ t.expand.colAngle }}</th>
+              <th>{{ t.expand.colStance }}</th>
+              <th>{{ t.expand.colFound }}</th>
+              <th>{{ t.expand.colNodes }}</th>
+              <th>{{ t.expand.colEdges }}</th>
+              <th>{{ t.expand.colNote }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="angle in runAngles" :key="angle.id" :class="{ skipped: !angle.selected }">
+              <td>{{ angle.question }}</td>
+              <td>{{ angle.stance }}</td>
+              <td class="num">{{ angle.selected ? angle.foundUrls : '' }}</td>
+              <td class="num">{{ angle.selected ? angle.newNodes : '' }}</td>
+              <td class="num">{{ angle.selected ? angle.newEdges : '' }}</td>
+              <td class="note">
+                {{
+                  angle.selected
+                    ? angle.code
+                      ? (errorMessages[angle.code] ?? angle.code)
+                      : ''
+                    : t.expand.notSelected
+                }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
 
         <table>
           <thead>
@@ -291,12 +502,77 @@ h2 {
   font-size: 14px;
   margin: 0 0 10px;
 }
-.import {
+.import,
+.expand {
   border: 1px solid var(--line-subtle);
   background: var(--bg-panel);
   border-radius: var(--radius-lg);
   padding: 16px 18px;
   max-width: 760px;
+}
+.expand {
+  margin-top: 12px;
+}
+h3 {
+  font-size: 13px;
+  margin: 14px 0 6px;
+}
+/* 「還沒開始抓」用琥珀的左邊線 —— 跟「待查證」同一個意思：**在等你** */
+.not-yet {
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-left: 2px solid var(--edge-pending);
+  padding-left: 10px;
+  margin: 0 0 8px;
+}
+.angle-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0;
+  display: grid;
+  gap: 8px;
+}
+.angle-list label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.angle-list label.picked .q {
+  color: var(--text);
+}
+.angle-list .q {
+  color: var(--text-secondary);
+}
+.stance {
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--line-subtle);
+  border-radius: 999px;
+  padding: 0 8px;
+}
+.seeds {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 0 24px;
+}
+.small {
+  font-size: 12px;
+}
+.budget {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0 0 10px;
+}
+.angle-table {
+  margin-bottom: 16px;
+}
+/* 沒被勾的那幾條淡一點，**但仍然看得到** —— 它們是這次作業的一部分 */
+.angle-table tr.skipped td {
+  color: var(--text-muted);
 }
 .import.dragging {
   border-color: var(--ui-action);
@@ -307,7 +583,8 @@ h2 {
   color: var(--text-tertiary);
   margin-bottom: 4px;
 }
-textarea {
+textarea,
+.field input[type='text'] {
   font: inherit;
   width: 100%;
   background: var(--bg-app);
@@ -317,7 +594,8 @@ textarea {
   padding: 8px 10px;
   resize: vertical;
 }
-textarea:focus {
+textarea:focus,
+.field input[type='text']:focus {
   outline: none;
   border-color: var(--ui-action);
 }

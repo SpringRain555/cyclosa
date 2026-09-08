@@ -101,6 +101,7 @@
 | `PROVIDER_TIMEOUT` | partial | 單次請求或整個 run 逾時 | **已經寫進去的節點與關聯保留。** 可以再跑一次補剩下的 |
 | `PROVIDER_BUDGET_EXCEEDED` | partial | 超過這次 run 的請求數或成本上限 | **已寫入的保留。** 要繼續就調高上限再跑一次 |
 | `PROVIDER_OUTPUT_UNPARSEABLE` | partial | 模型的輸出解析不出來（不是預期的結構）| 那一項略過，其餘照常。反覆發生通常代表這個模型不適合這個任務 |
+| `PROVIDER_QUOTE_NOT_FOUND` | partial | **模型給的引文在原文裡找不到**（Stage 9）| 那幾條關聯不寫進去，其餘照常。這不是「解析不出來」—— 那份輸出解析得很成功，它只是在講一句原文沒有講過的話。**一個指不到原文的出處比沒有出處更糟**，因為它看起來已經被驗過了 |
 | `PROVIDER_SANDBOX_VIOLATION` | error | **`agent` 的沙箱目錄裡出現了抓取產物** | 這違反「agent 找到的東西不能自己抓」。run 會停下來。把 `correlation_id` 交出來 |
 | `PROVIDER_EMBED_MODEL_MISMATCH` | error | **要比對的向量是另一個嵌入模型產的** | 換回原本的模型，或重算整個專題的向量。**工具不會拿兩個模型的向量硬比** —— 那會回一個看起來正常的錯答案 |
 | `PROVIDER_UNEXPECTED` | error | provider 的未預期例外 | 把 `correlation_id` 交出來 |

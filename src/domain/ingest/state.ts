@@ -126,3 +126,48 @@ export function settleRun(succeeded: number, failed: number): RunAction {
   if (succeeded === 0) return 'fail';
   return 'complete-partial';
 }
+
+/**
+ * 一條切入角度的結局（Stage 9）。
+ *
+ * **匯入的「一項」只有成功或失敗兩種，擴展的「一條角度」有三種**：
+ * 它可能**做出了東西，同時有一部分沒做成**
+ * （例如模型抽了 8 條關係，其中 5 條的引文在原文裡找不到）。
+ */
+export type AngleOutcome = 'clean' | 'degraded' | 'failed';
+
+export function angleOutcome(input: {
+  readonly code: string | null;
+  /** 那個碼是不是 `error` 級 —— 那種要整批停下來 */
+  readonly fatal: boolean;
+  /** 這條角度有沒有做出任何東西（找到網址、寫進節點或關聯）*/
+  readonly produced: boolean;
+}): AngleOutcome {
+  if (input.code === null) return 'clean';
+  if (input.fatal || !input.produced) return 'failed';
+  return 'degraded';
+}
+
+/**
+ * 一次擴展結束時該進哪個狀態。
+ *
+ * ## 為什麼不能直接用 `settleRun`
+ *
+ * `settleRun` 只認得兩種輸入，於是「有碼」就得被歸進 `failed` ——
+ * 而**那會讓一次寫進 1 個節點與 9 條關聯的作業被標成「失敗」**。
+ *
+ * 那不是假想的。2026-09-08 第一次真的跑一次擴展：
+ * agent 找到 6 個學術來源，其中 5 個是付費牆（`FETCH_LOGIN_REQUIRED` ——
+ * 工具照規則不繞過），剩下那一個抽出了 1 個節點與 9 條關聯，
+ * 而模型給的引文有幾條在原文裡找不到。
+ * 結果那次作業的狀態是 **`失敗`** —— 而畫面上同時列著它寫進去的東西。
+ *
+ * **「部分失敗被併進失敗」是這個專案明寫要避免的那條**，
+ * 而它在一支只認得兩個數字的函式後面又發生了一次。
+ */
+export function settleAngles(outcomes: readonly AngleOutcome[]): RunAction {
+  if (outcomes.every((o) => o === 'clean')) return 'complete';
+  // **只要有一條做出了東西，這次作業就不是「失敗」。**
+  if (outcomes.some((o) => o === 'clean' || o === 'degraded')) return 'complete-partial';
+  return 'fail';
+}

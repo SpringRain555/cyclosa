@@ -6,6 +6,7 @@ import App from './App.vue';
 import CaseListView from './views/CaseListView.vue';
 import ReaderView from './views/ReaderView.vue';
 import RunsView from './views/RunsView.vue';
+import SettingsView from './views/SettingsView.vue';
 import './styles/tokens.css';
 
 /**
@@ -32,6 +33,11 @@ const router = createRouter({
     { path: '/case/:slug/graph', redirect: (to) => `/case/${String(to.params['slug'])}` },
     { path: '/case/:slug/reader/:itemId?', name: 'reader', component: ReaderView },
     { path: '/case/:slug/runs/:runId?', name: 'runs', component: RunsView },
+    /**
+     * **設定不在專題底下** —— provider 是這台機器的事實，跟哪一個專題無關。
+     * 放進 `/case/:slug/settings` 會讓人以為每個專題各有一組模型設定。
+     */
+    { path: '/settings', name: 'settings', component: SettingsView },
     // 找不到的路由回清單
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

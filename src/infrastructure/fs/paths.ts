@@ -145,6 +145,11 @@ export function backupsDir(dataRoot: string): string {
   return join(dataRoot, 'backups');
 }
 
+/** 四個頂層資料夾的最後一個。**任何專題都不擁有它**，所以一次性的東西放這裡。 */
+export function tmpDir(dataRoot: string): string {
+  return join(dataRoot, 'tmp');
+}
+
 export function logsDir(dataRoot: string): string {
   return join(dataRoot, 'logs');
 }

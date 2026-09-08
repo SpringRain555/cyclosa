@@ -3,8 +3,11 @@
  * 一條共用的頂列 —— **所以永遠知道自己在哪、回得去**（`ui-workflows.md`）。
  *
  * 設計稿的頂列是三個分頁：`[關聯圖│閱讀器│作業紀錄]`，**Stage 7 起三個都在**。
- * （Stage 5–6 期間只掛得出兩個 —— 一個點了沒反應的分頁比少一個分頁更糟。
- * 設定那一個現在仍然沒有，理由相同。）
+ * （Stage 5–6 期間只掛得出兩個 —— 一個點了沒反應的分頁比少一個分頁更糟。）
+ *
+ * **設定不在那三個裡面，它在最右邊。** 理由是它不屬於任何一個專題：
+ * provider 是這台機器的事實。放進分頁列會讓人以為每個專題各有一組模型設定。
+ * 它 Stage 9 才出現，而在那之前不掛 —— 同一條「點了沒反應更糟」的理由。
  */
 import { computed, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -66,6 +69,10 @@ watch(
           </RouterLink>
         </nav>
       </template>
+
+      <RouterLink class="settings-link" to="/settings" active-class="on" exact-active-class="on">
+        {{ t.nav.settings }}
+      </RouterLink>
     </header>
     <RouterView />
   </div>
@@ -131,5 +138,22 @@ watch(
   color: var(--text);
   background: var(--bg-raised);
   box-shadow: inset 0 -2px 0 var(--ring-selected);
+}
+/* 設定靠最右 —— 它不屬於分頁列那一組（它跟專題無關）。 */
+.settings-link {
+  margin-left: auto;
+  font-size: 13px;
+  padding: 4px 12px;
+  border-radius: var(--radius);
+  color: var(--text-tertiary);
+  text-decoration: none;
+}
+.settings-link:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.settings-link.on {
+  color: var(--text);
+  background: var(--bg-raised);
 }
 </style>

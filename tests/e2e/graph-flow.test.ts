@@ -203,7 +203,7 @@ describe('四層各自的畫法', () => {
 });
 
 describe('可信度：出處筆數不等於獨立來源數', () => {
-  it('出處 4 筆，其中三筆互為轉載 → 獨立來源只有 2 個', async () => {
+  it('出處 5 筆，其中三筆互為轉載 → 獨立來源只有 3 個', async () => {
     const body = await get(`/api/cases/${slug}/subgraph?focus=${FIXTURE.focus}&hops=2`);
     const edge = (
       body.data as {
@@ -217,8 +217,8 @@ describe('可信度：出處筆數不等於獨立來源數', () => {
       }
     ).edges.find((e) => e.id === 'edg-acquire');
 
-    expect(edge?.evidenceCount).toBe(4);
-    expect(edge?.independentSourceCount).toBe(2);
+    expect(edge?.evidenceCount).toBe(5);
+    expect(edge?.independentSourceCount).toBe(3);
     expect(edge?.tier).toBe('strong');
     expect(edge?.hasDirectQuote).toBe(true);
   });

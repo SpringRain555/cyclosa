@@ -3,10 +3,10 @@
 **這份是分層規則、擷取流程與檔案地圖的權威。** 欄位細節在 `data-model.md`，
 狀態轉移在 `state-machines.md`，兩者都不要在這裡重複。
 
-> **現況（2026-09-07，Stage 7）**：分層骨架、擷取管線、抽取、索引寫入、
-> 閱讀器、作業紀錄、**子圖 API 與 3D 關聯圖**都存在了。
-> 下面的檔案地圖裡**還不存在的只有** `domain/provider/`、
-> `infrastructure/providers/`（Stage 9）、`components/reader/`、`components/notes/`
+> **現況（2026-09-08，Stage 9）**：分層骨架、擷取管線、抽取、索引寫入、
+> 閱讀器、作業紀錄、子圖 API 與 3D 關聯圖、**人工裁決**、
+> **`domain/provider/` 與 `infrastructure/providers/`（LLM 擴展）**都存在了。
+> 下面的檔案地圖裡**還不存在的只有** `components/reader/`、`components/notes/`
 > （Stage 10）。
 >
 > 守門測試從 Stage 5 起有四條，**Stage 7 加第五條**（沒有整圖端點）。

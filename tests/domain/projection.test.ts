@@ -148,3 +148,35 @@ describe('投影計畫：三段各自產生什麼', () => {
     expect(plan.lines).toHaveLength(comentionEdgeCount(mentionedBy.length));
   });
 });
+
+/**
+ * **帶著一條具名關係的實體一律畫成節點。**
+ *
+ * 這一條來自 2026-09-08 第一次真的跑完一次擴展：
+ * 一份文件抽出 5 個實體與 3 條待查證的具名關係，
+ * **而圖上只有一個節點** —— 每個實體都只被那一份提到，所以全部是純屬性。
+ * 工具列同時寫著「待查證 3 條」。
+ */
+describe('要人裁決的主張一定看得見', () => {
+  it('只被一份提到、但帶著具名關係 → 畫成節點，不是純屬性', () => {
+    expect(projectionFor(1, DEFAULT_PROJECTION_THRESHOLDS, true)).toBe('node');
+    // 對照組：同樣只被一份提到，沒有具名關係 —— 那才是純屬性
+    expect(projectionFor(1, DEFAULT_PROJECTION_THRESHOLDS, false)).toBe('attribute');
+  });
+
+  it('被兩份提到、帶著具名關係 → 節點，不再攤平成線', () => {
+    expect(projectionFor(2, DEFAULT_PROJECTION_THRESHOLDS, true)).toBe('node');
+    expect(projectionFor(2, DEFAULT_PROJECTION_THRESHOLDS, false)).toBe('edge');
+  });
+
+  it('planProjection 也照這條規則，而且那種實體不產生共同提及線', () => {
+    const plan = planProjection([
+      { id: 'ent-claim', mentionCount: 1, mentionedBy: ['itm-a'], carriesNamedEdge: true },
+      { id: 'ent-plain', mentionCount: 2, mentionedBy: ['itm-a', 'itm-b'] },
+    ]);
+    expect(plan.asNodes).toEqual(['ent-claim']);
+    expect(plan.asAttributes).toEqual([]);
+    // 攤平成線的只有那個沒有主張的
+    expect(plan.lines.map((l) => l.entityId)).toEqual(['ent-plain']);
+  });
+});

@@ -26,6 +26,8 @@ import {
   urlForRetry,
 } from '../../application/item-service.js';
 import { getRun, listRuns } from '../../application/run-service.js';
+import { chooseAngles, startExpansion } from '../../application/expand-service.js';
+import { listProviders, saveProviders, testProvider } from '../../application/provider-service.js';
 import {
   defaultFocus,
   subgraph,
@@ -33,6 +35,7 @@ import {
   type SubgraphQuery,
 } from '../../application/graph-service.js';
 import { createEdge, getEdge, listQueue, transitionEdge } from '../../application/edge-service.js';
+import { PROVIDER_ROLES, type ProviderRole } from '../../domain/provider/index.js';
 import {
   DEFAULT_PROJECTION_THRESHOLDS,
   EDGE_ACTIONS,
@@ -123,10 +126,63 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
+  registerProviderRoutes(app, ctx);
   registerIngestRoutes(app, ctx);
+  registerExpandRoutes(app, ctx);
   registerItemRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
   registerEdgeRoutes(app, ctx);
+}
+
+/**
+ * provider（Stage 9）。
+ *
+ * **這一組不需要資料根**（除了 agent 的實測，它要一個工作目錄）——
+ * provider 設定是這台機器的事實，跟資料放哪無關。
+ */
+function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get('/api/providers', async (_req, reply) => send(reply, await listProviders()));
+
+  app.post<{ Body: unknown }>('/api/providers', async (req, reply) =>
+    send(reply, await saveProviders(req.body)),
+  );
+
+  app.post<{ Body: { role?: unknown } }>('/api/providers/test', async (req, reply) => {
+    const role = req.body?.role;
+    if (typeof role !== 'string' || !(PROVIDER_ROLES as readonly string[]).includes(role)) {
+      return reply.code(400).send({ ok: false, code: 'PROVIDER_NOT_CONFIGURED' });
+    }
+    return send(reply, await testProvider(ctx.dataRoot, role as ProviderRole));
+  });
+}
+
+/**
+ * 擴展（Stage 9）。**兩支端點，中間有一個人。**
+ *
+ * `POST …/runs` 回的是子問題清單而**不會開始抓** —— 那一步是
+ * REQ-0004 的驗收條件（「不是黑箱一次跑完」），不是可以省略的 UI 糖。
+ */
+function registerExpandRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.post<{ Params: { slug: string }; Body: { topic?: unknown } }>(
+    '/api/cases/:slug/runs',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const topic = typeof req.body?.topic === 'string' ? req.body.topic : '';
+      return send(reply, await startExpansion(dataRoot, req.params.slug, topic));
+    },
+  );
+
+  app.post<{ Params: { slug: string; runId: string }; Body: { angles?: unknown } }>(
+    '/api/cases/:slug/runs/:runId/angles',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const raw = req.body?.angles;
+      const angles = Array.isArray(raw) ? raw.map((a) => String(a)) : [];
+      return send(reply, await chooseAngles(dataRoot, req.params.slug, req.params.runId, angles));
+    },
+  );
 }
 
 /** 資料根還沒好的時候一律回那個原因，**不是回一個空清單**（REQ-0001）。 */

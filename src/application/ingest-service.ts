@@ -44,27 +44,15 @@ import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId, newId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
-import { RunChannel, type RunEvent } from './run-events.js';
+import * as registry from './run-registry.js';
 
 const CASE_DB_FILE = 'case.sqlite';
 
-interface ActiveRun {
-  readonly runId: string;
-  readonly channel: RunChannel;
-  readonly crawler: Crawler | null;
-  cancelled: boolean;
-}
-
 /**
- * 執行中的作業。**單一實例、單一使用者**，所以放在記憶體裡就夠了 ——
- * 而且它本來就不該持久化：程式結束時執行中的作業就是結束了，
- * 而已經寫進資料庫的東西留著（那正是「取消時已寫入的保留」的同一條原則）。
+ * 執行中的作業那張表在 `run-registry.ts` —— **匯入與擴展共用一份**，
+ * 因為它們走同一個取消端點。
  */
-const active = new Map<string, ActiveRun>();
-
-export function channelOf(runId: string): RunChannel | null {
-  return active.get(runId)?.channel ?? null;
-}
+type ActiveRun = registry.ActiveRun;
 
 function caseFolderOf(dataRoot: string, slug: string): string {
   return join(casesDir(dataRoot), slug);
@@ -133,23 +121,23 @@ export async function startUrlImport(
     updateCaseStatus(db, 'collecting', now);
   }
 
-  const channel = new RunChannel();
+  const state = registry.register(runId);
   const crawler = new Crawler({
     intervalMs: DEFAULT_INTERVAL_MS,
-    onEvent: (e) => channel.emit({ type: 'throttled', host: e.host, waitedMs: e.waitedMs }),
+    onEvent: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.waitedMs }),
   });
-  const state: ActiveRun = { runId, channel, crawler, cancelled: false };
-  active.set(runId, state);
+  // 取消匯入 ＝ 停爬蟲。**已寫入的保留。**
+  state.cancellable = { stop: () => crawler.stop() };
 
   // **不 await。** 這條路徑刻意是「開始了」而不是「做完了」。
-  void processUrls(db, dataRoot, slug, state, queued).catch((e: unknown) => {
+  void processUrls(db, dataRoot, slug, state, crawler, queued).catch((e: unknown) => {
     logger.error('匯入作業意外中止', { correlationId: cid, runId, reason: String(e) });
   });
 
   return ok({ runId, total: urls.length }, cid);
 }
 
-interface QueuedUrl {
+export interface QueuedUrl {
   readonly id: string;
   readonly url: string;
 }
@@ -159,10 +147,10 @@ async function processUrls(
   dataRoot: string,
   slug: string,
   state: ActiveRun,
+  crawler: Crawler,
   queue: readonly QueuedUrl[],
 ): Promise<void> {
   const folder = caseFolderOf(dataRoot, slug);
-  const crawler = state.crawler as Crawler;
   let succeeded = 0;
   let failed = 0;
   let done = 0;
@@ -220,12 +208,12 @@ async function processUrls(
 
     state.channel.emit({ type: 'settled', status, succeeded, failed });
   } finally {
-    active.delete(state.runId);
+    registry.unregister(state.runId);
     db.close();
   }
 }
 
-interface OneOutcome {
+export interface OneOutcome {
   readonly outcome: runs.RunItemOutcome;
   readonly code: string | null;
   readonly itemId: string | null;
@@ -250,7 +238,7 @@ function finishRunItem(
   return result;
 }
 
-async function processOneUrl(
+export async function processOneUrl(
   db: DatabaseSync,
   folder: string,
   crawler: Crawler,
@@ -683,18 +671,11 @@ export async function importFile(
 /** 取消 ＝ 停止送出新請求 ＋ 標 `已取消`。**已寫入的保留。** */
 export function cancelRun(runId: string): Result<true> {
   const cid = correlationId();
-  const state = active.get(runId);
-  if (state === undefined)
+  if (!registry.cancel(runId))
     return err('GRAPH_TRANSITION_INVALID', cid, { runId, why: 'not-active' });
-  state.cancelled = true;
-  state.crawler?.stop();
   return ok(true, cid);
 }
 
-export function isActive(runId: string): boolean {
-  return active.has(runId);
-}
-
-export function replayOf(runId: string): readonly RunEvent[] {
-  return active.get(runId)?.channel.replay ?? [];
-}
+export const channelOf = registry.channelOf;
+export const isActive = registry.isActive;
+export const replayOf = registry.replayOf;

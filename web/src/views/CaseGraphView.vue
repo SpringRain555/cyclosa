@@ -69,6 +69,10 @@ function openInReader(itemId: string): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(itemId)}`);
 }
 
+function openExpand(): void {
+  void router.push(`/case/${encodeURIComponent(slug.value)}/runs`);
+}
+
 function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }): void {
   void store.createEdge(payload.target, payload.rel, payload.layer);
 }
@@ -106,6 +110,14 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
         </button>
 
         <button type="button" @click="store.reload()">{{ t.graph.toolbar.relayout }}</button>
+
+        <!--
+          擴展的入口在這裡（設計稿把它放在關聯圖的工具列上），
+          **而它按下去是跳到作業紀錄** —— 擴展產生的是一個 run，
+          而 run 的畫面就是那一頁。在這裡再開一個對話框，
+          等於同一件事有兩個入口與兩份狀態。
+        -->
+        <button type="button" @click="openExpand">{{ t.expand.open }}</button>
 
         <!--
           裁決佇列**沒有自己的畫面** —— 頂列只有三個分頁（ui-workflows），

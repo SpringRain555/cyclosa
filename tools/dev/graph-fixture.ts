@@ -18,6 +18,8 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
+import { recomputeConfidence } from '../../src/infrastructure/db/repositories/edge-repo.js';
+
 /**
  * 節點與關聯的形狀。
  *
@@ -80,6 +82,15 @@ interface EdgeSpec {
   readonly sourceKind: 'item' | 'entity';
   readonly target: string;
   readonly targetKind: 'item' | 'entity';
+  /**
+   * **具名關係不用這一欄** —— 它們的可信度是寫完出處之後
+   * 用 `recomputeConfidence` 從出處數出來的（見這個檔案結尾）。
+   * 這裡填的只是 INSERT 當下的佔位值。
+   *
+   * 理由：手寫一個「4 筆出處、2 個獨立來源、可信度 0.85」的合成邊，
+   * **描述的是一個真實路徑產生不出來的狀態** ——
+   * 而這份資料存在的全部理由就是拿來當真實資料看。
+   */
   readonly confidence: number;
   /** 出處出自哪幾份。**空的就留在待查證** */
   readonly evidenceFrom: readonly string[];
@@ -94,10 +105,10 @@ const EDGES: readonly EdgeSpec[] = [
     sourceKind: 'item',
     target: 'itm-target',
     targetKind: 'item',
-    // 0.85 ≥ 0.7 → strong
-    confidence: 0.85,
-    // 三份互為轉載 ＋ 一份獨立 → **出處 4 筆，獨立來源 2 個**
-    evidenceFrom: ['itm-mirror-a', 'itm-mirror-b', 'itm-mirror-c', 'itm-partner'],
+    confidence: 0,
+    // 三份互為轉載（算 1 個）＋ 兩份獨立 → **出處 5 筆，獨立來源 3 個**
+    // 三個獨立來源正好是「強」的門檻（`scoreFor` 的階梯）。
+    evidenceFrom: ['itm-mirror-a', 'itm-mirror-b', 'itm-mirror-c', 'itm-partner', 'itm-target'],
   },
   {
     id: 'edg-employ',
@@ -107,8 +118,8 @@ const EDGES: readonly EdgeSpec[] = [
     sourceKind: 'item',
     target: 'itm-claim',
     targetKind: 'item',
-    // 0.3 < 0.4 → weak
-    confidence: 0.3,
+    confidence: 0,
+    // 沒有出處 → 連「有直接引文」都不成立，所以是弱
     evidenceFrom: [],
   },
   {
@@ -233,5 +244,15 @@ export function writeSyntheticGraph(db: DatabaseSync, now = Date.now()): void {
     // 有出處的具名關係才升成已確認 —— 沒有出處的那一條留在待查證，
     // **圖上要看得到一條琥珀虛線**，那是這個工具真正在等人做的事
     if (spec.evidenceFrom.length > 0) confirm.run(now, spec.id);
+  }
+
+  // **具名關係的可信度走跟真實路徑一模一樣的那一支。**
+  //
+  // 手寫一個數字比較快，而且看起來一樣 —— 但那樣的合成資料會呈現
+  // 一個真實寫入路徑產生不出來的狀態（例如「2 個獨立來源 ＋ 可信度 0.85」），
+  // 而這份資料存在的全部理由就是拿來當真實資料看。
+  // 這一步要放在最後：轉載邊（`derived`）要先在，獨立來源才數得對。
+  for (const spec of EDGES) {
+    recomputeConfidence(db, spec.id, spec.layer, now);
   }
 }

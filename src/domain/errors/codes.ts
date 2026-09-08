@@ -81,6 +81,16 @@ export const ERROR_CODES = {
   PROVIDER_TIMEOUT: 'partial',
   PROVIDER_BUDGET_EXCEEDED: 'partial',
   PROVIDER_OUTPUT_UNPARSEABLE: 'partial',
+  /**
+   * 模型給的引文**在原文裡找不到**（Stage 9）。
+   *
+   * 不是 `PROVIDER_OUTPUT_UNPARSEABLE` —— 那份輸出解析得很成功，
+   * 它只是**在講一句原文沒有講過的話**。而那正是這個工具唯一不能容忍的錯：
+   * 一個指不到原文的出處，比沒有出處更糟，因為它看起來已經被驗過了。
+   *
+   * `partial`：一條抽壞了不該讓整批擴展失敗。
+   */
+  PROVIDER_QUOTE_NOT_FOUND: 'partial',
   PROVIDER_SANDBOX_VIOLATION: 'error',
   PROVIDER_EMBED_MODEL_MISMATCH: 'error',
   PROVIDER_UNEXPECTED: 'error',

@@ -84,6 +84,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
     '這次作業達到設定的用量上限。已寫入的都保留著；要繼續請調高上限再跑一次。',
   PROVIDER_OUTPUT_UNPARSEABLE:
     '模型的回覆解析不出來，這一項跳過了，其餘照常。反覆發生通常代表這個模型不適合這個任務。',
+  PROVIDER_QUOTE_NOT_FOUND:
+    '模型給的引文在原文裡找不到，那幾條關聯沒有寫進去。一個指不到原文的出處比沒有出處更糟，所以工具寧可少一條。',
   PROVIDER_SANDBOX_VIOLATION:
     '偵測到模型在自己的工作目錄裡留下抓取產物，作業已經停下來。所有抓取都必須走同一條擷取管線。請把下面的識別碼交出來。',
   PROVIDER_EMBED_MODEL_MISMATCH:
@@ -524,6 +526,101 @@ export const t = {
       paper: '論文',
       note: '筆記',
     },
+  },
+
+  /**
+   * 擴展（Stage 9）。
+   *
+   * **這一區的每一句都在說「這不是黑箱」** ——
+   * 工具打算怎麼找、找到了什麼、你勾了哪幾條、花了幾次呼叫。
+   */
+  expand: {
+    open: '擴展',
+    title: '擴展這個專題',
+    topicLabel: '從哪個主題出發',
+    topicPlaceholder: '一個主題、一個人、一個事件',
+    submit: '產生切入角度',
+    working: '正在想切入角度…',
+    /** **這一句一定要在。** 第一階段結束時什麼都還沒抓，而畫面必須說出來 */
+    notYet: '還沒有開始抓任何東西。勾選要展開的角度之後才會開始。',
+    anglesTitle: '擴展的切入角度',
+    /** 視角是從既有內容歸納出來的（STORM），所以要說出「依據幾份」 */
+    seededFrom: '這幾條是從你已經有的 {n} 份歸納出來的。',
+    seededFromNothing: '這個專題還是空的，所以這幾條只從主題本身來 —— 沒有既有內容可以依據。',
+    seedsLabel: '依據',
+    noSeeds: '沒有對應到既有的哪一份',
+    start: '展開勾選的 {n} 條',
+    pickAtLeastOne: '至少要勾一條',
+    tooMany: '一次最多勾 {n} 條',
+    colAngle: '切入角度',
+    colStance: '立場',
+    colFound: '找到網址',
+    colNodes: '新增節點',
+    colEdges: '新增關聯',
+    colNote: '備註',
+    notSelected: '沒有勾選',
+    /** 請求數是主要上限（ADR-0006）。**沒有記下來的請求數是假的** */
+    /**
+     * **擴展的「一項」是一條角度，不是一個網址。**
+     *
+     * 沿用匯入那一句「共 N 項」的話，畫面上會出現「共 1 項」
+     * 配著下面六列網址 —— 而那六列裡有五列是失敗的。
+     */
+    counts: '成功 {succeeded}、失敗 {failed}，共 {total} 條角度',
+    requests: '打了 {n} 次模型',
+    /** **`null` 與 0 是兩件事** —— 這一句只在 provider 真的回報時出現 */
+    cost: '花費 {usd} 美元',
+    costLocal: '本機執行，無金額成本',
+    costUnknown: '這個模型沒有回報金額',
+    usedProviders: '用的是 {chat}',
+    machineOnly: '機器抽出來的關聯一律進「待查證」，沒有任何一條路會自動確認。',
+  },
+
+  settings: {
+    title: '模型設定',
+    /** 三個角色都列出來 —— 少列一個，使用者會以為只有兩種模型 */
+    roles: {
+      agent: '找來源（agent）',
+      chat: '歸納與抽取（chat）',
+      embed: '語意檢索（embed）',
+    },
+    roleWhat: {
+      agent: '用搜尋找出候選網址。它不抓網頁 —— 抓取一律走同一條擷取管線。',
+      chat: '從既有內容歸納切入角度，並從抓回來的正文抽出實體與關係。',
+      embed: '語意檢索用的向量。還沒有做 —— 那是後面的階段。',
+    },
+    state: {
+      ready: '可以用',
+      'not-configured': '還沒設定',
+      unreachable: '連不上',
+    },
+    capabilities: '能力宣告',
+    capabilityNames: {
+      browse: '自己上網',
+      tools: '工具呼叫',
+      json_schema: '保證 JSON 結構',
+      vision: '看得懂圖',
+    },
+    contextTokens: 'context {n} tokens',
+    contextUnknown: 'context 大小不明',
+    missing: '這個角色要跑的任務需要：{flags}，而目前設定的模型沒有。',
+    /** 不自動降級是 ADR-0006 的決定，畫面上要說得出來 */
+    noFallback: '配不上就停手，不會自動換一個能力較弱的來跑。',
+    chatBaseUrl: 'Ollama 位址',
+    chatModel: '模型',
+    chatModelPick: '選一個本機有的模型',
+    chatModelsUnreachable: '連不上這個位址，所以列不出有哪些模型。',
+    agentCommand: 'CLI 指令',
+    agentCommandHint: '留空就是不啟用。預設是 claude，靠系統路徑找。',
+    save: '儲存',
+    saved: '已儲存',
+    test: '實際打一次',
+    testing: '打出去了，等回覆…',
+    testOk: '成功，花了 {ms} 毫秒',
+    testFailed: '失敗',
+    /** agent 那個按鈕真的會花錢，**按之前要先講** */
+    testCostsMoney: '這會真的呼叫一次，可能產生費用。',
+    testFree: '本機模型，不會產生費用。',
   },
 
   common: {

@@ -169,6 +169,88 @@ export interface Run {
   endedAt: number | null;
   createdAt: number;
   live: boolean;
+  // ── 擴展才有的（Stage 9）───────────────────────────────
+  /** 匯入沒有主題，所以是 `null` */
+  topic: string | null;
+  /** `{"chat":"…","agent":"…"}` 的 JSON 字串 */
+  providers: string | null;
+  requests: number;
+  /** **`null` 與 0 是兩件事**：本機模型真的是 0，沒回報的是不知道 */
+  costUsd: number | null;
+}
+
+// ── 擴展（Stage 9）──────────────────────────────────────────
+
+export interface AngleSeed {
+  id: string;
+  title: string;
+}
+
+export interface Angle {
+  id: string;
+  ord: number;
+  question: string;
+  stance: string;
+  /**
+   * 這條角度是從既有的哪幾份長出來的。
+   *
+   * **設計稿在這裡寫的是「預估會找到幾個」**，而那個數字只可能是模型猜的。
+   * 這一欄是查得到也驗得了的，而且它說的是「這條角度憑什麼被提出來」。
+   */
+  seeds: AngleSeed[];
+  selected: boolean;
+  foundUrls: number;
+  newNodes: number;
+  newEdges: number;
+  code: string | null;
+}
+
+export interface ExpansionStart {
+  runId: string;
+  topic: string;
+  angles: Angle[];
+  /** 有幾份既有內容被拿去歸納視角。**0 代表這個專題是空的** */
+  seededFrom: number;
+}
+
+// ── provider（Stage 9）──────────────────────────────────────
+
+export type ProviderRole = 'agent' | 'chat' | 'embed';
+
+export interface ProviderCapabilities {
+  browse: boolean;
+  tools: boolean;
+  json_schema: boolean;
+  vision: boolean;
+  context_tokens: number;
+}
+
+export interface ProviderStatus {
+  role: ProviderRole;
+  configured: string;
+  state: 'ready' | 'not-configured' | 'unreachable';
+  detail: string;
+  capabilities: ProviderCapabilities;
+}
+
+export interface ProvidersPayload {
+  statuses: ProviderStatus[];
+  /** Ollama 上真的有的模型。**`null` 代表連不上**，不是「一個都沒有」 */
+  chatModels: string[] | null;
+  config: {
+    version: 1;
+    chat: { baseUrl: string; model: string } | null;
+    agent: { command: string; args: string[] } | null;
+  };
+  readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
+}
+
+export interface ProviderTest {
+  role: ProviderRole;
+  ok: boolean;
+  code: string | null;
+  costUsd: number | null;
+  elapsedMs: number;
 }
 
 // ── 圖 ──────────────────────────────────────────────────────
@@ -379,11 +461,41 @@ export const api = {
   // ── 作業紀錄 ────────────────────────────────────────────
   runs: (slug: string) => request<Run[]>(`/api/cases/${enc(slug)}/runs`),
   run: (slug: string, runId: string) =>
-    request<{ run: Run; items: RunItem[] }>(`/api/cases/${enc(slug)}/runs/${enc(runId)}`),
+    request<{ run: Run; items: RunItem[]; angles: Angle[] }>(
+      `/api/cases/${enc(slug)}/runs/${enc(runId)}`,
+    ),
   cancelRun: (slug: string, runId: string) =>
     request<true>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/cancel`, { method: 'POST' }),
   runEventsUrl: (slug: string, runId: string) =>
     `/api/cases/${enc(slug)}/runs/${enc(runId)}/events`,
+
+  // ── 擴展（Stage 9）──────────────────────────────────────
+  //
+  // **兩支端點，中間有一個人。** `startExpansion` 回的是子問題清單，
+  // 而它**不會開始抓** —— 那一步是 REQ-0004 的驗收條件，不是 UI 糖。
+  startExpansion: (slug: string, topic: string) =>
+    request<ExpansionStart>(`/api/cases/${enc(slug)}/runs`, {
+      method: 'POST',
+      body: JSON.stringify({ topic }),
+    }),
+  chooseAngles: (slug: string, runId: string, angles: string[]) =>
+    request<{ runId: string; total: number }>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/angles`, {
+      method: 'POST',
+      body: JSON.stringify({ angles }),
+    }),
+
+  // ── provider ────────────────────────────────────────────
+  providers: () => request<ProvidersPayload>('/api/providers'),
+  saveProviders: (config: ProvidersPayload['config']) =>
+    request<ProvidersPayload>('/api/providers', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+  testProvider: (role: ProviderRole) =>
+    request<ProviderTest>('/api/providers/test', {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    }),
 
   // ── 資料節點與閱讀器 ────────────────────────────────────
   items: (slug: string, query: Record<string, string>) =>

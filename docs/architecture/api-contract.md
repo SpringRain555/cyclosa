@@ -15,8 +15,10 @@
 >
 > **Stage 8 新增**：`/edges/:edgeId`、`POST /edges`、`/edges/:edgeId/transition`、`/queue`。
 >
-> **還不存在**：provider 與擴展的 `/runs` 那一組（Stage 9）、
-> 點註（Stage 10）、匯出（Stage 11）、檢索（Stage 12）。
+> **Stage 9 新增**：`GET`／`POST /api/providers`、`/api/providers/test`、
+> **`POST …/runs`** 與 **`POST …/runs/:runId/angles`**（擴展的兩階段）。
+>
+> **還不存在**：點註（Stage 10）、匯出（Stage 11）、檢索（Stage 12）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
@@ -150,8 +152,17 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /healthz` | 回 `{"app":"cyclosa","version":"…"}`。**單一實例偵測靠它**（ADR-0020）—— 只看有沒有回 200 會把別人的服務誤認成自己 |
-| `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼 |
-| `POST /api/providers/test` | 實際打一次，回能力偵測結果 |
+| `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回 Ollama 上真的有的模型清單（`chatModels`，**`null` 代表連不上**，不是「一個都沒有」）|
+| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）|
+| `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs}` |
+
+> **`GET` 與 `test` 是兩件事，而且分開得很刻意。**
+> 打開設定頁**不該產生費用** —— 所以 `GET` 對 `agent` 只跑 `--version`、
+> 對 `chat` 只讀 `/api/tags`（本機、免費）。
+> `test` 是使用者按的按鈕，**而畫面上那個按鈕旁邊要先講它會不會花錢**。
+>
+> `costUsd` 的 **`null` 與 `0` 是兩件事**：本機模型的金額成本真的是零；
+> 一個沒回報成本的 provider 是「不知道」。**不估算**（ADR-0006 的補記）。
 
 ### 專題
 
@@ -204,14 +215,24 @@
 
 | 端點 | 說明 |
 |---|---|
-| `POST …/runs` | 開一次 run。回傳的是**多視角子問題清單**，還沒開始抓 |
-| `POST …/runs/:runId/angles` | 使用者勾選要展開哪幾條，**這一步才真的開始** |
-| `GET …/runs/:runId/events` | **SSE**：逐項進度、節流狀態、目前在做什麼 |
-| `POST …/runs/:runId/cancel` | 取消 ＝ 殺子程序 ＋ 標 `已取消`，**已寫入的保留** |
-| `GET …/runs` ／ `/runs/:runId` | 作業紀錄 |
+| `POST …/runs` | `{topic}`。開一次 run，回傳的是**多視角子問題清單**，還沒開始抓。run 停在 `排隊` |
+| `POST …/runs/:runId/angles` | `{angles: [id]}`。使用者勾選要展開哪幾條，**這一步才真的開始**。一次最多 5 條 |
+| `GET …/runs/:runId/events` | **SSE**：逐項進度、節流狀態、**每條角度做完的 `angle` 事件** |
+| `POST …/runs/:runId/cancel` | 取消 ＝ 殺子程序 ＋ 標 `已取消`，**已寫入的保留**。**匯入與擴展走同一支** |
+| `GET …/runs` ／ `/runs/:runId` | 作業紀錄。詳細那一支另外回 `angles`（**含沒被勾的那幾條**）|
 
 > **`POST /runs` 不會直接開始抓。** 它回子問題讓使用者勾 ——
 > 那一步是 REQ-0004 的驗收條件（「不是黑箱一次跑完」），不是可以省略的 UI 糖。
+>
+> **`angle` 事件與 `item` 事件是兩個層級。** 一條角度會產生好幾個 `item` 事件；
+> 併成一種的話，作業紀錄就分不出「這幾個網址是哪一條角度找來的」。
+>
+> **每條角度帶 `seeds`（它是從既有的哪幾份長出來的），不帶「預估會找到幾個」。**
+> 設計稿寫的是後者，而那個數字只可能是模型猜的 —— 理由在 ADR-0021。
+>
+> **`run` 對擴展多回四欄**：`topic`、`providers`（用了哪些模型）、
+> `requests`（打了幾次）、`costUsd`。`requests` 是主要上限，
+> 而**產生角度那一次也算在裡面** —— 使用者一條都沒勾，那一次仍然發生過。
 
 ### 匯入
 

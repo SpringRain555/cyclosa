@@ -33,9 +33,35 @@ export interface ActiveRun {
    */
   cancellable: Cancellable | null;
   cancelled: boolean;
+  /**
+   * 暫停中。
+   *
+   * ## 為什麼**不**寫進 `run.status`
+   *
+   * 「暫停」的意思是「等一下會接著跑」，而那個承諾**只有這個行程活著才成立** ——
+   * 佇列在記憶體裡。把 `paused` 寫進資料庫的話，程式關掉再打開會看到
+   * 一個標著「暫停中」、而且永遠不會恢復的作業。
+   *
+   * **一個做不到的承諾比沒有承諾糟。** 所以它只活在這張表上，
+   * 跟 `live` 一樣是「執行時的事實」。
+   */
+  paused: boolean;
+  /**
+   * 迴圈在每一項之間呼叫它。**沒有暫停時它立刻返回**，
+   * 暫停時它停在這裡直到被續跑或取消。
+   */
+  gate(): Promise<void>;
 }
 
 const active = new Map<string, ActiveRun>();
+
+/** 每個 run 一組在等的人。**取消也要把它們放走**，否則暫停中的作業取消不掉。 */
+const waiters = new Map<string, (() => void)[]>();
+
+function release(runId: string): void {
+  for (const wake of waiters.get(runId) ?? []) wake();
+  waiters.set(runId, []);
+}
 
 export function register(runId: string): ActiveRun {
   const state: ActiveRun = {
@@ -43,13 +69,58 @@ export function register(runId: string): ActiveRun {
     channel: new RunChannel(),
     cancellable: null,
     cancelled: false,
+    paused: false,
+    gate: async () => {
+      // `while` 不是 `if`：被叫醒之後如果又被暫停了，要再等一次。
+      while (state.paused && !state.cancelled) {
+        await new Promise<void>((resolve) => {
+          const list = waiters.get(runId) ?? [];
+          list.push(resolve);
+          waiters.set(runId, list);
+        });
+      }
+    },
   };
   active.set(runId, state);
+  waiters.set(runId, []);
   return state;
 }
 
 export function unregister(runId: string): void {
+  release(runId);
   active.delete(runId);
+  waiters.delete(runId);
+}
+
+/**
+ * 暫停與續跑。**回 `false` 代表那個 run 不在執行中**（跟 `cancel` 同一個約定）。
+ *
+ * **暫停不停爬蟲、不殺子程序** —— 它只是讓迴圈在下一項之前停下來。
+ * 正在進行的那一項會做完：中途砍掉它會留下一個抓了一半的快照，
+ * 而那正是「取消時已寫入的保留」在保護的東西。
+ */
+export function pause(runId: string): boolean {
+  const state = active.get(runId);
+  if (state === undefined || state.cancelled) return false;
+  state.paused = true;
+  return true;
+}
+
+export function resume(runId: string): boolean {
+  const state = active.get(runId);
+  if (state === undefined || !state.paused) return false;
+  state.paused = false;
+  release(runId);
+  return true;
+}
+
+/** 現在有幾個作業在跑。**「要不要二次確認」問的就是這個數字。** */
+export function activeCount(): number {
+  return active.size;
+}
+
+export function isPaused(runId: string): boolean {
+  return active.get(runId)?.paused ?? false;
 }
 
 export function channelOf(runId: string): RunChannel | null {
@@ -72,6 +143,10 @@ export function cancel(runId: string): boolean {
   const state = active.get(runId);
   if (state === undefined) return false;
   state.cancelled = true;
+  state.paused = false;
+  // **暫停中的作業也要取消得掉。** 不放走等在 gate 上的那個，
+  // 迴圈永遠不會回到「檢查 cancelled」那一行。
+  release(runId);
   state.cancellable?.stop();
   return true;
 }

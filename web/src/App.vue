@@ -13,7 +13,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 import { api } from './api';
-import { t } from './i18n/zh-TW';
+import { fill, t } from './i18n/zh-TW';
 import { useCaseStore } from './stores/case-store';
 
 const route = useRoute();
@@ -48,6 +48,39 @@ const tabs = computed(() => {
  * （agent 只跑 `--version`、chat 只讀 `/api/tags`）。
  */
 const activeModels = ref<string[]>([]);
+
+/**
+ * 結束 Cyclosa。
+ *
+ * **不掛 `beforeunload`**：關掉分頁不該關掉伺服器 ——
+ * 你可能開了兩個分頁，也可能是誤關，而那個事件本來就不保證送得出去。
+ * 關掉程式要是一個明確的動作。
+ */
+const quitting = ref(false);
+const quitMessage = ref<string | null>(null);
+
+async function quit(): Promise<void> {
+  quitting.value = true;
+  const probe = await api.shutdown(false);
+  if (!probe.ok) {
+    quitting.value = false;
+    quitMessage.value = t.shutdown.failed;
+    return;
+  }
+
+  // **一律確認**，而有作業在跑的時候那句話要說出那個數字。
+  const message =
+    probe.data.activeRuns > 0
+      ? fill(t.shutdown.confirmBusy, { n: probe.data.activeRuns })
+      : t.shutdown.confirmIdle;
+  if (!window.confirm(message)) {
+    quitting.value = false;
+    return;
+  }
+
+  const done = await api.shutdown(true);
+  quitMessage.value = done.ok ? t.shutdown.done : t.shutdown.failed;
+}
 
 onMounted(async () => {
   const r = await api.providers();
@@ -96,7 +129,19 @@ watch(
         <span v-else class="models none">{{ t.settings.activeNone }}</span>
         {{ t.nav.settings }}
       </RouterLink>
+
+      <!--
+        結束 Cyclosa。**二次確認的門在伺服器端** ——
+        第一次呼叫只回「有幾個作業在跑」，帶了 force 才真的關。
+        只做在畫面上的話，它就是一個繞得過的提醒，
+        而這顆按鈕會讓正在跑的抓取中斷。
+      -->
+      <button class="quit" type="button" :disabled="quitting" @click="quit">
+        {{ t.shutdown.open }}
+      </button>
     </header>
+
+    <p v-if="quitMessage" class="quit-note">{{ quitMessage }}</p>
     <RouterView />
   </div>
 </template>
@@ -175,6 +220,36 @@ watch(
 }
 
 /* 設定靠最右 —— 它不屬於分頁列那一組（它跟專題無關）。 */
+/* 結束是一個**離開**的動作，所以它在最右邊、而且平常很輕。
+   一顆跟「設定」一樣顯眼的結束鍵，會讓人以為那是常用的下一步。 */
+.quit {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  margin-left: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.quit:hover:not(:disabled) {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.quit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.quit-note {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--line-subtle);
+}
+
 .settings-link {
   margin-left: auto;
   font-size: 13px;

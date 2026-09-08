@@ -11,7 +11,7 @@ import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
-import { isActive } from './run-registry.js';
+import { isActive, isPaused } from './run-registry.js';
 import { viewAngles, type AngleView } from './expand-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
@@ -35,6 +35,14 @@ async function open(dataRoot: string, slug: string, cid: string) {
 export interface RunSummary extends runs.RunRow {
   /** 這一次作業現在還在跑嗎。**資料庫看不出來**（狀態是收尾時才寫的）。 */
   readonly live: boolean;
+  /**
+   * 暫停中。
+   *
+   * **跟 `live` 一樣是執行時的事實，資料庫裡沒有它** ——
+   * 「暫停」的意思是「等一下會接著跑」，而那個承諾只有這個行程活著才成立
+   * （`run-registry.ts` 寫了為什麼不存進 `run.status`）。
+   */
+  readonly paused: boolean;
 }
 
 export async function listRuns(
@@ -47,7 +55,7 @@ export async function listRuns(
   if ('ok' in db) return db;
   try {
     return ok(
-      runs.listRuns(db, limit).map((r) => ({ ...r, live: isActive(r.id) })),
+      runs.listRuns(db, limit).map((r) => ({ ...r, live: isActive(r.id), paused: isPaused(r.id) })),
       cid,
     );
   } finally {
@@ -77,10 +85,10 @@ export async function getRun(
   if ('ok' in db) return db;
   try {
     const row = runs.getRun(db, runId);
-    if (row === null) return err('CASE_NOT_FOUND', cid, { runId });
+    if (row === null) return err('RUN_NOT_FOUND', cid, { runId });
     return ok(
       {
-        run: { ...row, live: isActive(runId) },
+        run: { ...row, live: isActive(runId), paused: isPaused(runId) },
         items: runs.listRunItems(db, runId),
         angles: viewAngles(db, runId),
       },

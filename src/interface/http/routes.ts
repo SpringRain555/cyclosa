@@ -19,8 +19,12 @@ import {
   cancelRun,
   channelOf,
   importFile,
+  pauseRun,
+  resumeRun,
   startUrlImport,
 } from '../../application/ingest-service.js';
+import { undoRun } from '../../application/undo-service.js';
+import { activeCount } from '../../application/run-registry.js';
 import {
   changeItemStatus,
   getItem,
@@ -173,6 +177,54 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
+  /**
+   * 結束 Cyclosa。
+   *
+   * ## 兩段式，而且第二段的門在伺服器端
+   *
+   * 沒帶 `force` 的呼叫**什麼都不做**，只回「現在有幾個作業在跑」——
+   * 畫面拿那個數字去問使用者。帶了 `force` 才真的關。
+   *
+   * 把二次確認只做在前端的話，它就是一個可以被繞過的提醒；
+   * 而**這顆按鈕會讓正在跑的抓取中斷**，那不是一個提醒等級的後果。
+   *
+   * ## 為什麼是 `POST` 而且沒有 `GET` 版本
+   *
+   * 一個 `GET` 會被瀏覽器預抓、被書籤、被歷史記錄重播 ——
+   * 而它的效果是「關掉這個程式」。
+   *
+   * ## 瀏覽器關掉分頁**不會**走到這裡
+   *
+   * 那是刻意的：你可能開了兩個分頁，也可能是誤關，
+   * 而 `beforeunload` 本來就不保證送得出去。**關掉程式要是一個明確的動作。**
+   */
+  app.post<{ Body: { force?: unknown } }>('/api/system/shutdown', async (req, reply) => {
+    const running = activeCount();
+    // **沒帶 `force` 一律只回狀態，即使沒有作業在跑。**
+    //
+    // 第一版是「沒作業就直接關」，而那讓確認變成一件可選的事：
+    // 使用者按一下就沒了，連問都沒問。而**這顆按鈕的後果與有沒有作業無關** ——
+    // 它關掉的是那個正在服務這個分頁的東西。
+    if (req.body?.force !== true) {
+      return reply.code(200).send({
+        ok: true,
+        data: { activeRuns: running, shuttingDown: false },
+        correlationId: 'shutdown',
+      });
+    }
+    void reply.code(200).send({
+      ok: true,
+      data: { activeRuns: running, shuttingDown: true },
+      correlationId: 'shutdown',
+    });
+    // **先讓回應出去再關。** 100ms 是為了讓 socket 真的送出去 ——
+    // 直接 exit 的話畫面會看到一個連線中斷，而不是一句「已經關掉了」。
+    setTimeout(() => {
+      void app.close().then(() => process.exit(0));
+    }, 100).unref();
+    return reply;
+  });
+
   registerProviderRoutes(app, ctx);
   registerIngestRoutes(app, ctx);
   registerExpandRoutes(app, ctx);
@@ -313,6 +365,38 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { slug: string; runId: string } }>(
     '/api/cases/:slug/runs/:runId/cancel',
     async (req, reply) => send(reply, cancelRun(req.params.runId)),
+  );
+
+  /**
+   * 暫停與續跑。
+   *
+   * **暫停不是取消**：正在做的那一項會做完，然後停在項與項之間。
+   * 中途砍掉正在抓的那一項會留下一個抓了一半的快照 ——
+   * 而那正是「取消時已寫入的保留」在保護的東西。
+   */
+  app.post<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId/pause',
+    async (req, reply) => send(reply, pauseRun(req.params.runId)),
+  );
+
+  app.post<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId/resume',
+    async (req, reply) => send(reply, resumeRun(req.params.runId)),
+  );
+
+  /**
+   * 復原這次作業。**跟取消是兩件事**（`undo-service.ts` 的檔頭寫了為什麼）——
+   * 取消是「別再做下去了」，復原是「剛剛那一整批，當作沒發生」。
+   *
+   * **不碰 `sources\`，也不碰人的判定。**
+   */
+  app.post<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId/undo',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await undoRun(dataRoot, req.params.slug, req.params.runId));
+    },
   );
 
   /**

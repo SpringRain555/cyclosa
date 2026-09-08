@@ -95,6 +95,9 @@ export const errorMessages: Readonly<Record<string, string>> = {
   PROVIDER_UNEXPECTED: '模型呼叫出了預期外的問題。請把下面的識別碼交出來。',
 
   // ── 圖與裁決 ──────────────────────────────────────────
+  RUN_NOT_FOUND: '找不到這次作業。它可能屬於另一個專題。',
+  RUN_STILL_ACTIVE: '這次作業還在跑，沒辦法復原。先按取消，或等它跑完再試。',
+  RUN_UNEXPECTED: '處理這次作業時出了預期外的問題。請把下面的識別碼交出來。',
   GRAPH_EVIDENCE_REQUIRED:
     '這條關聯沒有任何引文，不能標成已確認。請先補一筆出處，或改成自己手動建立一條。',
   GRAPH_HUMAN_ROW_IMMUTABLE:
@@ -185,6 +188,9 @@ export const t = {
     rootIs: '專題根目前是',
     rootChangeable: '，可在設定改。程式與資料是分開的。',
     never: '尚未擴展',
+    pickHint: '點一列選取，再對它操作。',
+    picked: '選取：{name}',
+    openGraph: '關聯圖',
     rename: '改名',
     renameSave: '存檔',
     renameCancel: '取消',
@@ -472,6 +478,18 @@ export const t = {
     noEdges: '這一塊裡沒有關聯。匯出的會是一份來源清單。',
   },
 
+  /** 結束 Cyclosa（頂列右邊）。 */
+  shutdown: {
+    open: '結束 Cyclosa',
+    confirmIdle:
+      '要結束 Cyclosa 嗎？\n\n伺服器會關掉，這個分頁就打不開了。資料都已經存好，下次啟動接得回來。',
+    /** 有作業在跑的時候，確認要說出那個數字。 */
+    confirmBusy:
+      '有 {n} 個作業正在跑。結束的話它們會中斷。\n\n已經寫進去的東西會留著（取消不回滾），但沒做完的那幾項會停在原地。要結束嗎？',
+    done: 'Cyclosa 已經關掉了。可以關掉這個分頁。',
+    failed: '關不掉。可以直接關掉那個命令列視窗。',
+  },
+
   runs: {
     tab: '作業紀錄',
     title: '作業紀錄',
@@ -500,6 +518,23 @@ export const t = {
     throttleBackoff: '收到 429／503 立即停不重試',
     throttleRobots: '遵守 robots.txt',
     throttleNow: '正在等 {host}（{ms} 毫秒）',
+  },
+
+  runControl: {
+    pause: '暫停',
+    resume: '繼續',
+    paused: '暫停中',
+    /** 暫停與取消的差別要寫在按鈕旁邊，不然兩顆看起來一樣。 */
+    pauseHint: '正在做的那一項會做完，然後停在下一項之前。隨時可以繼續。',
+    undo: '復原這次作業',
+    undoConfirm:
+      '把這次作業寫進去的東西刪掉？\n\n抓回來的原始快照不會被動到，你裁決過的關聯、讀過或標過點註的資料也不會。這個動作沒辦法取消。',
+    undone: '已刪掉 {items} 份資料、{edges} 條關聯。',
+    undoneEntities: '另外清掉 {n} 個因此沒有任何關聯的實體。',
+    /** 留下來的東西要解釋，不然使用者會問「為什麼圖上還有」。 */
+    undoKept: '留下 {items} 份資料與 {edges} 條關聯 —— 你動過它們。',
+    undoKeptEvidence: '其中 {n} 份是因為有一條留下來的關聯靠它當出處。',
+    undoNothing: '這次作業沒有東西可以刪了。',
   },
 
   graph: {
@@ -531,7 +566,7 @@ export const t = {
       nodes: '節點',
       nodeItem: '資料',
       nodeNote: '筆記',
-      nodeEntity: '人事物',
+      nodeEntity: '實體',
       edges: '關聯',
       layerNamed: '具名關係（漸細＝有方向）',
       layerComention: '共同提及（線中點是那個實體）',
@@ -546,7 +581,7 @@ export const t = {
       projectionHint: '低於這個數字的實體會被攤平成一條線，只被一篇提到的完全不畫。',
       minConfidence: '可信度下限',
       tierAny: '不限',
-      focus: '焦點（紫環）',
+      focus: '焦點',
       hint: '明暗只表示遠近，不表示程度。',
     },
 

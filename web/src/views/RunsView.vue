@@ -234,6 +234,61 @@ async function cancel(): Promise<void> {
   if (!result.ok) error.value = result.error;
 }
 
+/**
+ * 暫停與繼續。**跟取消是三顆不同的按鈕，而它們的差別要看得出來** ——
+ * 暫停會回來，取消不會，復原是把已經寫進去的拿掉。
+ */
+const busyControl = ref(false);
+
+async function pauseOrResume(paused: boolean): Promise<void> {
+  const id = runId.value;
+  if (id === null) return;
+  busyControl.value = true;
+  const result = paused ? await api.resumeRun(slug.value, id) : await api.pauseRun(slug.value, id);
+  busyControl.value = false;
+  if (!result.ok) {
+    error.value = result.error;
+    return;
+  }
+  await openRun(id);
+}
+
+/** 復原的結果要說出「留下了什麼」，不然使用者會問「為什麼圖上還有」。 */
+const undoNote = ref<string | null>(null);
+
+async function undo(): Promise<void> {
+  const id = runId.value;
+  if (id === null) return;
+  if (!window.confirm(t.runControl.undoConfirm)) return;
+
+  busyControl.value = true;
+  const result = await api.undoRun(slug.value, id);
+  busyControl.value = false;
+  if (!result.ok) {
+    error.value = result.error;
+    return;
+  }
+
+  const r = result.data;
+  const parts: string[] = [];
+  if (r.deletedItems === 0 && r.deletedEdges === 0) {
+    parts.push(t.runControl.undoNothing);
+  } else {
+    parts.push(fill(t.runControl.undone, { items: r.deletedItems, edges: r.deletedEdges }));
+  }
+  if (r.deletedEntities > 0) {
+    parts.push(fill(t.runControl.undoneEntities, { n: r.deletedEntities }));
+  }
+  if (r.partial) {
+    parts.push(fill(t.runControl.undoKept, { items: r.keptItems, edges: r.keptEdges }));
+    if (r.keptAsEvidence > 0) {
+      parts.push(fill(t.runControl.undoKeptEvidence, { n: r.keptAsEvidence }));
+    }
+  }
+  undoNote.value = parts.join(' ');
+  await openRun(id);
+}
+
 function when(ms: number | null): string {
   return ms === null ? '' : new Date(ms).toLocaleString('zh-Hant');
 }
@@ -460,8 +515,23 @@ async function rebuild(): Promise<void> {
               })
             }}
           </p>
-          <button v-if="run.live" @click="cancel">{{ t.runs.cancel }}</button>
+          <div class="controls">
+            <template v-if="run.live">
+              <button :disabled="busyControl" @click="pauseOrResume(run.paused)">
+                {{ run.paused ? t.runControl.resume : t.runControl.pause }}
+              </button>
+              <button @click="cancel">{{ t.runs.cancel }}</button>
+              <span v-if="run.paused" class="paused">{{ t.runControl.paused }}</span>
+              <span v-else class="hint">{{ t.runControl.pauseHint }}</span>
+            </template>
+            <!-- **跑完才給復原。** 一邊寫一邊刪會留下說不清楚的狀態。 -->
+            <button v-else :disabled="busyControl" @click="undo">
+              {{ t.runControl.undo }}
+            </button>
+          </div>
         </header>
+
+        <p v-if="undoNote" class="undo-note">{{ undoNote }}</p>
 
         <!--
           擴展這一次花了什麼。**請求數是主要上限**（ADR-0006 的補記），
@@ -770,6 +840,29 @@ textarea:focus,
   font-size: 11px;
   color: var(--text-muted);
 }
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.controls .hint,
+.controls .paused {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+/* 暫停中用琥珀 —— 它是一個「還沒結束、等著你」的狀態，
+   跟待查證同一類。綠色在這個工具裡只有「確認」一個意思。 */
+.controls .paused {
+  color: var(--edge-pending);
+}
+.undo-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
 .live {
   color: var(--ui-action);
 }

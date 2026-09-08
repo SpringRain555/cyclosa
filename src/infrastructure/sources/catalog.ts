@@ -96,8 +96,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'scholarly-api',
     expected: 'open',
     probe: null,
-    noteZh:
-      '**這一個直接回答「這篇有沒有一份合法的開放全文」。** 要帶一個 email 參數，所以沒有探針。',
+    noteZh: '這一個直接回答「這篇有沒有一份合法的開放全文」。 要帶一個 email 參數，所以沒有探針。',
   },
   {
     host: 'ebi.ac.uk',
@@ -133,7 +132,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'preprint',
     expected: 'open',
     probe: 'https://export.arxiv.org/api/query?search_query=all:spider&max_results=1',
-    noteZh: '物理、數學、資訊、量化生物的預印本。**全文一律開放。**',
+    noteZh: '物理、數學、資訊、量化生物的預印本。全文一律開放。',
   },
   {
     host: 'api.biorxiv.org',
@@ -142,7 +141,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'preprint',
     expected: 'open',
     probe: 'https://api.biorxiv.org/details/biorxiv/2020-01-01/2020-01-02',
-    noteZh: '生物與醫學預印本。**未經同儕審查**，引用時要標明。',
+    noteZh: '生物與醫學預印本。未經同儕審查，引用時要標明。',
   },
   {
     host: 'ncbi.nlm.nih.gov',
@@ -169,7 +168,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'publisher',
     expected: 'mixed',
     probe: null,
-    noteZh: '多半要訂閱。**首頁回 200 而文章回 403，所以沒有探針** —— 判斷來自你自己的紀錄。',
+    noteZh: '多半要訂閱。首頁回 200 而文章回 403，所以沒有探針 —— 判斷來自你自己的紀錄。',
   },
   {
     host: 'science.org',
@@ -187,7 +186,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'publisher',
     expected: 'login',
     probe: null,
-    noteZh: '幾乎都要機構授權。**這是最常撞到的那一個。**',
+    noteZh: '幾乎都要機構授權。這是最常撞到的那一個。',
   },
   {
     host: 'onlinelibrary.wiley.com',
@@ -241,7 +240,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'official',
     expected: 'mixed',
     probe: null,
-    noteZh: '判決原文。**查詢介面靠瀏覽器執行程式**，靜態多半抓不到。',
+    noteZh: '判決原文。查詢介面靠瀏覽器執行程式，靜態多半抓不到。',
   },
   {
     host: 'data.gov.tw',
@@ -259,7 +258,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     category: 'reference',
     expected: 'open',
     probe: null,
-    noteZh: '**當地圖用，不當出處用** —— 它的價值是把你帶到它的參考文獻。',
+    noteZh: '當地圖用，不當出處用 —— 它的價值是把你帶到它的參考文獻。',
   },
   {
     host: 'wikidata.org',

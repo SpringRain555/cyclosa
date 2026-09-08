@@ -123,7 +123,7 @@ async function test(role: ProviderRole): Promise<void> {
 </script>
 
 <template>
-  <main class="settings">
+  <main :class="['settings', { wide: tab === 'sources' }]">
     <h1>{{ t.settings.title }}</h1>
 
     <nav class="tabs">
@@ -281,11 +281,26 @@ async function test(role: ProviderRole): Promise<void> {
   color: var(--edge-pending);
 }
 
+/**
+ * **置中，而且兩個分頁的寬度不一樣。**
+ *
+ * 第一版有 `max-width` 卻沒有 `margin: auto`，於是在寬螢幕上整頁擠在左邊 ——
+ * 而隔壁的專題清單是 `max-width: 1200px; margin: 0 auto`。
+ * **同一個 app 的兩頁對「寬螢幕怎麼辦」給了不同答案**，那不是風格，那是漏掉。
+ *
+ * 模型那一頁是一組表單，760px 是給它的行長；
+ * **來源網站是一張八欄的表**，塞進 760px 之後每一格都在換行。
+ */
 .settings {
   padding: 20px 24px 60px;
   overflow-y: auto;
   height: 100%;
   max-width: 760px;
+  margin-inline: auto;
+}
+
+.settings.wide {
+  max-width: 1180px;
 }
 h1 {
   font-size: 16px;

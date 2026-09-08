@@ -170,6 +170,8 @@ export interface Run {
   endedAt: number | null;
   createdAt: number;
   live: boolean;
+  /** 暫停中。**執行時的事實，資料庫裡沒有它。** */
+  paused: boolean;
   // ── 擴展才有的（Stage 9）───────────────────────────────
   /** 匯入沒有主題，所以是 `null` */
   topic: string | null;
@@ -517,6 +519,23 @@ export interface MergeResult {
   readonly duplicateEdges: number;
 }
 
+export interface UndoReport {
+  runId: string;
+  deletedItems: number;
+  deletedEdges: number;
+  deletedEntities: number;
+  keptItems: number;
+  keptEdges: number;
+  keptAsEvidence: number;
+  /** 有東西被留下來。**畫面上要說出這件事。** */
+  partial: boolean;
+}
+
+export interface ShutdownState {
+  activeRuns: number;
+  shuttingDown: boolean;
+}
+
 export interface ExportSummary {
   /** 匯出到哪。**畫面要顯示它** —— 不然使用者找不到剛剛產生的檔案。 */
   folder: string;
@@ -750,6 +769,27 @@ export const api = {
   unmergeEntity: (slug: string, entityId: string) =>
     request<{ restored: number }>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/unmerge`, {
       method: 'POST',
+    }),
+
+  // ── 作業的控制 ──────────────────────────────────────────
+
+  /** **暫停不是取消**：正在做的那一項會做完，然後停在項與項之間。 */
+  pauseRun: (slug: string, runId: string) =>
+    request<true>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/pause`, { method: 'POST' }),
+  resumeRun: (slug: string, runId: string) =>
+    request<true>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/resume`, { method: 'POST' }),
+  /** **跟取消是兩件事。** 取消是「別再做下去了」，復原是「當作沒發生」。 */
+  undoRun: (slug: string, runId: string) =>
+    request<UndoReport>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/undo`, { method: 'POST' }),
+
+  /**
+   * 結束 Cyclosa。**兩段式** —— 不帶 `force` 只回「有幾個作業在跑」，
+   * 帶了才真的關。那道門在伺服器端，不是只在畫面上。
+   */
+  shutdown: (force = false) =>
+    request<ShutdownState>('/api/system/shutdown', {
+      method: 'POST',
+      body: JSON.stringify({ force }),
     }),
 
   // ── 證據包匯出（Stage 11）───────────────────────────────

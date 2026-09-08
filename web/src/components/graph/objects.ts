@@ -292,9 +292,10 @@ function sprite(map: CanvasTexture, scale: number): Sprite {
   return item;
 }
 
-// **比第一版小**：顏色換成紫之後它不必再靠大小搶注意力，
-// 而標籤在 2.2 倍高度 —— 環的外緣（1.7 倍）剛好在標籤下面。
-const horizonGeometry = new TorusGeometry(NODE_SIZE * 1.6, 0.42, 8, 56);
+// **比第一版小、但比第一版粗。** 顏色換成紫之後它不必靠大小搶注意力，
+// 而細環在 3D 裡側看幾乎會消失 —— 一個時有時無的記號比一個大記號更難讀。
+// 半徑 1.6 倍、管徑 0.95：外緣落在 1.74 倍，而標籤在 2.2 倍，兩者不重疊。
+const horizonGeometry = new TorusGeometry(NODE_SIZE * 1.6, 0.95, 10, 64);
 let sharedHorizonMaterial: MeshBasicMaterial | null = null;
 
 function horizonMaterial(): MeshBasicMaterial {

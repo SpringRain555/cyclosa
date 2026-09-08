@@ -8,6 +8,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 
 import type { RunStatus } from '../../../domain/ingest/state.js';
+import type { RunEdgeFact, RunItemFact } from '../../../domain/run/index.js';
 
 export type RunItemOutcome =
   'queued' | 'running' | 'ok' | 'duplicate' | 'failed' | 'skipped' | 'cancelled';
@@ -331,4 +332,91 @@ export function finishAngle(
 /** 一條作業項目寫進去幾條邊。匯入那一條路永遠是 0，所以它沒有這一支。 */
 export function setRunItemEdges(db: DatabaseSync, id: string, newEdges: number): void {
   db.prepare('UPDATE run_item SET new_edges = ? WHERE id = ?').run(newEdges, id);
+}
+
+// ── 復原這次作業 ──────────────────────────────────────────
+//
+// **這一區只讀出「這次作業寫了什麼」與「人動過哪些」**，
+// 要刪哪些是 `domain/run/undo.ts` 的規則，不在這裡。
+
+/** 這次作業寫進去的關聯，連同判斷「人動過沒有」需要的兩個事實。 */
+export function runEdgeFacts(db: DatabaseSync, runId: string): readonly RunEdgeFact[] {
+  const rows = db
+    .prepare(
+      `SELECT e.id AS id, e.origin AS origin,
+              EXISTS (SELECT 1 FROM edge_audit a
+                       WHERE a.edge_id = e.id AND a.actor = 'human') AS judged
+         FROM edge e WHERE e.run_id = ?`,
+    )
+    .all(runId) as Raw[];
+
+  const evidence = db.prepare('SELECT item_id FROM edge_evidence WHERE edge_id = ?');
+  return rows.map((row) => {
+    const id = String(row['id']);
+    const items = (evidence.all(id) as Raw[]).map((e) => String(e['item_id']));
+    return {
+      id,
+      origin: String(row['origin']) === 'human' ? ('human' as const) : ('machine' as const),
+      adjudicatedByHuman: Number(row['judged']) === 1,
+      evidenceItemIds: items,
+    };
+  });
+}
+
+/** 這次作業寫進去的資料，連同三種「你對它表過態」。 */
+export function runItemFacts(db: DatabaseSync, runId: string): readonly RunItemFact[] {
+  const rows = db
+    .prepare(
+      `SELECT i.id AS id, i.read_at AS read_at, i.status AS status,
+              EXISTS (SELECT 1 FROM note n WHERE n.item_id = i.id) AS annotated
+         FROM item i WHERE i.run_id = ?`,
+    )
+    .all(runId) as Raw[];
+  return rows.map((row) => ({
+    id: String(row['id']),
+    read: row['read_at'] !== null && row['read_at'] !== undefined,
+    annotated: Number(row['annotated']) === 1,
+    excluded: String(row['status']) === 'excluded',
+  }));
+}
+
+/**
+ * 刪除。**一次一批，包在呼叫端的交易裡。**
+ *
+ * `edge_evidence` 與 `edge_audit` 有 `ON DELETE CASCADE`，所以刪邊就夠了。
+ */
+export function deleteEdgesById(db: DatabaseSync, ids: readonly string[]): number {
+  if (ids.length === 0) return 0;
+  const stmt = db.prepare('DELETE FROM edge WHERE id = ?');
+  for (const id of ids) stmt.run(id);
+  return ids.length;
+}
+
+export function deleteItemsById(db: DatabaseSync, ids: readonly string[]): number {
+  if (ids.length === 0) return 0;
+  const stmt = db.prepare('DELETE FROM item WHERE id = ?');
+  for (const id of ids) stmt.run(id);
+  return ids.length;
+}
+
+/**
+ * 刪完之後一條邊都沒有的實體。
+ *
+ * **一個零度數的實體在「焦點 ＋ 幾跳」的圖上等於不存在**（同 ADR-0008 的理由），
+ * 而它只有擴展會建立、而且擴展一定會同時建共同提及的邊 ——
+ * 所以「零度數」就是「這次被刪掉的邊留下來的殘骸」。
+ *
+ * **被合併過的不算**：`merged_into` 指著別人的那些本來就沒有自己的邊。
+ */
+export function deleteOrphanEntities(db: DatabaseSync): number {
+  const rows = db
+    .prepare(
+      `SELECT id FROM entity
+        WHERE merged_into IS NULL
+          AND NOT EXISTS (SELECT 1 FROM edge WHERE source_id = entity.id OR target_id = entity.id)`,
+    )
+    .all() as Raw[];
+  const stmt = db.prepare('DELETE FROM entity WHERE id = ?');
+  for (const row of rows) stmt.run(String(row['id']));
+  return rows.length;
 }

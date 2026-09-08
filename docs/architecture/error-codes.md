@@ -107,6 +107,14 @@
 | `PROVIDER_EMBED_MODEL_MISMATCH` | error | **要比對的向量是另一個嵌入模型產的** | 換回原本的模型，或重算整個專題的向量。**工具不會拿兩個模型的向量硬比** —— 那會回一個看起來正常的錯答案 |
 | `PROVIDER_UNEXPECTED` | error | provider 的未預期例外 | 把 `correlation_id` 交出來 |
 
+## `RUN_*` —— 作業本身
+
+| 碼 | 級別 | 成因 | 使用者該做什麼 |
+|---|:--:|---|---|
+| `RUN_NOT_FOUND` | error | 找不到那次作業 | 確認是不是在另一個專題底下 |
+| `RUN_STILL_ACTIVE` | error | 想復原一次**還在跑的**作業 | **先取消，或等它跑完** —— 一邊寫一邊刪會留下說不清楚的狀態 |
+| `RUN_UNEXPECTED` | error | 作業處理的未預期例外 | 把 `correlation_id` 交出來 |
+
 ## `GRAPH_*` —— 圖與裁決
 
 | 碼 | 級別 | 成因 | 使用者該做什麼 |

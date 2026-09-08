@@ -161,6 +161,10 @@ async function processUrls(
   try {
     for (const entry of queue) {
       if (state.cancelled) break;
+      // **暫停停在項與項之間。** 正在抓的那一項會做完 ——
+      // 中途砍掉它會留下一個抓了一半的快照。
+      await state.gate();
+      if (state.cancelled) break;
 
       const outcome = await processOneUrl(db, folder, crawler, state.runId, entry);
       done++;
@@ -680,6 +684,24 @@ export function cancelRun(runId: string): Result<true> {
   const cid = correlationId();
   if (!registry.cancel(runId))
     return err('GRAPH_TRANSITION_INVALID', cid, { runId, why: 'not-active' });
+  return ok(true, cid);
+}
+
+/**
+ * 暫停與續跑。**跟取消走同一張表**（`run-registry.ts`）——
+ * 匯入與擴展共用，所以這兩支也共用。
+ */
+export function pauseRun(runId: string): Result<true> {
+  const cid = correlationId();
+  if (!registry.pause(runId))
+    return err('GRAPH_TRANSITION_INVALID', cid, { runId, why: 'not-active' });
+  return ok(true, cid);
+}
+
+export function resumeRun(runId: string): Result<true> {
+  const cid = correlationId();
+  if (!registry.resume(runId))
+    return err('GRAPH_TRANSITION_INVALID', cid, { runId, why: 'not-paused' });
   return ok(true, cid);
 }
 

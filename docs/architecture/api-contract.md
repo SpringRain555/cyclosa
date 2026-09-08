@@ -27,7 +27,8 @@
 >
 > **Stage 11 新增**：**`POST …/export/evidence`**（證據包匯出）。
 >
-> **2026-09-08 補**：`POST …/cases/:id/rename`。
+> **2026-09-08 補**：`POST …/cases/:id/rename`、
+> **`POST …/runs/:runId/pause`／`/resume`／`/undo`**、**`POST /api/system/shutdown`**。
 >
 > **還不存在**：檢索（Stage 12）。
 >
@@ -277,6 +278,46 @@
 > **`POST …/rebuild` 不碰兩樣東西**：`sources/`（一個位元組都不動，只讀），
 > 以及**人的判定**（`status` 不重設，`origin='human'` 的列不看也不動）。
 > 「重算」聽起來最無害，而它正是最容易把「機器不得覆寫人工判定」洗掉的動作。
+
+### 作業的三顆按鈕是三件事
+
+| 端點 | 何時能用 | 做什麼 |
+|---|---|---|
+| `POST …/runs/:runId/pause` ／ `/resume` | 執行中 | 停在**項與項之間**。正在做的那一項會做完 |
+| `POST …/runs/:runId/cancel` | 執行中 | 不再往下做。**已寫入的保留** |
+| `POST …/runs/:runId/undo` | **跑完之後** | 刪掉這次寫進去的資料與關聯 |
+
+暫停與取消的差別要在畫面上看得出來：**暫停會回來，取消不會。**
+而復原是第三件事 —— 它在跑完之後才出現（ADR-0023）。
+
+`undo` 回一份報告，而**那份報告要說出「留下了什麼」**：
+`keptItems`／`keptEdges`（你動過的）與 `keptAsEvidence`
+（有一條留下來的關聯靠它當出處）。**只回一個刪除數的話，
+使用者解釋不了為什麼圖上還有東西。**
+
+失敗路徑：作業還在跑 → `RUN_STILL_ACTIVE`；找不到 → `RUN_NOT_FOUND`（404）。
+暫停／續跑對一個不在執行中的作業 → `GRAPH_TRANSITION_INVALID`（跟取消同一個約定）。
+
+> **`paused` 不在 `run.status` 裡**，它跟 `live` 一樣是執行時的事實（ADR-0023）。
+
+### `POST /api/system/shutdown` —— 結束 Cyclosa
+
+**兩段式，而且第二段的門在伺服器端。**
+
+| 請求 | 回什麼 | 做什麼 |
+|---|---|---|
+| `{}` | `{ activeRuns, shuttingDown: false }` | **什麼都不做** |
+| `{ "force": true }` | `{ activeRuns, shuttingDown: true }` | 送出回應之後關掉行程 |
+
+第一段的 `activeRuns` 就是畫面上那句確認要說的數字。
+把二次確認只做在前端的話它是一個繞得過的提醒，
+而**這顆按鈕會讓正在跑的抓取中斷**。
+
+**沒有 `GET` 版本**：一個會被瀏覽器預抓、被書籤、被歷史重播的網址，
+它的效果不該是「關掉這個程式」。
+
+**瀏覽器關掉分頁不會走到這裡**，那是刻意的 ——
+你可能開了兩個分頁，也可能是誤關，而 `beforeunload` 本來就不保證送得出去。
 
 ### 改名為什麼要回整個 `CaseSummary`
 

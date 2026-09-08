@@ -462,6 +462,9 @@ async function processExpansion(
 
     for (const angle of selected) {
       if (state.cancelled) break;
+      // **暫停停在角度與角度之間。** 一條角度中途砍掉會留下半套狀態。
+      await state.gate();
+      if (state.cancelled) break;
 
       budget = { ...budget, elapsedMs: Date.now() - startedAt };
       const verdict = mayContinue(budget, DEFAULT_BUDGET);

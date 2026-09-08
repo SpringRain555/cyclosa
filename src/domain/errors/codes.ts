@@ -105,6 +105,17 @@ export const ERROR_CODES = {
   PROVIDER_EMBED_MODEL_MISMATCH: 'error',
   PROVIDER_UNEXPECTED: 'error',
 
+  // ── RUN_* 作業本身 ───────────────────────────────────────
+  RUN_NOT_FOUND: 'error',
+  /**
+   * 想復原一次**還在跑的**作業。
+   *
+   * 一邊寫一邊刪會留下一個誰都說不清楚的狀態，
+   * 而使用者要做的事很明確：**先取消，或等它跑完。**
+   */
+  RUN_STILL_ACTIVE: 'error',
+  RUN_UNEXPECTED: 'error',
+
   // ── GRAPH_* 圖與裁決 ─────────────────────────────────────
   GRAPH_EVIDENCE_REQUIRED: 'error',
   GRAPH_HUMAN_ROW_IMMUTABLE: 'error',

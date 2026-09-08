@@ -1,0 +1,114 @@
+/**
+ * 在一段文字裡找另一段文字，**而回報的位置是原文的位置**。
+ *
+ * ## 為什麼要有這一支，而不是各自 `indexOf`
+ *
+ * 兩個地方需要同一件事，理由不同但形狀一樣：
+ *
+ * | 誰 | 要找什麼 | 為什麼空白對不上 |
+ * |---|---|---|
+ * | `domain/provider/quote.ts` | 模型回的引文 | 模型會照自己的習慣重排空白 |
+ * | `domain/annotation/locate.ts` | 點註的引文 | **抽取器換版之後空白會變** |
+ *
+ * 兩邊都要「空白視為等價」的比對，而且**兩邊都必須回原文的座標** ——
+ * 就地 `replace` 完了事的話，回報的位置會落在一個不存在的字串上。
+ *
+ * 一份演算法寫兩次就是兩個各自會漂的地方，所以它在這裡。
+ *
+ * ⚠️ 純函式，零依賴。
+ */
+
+/** 空白視為等價的一個字元；其餘原樣保留。 */
+function isSpace(ch: string): boolean {
+  return /\s/.test(ch);
+}
+
+/**
+ * 壓過空白的字串 ＋ 每個字元在原文的位置。
+ *
+ * 連續空白壓成一個半形空格，**而那個空格記的是它那一段的第一個字元的位置** ——
+ * 這樣回報出來的區間頭尾都落在真的有字的地方。
+ */
+export interface Squashed {
+  readonly flat: string;
+  /** `map[i]` ＝ `flat[i]` 在原文的索引。 */
+  readonly map: readonly number[];
+}
+
+export function squash(text: string): Squashed {
+  const chars: string[] = [];
+  const map: number[] = [];
+  let pendingSpace = -1;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i] as string;
+    if (isSpace(ch)) {
+      if (pendingSpace < 0) pendingSpace = i;
+      continue;
+    }
+    if (pendingSpace >= 0 && chars.length > 0) {
+      chars.push(' ');
+      map.push(pendingSpace);
+    }
+    pendingSpace = -1;
+    chars.push(ch);
+    map.push(i);
+  }
+  return { flat: chars.join(''), map };
+}
+
+/** 原文的半開區間。 */
+export interface Span {
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * 把壓過空白的座標換回原文座標。
+ *
+ * **`end` 是半開區間的右界**，所以是最後一個字元的位置再加一 ——
+ * 不是 `map[flatEnd]`，那會指到下一個字元的開頭而把尾巴切掉。
+ */
+export function spanOf(haystack: Squashed, flatStart: number, flatLength: number): Span {
+  const start = haystack.map[flatStart] as number;
+  const lastOriginal = haystack.map[flatStart + flatLength - 1] as number;
+  return { start, end: lastOriginal + 1 };
+}
+
+/**
+ * 找出**每一個**出現位置，回原文座標。
+ *
+ * 為什麼是「每一個」而不是第一個：點註要靠前後文從多個相同的字串裡挑對的那一個
+ * （`TextQuoteSelector` 的 `prefix`／`suffix` 就是為這件事存在的）。
+ * 只回第一個的話，一篇文章裡第二次出現的「他表示」會永遠錨到第一次那裡。
+ *
+ * 先精確找一遍是為了速度：絕大多數情況下空白本來就一樣，而 `squash` 要走過整篇。
+ */
+export function findAll(text: string, needle: string): readonly Span[] {
+  if (needle.length === 0) return [];
+
+  const exact: Span[] = [];
+  for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
+    exact.push({ start: at, end: at + needle.length });
+  }
+  if (exact.length > 0) return exact;
+
+  const haystack = squash(text);
+  const flatNeedle = squash(needle).flat;
+  if (flatNeedle.length === 0) return [];
+
+  const out: Span[] = [];
+  for (
+    let at = haystack.flat.indexOf(flatNeedle);
+    at >= 0;
+    at = haystack.flat.indexOf(flatNeedle, at + 1)
+  ) {
+    out.push(spanOf(haystack, at, flatNeedle.length));
+  }
+  return out;
+}
+
+/** 第一個出現位置。找不到回 `null`。 */
+export function findFirst(text: string, needle: string): Span | null {
+  return findAll(text, needle)[0] ?? null;
+}

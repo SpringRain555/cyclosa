@@ -450,7 +450,7 @@ async function ingestBytes(
   );
 }
 
-type ExtractOutcome =
+export type ExtractOutcome =
   | {
       readonly kind: 'ok';
       readonly payload: DerivedPayload;
@@ -459,7 +459,14 @@ type ExtractOutcome =
     }
   | { readonly kind: 'failed'; readonly code: ErrorCode };
 
-async function extract(
+/**
+ * 從位元組抽出正文。
+ *
+ * **導出的理由是整批重算**（`rebuild-service`）—— 重算走的必須是
+ * **同一支**抽取，不是一份長得很像的副本。兩份的話，
+ * 「重算前後差異為 0」驗的就變成兩份實作有多像，而不是抽取有多穩定。
+ */
+export async function extract(
   bytes: Uint8Array,
   kind: IngestKind,
   contentType: string | null,

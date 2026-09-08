@@ -203,6 +203,64 @@ export function markParsed(
   );
 }
 
+/**
+ * 整批重算之後把抽取結果寫回去 —— **但不碰 `status`**。
+ *
+ * 跟 `markParsed` 差的就是那一欄，而那一欄是差別的全部意義：
+ * 一份已經被人排除的資料，重抽一次之後**仍然是被排除的**。
+ * 用 `markParsed` 重算會把使用者的判斷靜默地還原回「已納入」，
+ * 而那是「機器永遠不得覆寫人工判定」在這個專案裡的第 N 種寫法。
+ */
+export function markReextracted(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly title: string;
+    readonly lang: string;
+    readonly excerpt: string;
+    readonly lowConfidence: boolean;
+    readonly reasons: readonly string[];
+    readonly extractorVersion: number;
+    readonly pageCount: number | null;
+    readonly imageWidth: number | null;
+    readonly imageHeight: number | null;
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    `UPDATE item SET title = ?, lang = ?, excerpt = ?,
+                     low_confidence = ?, low_confidence_reasons = ?, extractor_version = ?,
+                     page_count = ?, image_width = ?, image_height = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(
+    input.title,
+    input.lang,
+    input.excerpt,
+    input.lowConfidence ? 1 : 0,
+    JSON.stringify(input.reasons),
+    input.extractorVersion,
+    input.pageCount,
+    input.imageWidth,
+    input.imageHeight,
+    input.now,
+    input.id,
+  );
+}
+
+/** 點註改標題時用。**圖上那個節點的標籤就是它。** */
+export function setTitle(db: DatabaseSync, id: string, title: string, now: number): void {
+  db.prepare('UPDATE item SET title = ?, title_rank = ?, updated_at = ? WHERE id = ?').run(
+    title,
+    title,
+    now,
+    id,
+  );
+}
+
+export function setExcerpt(db: DatabaseSync, id: string, excerpt: string): void {
+  db.prepare('UPDATE item SET excerpt = ? WHERE id = ?').run(excerpt, id);
+}
+
 export function markFailed(db: DatabaseSync, id: string, code: string, now: number): void {
   db.prepare("UPDATE item SET status = 'failed', error_code = ?, updated_at = ? WHERE id = ?").run(
     code,
@@ -248,6 +306,18 @@ export interface ListItemsQuery {
   readonly status?: ItemStatus | undefined;
   readonly onlyLowConfidence?: boolean | undefined;
   readonly unreadOnly?: boolean | undefined;
+  /**
+   * 把點註也列進來。**預設不列。**
+   *
+   * 一則點註是一個 `kind='note'` 的 `item`（ADR-0010 第 4 條）——
+   * 那個決定對圖是對的，對這份清單是錯的：閱讀器左邊那一欄問的是
+   * 「這個專題有哪些**資料**」，而點註是**標在資料上的東西**，不是資料。
+   *
+   * 不擋的話，一份文件標了 30 則之後，清單上有 30 列點註跟 1 列文件 ——
+   * 而那 30 列點開來都是「沒有重構後的正文」，因為點註本來就沒有正文。
+   * 2026-09-08 第一次把畫面開起來就是那樣。
+   */
+  readonly includeNotes?: boolean | undefined;
 }
 
 export interface ItemPage {
@@ -284,6 +354,7 @@ export function listItems(db: DatabaseSync, query: ListItemsQuery): ItemPage {
   }
   if (query.onlyLowConfidence === true) where.push('low_confidence = 1');
   if (query.unreadOnly === true) where.push('read_at IS NULL');
+  if (query.includeNotes !== true) where.push("kind != 'note'");
 
   const byTitle = query.sort === 'title';
   // `created_at DESC` 走的是「最近匯入的排前面」；`title_rank` 走 idx_item_title_rank。
@@ -330,8 +401,11 @@ export function totalSnapshotBytes(db: DatabaseSync): number {
   return Number(row?.['n'] ?? 0);
 }
 
+/** 依狀態數。**不含點註** —— 統計列上的「幾份資料」問的是資料，不是註記。 */
 export function countByStatus(db: DatabaseSync): Readonly<Record<string, number>> {
-  const rows = db.prepare('SELECT status, COUNT(*) AS n FROM item GROUP BY status').all() as Raw[];
+  const rows = db
+    .prepare("SELECT status, COUNT(*) AS n FROM item WHERE kind != 'note' GROUP BY status")
+    .all() as Raw[];
   const out: Record<string, number> = {};
   for (const r of rows) out[String(r['status'])] = Number(r['n']);
   return out;

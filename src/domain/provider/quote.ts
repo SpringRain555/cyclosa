@@ -23,6 +23,7 @@
  * 但正規化之後回報的位置必須是**原文的**位置 —— 所以要留一張索引對照表，
  * 不能就地 `replace` 完了事。
  */
+import { findFirst } from '../text/offsets.js';
 
 /**
  * 短引文不算出處。
@@ -40,66 +41,22 @@ export type QuoteLocation =
   | { readonly kind: 'too-short' }
   | { readonly kind: 'not-found' };
 
-/** 空白視為等價的一個字元；其餘原樣保留。 */
-function isSpace(ch: string): boolean {
-  return /\s/.test(ch);
-}
-
-/**
- * 建一份「壓過空白」的字串，同時記下每個字元在原文的位置。
- *
- * 連續空白壓成一個半形空格，**而那個空格記的是它那一段的第一個字元的位置** ——
- * 這樣回報出來的區間頭尾都落在真的有字的地方。
- */
-function squash(text: string): { readonly flat: string; readonly map: readonly number[] } {
-  const chars: string[] = [];
-  const map: number[] = [];
-  let pendingSpace = -1;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i] as string;
-    if (isSpace(ch)) {
-      if (pendingSpace < 0) pendingSpace = i;
-      continue;
-    }
-    if (pendingSpace >= 0 && chars.length > 0) {
-      chars.push(' ');
-      map.push(pendingSpace);
-    }
-    pendingSpace = -1;
-    chars.push(ch);
-    map.push(i);
-  }
-  return { flat: chars.join(''), map };
-}
-
 /**
  * 找一段引文在正文裡的位置。
  *
  * **回的是原文的字元區間**（`char_start`／`char_end`，半開區間），
  * 就是 `edge_evidence` 那兩欄要存的東西。
  *
- * 先精確找一次是為了速度：絕大多數情況下正文與引文的空白本來就一樣，
- * 而 `squash` 要走過整篇。
+ * 比對本身在 `domain/text/offsets.ts` —— 點註用的是同一支
+ * （同樣要「空白視為等價」而且同樣必須回原文座標）。
+ * **這裡多的只有兩條長度限制**，而那兩條是給模型的，不是給人的。
  */
 export function locateQuote(text: string, quote: string): QuoteLocation {
   const trimmed = quote.trim();
   if (trimmed.length < MIN_QUOTE_CHARS) return { kind: 'too-short' };
   if (trimmed.length > MAX_QUOTE_CHARS) return { kind: 'not-found' };
 
-  const exact = text.indexOf(trimmed);
-  if (exact >= 0) return { kind: 'found', start: exact, end: exact + trimmed.length };
-
-  const haystack = squash(text);
-  const needle = squash(trimmed);
-  if (needle.flat.length === 0) return { kind: 'too-short' };
-
-  const at = haystack.flat.indexOf(needle.flat);
-  if (at < 0) return { kind: 'not-found' };
-
-  const start = haystack.map[at] as number;
-  const lastFlat = at + needle.flat.length - 1;
-  const lastOriginal = haystack.map[lastFlat] as number;
-  // `end` 是半開區間的右界，所以是最後一個字元的位置再加一。
-  return { kind: 'found', start, end: lastOriginal + 1 };
+  const span = findFirst(text, trimmed);
+  if (span === null) return { kind: 'not-found' };
+  return { kind: 'found', start: span.start, end: span.end };
 }

@@ -35,6 +35,14 @@ import {
   type SubgraphQuery,
 } from '../../application/graph-service.js';
 import { createEdge, getEdge, listQueue, transitionEdge } from '../../application/edge-service.js';
+import {
+  createNote,
+  deleteNote,
+  listAllNotes,
+  listNotesForItem,
+  updateNote,
+} from '../../application/note-service.js';
+import { rebuildDerived } from '../../application/rebuild-service.js';
 import { PROVIDER_ROLES, type ProviderRole } from '../../domain/provider/index.js';
 import {
   DEFAULT_PROJECTION_THRESHOLDS,
@@ -46,6 +54,11 @@ import {
   type EdgeLayer,
 } from '../../domain/graph/index.js';
 import type { Result } from '../../shared/result.js';
+
+/** 請求裡的整數。**不是整數就當作沒送** —— 不四捨五入、不轉型。 */
+function intOrUndefined(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) ? v : undefined;
+}
 
 export interface AppContext {
   readonly version: string;
@@ -558,4 +571,96 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
       return send(reply, await startUrlImport(dataRoot, req.params.slug, [url.data]));
     },
   );
+
+  // ── 筆記與點註（Stage 10）────────────────────────────────
+
+  /**
+   * 建立一則點註。
+   *
+   * **body 只送位置，不送引文** —— 引文由伺服器從 `derived/` 切出來
+   * （`note-service` 開頭那一段）。前端送引文的話，就存得進一則
+   * 「引文與位置對不上」的點註，而那種點註在畫面上跟正確的一模一樣。
+   */
+  app.post<{
+    Params: { slug: string; itemId: string };
+    Body: {
+      body?: unknown;
+      start?: unknown;
+      end?: unknown;
+      page?: unknown;
+      rect?: { x?: unknown; y?: unknown; w?: unknown; h?: unknown };
+    };
+  }>('/api/cases/:slug/items/:itemId/notes', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+
+    const raw = req.body ?? {};
+    const rect = raw.rect;
+    return send(
+      reply,
+      await createNote(dataRoot, req.params.slug, req.params.itemId, {
+        body: typeof raw.body === 'string' ? raw.body : '',
+        start: intOrUndefined(raw.start),
+        end: intOrUndefined(raw.end),
+        page: intOrUndefined(raw.page),
+        rect:
+          rect === undefined
+            ? undefined
+            : {
+                x: intOrUndefined(rect.x) ?? -1,
+                y: intOrUndefined(rect.y) ?? -1,
+                w: intOrUndefined(rect.w) ?? -1,
+                h: intOrUndefined(rect.h) ?? -1,
+              },
+      }),
+    );
+  });
+
+  app.get<{ Params: { slug: string; itemId: string } }>(
+    '/api/cases/:slug/items/:itemId/notes',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await listNotesForItem(dataRoot, req.params.slug, req.params.itemId));
+    },
+  );
+
+  /** 專題全部的點註 —— **一條 SELECT，不是三張表的 UNION**（ADR-0019）。 */
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/notes', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listAllNotes(dataRoot, req.params.slug));
+  });
+
+  /** 改內容。**錨點不動** —— 改的是你寫的字，不是你標的位置。 */
+  app.patch<{ Params: { slug: string; noteId: string }; Body: { body?: unknown } }>(
+    '/api/cases/:slug/notes/:noteId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const body = typeof req.body?.body === 'string' ? req.body.body : '';
+      return send(reply, await updateNote(dataRoot, req.params.slug, req.params.noteId, body));
+    },
+  );
+
+  app.delete<{ Params: { slug: string; noteId: string } }>(
+    '/api/cases/:slug/notes/:noteId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await deleteNote(dataRoot, req.params.slug, req.params.noteId));
+    },
+  );
+
+  /**
+   * `derived/` 整批重算。
+   *
+   * **這是 Stage 10 的驗收條件做成的一顆按鈕**：回的三個數字
+   * （對得上／位移／對不上）就是「重算前後差異必須為 0」在畫面上的樣子。
+   */
+  app.post<{ Params: { slug: string } }>('/api/cases/:slug/rebuild', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await rebuildDerived(dataRoot, req.params.slug));
+  });
 }

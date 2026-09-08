@@ -134,6 +134,7 @@ describe('設定資料根 → 建專題 → 清單', () => {
     expect(c.status).toBe('new');
     expect(c.stats).toEqual({
       itemCount: 0,
+      noteCount: 0,
       entityCount: 0,
       edgeCount: 0,
       pendingNamedEdgeCount: 0,

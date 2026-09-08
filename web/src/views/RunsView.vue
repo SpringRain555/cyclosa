@@ -10,7 +10,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { api, type Angle, type ApiError, type Run, type RunItem } from '../api';
+import { api, type Angle, type ApiError, type RebuildReport, type Run, type RunItem } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 
@@ -247,6 +247,31 @@ function openItem(id: string | null): void {
   if (id === null) return;
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(id)}`);
 }
+
+// ── `derived/` 整批重算（Stage 10）────────────────────────
+
+const rebuilding = ref(false);
+const rebuildReport = ref<RebuildReport | null>(null);
+
+/**
+ * 按下去會把這個專題的正文全部重抽一次。
+ *
+ * **先問一次**，因為它會跑一段時間而且會改畫面上的東西 ——
+ * 而那句確認同時要說清楚它**不會**動到什麼（快照、已排除、已確認）。
+ */
+async function rebuild(): Promise<void> {
+  if (!window.confirm(t.rebuild.confirm)) return;
+  rebuilding.value = true;
+  rebuildReport.value = null;
+  const result = await api.rebuild(slug.value);
+  rebuilding.value = false;
+  if (!result.ok) {
+    error.value = result.error;
+    return;
+  }
+  rebuildReport.value = result.data;
+  await loadRuns();
+}
 </script>
 
 <template>
@@ -362,6 +387,39 @@ function openItem(id: string | null): void {
       <span v-if="throttleNow" class="now">
         {{ fill(t.runs.throttleNow, { host: throttleNow.host, ms: throttleNow.ms }) }}
       </span>
+    </section>
+
+    <!-- `derived/` 整批重算。**衍生物可以丟掉重來，而那件事要有一條真的跑得起來的路。** -->
+    <section class="rebuild">
+      <button :disabled="rebuilding" @click="rebuild">
+        {{ rebuilding ? t.rebuild.running : t.rebuild.button }}
+      </button>
+      <p v-if="rebuildReport" class="report">
+        <span>{{
+          fill(t.rebuild.done, {
+            items: rebuildReport.items,
+            reextracted: rebuildReport.reextracted,
+          })
+        }}</span>
+        <span v-if="rebuildReport.failed > 0" class="warn">
+          {{ fill(t.rebuild.failed, { n: rebuildReport.failed }) }}
+        </span>
+        <span v-if="rebuildReport.snapshotMissing > 0" class="warn">
+          {{ fill(t.rebuild.missing, { n: rebuildReport.snapshotMissing }) }}
+        </span>
+        <span v-if="rebuildReport.notes.checked === 0" class="muted">{{ t.rebuild.noNotes }}</span>
+        <template v-else>
+          <span v-if="rebuildReport.notes.unresolved === 0 && rebuildReport.notes.shifted === 0">
+            {{ fill(t.rebuild.notesOk, { n: rebuildReport.notes.checked }) }}
+          </span>
+          <span v-if="rebuildReport.notes.shifted > 0" class="warn">
+            {{ fill(t.rebuild.notesShifted, { n: rebuildReport.notes.shifted }) }}
+          </span>
+          <span v-if="rebuildReport.notes.unresolved > 0" class="warn">
+            {{ fill(t.rebuild.notesUnresolved, { n: rebuildReport.notes.unresolved }) }}
+          </span>
+        </template>
+      </p>
     </section>
 
     <ErrorPanel v-if="error" :error="error" />
@@ -493,6 +551,31 @@ function openItem(id: string | null): void {
 </template>
 
 <style scoped>
+.rebuild {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-panel);
+}
+
+.rebuild .report {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.rebuild .warn {
+  color: var(--edge-pending);
+}
+
 .runs {
   padding: 20px 24px 60px;
   overflow-y: auto;

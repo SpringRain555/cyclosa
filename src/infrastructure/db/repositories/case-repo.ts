@@ -18,7 +18,10 @@ export interface CaseRow {
 
 /** 專題清單那一頁的每一列。**「待查證」是「回來之後該做什麼」的直接答案。** */
 export interface CaseStats {
+  /** 資料節點。**不含點註** —— 點註是標在資料上的東西，不是資料。 */
   readonly itemCount: number;
+  /** 點註。分開數，因為「我蒐集了多少」與「我想了多少」是兩件事。 */
+  readonly noteCount: number;
   readonly entityCount: number;
   readonly edgeCount: number;
   /** **只數 `layer='named'`** —— 其餘三層不進裁決佇列，數進來會是假的待辦 */
@@ -70,7 +73,8 @@ export function readStats(db: DatabaseSync): CaseStats {
     { n?: unknown } | undefined;
 
   return {
-    itemCount: one("SELECT COUNT(*) AS n FROM item WHERE status != 'excluded'"),
+    itemCount: one("SELECT COUNT(*) AS n FROM item WHERE status != 'excluded' AND kind != 'note'"),
+    noteCount: one("SELECT COUNT(*) AS n FROM item WHERE status != 'excluded' AND kind = 'note'"),
     entityCount: one('SELECT COUNT(*) AS n FROM entity'),
     edgeCount: one("SELECT COUNT(*) AS n FROM edge WHERE status != 'rejected'"),
     pendingNamedEdgeCount: one(

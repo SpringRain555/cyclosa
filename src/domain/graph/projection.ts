@@ -168,8 +168,10 @@ export function planProjection(
  * 門檻設定必須合法：`minToDraw <= minToExpand`，而且兩個都至少是 1。
  * 設反了的話會出現「展開成節點但不畫」這種矛盾狀態。
  */
-export function isValidThresholds(t: ProjectionThresholds): boolean {
+export function isValidThresholds(t: ProjectionThresholds | null | undefined): boolean {
   return (
+    t !== null &&
+    t !== undefined &&
     Number.isInteger(t.minToDraw) &&
     Number.isInteger(t.minToExpand) &&
     t.minToDraw >= 1 &&

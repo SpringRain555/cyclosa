@@ -18,7 +18,10 @@
 > **Stage 9 新增**：`GET`／`POST /api/providers`、`/api/providers/test`、
 > **`POST …/runs`** 與 **`POST …/runs/:runId/angles`**（擴展的兩階段）。
 >
-> **還不存在**：點註（Stage 10）、匯出（Stage 11）、檢索（Stage 12）。
+> **Stage 10 新增**：`POST`／`GET …/items/:itemId/notes`、`GET …/notes`、
+> `PATCH`／`DELETE …/notes/:noteId`、**`POST …/rebuild`**（`derived/` 整批重算）。
+>
+> **還不存在**：匯出（Stage 11）、檢索（Stage 12）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
@@ -245,9 +248,26 @@
 
 | 端點 | 說明 |
 |---|---|
-| `POST …/notes` | 建立點註。`selector_json` 是 W3C 選擇器陣列（ADR-0019）|
-| `GET …/items/:itemId/notes` | 那一份的點註 |
+| `POST …/items/:itemId/notes` | 建立點註。**body 只送位置**（`start`／`end`／`page`，或 `rect`）—— 見下面 |
+| `GET …/items/:itemId/notes` | 那一份的點註，**依它在文件裡的位置排** |
 | `GET …/notes` | 專題全部的點註 |
+| `PATCH …/notes/:noteId` | 改註記內容。**錨點不動** |
+| `DELETE …/notes/:noteId` | 刪掉。回 `removedEdges` —— 順便拿掉的線有幾條 |
+| `POST …/rebuild` | **`derived/` 整批重算**，回重抽了幾份與每個錨點解得怎麼樣 |
+
+> **建立點註時前端不送引文，只送位置。**
+>
+> 引文與前後文由伺服器從 `derived/` 切出來。那個分工不是為了省頻寬 ——
+> 是為了讓「引文一定真的在那個位置上」成為一件**做不到相反的事**。
+> 前端送引文的話，一個舊分頁、一個沒重整的畫面、一個改過的 JS，
+> 都能存進一則「引文與位置對不上」的點註，**而那種點註在畫面上跟正確的一模一樣**。
+>
+> 回應裡的 `hit` 是**算出來的**（`exact`／`shifted`／`rect`／`not-found`），
+> 資料庫裡沒有它 —— 存了它，那條「重算前後差異為 0」的驗收就變成在驗自己的快取。
+
+> **`POST …/rebuild` 不碰兩樣東西**：`sources/`（一個位元組都不動，只讀），
+> 以及**人的判定**（`status` 不重設，`origin='human'` 的列不看也不動）。
+> 「重算」聽起來最無害，而它正是最容易把「機器不得覆寫人工判定」洗掉的動作。
 
 ### 檢索
 

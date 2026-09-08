@@ -298,6 +298,52 @@ export const t = {
     lowConfidenceTitle: '這份正文可能抽壞了',
   },
 
+  /** 筆記與點註（Stage 10）。 */
+  notes: {
+    panelTitle: '這一份上的點註',
+    empty: '這一份還沒有點註。在正文裡選一段文字，或在圖片上框一塊。',
+    emptyImage: '在圖片上按住拖曳，框出要註記的那一塊。',
+    hint: '選一段文字就會出現註記框。',
+    selected: '選到的是：',
+    bodyLabel: '你的註記',
+    bodyPlaceholder: '這一段為什麼重要？寫下來，它會變成圖上的一個節點。',
+    save: '存成點註',
+    cancel: '取消',
+    edit: '改內容',
+    remove: '刪掉',
+    /** 刪之前要說出順便拿掉幾條線 —— 那是按下去才發現就太遲的事。 */
+    confirmDelete: '刪掉這一則點註？圖上連著它的 {n} 條關聯會一起消失。',
+    confirmDeleteNoEdge: '刪掉這一則點註？',
+    locate: '在正文裡找到它',
+    anchorExact: '對得上',
+    anchorShifted: '位置移動過',
+    anchorShiftedWhy: '原文重抽之後這一段換了位置，錨點跟著它走了。',
+    anchorMissing: '找不到原文位置',
+    anchorMissingWhy: '註記內容還在。原文可能重抽過，或那一份的快照換了。',
+    onPage: '第 {n} 頁',
+    rect: '圖上的一塊區域',
+    count: '共 {n} 則點註',
+    unresolved: '{n} 則對不上原文',
+    tooShort: '選得太短了。至少要兩個字。',
+    imageDrag: '框選中…',
+  },
+
+  /** `derived/` 整批重算。 */
+  rebuild: {
+    button: '重算全部正文',
+    /** 這顆按鈕會跑一段時間而且會改畫面上的東西，所以按之前要說清楚它做什麼。 */
+    confirm:
+      '把這個專題的正文全部刪掉、從原始快照重新抽一次？\n\n抓回來的快照不會被動到，你的判定（已排除、已確認）也不會。',
+    running: '正在重算…',
+    done: '重算完成：{items} 份資料重抽了 {reextracted} 份。',
+    failed: '其中 {n} 份這一次抽不出正文。',
+    missing: '其中 {n} 份的快照不見了。',
+    notesOk: '{n} 則點註全部對得上原文。',
+    notesShifted: '{n} 則的位置移動過（錨點已經跟著走）。',
+    notesUnresolved: '{n} 則對不上原文 —— 內容都留著。',
+    noNotes: '這個專題還沒有點註。',
+  },
+
   runs: {
     tab: '作業紀錄',
     title: '作業紀錄',

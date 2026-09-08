@@ -40,7 +40,12 @@ const pointerPath = computed(() => {
 
 const totals = computed(() => ({
   cases: cases.value.length,
-  nodes: cases.value.reduce((n, c) => n + c.stats.itemCount + c.stats.entityCount, 0),
+  // **點註也是圖上的節點**（ADR-0010 第 4 條），所以它要算進來 ——
+  // 而下面表格那一欄問的是「有幾份資料」，那一欄不算它。同一個數字兩種問法。
+  nodes: cases.value.reduce(
+    (n, c) => n + c.stats.itemCount + c.stats.noteCount + c.stats.entityCount,
+    0,
+  ),
   pending: cases.value.reduce((n, c) => n + c.stats.pendingNamedEdgeCount, 0),
 }));
 

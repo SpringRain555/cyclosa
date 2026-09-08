@@ -93,8 +93,13 @@ export async function getItem(
     const row = items.getItem(db, itemId);
     if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
 
+    // 「第 N 份，共 M 份」與上一份／下一份走的是**跟左邊那張清單一樣的集合** ——
+    // 不含點註。兩邊用不同的集合的話，「共 4 份」下面會只列出 1 份。
     const ordered = db
-      .prepare("SELECT id FROM item WHERE status != 'excluded' ORDER BY created_at DESC, id DESC")
+      .prepare(
+        `SELECT id FROM item WHERE status != 'excluded' AND kind != 'note'
+         ORDER BY created_at DESC, id DESC`,
+      )
       .all() as { id?: unknown }[];
     const ids = ordered.map((r) => String(r['id']));
     const index = ids.indexOf(itemId);

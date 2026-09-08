@@ -68,6 +68,7 @@ function toResult<T>(succeeded: boolean, body: unknown): ApiResult<T> {
 
 export interface CaseStats {
   itemCount: number;
+  noteCount: number;
   entityCount: number;
   edgeCount: number;
   pendingNamedEdgeCount: number;
@@ -415,6 +416,55 @@ export interface QueuePayload {
 
 const enc = encodeURIComponent;
 
+export interface NoteRow {
+  readonly id: string;
+  readonly itemId: string | null;
+  readonly body: string;
+  readonly selectorJson: string;
+  readonly snapshotSha256: string | null;
+  readonly anchorOk: boolean;
+  readonly mdPath: string | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+/** 錨點現在解到哪裡。**位置是算出來的，後端不存它。** */
+export type AnchorHit =
+  | {
+      readonly kind: 'exact' | 'shifted';
+      readonly start: number;
+      readonly end: number;
+      readonly page: number | null;
+    }
+  | { readonly kind: 'rect'; readonly rect: { x: number; y: number; w: number; h: number } }
+  | { readonly kind: 'not-found' };
+
+export interface ResolvedNote {
+  readonly note: NoteRow;
+  readonly hit: AnchorHit;
+  readonly quote: string;
+  readonly targetTitle: string | null;
+  readonly edgeCount: number;
+}
+
+export interface CreatedNote {
+  readonly note: ResolvedNote;
+  readonly notice: string | null;
+}
+
+export interface RebuildReport {
+  readonly items: number;
+  readonly reextracted: number;
+  readonly failed: number;
+  readonly snapshotMissing: number;
+  readonly notes: {
+    readonly checked: number;
+    readonly exact: number;
+    readonly shifted: number;
+    readonly unresolved: number;
+  };
+}
+
 export const api = {
   dataRoot: () => request<DataRootInfo>('/api/system/data-root'),
   setDataRoot: (dataRoot: string) =>
@@ -563,4 +613,37 @@ export const api = {
 
   /** 還在等人判斷的。**只有具名關係。** */
   queue: (slug: string) => request<QueuePayload>(`/api/cases/${enc(slug)}/queue`),
+
+  // ── 筆記與點註 ──────────────────────────────────────────
+
+  /** **只送位置，不送引文** —— 引文由後端從 `derived/` 切（note-service）。 */
+  createNote: (
+    slug: string,
+    itemId: string,
+    input: {
+      body: string;
+      start?: number;
+      end?: number;
+      page?: number;
+      rect?: { x: number; y: number; w: number; h: number };
+    },
+  ) =>
+    request<CreatedNote>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/notes`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  itemNotes: (slug: string, itemId: string) =>
+    request<ResolvedNote[]>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/notes`),
+  notes: (slug: string) => request<ResolvedNote[]>(`/api/cases/${enc(slug)}/notes`),
+  updateNote: (slug: string, noteId: string, body: string) =>
+    request<CreatedNote>(`/api/cases/${enc(slug)}/notes/${enc(noteId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ body }),
+    }),
+  deleteNote: (slug: string, noteId: string) =>
+    request<{ id: string; removedEdges: number }>(`/api/cases/${enc(slug)}/notes/${enc(noteId)}`, {
+      method: 'DELETE',
+    }),
+  rebuild: (slug: string) =>
+    request<RebuildReport>(`/api/cases/${enc(slug)}/rebuild`, { method: 'POST' }),
 };

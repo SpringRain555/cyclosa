@@ -8,7 +8,12 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { httpStatusOf } from '../../domain/errors/codes.js';
 import type { ItemStatus } from '../../domain/ingest/state.js';
-import { changeCaseStatus, createCase, listCases } from '../../application/case-service.js';
+import {
+  changeCaseStatus,
+  createCase,
+  listCases,
+  renameCase,
+} from '../../application/case-service.js';
 import { initDataRoot, resolveDataRootOrExplain } from '../../application/bootstrap-service.js';
 import {
   cancelRun,
@@ -149,6 +154,22 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         return reply.code(400).send({ ok: false, code: 'GRAPH_TRANSITION_INVALID' });
       }
       return send(reply, await changeCaseStatus(ctx.dataRoot, req.params.slug, action));
+    },
+  );
+
+  /**
+   * 改名。**名稱與資料夾一起改**（`case-service.ts` 的 `renameCase` 寫了為什麼）。
+   *
+   * 回的是**新的** `CaseSummary` —— 裡面的 `slug` 已經是新的，
+   * 而前端要拿它去換掉網址。少回這一個欄位，改完名之後
+   * 使用者按任何一個連結都會 404。
+   */
+  app.post<{ Params: { slug: string }; Body: { name?: unknown } }>(
+    '/api/cases/:slug/rename',
+    async (req, reply) => {
+      if (ctx.dataRoot === null) return send(reply, await resolveDataRootOrExplain());
+      const name = typeof req.body?.name === 'string' ? req.body.name : '';
+      return send(reply, await renameCase(ctx.dataRoot, req.params.slug, name));
     },
   );
 

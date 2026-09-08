@@ -58,6 +58,17 @@ export function updateCaseStatus(db: DatabaseSync, status: CaseStatus, now: numb
 }
 
 /**
+ * 改名。
+ *
+ * **這張表裡的 `name` 與資料夾名（slug）是同一件事的兩種寫法**，
+ * 所以改名的兩半（這一支與 `fs.rename`）要一起成功 ——
+ * 呼叫端負責那個順序與失敗時的回復（`case-service.ts` 的 `renameCase`）。
+ */
+export function updateCaseName(db: DatabaseSync, name: string, now: number): void {
+  db.prepare('UPDATE "case" SET name = ?, updated_at = ? WHERE id = ?').run(name, now, 'self');
+}
+
+/**
  * 清單那一頁要的統計。
  *
  * 全部走索引：`idx_edge_layer_status` 讓「待查證的具名關聯有幾條」

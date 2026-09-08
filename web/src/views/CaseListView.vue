@@ -91,6 +91,43 @@ async function submitCreate(): Promise<void> {
   await load();
 }
 
+/**
+ * 改名。**一次只有一列在編輯** —— 兩列同時編輯的話，
+ * 使用者按 Enter 的時候要先想「我在改哪一個」。
+ */
+const renamingSlug = ref<string | null>(null);
+const renameName = ref('');
+const renameBusy = ref(false);
+const renameError = ref<ApiError | null>(null);
+
+function startRename(c: CaseSummary): void {
+  renamingSlug.value = c.slug;
+  renameName.value = c.name;
+  renameError.value = null;
+}
+
+function cancelRename(): void {
+  renamingSlug.value = null;
+  renameError.value = null;
+}
+
+async function saveRename(slug: string): Promise<void> {
+  const name = renameName.value.trim();
+  if (name.length === 0) return;
+  renameBusy.value = true;
+  const r = await api.renameCase(slug, name);
+  renameBusy.value = false;
+  if (!r.ok) {
+    renameError.value = r.error;
+    return;
+  }
+  renamingSlug.value = null;
+  renameError.value = null;
+  // **重讀整份清單，不要就地改那一列** —— slug 換了，
+  // 而排序是照 updatedAt 的，改名之後那一列會換位置。
+  await load();
+}
+
 function when(ms: number | null): string {
   return ms === null ? t.caseList.never : new Date(ms).toLocaleDateString('zh-Hant');
 }
@@ -174,10 +211,34 @@ onMounted(load);
         <tbody>
           <tr v-for="c in cases" :key="c.slug">
             <td>
-              <RouterLink class="name" :to="`/case/${encodeURIComponent(c.slug)}/reader`">
-                {{ c.name }}
-              </RouterLink>
-              <div v-if="c.seed" class="muted small">{{ c.seed }}</div>
+              <template v-if="renamingSlug === c.slug">
+                <form class="rename" @submit.prevent="saveRename(c.slug)">
+                  <input
+                    v-model="renameName"
+                    type="text"
+                    :placeholder="t.caseList.renamePlaceholder"
+                    :disabled="renameBusy"
+                  />
+                  <button type="submit" :disabled="renameBusy">
+                    {{ t.caseList.renameSave }}
+                  </button>
+                  <button type="button" :disabled="renameBusy" @click="cancelRename">
+                    {{ t.caseList.renameCancel }}
+                  </button>
+                </form>
+                <!-- **資料夾會跟著改，按下去之前就要知道。** -->
+                <div class="muted small">{{ t.caseList.renameHint }}</div>
+                <ErrorPanel v-if="renameError" :error="renameError" />
+              </template>
+              <template v-else>
+                <RouterLink class="name" :to="`/case/${encodeURIComponent(c.slug)}/reader`">
+                  {{ c.name }}
+                </RouterLink>
+                <button class="link" type="button" @click="startRename(c)">
+                  {{ t.caseList.rename }}
+                </button>
+                <div v-if="c.seed" class="muted small">{{ c.seed }}</div>
+              </template>
             </td>
             <td>{{ t.caseStatus[c.status] }}</td>
             <td class="num">{{ c.stats.itemCount.toLocaleString() }}</td>
@@ -311,6 +372,56 @@ th {
   color: var(--ui-action);
   text-decoration: none;
   font-size: 13px;
+}
+
+/* 改名的入口**平常很輕** —— 它不是這一頁的主要動作，
+   而一個跟「開啟」一樣顯眼的改名按鈕會讓人以為那是下一步。 */
+.link {
+  margin-left: 8px;
+  font: inherit;
+  font-size: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.link:hover {
+  color: var(--ui-action);
+}
+
+.rename {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.rename input {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-app);
+  color: var(--text);
+  min-width: 180px;
+}
+.rename button {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.rename button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.rename button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .empty,
 .setup {

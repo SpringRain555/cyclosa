@@ -198,9 +198,7 @@ function applyEmphasis(): void {
     const opacity = opacityOf(id);
     for (const child of group.children) {
       if (child.name === 'ring-selected') child.visible = id === props.selectedId;
-      else if (child.name === 'focus-crosshair' || child.name === 'focus-horizon') {
-        child.visible = id === props.focusId;
-      }
+      else if (child.name === 'focus-horizon') child.visible = id === props.focusId;
       if (child.name !== 'body') continue;
       const material = (
         child as unknown as { material?: { opacity: number; transparent: boolean } }
@@ -430,7 +428,19 @@ watch(
      */
     send({ type: 'dimensions', dimensions: flat ? 2 : 3 });
 
-    // 2D 要正對著那個平面看，否則會看到一個被壓扁的斜面
+    /**
+     * **2D 要把旋轉關掉，不是只把鏡頭轉正。**
+     *
+     * 第一版只做了「把鏡頭移到正對平面」，而使用者按下去之後
+     * 隨手一拖就又是斜的 —— 於是 2D 與 3D 看起來沒有差別，
+     * 而**那個差別正是這顆按鈕存在的全部理由**（ADR-0007：
+     * 3D 只做瀏覽，精確操作要能切到一個穩定的平面）。
+     *
+     * 縮放與平移留著：它們不會把平面轉歪。
+     */
+    const controls = graph?.controls() as { enableRotate?: boolean } | undefined;
+    if (controls !== undefined) controls.enableRotate = !flat;
+
     if (flat) {
       const camera = graph?.camera().position;
       const distance =

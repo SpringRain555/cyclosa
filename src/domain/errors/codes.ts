@@ -28,6 +28,16 @@ export const ERROR_CODES = {
   CASE_NAME_DUPLICATE: 'error',
   CASE_FOLDER_EXISTS: 'error',
   CASE_ARCHIVED: 'error',
+  /**
+   * 改名時資料夾搬不動（Stage 11.5）。
+   *
+   * **不是 `IO_UNEXPECTED`** —— 那個碼的意思是「不知道發生什麼事」，
+   * 而這個知道：**有東西正開著那個資料夾。** 最常見的是這個工具自己
+   * （匯入或擴展正在跑，資料庫是開的），其次是檔案總管停在那一層。
+   *
+   * 兩者對使用者是同一件事：**關掉再試一次**，而那正是訊息要說的。
+   */
+  CASE_RENAME_BLOCKED: 'error',
   CASE_SCHEMA_TOO_NEW: 'error',
   CASE_SCHEMA_MIGRATE_FAILED: 'error',
   CASE_UNEXPECTED: 'error',

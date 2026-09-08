@@ -47,6 +47,7 @@ const projectionValue = computed({
       <p class="row"><span class="swatch item"></span>{{ t.graph.legend.nodeItem }}</p>
       <p class="row"><span class="swatch note"></span>{{ t.graph.legend.nodeNote }}</p>
       <p class="row"><span class="swatch entity"></span>{{ t.graph.legend.nodeEntity }}</p>
+      <p class="row"><span class="swatch focus"></span>{{ t.graph.legend.focus }}</p>
     </section>
 
     <section>
@@ -145,11 +146,21 @@ section {
   flex-shrink: 0;
   border-radius: 2px;
 }
+/* **描邊也要畫進圖例**，否則說明跟畫面不一致（同下面那條理由）。
+   用 box-shadow 不用 border —— border 會把色塊縮小，兩排就對不齊。 */
 .swatch.item {
   background: var(--node-item);
+  box-shadow: 0 0 0 1px var(--node-outline);
 }
 .swatch.note {
   background: var(--node-note);
+  box-shadow: 0 0 0 1px var(--node-outline);
+}
+/* 焦點是一個環不是一個填色，所以圖例上也是一個環 —— 而且是圓的，
+   跟上面三個方的分得開。**顏色與形狀兩重編碼**（ADR-0018 規則 2）。 */
+.swatch.focus {
+  border: 1.5px solid var(--focus-marker);
+  border-radius: 50%;
 }
 /* 實體靠**空心**分，不靠顏色 —— 圖例也要照著畫，否則說明跟畫面不一致 */
 .swatch.entity {

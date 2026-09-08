@@ -199,8 +199,20 @@ Write-Ok '產物就緒'
 # 砍掉它砍不到真正的 server，於是「關掉視窗」之後 7433 還在被佔用。
 # rubricator 2026-09-04 實測踩過，記在它的 docs\lessons.md。
 Write-Step '啟動'
+# **-NoNewWindow：跟這個視窗共用同一個主控台。**
+#
+# 第一版是 `-WindowStyle Minimized`，而那有兩個問題，第二個嚴重得多：
+#
+# 1. 多一個沒有人會去看的視窗
+# 2. **子程序有自己的主控台，所以按 X 關掉這個視窗殺不到它** ——
+#    實測過：這樣起的子程序在父程序死掉之後還活著。
+#    於是畫面上那句「關掉這個視窗就會結束 Cyclosa」只有按 Enter 那半是真的，
+#    而剩下那個 server 是最小化的，你不會注意到它還在佔著 7433。
+#
+# 共用主控台之後，關掉視窗時 Windows 會把 CTRL_CLOSE_EVENT 送給
+# 掛在這個主控台上的每一個程序 —— **兩條路都真的會結束。**
 $proc = Start-Process -FilePath $node -ArgumentList @($serverEntry) `
-    -WorkingDirectory $root -PassThru -WindowStyle Minimized
+    -WorkingDirectory $root -PassThru -NoNewWindow
 
 # **等它真的接受連線，不是傻等固定秒數。**
 $ready = $false
@@ -226,6 +238,7 @@ Start-Process $url
 Write-Host ''
 Write-Host '  資料存在專案外的資料根目錄 —— 第一次啟動會請你選一個位置。' -ForegroundColor DarkGray
 Write-Host '  關掉這個視窗（或按 Enter）就會結束 Cyclosa。' -ForegroundColor DarkYellow
+Write-Host '  下面開始是 server 自己的紀錄。' -ForegroundColor DarkGray
 Write-Host ''
 Read-Host '按 Enter 結束'
 

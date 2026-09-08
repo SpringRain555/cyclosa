@@ -26,7 +26,10 @@ import {
   CanvasTexture,
   Color,
   CylinderGeometry,
+  EdgesGeometry,
   Group,
+  LineBasicMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
@@ -289,16 +292,39 @@ function sprite(map: CanvasTexture, scale: number): Sprite {
   return item;
 }
 
-const horizonGeometry = new TorusGeometry(NODE_SIZE * 2.4, 0.35, 6, 48);
+// **比第一版小**：顏色換成紫之後它不必再靠大小搶注意力，
+// 而標籤在 2.2 倍高度 —— 環的外緣（1.7 倍）剛好在標籤下面。
+const horizonGeometry = new TorusGeometry(NODE_SIZE * 1.6, 0.42, 8, 56);
 let sharedHorizonMaterial: MeshBasicMaterial | null = null;
 
 function horizonMaterial(): MeshBasicMaterial {
   sharedHorizonMaterial ??= new MeshBasicMaterial({
     color: new Color(token('--focus-marker')),
     transparent: true,
-    opacity: 0.55,
+    // 白色的時候要壓到 0.55 才不刺眼；紫色本來就沒那麼響，所以反而調高 ——
+    // **看得清楚的細環比看不清楚的粗環干擾更小。**
+    opacity: 0.85,
   });
   return sharedHorizonMaterial;
+}
+
+/**
+ * 描邊。
+ *
+ * **不是為了跟背景分開**（背景本來就接近黑，描邊在那裡看不出來）——
+ * 是為了讓方塊的**稜線**讀得出來：沒有它的時候，一個單色的立方體
+ * 只有靠光照的明暗差在分面，而這張圖的燈很平。
+ *
+ * `EdgesGeometry` 只取真正的稜（夾角超過門檻的那些），
+ * 所以一個立方體是 12 條線，不是三角網格的每一條邊。
+ * **幾何與材質都共用**，幾百個節點加起來只多兩個物件。
+ */
+const nodeEdges = new EdgesGeometry(new BoxGeometry(NODE_SIZE, NODE_SIZE, NODE_SIZE));
+let sharedOutlineMaterial: LineBasicMaterial | null = null;
+
+function outlineMaterial(): LineBasicMaterial {
+  sharedOutlineMaterial ??= new LineBasicMaterial({ color: new Color(token('--node-outline')) });
+  return sharedOutlineMaterial;
 }
 
 export function buildNode(spec: NodeSpec): Group {
@@ -321,6 +347,14 @@ export function buildNode(spec: NodeSpec): Group {
   );
   body.name = 'body';
   group.add(body);
+
+  // **只有實心的要描邊。** 空心實體本來就是線框 —— 它的稜線已經是線了，
+  // 再描一次只會讓那個方塊在遠處糊成一團。
+  if (!spec.hollow) {
+    const outline = new LineSegments(nodeEdges, outlineMaterial());
+    outline.name = 'outline';
+    group.add(outline);
+  }
 
   // **環一律建出來，用 visible 開關。**
   // 選取每換一次就重建幾百個節點物件是看得出來的卡頓，
@@ -353,17 +387,15 @@ export function buildNode(spec: NodeSpec): Group {
     group.add(cross);
   }
 
-  // 焦點：白色準星 ＋ **傾斜環疊在上面，不取代節點自己的畫法**。
-  // 環躺在 XZ 平面上，所以它跟著透視傾斜 —— **它同時是地平線**，
-  // 轉動時最先看到的就是它在轉。
-  const crosshair = sprite(
-    texture('focus', () => ringTexture(token('--focus-marker'), 3)),
-    NODE_SIZE * 3.4,
-  );
-  crosshair.name = 'focus-crosshair';
-  crosshair.visible = spec.isFocus;
-  group.add(crosshair);
-
+  // 焦點：**一個傾斜環，不是兩個記號。**
+  //
+  // 第一版是「平面準星 ＋ 傾斜環」，而那兩個講的是同一件事
+  // （這裡是轉動中心）—— 於是它們一起把標籤壓在中間，
+  // 而標籤是這張圖上你真正要讀的東西。
+  //
+  // 留下來的是傾斜環：它躺在 XZ 平面上，所以**跟著透視傾斜** ——
+  // 轉動時最先看到的就是它在轉，那正是「轉動中心」這個資訊本身。
+  // 平面準星是永遠正對鏡頭的，它給不出那個資訊。
   const horizon = new Mesh(horizonGeometry, horizonMaterial());
   horizon.rotation.x = -Math.PI / 2;
   horizon.name = 'focus-horizon';
@@ -413,7 +445,9 @@ export function buildLabel(text: string, color: string): Sprite | null {
   // 以「字高約等於節點邊長的 0.8」回推縮放，寬度照 canvas 比例走。
   const scale = (NODE_SIZE * 0.8) / canvas.height;
   item.scale.set(canvas.width * scale, canvas.height * scale, 1);
-  item.position.set(0, NODE_SIZE * 1.1, 0);
+  // **1.1 倍會被焦點環壓住。** 環的外緣在 1.7 倍，所以標籤要在它上面 ——
+  // 這個數字不是排版偏好，它是被 `horizonGeometry` 的半徑決定的。
+  item.position.set(0, NODE_SIZE * 2.2, 0);
   item.name = 'label';
   return item;
 }

@@ -8,12 +8,13 @@
  * 用 Fastify 的 `inject` 而不是真的 listen：不佔 7433，也不需要網路。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, open, readdir, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 
 import { buildServer } from '../../src/server.js';
+import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 
 let sandbox: string;
 let localAppData: string;
@@ -203,5 +204,124 @@ describe('API 的 404 不會回 HTML', () => {
     const res = await app.inject({ method: 'GET', url: '/api/does-not-exist' });
     expect(res.statusCode).toBe(404);
     expect(() => res.json()).not.toThrow();
+  });
+});
+
+describe('改名：名稱與資料夾一起改', () => {
+  async function makeCase(name: string): Promise<string> {
+    const created = await app.inject({ method: 'POST', url: '/api/cases', payload: { name } });
+    return (created.json() as { data: { slug: string } }).data.slug;
+  }
+
+  async function rename(slug: string, name: string) {
+    return app.inject({ method: 'POST', url: `/api/cases/${slug}/rename`, payload: { name } });
+  }
+
+  beforeEach(async () => {
+    await boot();
+    await app.inject({ method: 'POST', url: '/api/system/data-root', payload: { dataRoot } });
+  });
+
+  it('資料夾真的被搬走了 —— 舊的不在，新的在', async () => {
+    const slug = await makeCase('點註驗收');
+    const res = await rename(slug, '蓬萊塵蛛的網上裝飾行為');
+    expect(res.statusCode).toBe(200);
+
+    const data = res.json().data as { slug: string; name: string };
+    expect(data.name).toBe('蓬萊塵蛛的網上裝飾行為');
+    expect(data.slug).toBe('蓬萊塵蛛的網上裝飾行為');
+
+    const cases = join(dataRoot, 'cases');
+    const dirs = await readdir(cases);
+    expect(dirs).toContain('蓬萊塵蛛的網上裝飾行為');
+    expect(dirs).not.toContain('點註驗收');
+  });
+
+  it('資料還在裡面 —— 搬的是資料夾，不是重建一個', async () => {
+    const slug = await makeCase('原本的名字');
+    await rename(slug, '改過的名字');
+    const db = join(dataRoot, 'cases', '改過的名字', 'case.sqlite');
+    await expect(stat(db)).resolves.toBeDefined();
+  });
+
+  it('清單上只會有一個，而且是新名字', async () => {
+    const slug = await makeCase('原本的名字');
+    await rename(slug, '改過的名字');
+    const list = await app.inject({ method: 'GET', url: '/api/cases' });
+    const rows = (list.json() as { data: { name: string }[] }).data;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe('改過的名字');
+  });
+
+  it('改成一個已經存在的名字會被擋下來，而且兩個都沒被動到', async () => {
+    await makeCase('甲專題');
+    const slug = await makeCase('乙專題');
+    const res = await rename(slug, '甲專題');
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('CASE_NAME_DUPLICATE');
+
+    const dirs = await readdir(join(dataRoot, 'cases'));
+    expect(dirs.sort()).toEqual(['乙專題', '甲專題']);
+  });
+
+  it('空名字擋下來', async () => {
+    const slug = await makeCase('原本的名字');
+    const res = await rename(slug, '   ');
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe('CASE_NAME_EMPTY');
+  });
+
+  it('只有標點不同、slug 一樣的話，資料夾不動而名字改得掉', async () => {
+    // 斜線在檔名裡不合法，`toSlug` 會把它換掉 —— 所以這兩個名字的 slug 相同。
+    const slug = await makeCase('甲 / 乙');
+    const res = await rename(slug, '甲 : 乙');
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data as { slug: string; name: string };
+    expect(data.slug).toBe(slug);
+    expect(data.name).toBe('甲 : 乙');
+  });
+
+  it('已封存的改不了 —— 改名是一次改動', async () => {
+    const slug = await makeCase('要封存的');
+    // **狀態機只允許 `ready → archived`**，而要走到 `ready` 得先真的跑一次作業。
+    // 這一條測的是改名對封存的反應，不是狀態機本身（那在 domain 測過了），
+    // 所以直接把狀態寫進去。
+    const opened = await openCaseDatabase(join(dataRoot, 'cases', slug, 'case.sqlite'));
+    if (opened.kind !== 'ok') throw new Error(opened.kind);
+    opened.db.prepare("UPDATE \"case\" SET status = 'archived' WHERE id = 'self'").run();
+    opened.db.close();
+
+    const res = await rename(slug, '新名字');
+    expect(res.json().code).toBe('CASE_ARCHIVED');
+
+    // **資料夾沒有被動到。**
+    const dirs = await readdir(join(dataRoot, 'cases'));
+    expect(dirs).toEqual(['要封存的']);
+  });
+
+  it('資料夾被開著的時候搬不動 —— 回 CASE_RENAME_BLOCKED，而且什麼都沒動', async () => {
+    const slug = await makeCase('正在被使用的');
+    // Windows 上開著資料夾裡任何一個檔案，那個資料夾就搬不動。
+    // **這條路只有作業系統會觸發**，所以它需要一個真的檔案握把。
+    const held = await open(join(dataRoot, 'cases', slug, 'case.sqlite'), 'r');
+    try {
+      const res = await rename(slug, '新名字');
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('CASE_RENAME_BLOCKED');
+
+      // **名字也沒有被改掉** —— 先搬資料夾再改名字，所以失敗時兩邊都還是原樣。
+      const list = await app.inject({ method: 'GET', url: '/api/cases' });
+      const rows = (list.json() as { data: { name: string; slug: string }[] }).data;
+      expect(rows[0]?.name).toBe('正在被使用的');
+      expect(rows[0]?.slug).toBe(slug);
+    } finally {
+      await held.close();
+    }
+  });
+
+  it('不存在的專題回 404', async () => {
+    const res = await rename('沒有這個', '新名字');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('CASE_NOT_FOUND');
   });
 });

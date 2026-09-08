@@ -43,6 +43,7 @@
 | `CASE_NAME_DUPLICATE` | error | 同名專題已存在 | 換一個名稱，或開啟既有的那一個 |
 | `CASE_FOLDER_EXISTS` | error | 要建的資料夾已經存在且不是空的 | 換名稱，或用「開啟既有資料夾」把它當成既有專題開起來 |
 | `CASE_ARCHIVED` | error | 對已封存的專題做了需要它是使用中的操作 | 先重新開啟這個專題 |
+| `CASE_RENAME_BLOCKED` | error | 改名時資料夾搬不動 —— 有東西正開著它（執行中的作業、檔案總管）| 讓作業跑完或關掉那個視窗，再試一次 |
 | `CASE_SCHEMA_TOO_NEW` | error | `case.sqlite` 的 schema 版本比這個程式新（被新版寫過）| 升級 Cyclosa。**不要用舊版繼續開**，會寫壞資料 |
 | `CASE_SCHEMA_MIGRATE_FAILED` | error | migration 中途失敗 | 資料庫已經回復到 migration 前的狀態。把 `correlation_id` 交出來；`backups\` 裡有 migration 前的複本 |
 | `CASE_UNEXPECTED` | error | 專題操作的未預期例外 | 把 `correlation_id` 交出來 |

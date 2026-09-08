@@ -26,6 +26,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   CASE_FOLDER_EXISTS:
     '那個位置已經有一個同名資料夾，但它不是一個專題。換一個名稱，或用「開啟既有資料夾」。',
   CASE_ARCHIVED: '這個專題已封存，不能改動。要繼續的話先重新開啟它。',
+  CASE_RENAME_BLOCKED:
+    '資料夾正被使用中，改不了名。先讓執行中的作業跑完，或關掉開著那個資料夾的視窗，再試一次。',
   CASE_SCHEMA_TOO_NEW: '這個專題被較新版本的 Cyclosa 寫過。請先升級 —— 用舊版繼續開會寫壞資料。',
   CASE_SCHEMA_MIGRATE_FAILED: '資料庫升級失敗，已經回復到升級前的狀態。請把下面的識別碼交出來。',
   CASE_UNEXPECTED: '專題操作出了預期外的問題。請把下面的識別碼交出來。',
@@ -183,6 +185,13 @@ export const t = {
     rootIs: '專題根目前是',
     rootChangeable: '，可在設定改。程式與資料是分開的。',
     never: '尚未擴展',
+    rename: '改名',
+    renameSave: '存檔',
+    renameCancel: '取消',
+    /** 資料夾會跟著改，而這件事使用者按下去之前就要知道。 */
+    renameHint:
+      '資料夾名稱會跟著改。已經匯出的證據包留在原本的資料夾裡 —— 那份檔案裡寫的是舊名字。',
+    renamePlaceholder: '新的專題名稱',
   },
   createCase: {
     title: '新增專題',
@@ -520,9 +529,9 @@ export const t = {
     legend: {
       title: '圖例與篩選',
       nodes: '節點',
-      nodeItem: '抓回來的',
-      nodeNote: '你寫的',
-      nodeEntity: '實體（空心）',
+      nodeItem: '資料',
+      nodeNote: '筆記',
+      nodeEntity: '人事物',
       edges: '關聯',
       layerNamed: '具名關係（漸細＝有方向）',
       layerComention: '共同提及（線中點是那個實體）',
@@ -537,6 +546,7 @@ export const t = {
       projectionHint: '低於這個數字的實體會被攤平成一條線，只被一篇提到的完全不畫。',
       minConfidence: '可信度下限',
       tierAny: '不限',
+      focus: '焦點（紫環）',
       hint: '明暗只表示遠近，不表示程度。',
     },
 

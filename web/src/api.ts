@@ -616,6 +616,16 @@ export const api = {
       body: JSON.stringify({ role }),
     }),
 
+  /**
+   * 改名。**回的 `slug` 是新的** —— 呼叫端要拿它去換網址，
+   * 不然改完名之後每一個連結都會 404。
+   */
+  renameCase: (slug: string, name: string) =>
+    request<CaseSummary>(`/api/cases/${enc(slug)}/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+
   // ── 資料節點與閱讀器 ────────────────────────────────────
   items: (slug: string, query: Record<string, string>) =>
     request<ItemPage>(`/api/cases/${enc(slug)}/items?${new URLSearchParams(query).toString()}`),

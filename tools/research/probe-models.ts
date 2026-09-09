@@ -77,7 +77,10 @@ const HF_REPOS: readonly string[] = [
   'intfloat/multilingual-e5-base',
   'Alibaba-NLP/gte-multilingual-base',
   'ibm-granite/granite-embedding-278m-multilingual',
-  'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+  // **mpnet 不是 MiniLM。** Ollama 的 `paraphrase-multilingual` 底下裝的是前者
+  // （277.45M 參數、768 維、`num_ctx 128`），而同名家族裡最有名的是後者。
+  // 拿錯 card 的話前綴、維度、上下文三個答案都會錯，見 `docs/lessons.md`。
+  'sentence-transformers/paraphrase-multilingual-mpnet-base-v2',
   'BAAI/bge-m3',
   'Qwen/Qwen3-Embedding-0.6B',
   'Snowflake/snowflake-arctic-embed-l-v2.0',

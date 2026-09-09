@@ -214,6 +214,39 @@ interface AnglesRun {
   readonly seedRefsValid: number;
   readonly seedRefsTotal: number;
   readonly maxPairSimilarity: number | null;
+  /**
+   * **每條角度離「這個專題的主題」有多遠。**
+   *
+   * 2026-09-09 補的，因為 `maxPairSimilarity` 這一欄**獎勵了錯的東西**。
+   * 它量的是角度彼此有多發散，而**胡說八道是很發散的**：
+   * `olmo-3:32b-think` 的發散度最好（0.681），而它問的是
+   * 「蜘蛛結網行為的演化如何與其**光合作用能力**的發展相關」；
+   * `translategemma:12b` 發散度最差（0.800），三條全部切題。
+   *
+   * 失效的機制看得出來：素材（`seeds`）是語料裡**別的頁面的標題**
+   * （区块链、光合作用、Knowledge graph…），而有些模型會把素材的主題
+   * 當成這個專題的角度 —— 於是角度之間確實不像，但它們也不是這個專題的。
+   *
+   * 所以要兩欄一起看：**彼此夠不同（低 `maxPair`）而且都還在題目上（高這一欄）**。
+   */
+  readonly topicSimilarity: number | null;
+  /**
+   * **幾條角度飄到別的素材上去了。**
+   *
+   * `topicSimilarity` 補上之後量出來的東西**跟樣本對不上**：
+   * `qwen3.5:4b` 離主題最近（0.719），而它問的是「免疫系統中的病原體壓力」；
+   * `nemotron-cascade-2:30b` 離主題最遠（0.593），三條卻全部切題 ——
+   * 它的問句都以「接下來該查什麼…」開頭，**長句把相似度稀釋掉了**。
+   * 那一欄量到的是句子長度，不是離題。
+   *
+   * 這一欄改成**相對的**：同一條角度，對主題的相似度減掉
+   * 對最像的那份素材標題的相似度。**兩邊用同一個向量，長度效應自己抵消。**
+   * 差是負的 ＝ 這條角度更像某份素材而不是這個專題 ＝ 飄走了。
+   *
+   * 素材本來就該被用到（角度是從既有內容長出來的），
+   * 所以「像素材」本身不是問題；**「比像主題還像素材」才是**。
+   */
+  readonly driftedAngles: number | null;
   readonly ms: number;
   readonly why: string | null;
   readonly sample: readonly string[];
@@ -233,6 +266,8 @@ async function runAngles(
       seedRefsValid: 0,
       seedRefsTotal: 0,
       maxPairSimilarity: null,
+      topicSimilarity: null,
+      driftedAngles: null,
       ms: out.ms,
       why: out.why,
       sample: [],
@@ -257,17 +292,36 @@ async function runAngles(
   }
 
   // **角度之間有多像。** 全是同一個問題的改寫的話，「多視角」就沒有價值。
+  // **而只有這一欄會選出胡說八道的模型** —— 所以同時量離題目有多遠。
   let maxPair: number | null = null;
+  let topicSim: number | null = null;
   const questions = kept.map((a) => a.question);
-  if (questions.length >= 2) {
-    const vecs = await embed(questions);
-    let worst = -1;
-    for (let i = 0; i < vecs.length; i++) {
-      for (let j = i + 1; j < vecs.length; j++) {
-        worst = Math.max(worst, cosine(vecs[i] as Float32Array, vecs[j] as Float32Array));
+  let drifted: number | null = null;
+  if (questions.length >= 1) {
+    const seedTitles = seeds.map((x) => x.title);
+    const vecs = await embed([topic, ...seedTitles, ...questions]);
+    const topicVec = vecs[0] as Float32Array;
+    const seedVecs = vecs.slice(1, 1 + seedTitles.length);
+    const angleVecs = vecs.slice(1 + seedTitles.length);
+    topicSim =
+      angleVecs.reduce((acc, v) => acc + cosine(topicVec, v), 0) / Math.max(1, angleVecs.length);
+    drifted = angleVecs.filter((v) => {
+      const toTopic = cosine(topicVec, v);
+      const toSeed = seedVecs.reduce((m, sv) => Math.max(m, cosine(sv, v)), -1);
+      return toSeed > toTopic;
+    }).length;
+    if (angleVecs.length >= 2) {
+      let worst = -1;
+      for (let i = 0; i < angleVecs.length; i++) {
+        for (let j = i + 1; j < angleVecs.length; j++) {
+          worst = Math.max(
+            worst,
+            cosine(angleVecs[i] as Float32Array, angleVecs[j] as Float32Array),
+          );
+        }
       }
+      maxPair = worst;
     }
-    maxPair = worst;
   }
 
   return {
@@ -276,6 +330,8 @@ async function runAngles(
     seedRefsValid: refsValid,
     seedRefsTotal: refsTotal,
     maxPairSimilarity: maxPair,
+    topicSimilarity: topicSim,
+    driftedAngles: drifted,
     ms: out.ms,
     why: null,
     sample: questions.slice(0, 3),
@@ -285,6 +341,21 @@ async function runAngles(
 // ── 任務二：從正文抽實體與關係 ──────────────────────────────
 
 interface ExtractRun {
+  /**
+   * **模型回的引文原文，一條不漏。**
+   *
+   * 存它的理由是成本：`locateQuote` 的比對規則一改，
+   * 「引文命中率」那一欄就要重算，而重算原本要重跑一輪抽取
+   * —— 八個模型、六次、將近一小時的 GPU。**存下來之後重新記分是免費的。**
+   *
+   * 而那個規則確實還會改：2026-09-09 追進兩條「找不到」的引文，
+   * 兩條都不是捏造 —— 一條把半形句點寫成全形，一條逐字照抄但多收了一個引號。
+   * 「模型編的」與「模型少打一個標點」在這一欄裡長得一模一樣，
+   * 而**要判斷該不該放寬比對，得先看得到那些字**。
+   */
+  readonly quotes: readonly string[];
+  /** 這一次送進去的正文。重新比對要拿它當乾草堆。 */
+  readonly body: string;
   readonly promptTokens: number | null;
   readonly evalTokens: number | null;
   readonly schemaOk: boolean;
@@ -307,6 +378,8 @@ async function runExtract(
   const out = await askJson(model, EXTRACT_SYSTEM, extractUser(title, body), EXTRACT_SCHEMA, think);
   if (!out.ok) {
     return {
+      quotes: [],
+      body,
       promptTokens: out.promptTokens,
       evalTokens: out.evalTokens,
       schemaOk: false,
@@ -335,6 +408,8 @@ async function runExtract(
   const typeSpread = new Set(extraction.entities.map((e) => e.type)).size;
 
   return {
+    quotes: extraction.relations.map((r) => r.quote),
+    body,
     promptTokens: out.promptTokens,
     evalTokens: out.evalTokens,
     schemaOk: true,
@@ -363,7 +438,11 @@ const argv = process.argv.slice(2);
  * 結論就變成「這台機器跑不動會思考的模型」——**那是另一件事，處方也不同。**
  */
 const noThink = argv.includes('--no-think');
-const [corpusDir, outDir, ...only] = argv.filter((a) => a !== '--no-think');
+/** `--angles-only` ＝ 只跑角度。補一欄指標時不必把抽取那一輪重跑一次。 */
+const anglesOnly = argv.includes('--angles-only');
+const [corpusDir, outDir, ...only] = argv.filter(
+  (a) => a !== '--no-think' && a !== '--angles-only',
+);
 if (corpusDir === undefined || outDir === undefined) {
   console.error(
     '用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [--no-think] [模型 ...]',
@@ -455,12 +534,12 @@ for (const model of models) {
     const r = await runAngles(model, TOPIC, seeds, think);
     angles.push(r);
     console.error(
-      `  角度 ${i + 1}/${REPEATS}: ${r.schemaOk ? `${r.kept} 條、最大相似度 ${r.maxPairSimilarity?.toFixed(3) ?? '—'}` : `失敗（${r.why ?? ''}）`} ${(r.ms / 1000).toFixed(1)}s`,
+      `  角度 ${i + 1}/${REPEATS}: ${r.schemaOk ? `${r.kept} 條、彼此 ${r.maxPairSimilarity?.toFixed(3) ?? '—'}、離題目 ${r.topicSimilarity?.toFixed(3) ?? '—'}、飄走 ${r.driftedAngles ?? '—'}/${r.kept}` : `失敗（${r.why ?? ''}）`} ${(r.ms / 1000).toFixed(1)}s`,
     );
   }
 
   const extracts: (ExtractRun & { lang: string })[] = [];
-  for (const lang of ['zh', 'en'] as const) {
+  for (const lang of anglesOnly ? ([] as const) : (['zh', 'en'] as const)) {
     for (let i = 0; i < REPEATS; i++) {
       // **第 i 次用第 i 篇** —— 三次同一篇的話那不是三個樣本。
       const doc = docs[lang][i] ?? docs[lang][0];

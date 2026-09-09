@@ -33,6 +33,8 @@ interface AnglesRun {
   readonly seedRefsValid: number;
   readonly seedRefsTotal: number;
   readonly maxPairSimilarity: number | null;
+  readonly topicSimilarity: number | null;
+  readonly driftedAngles: number | null;
   readonly ms: number;
   readonly why: string | null;
   readonly sample: readonly string[];
@@ -92,7 +94,9 @@ console.log(
   pad('model', 26) +
     pad('角度', 8) +
     pad('條數', 7) +
-    pad('最大相似', 11) +
+    pad('彼此', 8) +
+    pad('離題目', 9) +
+    pad('飄走', 7) +
     pad('seed有效', 11) +
     '秒',
 );
@@ -102,11 +106,31 @@ for (const e of entries) {
   const refsTotal = ok.reduce((s, a) => s + a.seedRefsTotal, 0);
   const refsValid = ok.reduce((s, a) => s + a.seedRefsValid, 0);
   const sims = ok.map((a) => a.maxPairSimilarity).filter((v): v is number => v !== null);
+  /**
+   * **這兩欄一定要一起看。**
+   *
+   * 只看「彼此」會選出一個亂發散的模型 —— **胡說八道彼此當然不像。**
+   * 2026-09-09 實測：`olmo-3:32b-think` 的「彼此」最好（0.681），
+   * 而它問的是「蜘蛛結網行為的演化如何與其**光合作用能力**的發展相關」；
+   * `translategemma:12b` 的「彼此」最差（0.802），三條全部切題。
+   *
+   * 失效的機制看得出來：素材是語料裡**別的頁面的標題**，
+   * 而有些模型把素材的主題當成了這個專題的角度。
+   * 「離題目」就是那件事的數字 —— 低就是飄走了。
+   */
+  const topics = ok.map((a) => a.topicSimilarity).filter((v): v is number => v !== null);
   console.log(
     pad(e.model, 26) +
       pad(`${ok.length}/${runs.length}`, 8) +
       pad(ok.length === 0 ? '—' : mean(ok.map((a) => a.kept)).toFixed(1), 7) +
-      pad(sims.length === 0 ? '—' : mean(sims).toFixed(3), 11) +
+      pad(sims.length === 0 ? '—' : mean(sims).toFixed(3), 8) +
+      pad(topics.length === 0 ? '—' : mean(topics).toFixed(3), 9) +
+      pad(
+        ok.length === 0
+          ? '—'
+          : `${ok.reduce((a, x) => a + (x.driftedAngles ?? 0), 0)}/${ok.reduce((a, x) => a + x.kept, 0)}`,
+        7,
+      ) +
       pad(refsTotal === 0 ? '—' : `${Math.round((refsValid / refsTotal) * 100)}%`, 11) +
       `${Math.round(mean(runs.map((a) => a.ms)) / 1000)}s`,
   );

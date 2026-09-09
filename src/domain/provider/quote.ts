@@ -23,7 +23,7 @@
  * 但正規化之後回報的位置必須是**原文的**位置 —— 所以要留一張索引對照表，
  * 不能就地 `replace` 完了事。
  */
-import { findFirst } from '../text/offsets.js';
+import { findFirstFoldingPunctuation } from '../text/offsets.js';
 
 /**
  * 短引文不算出處。
@@ -47,16 +47,23 @@ export type QuoteLocation =
  * **回的是原文的字元區間**（`char_start`／`char_end`，半開區間），
  * 就是 `edge_evidence` 那兩欄要存的東西。
  *
- * 比對本身在 `domain/text/offsets.ts` —— 點註用的是同一支
- * （同樣要「空白視為等價」而且同樣必須回原文座標）。
- * **這裡多的只有兩條長度限制**，而那兩條是給模型的，不是給人的。
+ * 比對本身在 `domain/text/offsets.ts`。點註用的是同一份演算法
+ * （同樣要「空白視為等價」而且同樣必須回原文座標），
+ * **但這裡多一層：全形與半形標點也視為等價**（`findFirstFoldingPunctuation`）。
+ *
+ * 多那一層的理由是量出來的：實測「找不到」的引文裡，
+ * 有的是模型把 `.` 打成 `。` —— **逐字照抄，只差一個標點**。
+ * 那和捏造引文在這一欄裡長得一模一樣，而處方完全相反。
+ * 點註不需要那一層（使用者是在同一份文字上框選的）。
+ *
+ * **這裡多的還有兩條長度限制**，而那兩條是給模型的，不是給人的。
  */
 export function locateQuote(text: string, quote: string): QuoteLocation {
   const trimmed = quote.trim();
   if (trimmed.length < MIN_QUOTE_CHARS) return { kind: 'too-short' };
   if (trimmed.length > MAX_QUOTE_CHARS) return { kind: 'not-found' };
 
-  const span = findFirst(text, trimmed);
+  const span = findFirstFoldingPunctuation(text, trimmed);
   if (span === null) return { kind: 'not-found' };
   return { kind: 'found', start: span.start, end: span.end };
 }

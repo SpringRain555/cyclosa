@@ -36,6 +36,56 @@ export interface Squashed {
 }
 
 /**
+ * 全形標點對半形的對照。**只收長度不變的 1:1 對應。**
+ *
+ * 存在的理由是量出來的：2026-09-09 追兩條「引文在原文裡找不到」的關聯，
+ * **兩條都不是模型捏造的**：
+ *
+ * | 模型寫的 | 原文 | 差在哪 |
+ * |---|---|---|
+ * | `朱耀沂。《蜘蛛博物學》.` | `朱耀沂. 《蜘蛛博物學》.` | 半形句點寫成全形 |
+ *
+ * 而「找不到」的後果是**那條邊不存在**（ADR-0005）。
+ * 一個少打一個標點的模型，跟一個捏造引文的模型，在那一欄裡長得一模一樣。
+ *
+ * **這不會放寬「引文要在原文裡」那條規則** —— 放寬的只是「同一個標點的兩種寫法」。
+ * 而且存進 `edge_evidence` 的一直是**原文切出來的那一段**
+ * （`expand-service.ts` 用 `derived.text.slice(start, end)`），不是模型打的字，
+ * 所以匯出驗證比對的仍然是原文自己。
+ */
+const PUNCTUATION_FOLD = new Map<string, string>([
+  ['。', '.'],
+  ['．', '.'],
+  ['｡', '.'],
+  ['，', ','],
+  ['、', ','],
+  ['；', ';'],
+  ['：', ':'],
+  ['！', '!'],
+  ['？', '?'],
+  ['（', '('],
+  ['）', ')'],
+  ['［', '['],
+  ['］', ']'],
+  ['｛', '{'],
+  ['｝', '}'],
+  ['「', '"'],
+  ['」', '"'],
+  ['『', "'"],
+  ['』', "'"],
+  ['“', '"'],
+  ['”', '"'],
+  ['‘', "'"],
+  ['’', "'"],
+  ['《', '<'],
+  ['》', '>'],
+  ['〈', '<'],
+  ['〉', '>'],
+  ['－', '-'],
+  ['～', '~'],
+]);
+
+/**
  * 大小寫視為等價的那一份。**逐字轉小寫，而且只在長度不變的時候才轉。**
  *
  * 整段 `toLowerCase()` 會在少數字元上改變長度（`'İ'` 轉出來是兩個字元），
@@ -47,14 +97,16 @@ function fold(ch: string): string {
   return lower.length === 1 ? lower : ch;
 }
 
-export function squash(text: string, foldCase = false): Squashed {
+export function squash(text: string, foldCase = false, foldPunctuation = false): Squashed {
   const chars: string[] = [];
   const map: number[] = [];
   let pendingSpace = -1;
 
   for (let i = 0; i < text.length; i++) {
     const raw = text[i] as string;
-    const ch = foldCase ? fold(raw) : raw;
+    const cased = foldCase ? fold(raw) : raw;
+    // **1:1 才換。** `map` 是逐字元對照，長度一變位置就全歪。
+    const ch = foldPunctuation ? (PUNCTUATION_FOLD.get(cased) ?? cased) : cased;
     if (isSpace(ch)) {
       if (pendingSpace < 0) pendingSpace = i;
       continue;
@@ -139,6 +191,28 @@ export function findFirstFolded(text: string, needle: string): Span | null {
 
   const haystack = squash(text, true);
   const flatNeedle = squash(needle, true).flat;
+  if (flatNeedle.length === 0) return null;
+  const at = haystack.flat.indexOf(flatNeedle);
+  return at < 0 ? null : spanOf(haystack, at, flatNeedle.length);
+}
+
+/**
+ * 第一個出現位置，**全形與半形標點也視為等價**。
+ *
+ * 給 `domain/provider/quote.ts` 用 —— **模型寫的引文才需要這一層**。
+ * 點註的引文來自使用者自己在同一份文字上框選，標點不會不一樣；
+ * 檢索要的是 `findFirstFolded`（大小寫等價）。
+ *
+ * 先跑一次嚴格的（`findFirst`：精確 → 空白等價），**失敗了才放寬** ——
+ * 分層的理由是精確度：能嚴格對上的就不要用寬鬆的規則去對，
+ * 否則兩個只差一個標點的句子會被對到同一個地方。
+ */
+export function findFirstFoldingPunctuation(text: string, needle: string): Span | null {
+  const strict = findFirst(text, needle);
+  if (strict !== null) return strict;
+
+  const haystack = squash(text, false, true);
+  const flatNeedle = squash(needle, false, true).flat;
   if (flatNeedle.length === 0) return null;
   const at = haystack.flat.indexOf(flatNeedle);
   return at < 0 ? null : spanOf(haystack, at, flatNeedle.length);

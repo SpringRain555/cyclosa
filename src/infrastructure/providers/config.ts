@@ -74,6 +74,21 @@ export interface EmbedConfig {
 /** 量測選出來的預設。**設定頁把它當建議值顯示，不會自己寫進設定檔。** */
 export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
 
+/**
+ * `chat` 的建議模型。**量出來的**（`docs/research/chat-choice.md`，2026-09-09）。
+ *
+ * 八個本機模型、兩個任務、每個任務三次而且每次換一份文件。
+ * `qwen3.5:4b` 抽取六次全過、引文命中 **98%**、平均 **5 秒**（第二名 17 秒），
+ * 而它只有 3.4 GB —— **比三個 30B 與上一輪的最佳都好。**
+ *
+ * **這個建議有一半在別的地方**：`chat-ollama.ts` 必須送 `think: false`。
+ * 沒有那一欄的話同一個模型是 4/6、63 秒。
+ *
+ * 角度那一題它只回四條（上限六條），`granite4.2:8b` 回六條 ——
+ * 逐任務覆寫的依據就是這個差距，而那個欄位還沒有做。
+ */
+export const RECOMMENDED_CHAT_MODEL = 'qwen3.5:4b';
+
 export interface ProvidersConfig {
   readonly version: 1;
   readonly chat: ChatConfig | null;

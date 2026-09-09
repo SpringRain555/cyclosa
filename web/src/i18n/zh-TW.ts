@@ -870,6 +870,10 @@ export const t = {
     chatModel: '模型',
     chatModelPick: '選一個本機有的模型',
     chatModelsUnreachable: '連不上這個位址，所以列不出有哪些模型。',
+    /** 建議值是量出來的，而畫面上要說得出「量了什麼」 */
+    chatRecommend: '建議 {model}',
+    chatRecommendWhy:
+      '2026-09-09 拿 1955 段真實網頁量過八個本機模型：抽關聯六次全過、引文在原文裡找得到的比例 98%、平均 5 秒（第二名 17 秒），而它只有 3.4 GB。歸納角度那一題它只給四條，要六條的話改用 granite4.2:8b。',
     embedBaseUrl: 'Ollama 位址',
     embedModel: '嵌入模型',
     embedModelPick: '選一個本機有的模型',

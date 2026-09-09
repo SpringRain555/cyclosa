@@ -47,6 +47,10 @@ const embedModel = ref('');
  * 所以它要是使用者按下去的，不是我們替他決定的。
  */
 const RECOMMENDED_EMBED = 'qwen3-embedding:4b';
+// **這兩個字串在 src/infrastructure/providers/config.ts 也有一份。**
+// web 與 server 是兩份建置，所以只能各抄一份 ——
+// tests/guards/recommended-models.test.ts 釘著它們一致。
+const RECOMMENDED_CHAT = 'qwen3.5:4b';
 
 const testing = ref<ProviderRole | null>(null);
 const testResult = ref<{ role: ProviderRole; text: string } | null>(null);
@@ -190,6 +194,18 @@ async function test(role: ProviderRole): Promise<void> {
             </select>
             <input v-else v-model="model" type="text" />
           </label>
+          <p class="hint">
+            <!-- 建議值是使用者按下去的，不是我們替他填的 -->
+            <button
+              v-if="model !== RECOMMENDED_CHAT"
+              class="link"
+              type="button"
+              @click="model = RECOMMENDED_CHAT"
+            >
+              {{ fill(t.settings.chatRecommend, { model: RECOMMENDED_CHAT }) }}
+            </button>
+            {{ t.settings.chatRecommendWhy }}
+          </p>
           <p v-if="payload && payload.chatModels === null" class="hint">
             {{ t.settings.chatModelsUnreachable }}
           </p>

@@ -26,6 +26,7 @@
 import { readFileSync } from 'node:fs';
 
 import { CHAT_TIMEOUT_MS } from '../../src/infrastructure/providers/chat-ollama.js';
+import { locateQuote } from '../../src/domain/provider/quote.js';
 
 interface AnglesRun {
   readonly schemaOk: boolean;
@@ -41,6 +42,9 @@ interface AnglesRun {
 }
 
 interface ExtractRun {
+  /** 模型回的引文原文；`body` 是那一次送進去的正文。**引文命中率用它們現算。** */
+  readonly quotes?: readonly string[];
+  readonly body?: string;
   readonly promptTokens: number | null;
   readonly evalTokens: number | null;
   readonly schemaOk: boolean;
@@ -153,8 +157,26 @@ console.log(
 for (const e of entries) {
   const runs = e.raw.extracts;
   const ok = runs.filter(inBudget);
-  const rels = ok.reduce((s, x) => s + x.relations, 0);
-  const found = ok.reduce((s, x) => s + x.quotesFound, 0);
+  /**
+   * **引文命中率用現在的 `locateQuote` 重算，不採用結果檔裡那一欄。**
+   *
+   * 那一欄是量測當下算的，而比對規則會改（2026-09-09 就改了兩次）——
+   * 舊結果檔配新規則會給出一張自相矛盾的表。
+   * 引文原文與正文都存在結果檔裡，所以重算不需要 GPU；
+   * 存不到那兩欄的舊檔才退回用原本那一欄，並在表上標一顆星。
+   */
+  const recomputable = ok.filter((x) => Array.isArray(x.quotes) && typeof x.body === 'string');
+  const recomputed = recomputable.length === ok.length && ok.length > 0;
+  const rels = recomputed
+    ? recomputable.reduce((s, x) => s + (x.quotes ?? []).length, 0)
+    : ok.reduce((s, x) => s + x.relations, 0);
+  const found = recomputed
+    ? recomputable.reduce(
+        (s, x) =>
+          s + (x.quotes ?? []).filter((q) => locateQuote(x.body ?? '', q).kind === 'found').length,
+        0,
+      )
+    : ok.reduce((s, x) => s + x.quotesFound, 0);
   /**
    * **兩種失敗分開數，而且順序不能反。**
    *
@@ -175,7 +197,7 @@ for (const e of entries) {
       pad(`${ok.length}/${runs.length}`, 8) +
       pad(ok.length === 0 ? '—' : mean(ok.map((x) => x.entities)).toFixed(1), 7) +
       pad(ok.length === 0 ? '—' : mean(ok.map((x) => x.relations)).toFixed(1), 7) +
-      pad(rels === 0 ? '—' : `${Math.round((found / rels) * 100)}%`, 11) +
+      pad(rels === 0 ? '—' : `${Math.round((found / rels) * 100)}%${recomputed ? '' : '*'}`, 11) +
       pad(ok.length === 0 ? '—' : mean(ok.map((x) => x.typeSpread)).toFixed(1), 6) +
       // **輸出的 token 數。** 本機模型沒有金額成本，token 就是秒數 ——
       // 而它也是「這個模型有沒有在思考」最直接的證據：

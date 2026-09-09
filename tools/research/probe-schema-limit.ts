@@ -7,9 +7,16 @@
  * 而它的 context 是 262144，所以那跟 context 無關。
  * 失敗時回來的物件還少了 `done_reason` 與 `eval_count`。
  *
- * 下一次有人想「這個模型宣告 json_schema: true，應該可以吧」的時候，先跑這一支。
+ * ## 而那個結論的**解釋**當時是錯的
  *
- * 用法：npx tsx tools/research/probe-schema-limit.ts <模型>
+ * 當時寫的是「合理的解釋是受限解碼在 `nemotron_h_moe` 這個架構上
+ * 沒有被完整支援」。**同一天稍後量到的是：關掉思考它就好了**
+ * （抽取 0/6 → 6/6）。所以斷掉的是思考，不是文法。
+ *
+ * 這一支現在收 `--no-think`，就是為了讓那件事**下次能被直接問出來**，
+ * 而不是又留下一個聽起來合理的架構猜測。
+ *
+ * 用法：npx tsx tools/research/probe-schema-limit.ts <模型> [--no-think]
  */
 import {
   EXTRACT_SCHEMA,
@@ -19,7 +26,11 @@ import {
 
 const SHORT =
   '塵蛛屬（Cyclosa）是金蛛科的一個屬。牠們會在網上放置碎屑裝飾。研究者在台中的烏石坑觀察到這個行為。';
-const model = process.argv[2] ?? 'nemotron-cascade-2:30b';
+const argv = process.argv.slice(2);
+/** 出貨的 `chat-ollama.ts` 會送 `think: false`，所以這一欄要能開。 */
+const noThink = argv.includes('--no-think');
+const model = argv.filter((a) => a !== '--no-think')[0] ?? 'nemotron-cascade-2:30b';
+console.error(`模型 ${model}｜思考 ${noThink ? '關' : '照模型預設'}`);
 
 for (const len of [200, 500, 800, 1200, 2000]) {
   const body = SHORT.repeat(Math.ceil(len / SHORT.length)).slice(0, len);
@@ -35,6 +46,7 @@ for (const len of [200, 500, 800, 1200, 2000]) {
       ],
       format: EXTRACT_SCHEMA,
       stream: false,
+      ...(noThink ? { think: false } : {}),
       options: { temperature: 0, num_ctx: 18000 },
     }),
   });

@@ -97,6 +97,25 @@ describe('送出去的請求要自己指定 context，不吃 Ollama 的預設', 
     );
     expect(source).toContain('num_ctx: REQUIRED_CONTEXT_TOKENS');
   });
+
+  /**
+   * **請求裡要明確關掉思考。**
+   *
+   * 跟 `num_ctx` 是同一類：不帶就是吃對方的預設，而預設會變、
+   * 而且**跟宣告不一致** —— `granite4.2:8b` 在 `/api/tags` 的
+   * capabilities 只有 `completion`，實測卻在思考（同一份正文
+   * 22,545 個輸出 token／157 秒，關掉之後 3,256／27.7 秒）。
+   *
+   * 這一條釘的是「那一行被送出去了」。拿掉它不會有任何測試變紅，
+   * 而使用者會拿到一個在 180 秒裡交不出東西的抽取。
+   */
+  it('`chat-ollama` 的請求裡明確關掉思考', async () => {
+    const source = await readFile(
+      new URL('../../src/infrastructure/providers/chat-ollama.ts', import.meta.url),
+      'utf8',
+    );
+    expect(source).toContain('think: false');
+  });
 });
 
 describe('context 不夠會被擋下來，而且說得出差多少', () => {

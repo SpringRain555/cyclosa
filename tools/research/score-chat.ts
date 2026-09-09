@@ -41,6 +41,8 @@ interface AnglesRun {
 }
 
 interface ExtractRun {
+  readonly promptTokens: number | null;
+  readonly evalTokens: number | null;
   readonly schemaOk: boolean;
   readonly entities: number;
   readonly relations: number;
@@ -105,7 +107,7 @@ for (const e of entries) {
   const ok = runs.filter(inBudget);
   const refsTotal = ok.reduce((s, a) => s + a.seedRefsTotal, 0);
   const refsValid = ok.reduce((s, a) => s + a.seedRefsValid, 0);
-  const sims = ok.map((a) => a.maxPairSimilarity).filter((v): v is number => v !== null);
+  const sims = ok.map((a) => a.maxPairSimilarity).filter((v): v is number => typeof v === 'number');
   /**
    * **這兩欄一定要一起看。**
    *
@@ -118,7 +120,7 @@ for (const e of entries) {
    * 而有些模型把素材的主題當成了這個專題的角度。
    * 「離題目」就是那件事的數字 —— 低就是飄走了。
    */
-  const topics = ok.map((a) => a.topicSimilarity).filter((v): v is number => v !== null);
+  const topics = ok.map((a) => a.topicSimilarity).filter((v): v is number => typeof v === 'number');
   console.log(
     pad(e.model, 26) +
       pad(`${ok.length}/${runs.length}`, 8) +
@@ -144,6 +146,7 @@ console.log(
     pad('關係', 7) +
     pad('引文命中', 11) +
     pad('型別', 6) +
+    pad('出tok', 8) +
     pad('秒', 7) +
     '失敗的樣子',
 );
@@ -174,6 +177,16 @@ for (const e of entries) {
       pad(ok.length === 0 ? '—' : mean(ok.map((x) => x.relations)).toFixed(1), 7) +
       pad(rels === 0 ? '—' : `${Math.round((found / rels) * 100)}%`, 11) +
       pad(ok.length === 0 ? '—' : mean(ok.map((x) => x.typeSpread)).toFixed(1), 6) +
+      // **輸出的 token 數。** 本機模型沒有金額成本，token 就是秒數 ——
+      // 而它也是「這個模型有沒有在思考」最直接的證據：
+      // granite4.2:8b 同一份正文，think 開是 22,545、關是 3,256。
+      pad(
+        (() => {
+          const t = ok.map((x) => x.evalTokens).filter((v): v is number => typeof v === 'number');
+          return t.length === 0 ? '—' : String(Math.round(mean(t)));
+        })(),
+        8,
+      ) +
       pad(`${Math.round(mean(runs.map((x) => x.ms)) / 1000)}s`, 7) +
       (shape.length === 0 ? '—' : shape),
   );

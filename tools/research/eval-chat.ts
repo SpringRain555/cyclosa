@@ -102,9 +102,17 @@ async function askJson(
   user: string,
   schema: unknown,
   /**
-   * `false` 時明確關掉 thinking。**只對宣告了 `thinking` 的模型送** ——
-   * 對其他模型送這一欄 Ollama 會回 400，而那會浪費掉一整輪量測。
-   * `null` ＝ 不帶這一欄，也就是**出貨那一支目前的行為**。
+   * `false` 時明確關掉 thinking。`null` ＝ 不帶這一欄，
+   * 也就是**出貨那一支目前的行為**（吃模型自己的預設）。
+   *
+   * 原本這裡只送給宣告了 `thinking` 的模型，理由寫著「對其他模型送
+   * Ollama 會回 400」。**那是猜的，而且是錯的** —— 2026-09-09 實測，
+   * `granite4.2:8b`（`/api/tags` 的 capabilities 只有 `completion`）
+   * 收下 `think: false` 沒有報錯。
+   *
+   * 這件事不只是「少一個限制」：granite 的抽取每次要吐一萬到兩萬四千個
+   * token 才生出十幾個實體，而**那些 token 是不是思考，本來因為這個
+   * 假設而測不到**。一個沒查證的假設把一整條路擋掉了。
    */
   think: boolean | null = null,
   timeoutMs = 300_000,
@@ -502,9 +510,11 @@ console.error(
 
 const models = only.length > 0 ? only : MODELS_DEFAULT;
 /**
- * 哪些模型自己宣告了 `thinking`。**問 provider，不要看名字。**
- * （`olmo-3:32b-think` 名字裡有，而 `qwen3.5:9b` 沒有卻同樣會思考；
- * 對不會思考的模型送 `think` 則是 HTTP 400，會白白燒掉一整輪量測。）
+ * 哪些模型自己宣告了 `thinking`。**只拿來標記，不拿來過濾。**
+ *
+ * 宣告是不準的：`granite4.2` 的 capabilities 只有 `completion`，
+ * 而它收下 `think: false` 沒有報錯 —— 那一欄的有無不代表它不會思考。
+ * 所以 `--no-think` **送給清單上的每一個模型**，宣告只影響標籤。
  */
 const thinkingModels = new Set<string>();
 {
@@ -517,8 +527,9 @@ const thinkingModels = new Set<string>();
   }
 }
 if (noThink) {
+  const declared = models.filter((m) => thinkingModels.has(m));
   console.error(
-    `關掉 thinking：${models.filter((m) => thinkingModels.has(m)).join('、') || '（沒有一個模型宣告 thinking）'}`,
+    `關掉 thinking（全部送）｜自己宣告 thinking 的：${declared.join('、') || '（一個都沒有）'}`,
   );
 }
 
@@ -526,7 +537,7 @@ const results: Record<string, unknown>[] = [];
 
 for (const model of models) {
   // 只有「要求關掉」且「這個模型真的宣告會思考」時才送那一欄。
-  const think = noThink && thinkingModels.has(model) ? false : null;
+  const think = noThink ? false : null;
   const label = think === false ? `${model} (think:off)` : model;
   console.error(`\n── ${model}`);
   const angles: AnglesRun[] = [];

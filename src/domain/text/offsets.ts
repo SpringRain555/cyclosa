@@ -24,6 +24,25 @@ function isSpace(ch: string): boolean {
 }
 
 /**
+ * 中日韓的表意文字與全形標點。**判斷「這個空白可不可以省略」用的。**
+ *
+ * 中文排版有一個很常見的慣例：**中文與英數字之間加一個空格**
+ * （「中本聰在 2008 年」）。原文有沒有那個空格取決於作者，
+ * 而模型會照自己的習慣加或不加 —— 那是排版差異，**字完全一樣**。
+ */
+function isCjk(ch: string): boolean {
+  const c = ch.codePointAt(0) ?? 0;
+  return (
+    (c >= 0x3000 && c <= 0x303f) ||
+    (c >= 0x3040 && c <= 0x30ff) ||
+    (c >= 0x3400 && c <= 0x4dbf) ||
+    (c >= 0x4e00 && c <= 0x9fff) ||
+    (c >= 0xf900 && c <= 0xfaff) ||
+    (c >= 0xff00 && c <= 0xff60)
+  );
+}
+
+/**
  * 壓過空白的字串 ＋ 每個字元在原文的位置。
  *
  * 連續空白壓成一個半形空格，**而那個空格記的是它那一段的第一個字元的位置** ——
@@ -97,8 +116,32 @@ function fold(ch: string): string {
   return lower.length === 1 ? lower : ch;
 }
 
-export function squash(text: string, foldCase = false, foldPunctuation = false): Squashed {
+export function squash(
+  text: string,
+  foldCase = false,
+  foldPunctuation = false,
+  /**
+   * **CJK 旁邊的空白視為可有可無。**
+   *
+   * 只在 `domain/provider/quote.ts` 開。理由是量出來的：
+   * `qwen3.5:4b` 的 41 條引文裡有 10 條**只差中英文之間的空格**
+   * （「中本聰在 2008 年」對「中本聰在2008年」）—— 命中率 73% 對 98%。
+   *
+   * **不能整個把空白刪掉**：拉丁文的空格是有意義的
+   * （`the rapist` 會對上 `therapist`）。所以條件是**兩側至少有一邊是 CJK**，
+   * 那正是那個排版慣例發生的地方。
+   */
+  dropCjkAdjacentSpace = false,
+): Squashed {
   const chars: string[] = [];
+  /**
+   * 折之前的樣子。**只給 `isCjk` 用。**
+   *
+   * 順序會咬人：標點折疊先把 `《` 換成 `<`，而 `<` 不是 CJK ——
+   * 於是「CJK 旁邊的空白可省略」就認不出那個邊界了。
+   * 兩條規則同時開的時候，**CJK 要看原本那個字**。
+   */
+  const rawChars: string[] = [];
   const map: number[] = [];
   let pendingSpace = -1;
 
@@ -112,11 +155,16 @@ export function squash(text: string, foldCase = false, foldPunctuation = false):
       continue;
     }
     if (pendingSpace >= 0 && chars.length > 0) {
-      chars.push(' ');
-      map.push(pendingSpace);
+      const before = rawChars[rawChars.length - 1] as string;
+      if (!(dropCjkAdjacentSpace && (isCjk(before) || isCjk(raw)))) {
+        chars.push(' ');
+        rawChars.push(' ');
+        map.push(pendingSpace);
+      }
     }
     pendingSpace = -1;
     chars.push(ch);
+    rawChars.push(raw);
     map.push(i);
   }
   return { flat: chars.join(''), map };
@@ -207,12 +255,16 @@ export function findFirstFolded(text: string, needle: string): Span | null {
  * 分層的理由是精確度：能嚴格對上的就不要用寬鬆的規則去對，
  * 否則兩個只差一個標點的句子會被對到同一個地方。
  */
-export function findFirstFoldingPunctuation(text: string, needle: string): Span | null {
+export function findFirstFoldingPunctuation(
+  text: string,
+  needle: string,
+  dropCjkAdjacentSpace = false,
+): Span | null {
   const strict = findFirst(text, needle);
   if (strict !== null) return strict;
 
-  const haystack = squash(text, false, true);
-  const flatNeedle = squash(needle, false, true).flat;
+  const haystack = squash(text, false, true, dropCjkAdjacentSpace);
+  const flatNeedle = squash(needle, false, true, dropCjkAdjacentSpace).flat;
   if (flatNeedle.length === 0) return null;
   const at = haystack.flat.indexOf(flatNeedle);
   return at < 0 ? null : spanOf(haystack, at, flatNeedle.length);

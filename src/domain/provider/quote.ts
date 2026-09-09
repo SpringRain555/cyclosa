@@ -51,10 +51,20 @@ export type QuoteLocation =
  * （同樣要「空白視為等價」而且同樣必須回原文座標），
  * **但這裡多一層：全形與半形標點也視為等價**（`findFirstFoldingPunctuation`）。
  *
- * 多那一層的理由是量出來的：實測「找不到」的引文裡，
- * 有的是模型把 `.` 打成 `。` —— **逐字照抄，只差一個標點**。
- * 那和捏造引文在這一欄裡長得一模一樣，而處方完全相反。
- * 點註不需要那一層（使用者是在同一份文字上框選的）。
+ * 多的那一層有兩件事，而**它們的份量差很多**：
+ *
+ * | 放寬什麼 | 150 條真實引文裡救回幾條 |
+ * |---|---|
+ * | **CJK 旁邊的空白**（「中本聰在 2008 年」對「中本聰在2008年」）| `qwen3.5:4b` **10 條**（73% → 98%）|
+ * | 全形對半形標點（`.` 對 `。`）| **0 條** |
+ *
+ * 第一條是主力：中文排版有「中英文之間加空格」的慣例，而**原文加不加、
+ * 模型加不加，是各自的習慣** —— 字完全一樣。第二條保留是因為它有一個
+ * 觀察到的案例（`朱耀沂。《蜘蛛博物學》.` 對 `朱耀沂. 《蜘蛛博物學》.`），
+ * 只是那一次發生在**還沒開始把引文原文存下來的那一輪**，不在這 150 條裡。
+ *
+ * **兩條都不放寬「引文要在原文裡」那條規則** —— 放寬的只是同一段字的排版寫法。
+ * 點註不需要這一層（使用者是在同一份文字上框選的）。
  *
  * **這裡多的還有兩條長度限制**，而那兩條是給模型的，不是給人的。
  */
@@ -63,7 +73,7 @@ export function locateQuote(text: string, quote: string): QuoteLocation {
   if (trimmed.length < MIN_QUOTE_CHARS) return { kind: 'too-short' };
   if (trimmed.length > MAX_QUOTE_CHARS) return { kind: 'not-found' };
 
-  const span = findFirstFoldingPunctuation(text, trimmed);
+  const span = findFirstFoldingPunctuation(text, trimmed, true);
   if (span === null) return { kind: 'not-found' };
   return { kind: 'found', start: span.start, end: span.end };
 }

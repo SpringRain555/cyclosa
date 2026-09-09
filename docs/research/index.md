@@ -45,7 +45,9 @@
 | `market-scan.md` | ✅ 有內容（2026-09-04 初查、**2026-09-06 重跑**）|
 | `open-questions.md` | ✅ 有內容 |
 | `query-log.md` | ✅ **有了** —— 2026-09-06 起 |
-| `sources/manifest.jsonl` | ✅ **有了** —— 55 列，52 列有 SHA-256 |
+| `extraction-confidence.md` | ✅ 有內容（2026-09-06 的量測，推翻兩條憑感覺寫的規則）|
+| `embedding-choice.md` | 🟡 **桌面調查完成，實測還沒做**（2026-09-09）|
+| `sources/manifest.jsonl` | ✅ **有了** —— 109 列，108 列有 SHA-256 |
 
 > ### ⚠️ 那次調查沒有留下查詢紀錄
 >

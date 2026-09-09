@@ -167,3 +167,39 @@
 | Maltego、i2、Linkurious | 商業授權、沒有公開 repo 可實查。它們在賽道表裡的角色是「這個賽道有商業解」，不是可借的設計 |
 | Heptabase、Scrintal、TheBrain、Connected Papers、ResearchRabbit、Litmaps 的當前功能 | 都是閉源產品，要逐一註冊試用才問得出來。**它們的判讀維持 2026-09-04 的狀態並標明**，不假裝重查過 |
 | 2026 WCXB 正文抽取評測的原始數據 | `market-scan.md` 引了 F1 數字（`rs-trafilatura` 0.910 等）。這次**沒有回到原始評測**，所以那幾個數字仍然是 **B 級**、標著 2026-09-04 |
+
+## 2026-09-09　嵌入模型候選（A 級）
+
+**查什麼**：七個多語言嵌入模型的**授權、最後更新時間、下載數**（Hugging Face 的
+model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（registry 的 manifest，
+把各層的 `size` 加起來）、以及**維度與上下文長度**（各模型的 `config.json`）。
+
+**為什麼查**：`bge-m3` 是照計畫書帶進來的，**從來沒有跟任何候選比過** ——
+而它是這個專案裡唯一實質不可逆的決定（換模型要重算全部向量，
+而且比對不會報錯，只會安靜地變爛）。結論在 `embedding-choice.md`。
+
+**紀律**：三個來源都是**為程式化存取設計的 API**
+（`huggingface.co/api`、`registry.ollama.ai/v2`），跟前幾輪的
+`api.github.com`／`registry.npmjs.org` 同一類。**同網域請求間隔 4 秒**，
+19 列全部進 `sources/manifest.jsonl`（URL、時間、狀態、content-type、SHA-256、位元組）。
+
+**兩個結果直接刷掉了候選**：
+
+1. **`jina-embeddings-v3` 的授權是 `cc-by-nc-4.0`** —— 非商業。
+   這是模型自己宣告的欄位，不是推測，而這個 repo 預計要公開。**出局。**
+2. **`google/embeddinggemma-300m` 的 `config.json` 回 401** ——
+   要登入同意 Gemma 條款才拿得到。授權本身也是自訂條款而不是 OSI 授權。
+   **一個要先登入的模型，跟「使用者自己 `ollama pull`」是兩件事。**
+
+**一個關於來源級別的觀察**：只有 `Snowflake/snowflake-arctic-embed-l-v2.0` 在
+**機器可讀的欄位**裡宣告了語言清單（74 種）。`bge-m3` 與 `qwen3-embedding` 的
+「100+ 語言」是 README 的散文 —— 一樣是第一手，但**查證方式不同，級別也就不同**。
+
+**還查到一件會改變預設的事**：`bge-m3` 的最後更新是 **2024-07-03**，
+而 `Qwen/Qwen3-Embedding-0.6B` 是 **2026-04-20**；後者的 Ollama 下載只有
+610 MB（前者 1104 MB）、上下文 32768（前者 8194），維度同樣是 1024。
+**`bge-m3` 唯一明顯領先的是下載數（38.0 M 對 7.5 M）** —— 而那是生態，不是檢索品質。
+
+> **這一輪沒有量任何檢索品質。** 上面每一條都是「查得到的欄位」，
+> 而「哪一個找得比較準」要一組評測集才答得出來，設計寫在 `embedding-choice.md`。
+> **把下載數當成品質的代理指標，就是在用「多少人用過」回答「準不準」。**

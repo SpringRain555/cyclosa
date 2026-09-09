@@ -479,6 +479,35 @@ export const t = {
     noEdges: '這一塊裡沒有關聯。匯出的會是一份來源清單。',
   },
 
+  /**
+   * 檢索（Stage 12）。**三種狀態各自有一句話** —— 見 `search-service.ts`：
+   * 合成一句的話，「正文被清掉了」會被說成「這一筆是誤中」。
+   */
+  search: {
+    open: '搜尋',
+    title: '在這個專題裡搜尋',
+    placeholder: '兩個字就查得到',
+    run: '搜尋',
+    busy: '搜尋中…',
+    summary: '{n} 筆 · {ms} 毫秒',
+    empty: '沒有找到。換個說法，或先確認那份東西已經匯入了。',
+    entity: '實體',
+    kinds: {
+      web: '網頁',
+      pdf: 'PDF',
+      image: '圖片',
+      text: '純文字',
+      paper: '論文',
+      note: '筆記',
+    },
+    /** 中文的索引是兩字一組，所以「台積電」會誤中「來台積極…累積電力」。 */
+    miss: '可能是誤中：正文裡沒有這串字',
+    noText: '正文不在，這一筆沒驗過',
+    incomplete: '有作業還在跑，這次的結果可能不完整。',
+    embedUnavailable: '語意檢索還沒接上，這次只有全文檢索。',
+    openReader: '在閱讀器開啟',
+  },
+
   /** 結束 Cyclosa（頂列右邊）。 */
   shutdown: {
     open: '結束 Cyclosa',

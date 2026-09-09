@@ -7,7 +7,7 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
-import { bigrams, indexTargets } from '../../domain/search/tokenize.js';
+import { bigrams, indexTargets, latinRuns } from '../../domain/search/tokenize.js';
 import { rankTitles } from '../../domain/search/collate.js';
 import { allTitles, setTitleRank } from '../db/repositories/item-repo.js';
 
@@ -53,14 +53,20 @@ export function indexText(
     }
   }
 
+  // **中文內容進 FTS 的只有裡面的拉丁字。**
+  // 整段進去的話，`unicode61` 會把中文切成一個永遠查不到的巨大 token，
+  // 而那個 token 要付 229% 的索引空間（量測見 `indexTargets`）。
   let ftsRows = 0;
-  if (targets.fts) {
-    db.prepare('INSERT INTO fts_text (owner_id, owner_kind, content) VALUES (?, ?, ?)').run(
-      input.ownerId,
-      input.ownerKind,
-      content,
-    );
-    ftsRows = 1;
+  if (targets.fts !== 'none') {
+    const body = targets.fts === 'latin' ? latinRuns(content).join(' ') : content;
+    if (body.trim().length > 0) {
+      db.prepare('INSERT INTO fts_text (owner_id, owner_kind, content) VALUES (?, ?, ?)').run(
+        input.ownerId,
+        input.ownerKind,
+        body,
+      );
+      ftsRows = 1;
+    }
   }
 
   return { bigramRows, ftsRows };

@@ -22,6 +22,16 @@
 | `npm ci` 之後型別爆一堆 | 多半是 TypeScript 被升到 6.1 以上。**`typescript-eslint` 的 peer 是 `<6.1.0`** | `environment/versions.md` |
 | build 完跑起來卻說找不到 migration | `.sql` 不是 `tsc` 會複製的東西 —— `tools/build/copy-assets.mjs` 負責搬 | 那個檔案自己的註解 |
 
+## 檢索
+
+| 症狀 | 看哪裡 | 誰守著 |
+|---|---|---|
+| 中文兩個字查不到 | bigram 索引沒寫進去。**索引是匯入時寫的** —— 舊資料要跑 `POST …/rebuild` | `tests/e2e/search-flow.test.ts` |
+| 中文頁面裡的英文／學名查不到 | 同上，而且**那一條是 2026-09-09 才加的**（CJK 的非 CJK 片段進 FTS）。舊索引沒有那些列 | ADR-0009 的補記 |
+| 結果裡有明顯不相干的東西 | **那是 bigram 跨詞誤中**，而它們應該被標成「可能是誤中」並排在後面。沒有被標＝正文讀不到，看 `derived/` | `domain/search/query.ts` |
+| 搜尋很慢 | 候選上限 400、驗證上限 60（`search-service.ts`）。慢多半是**一次讀 60 份正文**，不是 SQL | Stage 13 的效能預算 |
+| 摘要上色的位置不對 | `matchStart` 是伺服器算的，而摘要壓過空白 —— 校正在 `offsetsAfterSquash` | `tests/domain/search-query.test.ts` |
+
 ## 資料與啟動狀態
 
 | 症狀 | 看哪裡 | 誰守著 |

@@ -200,11 +200,16 @@ describe('匯入一批 URL', () => {
         .get(good.id) as { n?: unknown };
       expect(Number(grams?.n ?? 0)).toBeGreaterThan(20);
 
-      // 中文走 bigram，**不進 FTS5**
+      // 中文的正文走 bigram，**而進 FTS5 的只有裡面的拉丁字**
+      // （2026-09-09 改：原本 CJK 完全不進 FTS，於是中文頁面裡的學名、
+      //  品牌、代號一個索引都進不去 —— 見 ADR-0009 的補記）。
       const fts = opened.db
-        .prepare('SELECT COUNT(*) AS n FROM fts_text WHERE owner_id = ?')
-        .get(good.id) as { n?: unknown };
-      expect(Number(fts?.n ?? 0)).toBe(0);
+        .prepare('SELECT content AS c FROM fts_text WHERE owner_id = ?')
+        .all(good.id) as { c?: unknown }[];
+      for (const row of fts) {
+        // 這一份是中文的，所以 FTS 那一列裡不該有中文
+        expect(String(row['c'] ?? '')).not.toMatch(/[一-鿿]/u);
+      }
 
       // 查得到兩個字的詞 —— 這是 trigram 命中 0 列那個實測反例的驗收
       const hit = opened.db.prepare("SELECT owner_id FROM bigram WHERE gram = '台積'").all() as {

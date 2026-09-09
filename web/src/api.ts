@@ -267,6 +267,37 @@ export type EdgeLayer = 'derived' | 'named' | 'comention' | 'similarity';
 export type EdgeStatus = 'pending' | 'confirmed' | 'rejected';
 export type ConfidenceTier = 'weak' | 'medium' | 'strong';
 
+/** 檢索的一筆。**`check` 是三種狀態，不是一個布林值**（`search-service.ts`）。 */
+export interface SearchHit {
+  kind: 'item' | 'entity';
+  id: string;
+  title: string;
+  itemKind: string | null;
+  entityType: string | null;
+  lang: string | null;
+  readAt: number | null;
+  excluded: boolean;
+  /** `hit` 正文裡真的有 · `miss` 跨詞誤中 · `no-text` 正文讀不到、沒驗 */
+  check: 'hit' | 'miss' | 'no-text';
+  snippet: string;
+  matchStart: number;
+  matchEnd: number;
+  cutHead: boolean;
+  cutTail: boolean;
+}
+
+export interface SearchResponse {
+  query: string;
+  mode: 'text' | 'semantic' | 'hybrid';
+  route: 'bigram' | 'fts' | 'both';
+  hits: SearchHit[];
+  candidates: number;
+  checked: number;
+  verified: number;
+  notices: string[];
+  tookMs: number;
+}
+
 export interface SubgraphNode {
   id: string;
   kind: 'item' | 'entity';
@@ -677,6 +708,16 @@ export const api = {
 
   subgraph: (slug: string, query: Record<string, string>) =>
     request<Subgraph>(`/api/cases/${enc(slug)}/subgraph?${new URLSearchParams(query).toString()}`),
+
+  /**
+   * 檢索。**全文與語意是同一支端點的兩個 `mode`** ——
+   * 「這次能不能用語意」的依據在伺服器那一邊（有沒有嵌入模型），
+   * 分成兩支的話前端要自己猜那件事。
+   */
+  search: (slug: string, q: string, mode: 'text' | 'semantic' | 'hybrid' = 'text') =>
+    request<SearchResponse>(
+      `/api/cases/${enc(slug)}/search?${new URLSearchParams({ q, mode }).toString()}`,
+    ),
 
   /** **只數不拉資料** —— 工具列的跳數格在按下去之前就顯示代價。 */
   subgraphSize: (slug: string, query: Record<string, string>) =>

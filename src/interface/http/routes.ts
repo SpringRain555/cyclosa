@@ -53,6 +53,7 @@ import {
 } from '../../application/note-service.js';
 import { rebuildDerived } from '../../application/rebuild-service.js';
 import { exportEvidence } from '../../application/export-service.js';
+import { searchCase, type SearchMode } from '../../application/search-service.js';
 import {
   listSources,
   probeSources,
@@ -231,6 +232,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerItemRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
   registerEdgeRoutes(app, ctx);
+  registerSearchRoutes(app, ctx);
   registerExportRoutes(app, ctx);
 }
 
@@ -854,6 +856,37 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
  * 走 `POST` 不是 `GET`：它**會在磁碟上產生檔案**，
  * 而一個會產生東西的動作不該長得像一次讀取（可以被預抓、被快取、被重試）。
  */
+/**
+ * 檢索。**`GET`，而且只有一支** —— 全文與語意是同一個端點的兩個 `mode`。
+ *
+ * 分成兩支的話，前端要自己決定「這次要問哪一支」，
+ * 而那個決定的依據（有沒有嵌入模型）在伺服器這一邊。
+ *
+ * **語意還沒接上**：`mode=semantic`／`hybrid` 會拿到全文的結果
+ * 加一條 `SEARCH_EMBED_UNAVAILABLE` 的 notice —— 照 `api-contract.md`
+ * 那一行（「語意不可用時全文照常回」）。**不假裝跑過語意，也不整個失敗。**
+ */
+function registerSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get<{
+    Params: { slug: string };
+    Querystring: { q?: string; mode?: string; limit?: string };
+  }>('/api/cases/:slug/search', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    const raw = req.query.mode;
+    const mode: SearchMode = raw === 'semantic' || raw === 'hybrid' ? raw : 'text';
+    const limit = Number(req.query.limit);
+    return send(
+      reply,
+      await searchCase(dataRoot, req.params.slug, {
+        q: req.query.q ?? '',
+        mode,
+        ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+      }),
+    );
+  });
+}
+
 function registerExportRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{
     Params: { slug: string };

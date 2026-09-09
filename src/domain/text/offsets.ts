@@ -35,13 +35,26 @@ export interface Squashed {
   readonly map: readonly number[];
 }
 
-export function squash(text: string): Squashed {
+/**
+ * 大小寫視為等價的那一份。**逐字轉小寫，而且只在長度不變的時候才轉。**
+ *
+ * 整段 `toLowerCase()` 會在少數字元上改變長度（`'İ'` 轉出來是兩個字元），
+ * 而長度一變，`map` 就對不上了 —— 於是回報出去的位置會偏，
+ * 而那個位置正是要拿去切引文、上色、跳到原文的那一個。
+ */
+function fold(ch: string): string {
+  const lower = ch.toLowerCase();
+  return lower.length === 1 ? lower : ch;
+}
+
+export function squash(text: string, foldCase = false): Squashed {
   const chars: string[] = [];
   const map: number[] = [];
   let pendingSpace = -1;
 
   for (let i = 0; i < text.length; i++) {
-    const ch = text[i] as string;
+    const raw = text[i] as string;
+    const ch = foldCase ? fold(raw) : raw;
     if (isSpace(ch)) {
       if (pendingSpace < 0) pendingSpace = i;
       continue;
@@ -111,4 +124,22 @@ export function findAll(text: string, needle: string): readonly Span[] {
 /** 第一個出現位置。找不到回 `null`。 */
 export function findFirst(text: string, needle: string): Span | null {
   return findAll(text, needle)[0] ?? null;
+}
+
+/**
+ * 第一個出現位置，**大小寫也視為等價**。
+ *
+ * 檢索要的是這一支：「Cyclosa」與「cyclosa」是同一個字，
+ * 而引文與點註要的是原本那一支 —— **引文要一字不差**，
+ * 大小寫不同就是不同的一句話，不能悄悄對上。
+ */
+export function findFirstFolded(text: string, needle: string): Span | null {
+  const exact = findFirst(text, needle);
+  if (exact !== null) return exact;
+
+  const haystack = squash(text, true);
+  const flatNeedle = squash(needle, true).flat;
+  if (flatNeedle.length === 0) return null;
+  const at = haystack.flat.indexOf(flatNeedle);
+  return at < 0 ? null : spanOf(haystack, at, flatNeedle.length);
 }

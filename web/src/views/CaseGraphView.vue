@@ -23,6 +23,7 @@ import ErrorPanel from '../components/ErrorPanel.vue';
 import EdgePanel from '../components/graph/EdgePanel.vue';
 import GraphLegend from '../components/graph/GraphLegend.vue';
 import ExportPanel from '../components/graph/ExportPanel.vue';
+import SearchPanel from '../components/graph/SearchPanel.vue';
 import MergePanel from '../components/graph/MergePanel.vue';
 import GraphView from '../components/graph/GraphView.vue';
 import SelectionPanel from '../components/graph/SelectionPanel.vue';
@@ -37,6 +38,15 @@ const hopChoices = [1, 2, 3];
 
 /** 匯出面板預設收起來 —— 它平常不佔位置，要用的時候才長出來。 */
 const exportOpen = ref(false);
+
+/**
+ * 搜尋面板。**跟匯出同一個做法**：工具列一顆按鈕，面板開在左欄。
+ *
+ * 不做成一個對話框，因為搜尋在這個工具裡的用途是「找到某個東西附近有什麼」——
+ * 而那件事要**看得到圖**：點一筆結果，焦點移過去，圖跟著重畫。
+ * 對話框會把圖蓋掉，於是使用者得先關掉它才看得到自己找到了什麼。
+ */
+const searchOpen = ref(false);
 
 /**
  * **整個專題一條關聯都沒有** —— 說出來，否則一團沒有線的點看起來像壞掉。
@@ -93,6 +103,15 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 
     <template v-else>
       <div class="toolbar">
+        <!--
+          搜尋在工具列的**最左邊**（設計稿的順序）。
+          它跟匯出一樣，開的是左欄的面板而不是一個對話框 ——
+          結果要點下去跳到圖上，而對話框會把圖蓋住。
+        -->
+        <button type="button" :class="{ on: searchOpen }" @click="searchOpen = !searchOpen">
+          {{ t.search.open }}
+        </button>
+
         <span class="label">{{ t.graph.toolbar.hops }}</span>
         <div class="hops">
           <button
@@ -174,6 +193,12 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 
       <div class="body">
         <div class="side">
+          <SearchPanel
+            v-if="searchOpen && slug"
+            :slug="slug"
+            @focus="(id: string) => void store.setFocus(id)"
+            @open-reader="openInReader"
+          />
           <ExportPanel
             v-if="exportOpen && slug && store.subgraph !== null"
             :slug="slug"

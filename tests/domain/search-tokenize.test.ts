@@ -52,12 +52,13 @@ describe('中文 bigram', () => {
 
 describe('依語言選索引', () => {
   it('CJK 走 bigram、拉丁走 FTS5', () => {
-    expect(indexTargets('cmn')).toEqual({ bigram: true, fts: false });
-    expect(indexTargets('eng')).toEqual({ bigram: false, fts: true });
+    // **CJK 也進 FTS，但進去的只有裡面的拉丁字** —— 中文頁面裡的學名要查得到
+    expect(indexTargets('cmn')).toEqual({ bigram: true, fts: 'latin' });
+    expect(indexTargets('eng')).toEqual({ bigram: false, fts: 'full' });
   });
 
   it('**`und` 兩條都建** —— 不知道就都建', () => {
-    expect(indexTargets('und')).toEqual({ bigram: true, fts: true });
+    expect(indexTargets('und')).toEqual({ bigram: true, fts: 'full' });
   });
 
   it('認得哪些碼是 CJK', () => {

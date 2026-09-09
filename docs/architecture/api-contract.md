@@ -30,7 +30,8 @@
 > **2026-09-08 補**：`POST …/cases/:id/rename`、
 > **`POST …/runs/:runId/pause`／`/resume`／`/undo`**、**`POST /api/system/shutdown`**。
 >
-> **Stage 12 新增**：**`GET …/search`**（全文）。**語意那一半還不存在。**
+> **Stage 12 新增**：**`GET …/search`**（全文／語意／兩者）與
+> **`POST …/embed`**（補一批向量）。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
@@ -175,6 +176,34 @@
 >
 > `costUsd` 的 **`null` 與 `0` 是兩件事**：本機模型的金額成本真的是零；
 > 一個沒回報成本的 provider 是「不知道」。**不估算**（ADR-0006 的補記）。
+
+> ### 檢索與向量（2026-09-10，v0.11.0）
+>
+> `GET /api/cases/:slug/search` 的 `mode` 三個值都真的做事了：
+>
+> | `mode` | 跑哪幾路 |
+> |---|---|
+> | `text`（預設）| bigram ＋ FTS5。**完全不碰嵌入端點** |
+> | `semantic` | **只有**向量 —— 混進字面命中的話它就跟 `hybrid` 沒有差別 |
+> | `hybrid` | 三條都跑 |
+>
+> 合併發生在**名次**上（ADR-0027）。要求語意但拿不到向量時
+> （沒設模型、Ollama 沒開、模型被 `ollama rm` 掉），
+> **全文照常回，`notices` 帶 `SEARCH_EMBED_UNAVAILABLE`** ——
+> 降級可以，安靜不行。
+>
+> `hit.check` 多一個值 **`semantic`**：語意那一路命中的文件本來就不會有那串字，
+> 標成 `miss` 等於對一個正確的結果指控它是誤中。它的 `snippet` 是
+> **真正命中的那一段**，而不是命中處前後 96 個字（語意命中沒有「命中處」）。
+>
+> `POST /api/cases/:slug/embed` 補一批向量，回
+> `{model, processed, written, remaining, rows, owners, otherModels, code}`。
+> **一次一批**（60 份），呼叫端看 `remaining` 決定要不要再打一次 ——
+> 而**呼叫端要自己收斂**：`remaining` 沒有變少就停，不要等對方回 0。
+>
+> **它不是 `run`**：續跑點就是「還有哪些沒有向量」這個查詢本身，
+> 所以取消與復原對它沒有意義，而一個假的取消按鈕比沒有更糟。
+> `model` 是 `null` 代表還沒設定嵌入模型 —— **那是一個狀態，不是錯誤。**
 
 > ### `chat` 的逐任務覆寫（2026-09-10，v0.10.6）
 >

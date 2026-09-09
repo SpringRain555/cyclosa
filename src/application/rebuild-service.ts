@@ -39,6 +39,7 @@ import {
   writeDerived,
   type DerivedPayload,
 } from '../infrastructure/fs/case-files.js';
+import { dropVectorsFor } from '../infrastructure/db/repositories/vector-repo.js';
 import { indexText } from '../infrastructure/index/writer.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
@@ -155,6 +156,19 @@ export async function rebuildDerived(
         title: payload.title,
         text: payload.text,
       });
+      /**
+       * **向量作廢，但不在這裡重算。**
+       *
+       * 重抽之後正文變了，舊的向量指的是一段可能已經不存在的文字 ——
+       * 留著的話語意檢索會命中它，而點過去正文裡沒有。
+       *
+       * 不在這裡重算的理由有兩個，而第二個才是真正的那個：
+       * 重算是純本機的（讀 `sources/`、跑抽取），**而嵌入要一個設定好的 provider**；
+       * 把它接進來的話，「整批重算」這顆按鈕會在沒設嵌入模型時多一種失敗方式。
+       * 而作廢之後那幾份就出現在「還沒有向量」的計數裡，
+       * **回填是既有的一條路**，不必再發明一條。
+       */
+      dropVectorsFor(db, 'item', id);
       reextracted++;
     }
 

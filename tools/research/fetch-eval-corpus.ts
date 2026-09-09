@@ -35,6 +35,7 @@ import { mkdir, writeFile, appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { charsetOf } from '../../src/domain/ingest/media-type.js';
+import { chunkText } from '../../src/domain/search/chunk.js';
 import { Crawler } from '../../src/infrastructure/fetch/crawler.js';
 import { decodeHtml } from '../../src/infrastructure/extract/decode.js';
 import { extractHtml } from '../../src/infrastructure/extract/html.js';
@@ -139,40 +140,22 @@ async function fetchPage(host: string, prefix: string, title: string): Promise<P
 }
 
 /**
- * 切段落。
+ * 切段。**用出貨的那一支**（`domain/search/chunk.ts`）。
  *
- * **中文與英文的目標長度不同**：同樣一段話中文用的字數大約是英文的一半，
- * 用同一個字元預算切會讓中文的段落資訊量只有英文的一半，
- * 而那個差別會被算進模型的分數裡 —— 量到的就不只是模型了。
+ * 這裡曾經有一份自己的實作，而那是這一輪要修掉的東西：
+ * **量測用一支、出貨用另一支的話，量出來的分數對出貨的東西不成立** ——
+ * 而兩份程式碼長得很像的時候，沒有任何地方會報錯。
  *
- * 太短的行（章節標題、導覽殘留）直接丟掉。Readability 的輸出裡
- * 標題就是一行短字，沒有任何標記分得出來。
+ * 傳 `Infinity` 是刻意的：出貨那一側有每份文件 6 段的上限（那是效能預算），
+ * 而語料要的是「這一頁全部切出來長什麼樣」——
+ * 帶著上限去抓的話，34 頁會從 1955 段掉到 204 段。
+ *
+ * `lang` 這個參數也不見了：**參數由文字本身決定**（`cjkRatio`），
+ * 因為語言偵測會給出自信而錯誤的答案。對這份語料兩者結果相同
+ * （中文頁幾乎全是 CJK、英文頁幾乎沒有），所以那個改動不影響可比性。
  */
-function chunk(text: string, lang: 'zh' | 'en'): string[] {
-  const target = lang === 'zh' ? 300 : 800;
-  const min = lang === 'zh' ? 120 : 320;
-  const shortLine = lang === 'zh' ? 20 : 40;
-  const out: string[] = [];
-
-  let buffer: string[] = [];
-  const flush = (): void => {
-    const joined = buffer.join(' ').trim();
-    buffer = [];
-    if (joined.length >= min) out.push(joined);
-  };
-
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.trim();
-    if (line.length < shortLine) {
-      // 標題／短殘留：它本身不成段，但它也代表一個段落界線。
-      flush();
-      continue;
-    }
-    buffer.push(line);
-    if (buffer.join(' ').length >= target) flush();
-  }
-  flush();
-  return out;
+function chunk(text: string): string[] {
+  return chunkText(text, Infinity).map((c) => c.text);
 }
 
 async function collect(
@@ -187,7 +170,7 @@ async function collect(
   for (const title of titles) {
     const page = await fetchPage(host, prefix, title);
     if (page === null) continue;
-    const parts = chunk(page.text, lang);
+    const parts = chunk(page.text);
     parts.forEach((text, i) => {
       passages.push({ id: `${lang}:${title}#${i}`, lang, group, page: page.title, text });
     });

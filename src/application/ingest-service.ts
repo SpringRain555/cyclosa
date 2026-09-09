@@ -26,6 +26,8 @@ import { readCase, updateCaseStatus } from '../infrastructure/db/repositories/ca
 import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { indexText, reindexTitleRank } from '../infrastructure/index/writer.js';
+import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
+import { embedOnImport } from './embed-service.js';
 import { decodeHtml, decodeText } from '../infrastructure/extract/decode.js';
 import { extractHtml } from '../infrastructure/extract/html.js';
 import { imageDimensions } from '../infrastructure/extract/image.js';
@@ -155,6 +157,22 @@ async function processUrls(
   let failed = 0;
   let done = 0;
 
+  /**
+   * 嵌入 provider **整批只載入一次**。
+   *
+   * 沒設定的話它是 `null`，而那不是錯誤 —— 匯入照常，
+   * 那幾份資料之後會出現在「還沒有向量」的計數裡，回填補得回來
+   * （`embed-service` 檔頭那張表）。
+   *
+   * 載入失敗（設定檔壞掉之類）也一樣不擋匯入。
+   */
+  let providers: Providers | null = null;
+  try {
+    providers = await loadProviders();
+  } catch (e) {
+    logger.warn('載入 provider 設定失敗，這一批不寫向量', { reason: String(e) });
+  }
+
   runs.startRun(db, state.runId, Date.now());
   state.channel.emit({ type: 'started', runId: state.runId, total: queue.length });
 
@@ -166,7 +184,10 @@ async function processUrls(
       await state.gate();
       if (state.cancelled) break;
 
-      const outcome = await processOneUrl(db, folder, crawler, state.runId, entry);
+      // **向量在匯入時就寫**（`ingestBytes` 裡），不是等 Stage 12 回頭補。
+      // 那一步是本機的、大約 0.2 秒，而**下一次抓取本來就要等 ≥3 秒的節流** ——
+      // 所以它在牆上時間裡幾乎是免費的。
+      const outcome = await processOneUrl(db, folder, crawler, state.runId, entry, providers);
       done++;
       if (outcome.counts === 'ok') succeeded++;
       else if (outcome.counts === 'failed') failed++;
@@ -248,6 +269,12 @@ export async function processOneUrl(
   crawler: Crawler,
   runId: string,
   entry: QueuedUrl,
+  /**
+   * 寫向量要用的 provider。**選填，而 `null` 與沒傳是同一件事**：
+   * 那一份資料照樣進得去，只是沒有向量 —— 之後回填補得回來
+   * （`embed-service` 檔頭那張表）。
+   */
+  providers?: Providers | null,
 ): Promise<OneOutcome> {
   const parsed = normalizeUrl(entry.url);
   if (parsed.kind !== 'ok') {
@@ -313,6 +340,7 @@ export async function processOneUrl(
     runItemId: entry.id,
     waitedMs,
     itemId,
+    providers: providers ?? null,
     requestedUrl: parsed.url,
     finalUrl: outcome.finalUrl,
     bytes: outcome.bytes,
@@ -341,6 +369,8 @@ async function ingestBytes(
     readonly hops: readonly string[];
     /** 為了節流等了多久。檔案匯入沒有等，所以是 0。 */
     readonly waitedMs?: number;
+    /** 寫向量要用的 provider。**`null` ＝ 沒設定嵌入模型**，那不是錯誤 */
+    readonly providers?: Providers | null;
   },
 ): Promise<OneOutcome> {
   const media =
@@ -445,6 +475,20 @@ async function ingestBytes(
     title: payload.title,
     text: payload.text,
   });
+
+  /**
+   * **向量也在這裡寫。**
+   *
+   * 這一支是「網路與本機檔案匯流」的那一點（見上面的檔頭），
+   * 所以掛在這裡的話兩條匯入路徑都涵蓋得到 ——
+   * 掛在其中一條上的話，另一條的資料會安靜地沒有向量。
+   * （第一版就是那樣：只接了 URL 那條迴圈，而檔案匯入走的是另一支。）
+   *
+   * 失敗不影響這一項的結果，理由與作法見 `embedOnImport`。
+   */
+  if (input.providers != null) {
+    await embedOnImport(db, folder, input.itemId, input.providers);
+  }
 
   return finishRunItem(
     db,
@@ -649,9 +693,19 @@ export async function importFile(
       now,
     });
 
+    // **檔案匯入也要寫向量。** 這一條與 URL 那條走同一支 `ingestBytes`，
+    // 但 provider 要各自載入 —— 它們是兩個獨立的進入點。
+    let providers: Providers | null = null;
+    try {
+      providers = await loadProviders();
+    } catch (e) {
+      logger.warn('載入 provider 設定失敗，這一份不寫向量', { reason: String(e) });
+    }
+
     const result = await ingestBytes(db, caseFolderOf(dataRoot, slug), {
       runItemId,
       itemId,
+      providers,
       requestedUrl: null,
       finalUrl: fileName,
       bytes,

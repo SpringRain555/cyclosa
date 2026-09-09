@@ -51,6 +51,7 @@ import {
   listNotesForItem,
   updateNote,
 } from '../../application/note-service.js';
+import { backfillVectors } from '../../application/embed-service.js';
 import { rebuildDerived } from '../../application/rebuild-service.js';
 import { exportEvidence } from '../../application/export-service.js';
 import { searchCase, type SearchMode } from '../../application/search-service.js';
@@ -785,6 +786,19 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     return send(reply, await rebuildDerived(dataRoot, req.params.slug));
   });
 
+  /**
+   * 補上還沒有向量的資料。**一次一批，回報還剩幾份。**
+   *
+   * **不是 `run`**，理由寫在 `embed-service` 檔頭：它的續跑點就是查詢本身，
+   * 所以「取消」與「復原」對它沒有意義 —— 而一個假的取消按鈕比沒有更糟。
+   * 呼叫端看 `remaining` 決定要不要再打一次。
+   */
+  app.post<{ Params: { slug: string } }>('/api/cases/:slug/embed', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await backfillVectors(dataRoot, req.params.slug));
+  });
+
   // ── 來源網站（Stage 10.5）───────────────────────────────
 
   /**
@@ -862,9 +876,10 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
  * 分成兩支的話，前端要自己決定「這次要問哪一支」，
  * 而那個決定的依據（有沒有嵌入模型）在伺服器這一邊。
  *
- * **語意還沒接上**：`mode=semantic`／`hybrid` 會拿到全文的結果
- * 加一條 `SEARCH_EMBED_UNAVAILABLE` 的 notice —— 照 `api-contract.md`
- * 那一行（「語意不可用時全文照常回」）。**不假裝跑過語意，也不整個失敗。**
+ * **拿不到向量時**（沒設模型、Ollama 沒開、模型被 `ollama rm` 掉）：
+ * `mode=semantic`／`hybrid` 拿到全文的結果加一條 `SEARCH_EMBED_UNAVAILABLE`
+ * 的 notice —— 照 `api-contract.md` 那一行（「語意不可用時全文照常回」）。
+ * **不假裝跑過語意，也不整個失敗。**
  */
 function registerSearchRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{

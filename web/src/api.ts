@@ -280,6 +280,23 @@ export interface ProvidersPayload {
   }[];
 }
 
+/** 搜尋模式。**server 的 `SearchMode` 也有一份**（兩份建置）。 */
+export type SearchMode = 'text' | 'semantic' | 'hybrid';
+
+/** 回填一批向量之後的報告（`POST /api/cases/:slug/embed`）。 */
+export interface BackfillReport {
+  /** **`null` ＝ 還沒設定嵌入模型**，那時候其餘欄位都是 0 */
+  model: string | null;
+  processed: number;
+  written: number;
+  /** 做完這一批之後還差幾份。**0 才是做完** */
+  remaining: number;
+  rows: number;
+  owners: number;
+  otherModels: { model: string; rows: number }[];
+  code: string | null;
+}
+
 export interface ProviderTest {
   role: ProviderRole;
   ok: boolean;
@@ -308,7 +325,12 @@ export interface SearchHit {
   readAt: number | null;
   excluded: boolean;
   /** `hit` 正文裡真的有 · `miss` 跨詞誤中 · `no-text` 正文讀不到、沒驗 */
-  check: 'hit' | 'miss' | 'no-text';
+  /**
+   * `hit`／`semantic`／`miss`／`no-text`。
+   *
+   * **`semantic` 不是 `miss`**：語意那一路命中的文件本來就不會有那串字。
+   */
+  check: 'hit' | 'semantic' | 'miss' | 'no-text';
   snippet: string;
   matchStart: number;
   matchEnd: number;
@@ -318,7 +340,7 @@ export interface SearchHit {
 
 export interface SearchResponse {
   query: string;
-  mode: 'text' | 'semantic' | 'hybrid';
+  mode: SearchMode;
   route: 'bigram' | 'fts' | 'both';
   hits: SearchHit[];
   candidates: number;
@@ -744,7 +766,10 @@ export const api = {
    * 「這次能不能用語意」的依據在伺服器那一邊（有沒有嵌入模型），
    * 分成兩支的話前端要自己猜那件事。
    */
-  search: (slug: string, q: string, mode: 'text' | 'semantic' | 'hybrid' = 'text') =>
+  /** 補一批向量。**回 `remaining`，呼叫端看它決定要不要再打一次。** */
+  embedBackfill: (slug: string) =>
+    request<BackfillReport>(`/api/cases/${enc(slug)}/embed`, { method: 'POST' }),
+  search: (slug: string, q: string, mode: SearchMode = 'text') =>
     request<SearchResponse>(
       `/api/cases/${enc(slug)}/search?${new URLSearchParams({ q, mode }).toString()}`,
     ),

@@ -1,5 +1,11 @@
 /**
- * 檢索（Stage 12）。**全文那一半 —— 語意還沒接上。**
+ * 檢索（Stage 12）。**三路候選、一次確認。**
+ *
+ * | 路 | 索引 | 什麼時候跑 |
+ * |---|---|---|
+ * | bigram | CJK 兩字一組 | `text`／`hybrid` |
+ * | FTS5 | 拉丁 `unicode61` | `text`／`hybrid` |
+ * | 向量 | 段落級嵌入 | `semantic`／`hybrid`，**而且要有設定好的嵌入模型** |
  *
  * ## 這一支在做的事只有一句話：索引找候選，正文確認
  *
@@ -33,6 +39,7 @@
 import { access } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { chunkText } from '../domain/search/chunk.js';
 import {
   checkText,
   parseQuery,
@@ -52,6 +59,8 @@ import {
   titleRanks,
   type IndexCandidate,
 } from '../infrastructure/index/reader.js';
+import { semanticCandidates } from '../infrastructure/index/vector-reader.js';
+import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
 import { readDerived } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
@@ -81,7 +90,14 @@ export interface SearchHit {
   readonly lang: string | null;
   readonly readAt: number | null;
   readonly excluded: boolean;
-  /** `hit`／`miss`／`no-text` —— **`miss` 就是跨詞誤中**。 */
+  /**
+   * `hit`／`semantic`／`miss`／`no-text`。
+   *
+   * **`miss` 是跨詞誤中**（正文裡真的沒有那串字）；
+   * **`semantic` 不是** —— 它是語意那一路命中的，而那種命中
+   * 本來就不會有那串字。兩者合成一個的話，畫面會對一個正確的結果
+   * 說「可能是誤中」。
+   */
   readonly check: CheckStatus;
   readonly snippet: string;
   readonly matchStart: number;
@@ -110,29 +126,37 @@ export interface SearchResponse {
 }
 
 /**
- * 兩個來源的候選合併。**輪流取，不是排在一起比大小。**
+ * 幾個來源的候選合併。**輪流取，不是排在一起比大小。**
  *
- * bigram 的分數是次數總和，FTS5 的是 `-bm25` —— 兩個數字的單位完全不同，
- * 放在同一個 `ORDER BY` 裡比大小是一個**看起來會動、而且永遠偏袒其中一邊**的錯。
- * 輪流取保證兩條路都有機會進入「要驗的那 60 個」。
+ * bigram 的分數是次數總和，FTS5 的是 `-bm25`，語意的是餘弦 ——
+ * 三個數字的單位完全不同，放在同一個 `ORDER BY` 裡比大小是一個
+ * **看起來會動、而且永遠偏袒其中一邊**的錯。
+ * 輪流取保證每一條路都有機會進入「要驗的那 60 個」。
  *
  * 回傳的 `score` 換成各自來源裡的名次（1 → 0），**它是排序線索，不是相關度**。
+ *
+ * > **2026-09-10 從兩路擴成任意路。** 語意那一路接上來的時候，
+ * > 第一個念頭是「餘弦是 0–1，正規化一下就可以跟別的加權平均」——
+ * > 而那正是這段註解一開始在反對的事。**餘弦是 0–1 不代表它可比**：
+ * > 0.7 的餘弦與「bigram 命中 7 次」之間沒有換算率，而任何一個權重
+ * > 都是在替使用者決定「這次要偏語意還是偏字面」。
+ * > 名次是每一路自己說得準的東西，所以合併發生在名次上。
  */
 function interleave(
-  a: readonly IndexCandidate[],
-  b: readonly IndexCandidate[],
+  lists: readonly (readonly IndexCandidate[])[],
   cap: number,
 ): ReadonlyMap<string, number> {
   const out = new Map<string, number>();
   const rank = (list: readonly IndexCandidate[], i: number): number =>
     list.length <= 1 ? 1 : 1 - i / list.length;
+  const longest = Math.max(0, ...lists.map((l) => l.length));
 
-  for (let i = 0; i < Math.max(a.length, b.length) && out.size < cap; i++) {
-    const fromA = a[i];
-    if (fromA !== undefined && !out.has(fromA.id)) out.set(fromA.id, rank(a, i));
-    if (out.size >= cap) break;
-    const fromB = b[i];
-    if (fromB !== undefined && !out.has(fromB.id)) out.set(fromB.id, rank(b, i));
+  for (let i = 0; i < longest && out.size < cap; i++) {
+    for (const list of lists) {
+      if (out.size >= cap) break;
+      const row = list[i];
+      if (row !== undefined && !out.has(row.id)) out.set(row.id, rank(list, i));
+    }
   }
   return out;
 }
@@ -157,6 +181,7 @@ export async function searchCase(
   dataRoot: string,
   slug: string,
   input: { readonly q: string; readonly mode?: SearchMode; readonly limit?: number },
+  load: () => Promise<Providers> = loadProviders,
 ): Promise<Result<SearchResponse>> {
   const cid = correlationId();
   const started = Date.now();
@@ -168,6 +193,34 @@ export async function searchCase(
   const limit = Math.max(1, Math.min(input.limit ?? DEFAULT_LIMIT, 100));
 
   const folder = join(casesDir(dataRoot), slug);
+
+  /**
+   * **查詢的向量先要到手，那一步是網路、跟資料庫無關。**
+   *
+   * 放在開資料庫之前，是因為它可能要等幾百毫秒（甚至逾時）——
+   * 而一個開著的 SQLite 連線在那段時間裡什麼事都沒做。
+   *
+   * 拿不到向量**不是錯誤**：全文那一半照常跑，然後在 `notices` 裡說出來。
+   * ADR-0006 第 3 條要求的是「不靜默降級」，而這裡有兩個字是重點 ——
+   * 降級可以，安靜不行。
+   */
+  let queryVector: Float32Array | null = null;
+  let embedModel: string | null = null;
+  if (mode !== 'text') {
+    try {
+      const provider = (await load()).embed;
+      if (provider !== null) {
+        const out = await provider.embedQuery(parsed.raw);
+        if (out.kind === 'ok') {
+          queryVector = out.value;
+          embedModel = provider.model;
+        }
+      }
+    } catch {
+      // 設定檔壞掉、Ollama 沒開 —— 都走同一條路：全文照常，notice 說出來。
+      queryVector = null;
+    }
+  }
 
   // **先看資料夾在不在。** `new DatabaseSync(path)` 對一個不存在的目錄會丟例外，
   // 而那個例外會變成 500 —— 打錯一個 slug 拿到「伺服器內部錯誤」是一句錯話，
@@ -192,12 +245,25 @@ export async function searchCase(
   let ranks: ReadonlyMap<string, string>;
   let entities: readonly SearchHit[];
   let incomplete: boolean;
+  /** 語意那一路命中的是第幾段。**只有從那一路來的才有值。** */
+  let semanticOrd: ReadonlyMap<string, number>;
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
 
-    const fromBigram = bigramCandidates(db, parsed.grams, CANDIDATE_CAP);
-    const fromFts = parsed.phrase === null ? [] : ftsCandidates(db, parsed.phrase, CANDIDATE_CAP);
-    scores = interleave(fromBigram, fromFts, CANDIDATE_CAP);
+    // **`semantic` 模式不跑字面那兩路。** 使用者要的就是「用字不同的那些」——
+    // 混進字面命中會讓這個模式跟 `hybrid` 沒有差別，而那樣它就沒有存在的理由。
+    const fromBigram = mode === 'semantic' ? [] : bigramCandidates(db, parsed.grams, CANDIDATE_CAP);
+    const fromFts =
+      mode === 'semantic' || parsed.phrase === null
+        ? []
+        : ftsCandidates(db, parsed.phrase, CANDIDATE_CAP);
+    const fromVector =
+      queryVector === null || embedModel === null
+        ? []
+        : semanticCandidates(db, queryVector, { model: embedModel, limit: CANDIDATE_CAP });
+
+    scores = interleave([fromBigram, fromFts, fromVector], CANDIDATE_CAP);
+    semanticOrd = new Map(fromVector.map((h) => [h.id, h.ord]));
 
     const ids = [...scores.keys()];
     items = loadItems(db, ids.slice(0, VERIFY_CAP));
@@ -242,17 +308,52 @@ export async function searchCase(
     const item = byId.get(id);
     if (item === undefined) continue; // 超過 VERIFY_CAP 的那些沒有載進來
     const text = await textOf(folder, item);
-    const result = checkText(text, parsed.raw);
+    const literal = checkText(text, parsed.raw);
+
+    /**
+     * **語意那一路命中的那一段，要當成摘要顯示出來。**
+     *
+     * 這一段是 `check` 那三種狀態原本說不出來的事。語意命中的文件
+     * **本來就不會有那串字**（那是它的用途），所以 `checkText` 回 `miss`——
+     * 而畫面上寫的是「可能是誤中：正文裡沒有這串字」，
+     * **對一個正確的結果指控它是誤中。**
+     *
+     * 所以：字面找得到就照舊（`hit` 優先，那是更強的證據）；
+     * 找不到但它是語意來的，就標 `semantic` 並且把**那一段**切出來 ——
+     * 段落的位置由 `chunkText` 重算，跟寫向量時是同一支函式，
+     * 所以第 `ord` 段一定是同一段。
+     */
+    const ord = semanticOrd.get(id);
+    const chunk =
+      literal.status !== 'hit' && ord !== undefined && text !== null
+        ? chunkText(text)[ord]
+        : undefined;
+
+    const result: { status: CheckStatus; span: { start: number; end: number } | null } =
+      chunk !== undefined
+        ? { status: 'semantic', span: { start: chunk.start, end: chunk.start } }
+        : literal;
+
     const snippet =
-      result.span !== null && text !== null
-        ? snippetAround(text, result.span)
-        : {
-            text: item.excerpt.slice(0, 160),
+      chunk !== undefined && text !== null
+        ? // 段落本身就是摘要 —— **不再切一次**，因為切出來的那 96 個字
+          // 未必包含它為什麼被選中的那一句。
+          {
+            text: text.slice(chunk.start, chunk.end),
             matchStart: 0,
             matchEnd: 0,
-            cutHead: false,
-            cutTail: item.excerpt.length > 160,
-          };
+            cutHead: chunk.start > 0,
+            cutTail: chunk.end < text.length,
+          }
+        : literal.span !== null && text !== null
+          ? snippetAround(text, literal.span)
+          : {
+              text: item.excerpt.slice(0, 160),
+              matchStart: 0,
+              matchEnd: 0,
+              cutHead: false,
+              cutTail: item.excerpt.length > 160,
+            };
 
     checked.push({
       id,
@@ -285,9 +386,10 @@ export async function searchCase(
 
   const notices: string[] = [];
   if (incomplete) notices.push('SEARCH_INDEX_INCOMPLETE');
-  // **語意那一半還沒接。** 要求它的時候不假裝有，也不整個失敗 ——
+  // **要求了語意卻沒跑成，就要說出來。** 不假裝有，也不整個失敗 ——
   // 全文照常回，並且說出語意沒跑（`api-contract.md`）。
-  if (mode !== 'text') notices.push('SEARCH_EMBED_UNAVAILABLE');
+  // 沒設定模型、Ollama 沒開、模型拉掉了 —— 三種都走這一條。
+  if (mode !== 'text' && queryVector === null) notices.push('SEARCH_EMBED_UNAVAILABLE');
 
   return ok(
     {

@@ -20,6 +20,7 @@ import {
 import { chatModelFor, readProvidersConfig, type ProvidersConfig } from './config.js';
 import { createClaudeAgent } from './agent-claude.js';
 import { createOllamaChat, listOllamaModels } from './chat-ollama.js';
+import { createOllamaEmbed, type EmbedProvider } from './embed-ollama.js';
 import type { AgentProvider, ChatProvider, ProbeResult } from './types.js';
 
 export interface ProviderStatus {
@@ -105,6 +106,11 @@ export interface Providers {
   readonly chat: ChatProvider | null;
   /** 這個任務實際會跑在哪一支上。**覆寫是空的就是預設那一支。** */
   chatFor(task: ChatTask): ChatProvider | null;
+  /**
+   * 嵌入。**`null` ＝ 沒設定模型**，而那不是錯誤 ——
+   * 匯入、閱讀器、圖、裁決、全文檢索完全不需要它（`config.ts` 檔頭）。
+   */
+  readonly embed: EmbedProvider | null;
   agentFor(request: AgentRequest): AgentProvider | null;
 }
 
@@ -128,10 +134,15 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
   };
   const agentCommand = config.agent?.command ?? '';
   const agentArgs = config.agent?.args ?? [];
+  const embedModel = config.embed?.model.trim() ?? '';
   return {
     config,
     chat: chatOf(config.chat?.model.trim() ?? ''),
     chatFor: (task) => chatOf(chatModelFor(config.chat, task)),
+    embed:
+      config.embed === null || embedModel.length === 0
+        ? null
+        : createOllamaEmbed(config.embed.baseUrl, embedModel),
     agentFor: (request) =>
       agentCommand.length === 0
         ? null

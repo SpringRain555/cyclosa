@@ -376,7 +376,11 @@ async function test(role: ProviderRole): Promise<void> {
 
         <p v-if="missingText(status.role)" class="missing">{{ missingText(status.role) }}</p>
 
-        <div v-if="status.role !== 'embed'" class="actions">
+        <!-- **三個角色都可以「實際打一次」（v0.11.0）。**
+           `embed` 原本沒有這顆按鈕，因為那個角色還沒有實作 ——
+           而它其實是最該按的一個：模型在不在清單上，設定頁載入時就看得到；
+           **它吐不吐得出向量，只有真的打一次才知道**。 -->
+        <div class="actions">
           <button :disabled="testing !== null" @click="test(status.role)">
             {{ testing === status.role ? t.settings.testing : t.settings.test }}
           </button>

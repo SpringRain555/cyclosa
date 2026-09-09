@@ -105,13 +105,17 @@ export async function listProviders(): Promise<Result<ProvidersPayload>> {
   const readiness = view.statuses.map((status) => {
     if (status.role === 'embed') {
       /**
-       * **`ok` 的意思是「模型選好了，而且它真的在 Ollama 上」** ——
-       * 不是「語意檢索可以用了」。那一半還沒接（Stage 12 後半）。
+       * **`ok` 的意思是「模型選好了，而且它真的在 Ollama 上」。**
+       *
+       * v0.11.0 之後語意檢索真的會用到它，所以這一格終於等於
+       * 「語意查得動」—— **但只等於一半**：向量是**逐專題**的，
+       * 一個沒有按過「建立語意索引」的專題，這裡是綠的而搜尋仍然找不到東西。
+       * 那個數字在搜尋面板上（它是逐專題的，這一頁不是）。
        *
        * 2026-09-09 之前這裡永遠回 `false`，因為模型還沒選。現在選好了
        * （`qwen3-embedding:4b`，量測見 `docs/research/embedding-choice.md`），
-       * 所以這一格改成反映設定的實際狀態 —— 但**畫面上要講清楚它還沒接上**，
-       * 否則一個綠勾會被讀成「搜尋已經有語意了」。
+       * 所以這一格反映的是設定的實際狀態，而**畫面上要講清楚它只是一半** ——
+       * 否則一個綠勾會被讀成「這個專題的搜尋已經有語意了」。
        */
       return {
         role: status.role,
@@ -230,7 +234,30 @@ export async function testProvider(
   const cid = correlationId();
   const providers = await loadProviders();
 
-  if (role === 'embed') return err('PROVIDER_NOT_CONFIGURED', cid, { role });
+  /**
+   * **嵌入也打得動了（v0.11.0）。**
+   *
+   * 在那之前這裡無條件回「沒設定」，因為那個角色還沒有實作。
+   * 現在它是三個角色裡**最該按這顆按鈕**的一個：模型在不在 `/api/tags` 上
+   * 是設定頁載入時就看得到的事，而「它真的吐得出向量嗎」不是 ——
+   * 一個拉了一半的模型、一個記憶體不夠載入的模型，兩者都在清單上。
+   *
+   * 它走的是**查詢那一側**（帶前綴），因為那是使用者實際會觸發的路徑。
+   */
+  if (role === 'embed') {
+    if (providers.embed === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });
+    const call = await providers.embed.embedQuery('測試');
+    return ok(
+      {
+        role,
+        ok: call.kind === 'ok',
+        code: call.kind === 'ok' ? null : call.code,
+        costUsd: call.cost.costUsd,
+        elapsedMs: call.cost.elapsedMs,
+      },
+      cid,
+    );
+  }
 
   if (role === 'chat') {
     if (providers.chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });

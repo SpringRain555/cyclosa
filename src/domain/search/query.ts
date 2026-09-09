@@ -89,7 +89,15 @@ export function parseQuery(raw: string): ParsedQuery | null {
 
 // ── 正文確認 ────────────────────────────────────────────────
 
-export type CheckStatus = 'hit' | 'miss' | 'no-text';
+/**
+ * 一筆結果被驗成什麼樣。
+ *
+ * `semantic` 是 2026-09-10 加的第四種，而它修的是一個會說謊的欄位：
+ * 語意檢索命中的那一份**本來就不會有那串字**（那是它的用途），
+ * 而在只有三種狀態的時候它會被標成 `miss`「可能是誤中」——
+ * **對一個正確的結果指控它是誤中。**
+ */
+export type CheckStatus = 'hit' | 'semantic' | 'miss' | 'no-text';
 
 export interface Checked {
   readonly status: CheckStatus;
@@ -132,9 +140,19 @@ export interface RankableHit {
  * 而 `miss` 的那一份我們**已經看過正文、確定裡面沒有這串字**。
  * 把不知道的排在確定不對的前面。
  *
+ * `semantic` 插在字面命中之後：它的正文我們也讀了，只是**它本來就不該有那串字**。
+ *
  * 標題命中排在正文命中前面：使用者查的常常就是標題裡的詞。
  */
-const TIER: Readonly<Record<CheckStatus, number>> = { hit: 0, 'no-text': 1, miss: 2 };
+const TIER: Readonly<Record<CheckStatus, number>> = {
+  hit: 0,
+  // **語意命中排在字面命中後面、沒驗過的前面。**
+  // 它比 `no-text` 確定（我們讀了正文，而且有一段真的很像），
+  // 但比字面命中不確定（「很像」是模型說的，不是我們驗的）。
+  semantic: 1,
+  'no-text': 2,
+  miss: 3,
+};
 
 export function rankHits<T extends RankableHit>(hits: readonly T[]): readonly T[] {
   return [...hits].sort((a, b) => {

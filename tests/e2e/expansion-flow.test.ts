@@ -402,6 +402,40 @@ describe('provider 配不上就停手，不靜默降級（ADR-0006）', () => {
     }
   });
 
+  /**
+   * **這一條守的是 2026-09-09 修掉的那個缺口。**
+   *
+   * `TASK_ANGLES` 只要 8000 context，而抽取那一步要吃 12,000 字的外部正文
+   * （`TASK_EXTRACT` 要 18000）。在補上 `TASK_EXTRACT` 之前，一個 10000 context
+   * 的模型會**一路通過**：角度那一關過、勾選那一關只檢查 chat「有沒有設定」，
+   * 然後把全部網址抓完，最後在每一份文件上把正文截掉一半 ——
+   * 而抽出來的關聯照樣帶引文、照樣進待查證，畫面上看不出任何異常。
+   */
+  it('context 過得了角度但不夠抽取 → 勾選就停手，**一個網址都沒抓**', async () => {
+    chatContextTokens = 10_000;
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    // 角度那一關本來就該過 —— 它只要 8000。
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    expect(chosen.ok).toBe(false);
+    if (!chosen.ok) {
+      expect(chosen.code).toBe('PROVIDER_CAPABILITY_MISSING');
+      expect(chosen.detail?.['role']).toBe('chat');
+      // **旗標是空的，缺的是 context** —— 所以那兩個數字一定要帶出去，
+      // 否則畫面上只會顯示「缺少：（空白）」。
+      expect(chosen.detail?.['needContextTokens']).toBe(18_000);
+      expect(chosen.detail?.['haveContextTokens']).toBe(10_000);
+    }
+
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    if (!detail.ok) return;
+    expect(detail.data.items).toHaveLength(0);
+  });
+
   it('沒設定 agent → 勾選那一步就停手，而且**一個網址都沒抓**', async () => {
     const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
     if (!started.ok) return;

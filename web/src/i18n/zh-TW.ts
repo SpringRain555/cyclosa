@@ -847,7 +847,7 @@ export const t = {
     roleWhat: {
       agent: '用搜尋找出候選網址。它不抓網頁 —— 抓取一律走同一條擷取管線。',
       chat: '從既有內容歸納切入角度，並從抓回來的正文抽出實體與關係。',
-      embed: '語意檢索用的向量。還沒有做 —— 那是後面的階段。',
+      embed: '語意檢索用的向量。模型可以先選，但檢索那一半還沒接上 —— 現在搜尋只有全文。',
     },
     state: {
       ready: '可以用',
@@ -870,6 +870,17 @@ export const t = {
     chatModel: '模型',
     chatModelPick: '選一個本機有的模型',
     chatModelsUnreachable: '連不上這個位址，所以列不出有哪些模型。',
+    embedBaseUrl: 'Ollama 位址',
+    embedModel: '嵌入模型',
+    embedModelPick: '選一個本機有的模型',
+    /** 建議值是量出來的，而**畫面上要說得出「量了什麼」** */
+    embedRecommend: '建議 {model}',
+    embedRecommendWhy:
+      '2026-09-09 拿 1955 段真實網頁與 50 條查詢比過七個候選；繁中查詢命中英文原文這一項它排第一（MRR@10 0.940，第二名 0.692）。小機器可以改用 qwen3-embedding:0.6b（610 MB）。',
+    /** **這一句比那個下拉選單重要。** 換模型的代價要在按下去之前就看得到 */
+    embedIrreversible:
+      '換掉這個模型，已經算好的向量全部作廢，要整批重算 —— 而且比對不會報錯，只會安靜地變爛。三個角色裡只有這一個是這樣。',
+    embedNotWired: '語意檢索還沒接上，所以這裡選好了也還不會生效。選好只是先把模型定下來。',
     agentCommand: 'CLI 指令',
     agentCommandHint: '留空就是不啟用。預設是 claude，靠系統路徑找。',
     save: '儲存',

@@ -38,6 +38,15 @@ const model = ref('');
 const command = ref('');
 /** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
 const apiKeyEnv = ref('');
+const embedBaseUrl = ref('');
+const embedModel = ref('');
+
+/**
+ * 量測選出來的建議值（`docs/research/embedding-choice.md`，2026-09-09）。
+ * **顯示成一顆可以按的建議，不自己填進去** —— 換這個模型的代價比另外兩個大，
+ * 所以它要是使用者按下去的，不是我們替他決定的。
+ */
+const RECOMMENDED_EMBED = 'qwen3-embedding:4b';
 
 const testing = ref<ProviderRole | null>(null);
 const testResult = ref<{ role: ProviderRole; text: string } | null>(null);
@@ -55,6 +64,8 @@ async function load(): Promise<void> {
   model.value = r.data.config.chat?.model ?? '';
   command.value = r.data.config.agent?.command ?? '';
   apiKeyEnv.value = r.data.config.chat?.apiKeyEnv ?? '';
+  embedBaseUrl.value = r.data.config.embed?.baseUrl ?? '';
+  embedModel.value = r.data.config.embed?.model ?? '';
 }
 onMounted(() => void load());
 
@@ -94,6 +105,10 @@ async function save(): Promise<void> {
             apiKeyEnv: apiKeyEnv.value.trim().length === 0 ? null : apiKeyEnv.value.trim(),
           },
     agent: command.value.trim().length === 0 ? null : { command: command.value.trim(), args: [] },
+    embed:
+      embedBaseUrl.value.trim().length === 0
+        ? null
+        : { baseUrl: embedBaseUrl.value.trim(), model: embedModel.value.trim() },
   });
   saving.value = false;
   if (!r.ok) {
@@ -197,8 +212,46 @@ async function test(role: ProviderRole): Promise<void> {
           <p class="hint">{{ t.settings.agentCommandHint }}</p>
         </div>
 
+        <!--
+          embed：位址 ＋ 模型，**沒有金鑰欄位**（只接本機端點）。
+
+          **那句「換掉要全部重算」比下拉選單重要**，所以它在選單上面而不是下面 ——
+          三個角色裡只有這一個換掉有不可逆的代價，而畫面上看不出來的話
+          使用者會把它當成另外兩個一樣可以隨便換。
+        -->
+        <div v-else-if="status.role === 'embed'" class="form">
+          <p class="warn">{{ t.settings.embedIrreversible }}</p>
+          <label>
+            <span>{{ t.settings.embedBaseUrl }}</span>
+            <input v-model="embedBaseUrl" type="text" />
+          </label>
+          <label>
+            <span>{{ t.settings.embedModel }}</span>
+            <select v-if="payload?.chatModels?.length" v-model="embedModel">
+              <option value="">{{ t.settings.embedModelPick }}</option>
+              <option v-for="name in payload.chatModels" :key="name" :value="name">
+                {{ name }}
+              </option>
+            </select>
+            <input v-else v-model="embedModel" type="text" />
+          </label>
+          <p class="hint">
+            <!-- **建議值是使用者按下去的，不是我們替他填的** -->
+            <button
+              v-if="embedModel !== RECOMMENDED_EMBED"
+              class="link"
+              type="button"
+              @click="embedModel = RECOMMENDED_EMBED"
+            >
+              {{ fill(t.settings.embedRecommend, { model: RECOMMENDED_EMBED }) }}
+            </button>
+            {{ t.settings.embedRecommendWhy }}
+          </p>
+          <p class="hint">{{ t.settings.embedNotWired }}</p>
+        </div>
+
         <!-- 能力宣告攤開來。**它是配對規則真正看的東西** -->
-        <div v-if="status.state === 'ready'" class="caps">
+        <div v-if="status.state === 'ready' && status.role !== 'embed'" class="caps">
           <span class="caps-label">{{ t.settings.capabilities }}</span>
           <span
             v-for="flag in CAPABILITY_FLAGS"
@@ -436,6 +489,34 @@ select {
   font-size: 12px;
   color: var(--text-muted);
   margin: 0;
+}
+/**
+ * 「換掉要全部重算」那一句。
+ *
+ * **刻意不給它一個顏色。** ADR-0018 第 1 條是「每個顏色一個意思」，
+ * 而琥珀已經是待查證、紅已經是真的壞掉了 —— 這一句兩者都不是，
+ * 它是「按下去之前要知道的事」。所以強調靠**字重與一條左邊界**，
+ * 跟 ADR-0024 把已讀改標在字重上是同一個判斷。
+ */
+.warn {
+  margin: 0 0 4px;
+  padding-left: 10px;
+  border-left: 3px solid var(--line-strong);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+/** 建議值那顆 —— 看起來是文字，但它是按鈕，因為它會改一個欄位。 */
+.link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-right: 4px;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ui-action);
+  cursor: pointer;
+  text-decoration: underline;
 }
 .test-result {
   font-size: 12px;

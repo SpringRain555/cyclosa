@@ -15,6 +15,7 @@ import { mkdir } from 'node:fs/promises';
 import {
   missingFor,
   TASK_ANGLES,
+  TASK_EXTRACT,
   TASK_FIND_SOURCES,
   type ProviderRole,
 } from '../domain/provider/index.js';
@@ -52,16 +53,48 @@ export async function listProviders(): Promise<Result<ProvidersPayload>> {
   const view = await describeProviders();
   const readiness = view.statuses.map((status) => {
     if (status.role === 'embed') {
-      // Stage 12。**列出來但誠實說它還沒有** —— 少列一個角色，
-      // 使用者會以為這個工具只有兩種模型。
-      return { role: status.role, ok: false, missing: [] as readonly string[] };
+      /**
+       * **`ok` 的意思是「模型選好了，而且它真的在 Ollama 上」** ——
+       * 不是「語意檢索可以用了」。那一半還沒接（Stage 12 後半）。
+       *
+       * 2026-09-09 之前這裡永遠回 `false`，因為模型還沒選。現在選好了
+       * （`qwen3-embedding:4b`，量測見 `docs/research/embedding-choice.md`），
+       * 所以這一格改成反映設定的實際狀態 —— 但**畫面上要講清楚它還沒接上**，
+       * 否則一個綠勾會被讀成「搜尋已經有語意了」。
+       */
+      return {
+        role: status.role,
+        ok: status.state === 'ready',
+        missing: [] as readonly string[],
+      };
     }
-    const task = status.role === 'agent' ? TASK_FIND_SOURCES : TASK_ANGLES;
-    const match = missingFor(task, status.capabilities);
+    /**
+     * **`chat` 要對兩個任務都過。**
+     *
+     * 2026-09-09 之前這裡只看 `TASK_ANGLES`，於是設定頁上顯示的「可以用」
+     * 只代表「歸納角度跑得動」—— 而 `chat` 底下還有一個抽取實體與關係，
+     * 它要吃 12,000 字的外部正文，context 需求高得多（`TASK_EXTRACT`）。
+     * 一個剛好 8000 context 的模型會在這一頁被標成綠的，然後在抽取時
+     * **把正文截掉一半而不報錯**。
+     */
+    const tasks = status.role === 'agent' ? [TASK_FIND_SOURCES] : [TASK_ANGLES, TASK_EXTRACT];
+    const matches = tasks.map((task) => missingFor(task, status.capabilities));
+    const missing = [
+      ...new Set(
+        matches.flatMap((m) => {
+          if (m.kind === 'ok') return [];
+          // context 不夠也是一種「缺」，而它原本完全不會出現在這個清單裡 ——
+          // 於是畫面上會顯示「缺少：（空白）」。
+          return m.context === null
+            ? [...m.flags]
+            : [...m.flags, `context ${m.context[1]} < ${m.context[0]}`];
+        }),
+      ),
+    ];
     return {
       role: status.role,
-      ok: status.state === 'ready' && match.kind === 'ok',
-      missing: match.kind === 'missing' ? match.flags : [],
+      ok: status.state === 'ready' && missing.length === 0,
+      missing,
     };
   });
   return ok({ ...view, readiness }, cid);
@@ -93,6 +126,15 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
       ? (agentRaw as Record<string, unknown>)['args']
       : undefined;
 
+  const embedRaw = raw['embed'];
+  const embed =
+    typeof embedRaw === 'object' && embedRaw !== null
+      ? {
+          baseUrl: String((embedRaw as Record<string, unknown>)['baseUrl'] ?? '').trim(),
+          model: String((embedRaw as Record<string, unknown>)['model'] ?? '').trim(),
+        }
+      : null;
+
   const config: ProvidersConfig = {
     version: 1,
     chat: chat === null || chat.baseUrl.length === 0 ? null : chat,
@@ -103,6 +145,7 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
             command: agentCommand,
             args: Array.isArray(agentArgsRaw) ? agentArgsRaw.map((a) => String(a)) : [],
           },
+    embed: embed === null || embed.baseUrl.length === 0 ? null : embed,
   };
 
   try {

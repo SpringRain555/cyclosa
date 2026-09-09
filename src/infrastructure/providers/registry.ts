@@ -134,6 +134,7 @@ export async function describeProviders(
   const providers = await loadProviders(env);
   const chatConfigured = providers.config.chat?.model ?? '';
   const agentConfigured = providers.config.agent?.command ?? '';
+  const embedConfigured = providers.config.embed?.model ?? '';
 
   const [chatProbe, agentProbe, chatModels] = await Promise.all([
     providers.chat === null
@@ -158,9 +159,31 @@ export async function describeProviders(
         chatProbe,
         authOf(providers.config.chat?.apiKeyEnv ?? null, env),
       ),
-      statusOf('embed', '', { kind: 'not-configured' }),
+      statusOf('embed', embedConfigured, embedProbe(embedConfigured, chatModels)),
     ],
     chatModels,
     config: providers.config,
   };
+}
+
+/**
+ * `embed` 的「探測」：**看設定的那個模型在不在 Ollama 上**，僅此而已。
+ *
+ * 沒有真的送一次嵌入請求，理由跟這個檔頭寫的一樣 ——
+ * 打開設定頁不該產生工作。而對本機嵌入模型來說「送一次」還有第二個代價：
+ * **它會把那個模型載進顯示記憶體**，而 Ollama 一次只常駐一個，
+ * 於是光是打開設定頁就會把使用者正在用的 chat 模型擠出去。
+ *
+ * 能力宣告一律是 `NO_CAPABILITIES`：`browse`／`tools`／`json_schema`／`vision`
+ * 對嵌入模型一個都不適用，**而假裝它有比誠實說沒有更糟**。
+ * 語意檢索那一半接上去之前，這一格的意義就是「模型選好了、也真的在」。
+ */
+function embedProbe(model: string, available: readonly string[] | null): ProbeResult {
+  if (model.length === 0) return { kind: 'not-configured' };
+  // 連不上跟「拉了但沒有這個模型」是兩件事，訊息也該不一樣。
+  if (available === null) return { kind: 'unreachable', detail: 'Ollama 沒有回應' };
+  if (!available.includes(model)) {
+    return { kind: 'unreachable', detail: `Ollama 上找不到 ${model}` };
+  }
+  return { kind: 'ready', model, version: null, capabilities: NO_CAPABILITIES };
 }

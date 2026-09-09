@@ -246,6 +246,8 @@ export interface ProvidersPayload {
     version: 1;
     chat: { baseUrl: string; model: string; apiKeyEnv: string | null } | null;
     agent: { command: string; args: string[] } | null;
+    /** **沒有 apiKeyEnv** —— 嵌入只接本機端點，理由見 `providers/config.ts` */
+    embed: { baseUrl: string; model: string } | null;
   };
   readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
 }

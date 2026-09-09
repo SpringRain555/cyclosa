@@ -113,3 +113,49 @@ export const TASK_ANGLES: TaskRequirement = {
 export const TASK_FIND_SOURCES: TaskRequirement = {
   needs: ['browse'],
 };
+
+/**
+ * 從抓回來的正文抽出實體與關係。
+ *
+ * **這一條 2026-09-09 才補上，而在那之前它根本不存在** —— `expand-service.ts`
+ * 直接把 `EXTRACT_SCHEMA` 送出去，前面沒有任何配對檢查。角度那一步有、
+ * 找來源那一步有，就這一步沒有。ADR-0006 第 3 條寫著「配不上就停手，
+ * 不靜默降級」，而**少宣告一個任務，那條規則對它就等於不存在**。
+ *
+ * **需要 `json_schema`** —— 理由比角度那一步更硬：這一步把**別人網站上的文字**
+ * 放進提示詞裡，而 schema 是三層防護的第二層（`expansion-prompts.ts` 檔頭）。
+ * 沒有 schema 保證的話，模型能吐出的形狀就不再受限。
+ *
+ * ## context 為什麼是 18000
+ *
+ * 送進去的正文上限是 `MAX_TEXT_CHARS` ＝ 12,000 **字元**，
+ * 而**字元不等於 token，差多少取決於哪一個 tokenizer**。
+ * 拿同一段 12,000 字的中文實測三個家族（2026-09-09，Ollama 0.33.2）：
+ *
+ * | tokenizer | token 數 | 每字元 |
+ * |---|---|---|
+ * | Gemma（`translategemma:12b`）| 8,048 | 0.67 |
+ * | Nemotron（`nemotron-cascade-2:30b`）| 11,185 | 0.93 |
+ * | **OLMo（`olmo-3:32b-think`）** | **14,383** | **1.20** |
+ *
+ * **同一段字，最多與最少差 1.8 倍。** 所以這個數字要抓最壞的那一個：
+ * 14,400（正文）＋ 約 600（系統提示與 schema）＋ 約 2,000（輸出的實體與引文）
+ * ≈ 17,000，取 **18,000** 留一點餘裕。
+ *
+ * 英文同樣 12,000 字元只有 2,637 token（Gemma）—— 所以這個門檻對英文來源
+ * 是過度保守的。**寧可保守**：不夠大的下場是正文被截掉一半而**不會報錯**，
+ * 抽出來的關聯照樣帶引文、照樣進待查證，看起來完全正常。
+ *
+ * `tests/guards/extract-context.test.ts` 釘住 `MAX_TEXT_CHARS` 與這個數字的關係，
+ * 因為它們在不同的層、改一個很容易忘了另一個。
+ */
+export const TASK_EXTRACT: TaskRequirement = {
+  needs: ['json_schema'],
+  minContextTokens: 18_000,
+};
+
+/**
+ * 中文最壞情況下每個字元要幾個 token。**量出來的**（見 `TASK_EXTRACT`）。
+ * 守門測試拿它把 `MAX_TEXT_CHARS` 換算成 token 再跟門檻比。
+ */
+export const WORST_TOKENS_PER_CHAR = 1.2;

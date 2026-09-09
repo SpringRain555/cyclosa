@@ -55,6 +55,7 @@ import {
   normalizeExtraction,
   sandboxViolations,
   TASK_ANGLES,
+  TASK_EXTRACT,
   TASK_FIND_SOURCES,
   type BudgetState,
   type CapabilityFlag,
@@ -193,8 +194,21 @@ function capabilityError(
   cid: string,
   role: 'agent' | 'chat',
   flags: readonly CapabilityFlag[],
+  /**
+   * context 不夠時的 `[需要, 宣告有的]`。
+   *
+   * **這一欄 2026-09-09 才補上，而在那之前它被丟掉了。** `missingFor` 早就會回
+   * 「旗標都在、只是 context 不夠」這種結果（`flags` 是空陣列、`context` 有值），
+   * 而呼叫端只帶 `match.flags` 出去 —— 於是畫面上顯示的是
+   * **「缺少：（空白）」**。那比不報錯還糟：它說了有問題，卻沒說是什麼問題。
+   */
+  context: readonly [number, number] | null = null,
 ): Result<never> {
-  return err('PROVIDER_CAPABILITY_MISSING', cid, { role, missing: flags });
+  return err('PROVIDER_CAPABILITY_MISSING', cid, {
+    role,
+    missing: flags,
+    ...(context === null ? {} : { needContextTokens: context[0], haveContextTokens: context[1] }),
+  });
 }
 
 // ── 第一階段：產生切入角度 ──────────────────────────────────
@@ -235,7 +249,7 @@ export async function startExpansion(
       return err('PROVIDER_UNREACHABLE', cid, { role: 'chat', at: probe.detail });
 
     const match = missingFor(TASK_ANGLES, probe.capabilities);
-    if (match.kind === 'missing') return capabilityError(cid, 'chat', match.flags);
+    if (match.kind === 'missing') return capabilityError(cid, 'chat', match.flags, match.context);
 
     /**
      * **視角是從既有的東西歸納出來的**（STORM，`market-scan.md` 發現 ⑥）。
@@ -377,11 +391,25 @@ export async function chooseAngles(
     if (probe.kind === 'unreachable')
       return err('PROVIDER_UNREACHABLE', cid, { role: 'agent', at: probe.detail });
     const match = missingFor(TASK_FIND_SOURCES, probe.capabilities);
-    if (match.kind === 'missing') return capabilityError(cid, 'agent', match.flags);
+    if (match.kind === 'missing') return capabilityError(cid, 'agent', match.flags, match.context);
 
     // chat 也要在 —— 抽關聯那一步靠它。**在開始之前就檢查**，
     // 不要抓完 30 個網址才發現沒有東西可以抽關聯。
+    //
+    // **2026-09-09 之前這裡只檢查「有沒有設定」，沒有檢查能力。**
+    // 於是一個沒有 `json_schema`、或者 context 只有 8000 的 chat 模型
+    // 會一路通過，抓完全部網址，然後在每一份文件上把正文截掉一半 ——
+    // 而抽出來的關聯照樣帶引文、照樣進待查證，**畫面上看不出任何異常**。
+    // ADR-0006 第 3 條說配不上就停手，而那條規則對一個沒宣告的任務等於不存在。
     if (providers.chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'chat' });
+    const chatProbe = await providers.chat.probe();
+    if (chatProbe.kind === 'not-configured')
+      return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'chat' });
+    if (chatProbe.kind === 'unreachable')
+      return err('PROVIDER_UNREACHABLE', cid, { role: 'chat', at: chatProbe.detail });
+    const extractMatch = missingFor(TASK_EXTRACT, chatProbe.capabilities);
+    if (extractMatch.kind === 'missing')
+      return capabilityError(cid, 'chat', extractMatch.flags, extractMatch.context);
 
     runs.selectAngles(db, runId, chosen);
     runs.updateRunTotal(db, runId, chosen.length);

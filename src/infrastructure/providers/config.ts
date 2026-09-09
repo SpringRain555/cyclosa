@@ -54,10 +54,31 @@ export interface AgentConfig {
   readonly args: readonly string[];
 }
 
+/**
+ * 嵌入模型（2026-09-09，v0.10.2 補上）。
+ *
+ * **沒有 `apiKeyEnv`，那是刻意的。** 向量會被寫進資料庫並長期保存，
+ * 而換模型要把全部重算 —— 一個雲端端點隨時可能換掉背後的權重、
+ * 停用某個版本、或者調整它的正規化方式，而**那些變化不會報錯，
+ * 只會讓比對安靜地變爛**（ADR-0009）。所以這一欄只接本機端點。
+ *
+ * 預設模型是量出來的：`qwen3-embedding:4b`（2026-09-09，七個候選、
+ * 1955 段語料、50 條查詢，見 `docs/research/embedding-choice.md`）。
+ * 小機器的替代選項是 `qwen3-embedding:0.6b`。
+ */
+export interface EmbedConfig {
+  readonly baseUrl: string;
+  readonly model: string;
+}
+
+/** 量測選出來的預設。**設定頁把它當建議值顯示，不會自己寫進設定檔。** */
+export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
+
 export interface ProvidersConfig {
   readonly version: 1;
   readonly chat: ChatConfig | null;
   readonly agent: AgentConfig | null;
+  readonly embed: EmbedConfig | null;
 }
 
 /**
@@ -75,6 +96,9 @@ export const DEFAULT_CONFIG: ProvidersConfig = {
   version: 1,
   chat: { baseUrl: 'http://127.0.0.1:11434', model: '', apiKeyEnv: null },
   agent: null,
+  // `embed` 跟 `chat` 同一個理由：位址猜得準，**模型名不猜**。
+  // 空的就等於沒設定，設定頁把量測選出來的那一個標成「建議」讓人自己按。
+  embed: { baseUrl: 'http://127.0.0.1:11434', model: '' },
 };
 
 /**
@@ -135,10 +159,21 @@ export async function readProvidersConfig(
             args: Array.isArray(agentArgs) ? agentArgs.map((a) => String(a)) : [],
           }
         : null;
+    const embedRaw = parsed['embed'];
+    const embed =
+      typeof embedRaw === 'object' && embedRaw !== null
+        ? {
+            baseUrl: str((embedRaw as Record<string, unknown>)['baseUrl']),
+            model: str((embedRaw as Record<string, unknown>)['model']),
+          }
+        : null;
     return {
       version: 1,
       chat: chat === null || chat.baseUrl.length === 0 ? DEFAULT_CONFIG.chat : chat,
       agent: agent === null || agent.command.length === 0 ? null : agent,
+      // **舊的設定檔沒有這一欄** —— 缺就退回預設（位址有、模型空），
+      // 而不是變成 `null`：`null` 會讓設定頁上那一格連位址都是空的。
+      embed: embed === null || embed.baseUrl.length === 0 ? DEFAULT_CONFIG.embed : embed,
     };
   } catch {
     return DEFAULT_CONFIG;

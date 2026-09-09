@@ -87,6 +87,7 @@
 | `market-scan.md` | 七個賽道，以及它們的設計怎麼解同一個問題 | 2026-09-06（部分條目 09-04）|
 | `extraction-confidence.md` | Q2 抽取信心值：30 個真實頁面的訊號量測 | 2026-09-07 |
 | `embedding-choice.md` | **嵌入模型：桌面調查 ＋ 實測** | 2026-09-09 |
+| `chat-choice.md` | **`chat` 角色：`json_schema: true` 這個宣告量起來是什麼樣子** | 2026-09-09 |
 | `embedding-eval-queries.jsonl` | 上面那份實測的**查詢集**（跑模型之前就寫死並提交）| 2026-09-09 |
 | `open-questions.md` | 還沒答的設計問題 | 持續 |
 | `query-log.md` | 查過什麼、何時、查到什麼、級別 | 持續 |

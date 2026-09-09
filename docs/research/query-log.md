@@ -203,3 +203,40 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 > **這一輪沒有量任何檢索品質。** 上面每一條都是「查得到的欄位」，
 > 而「哪一個找得比較準」要一組評測集才答得出來，設計寫在 `embedding-choice.md`。
 > **把下載數當成品質的代理指標，就是在用「多少人用過」回答「準不準」。**
+
+## 2026-09-09（下午）　嵌入模型實測
+
+**查什麼**：上午那一輪只查了「查得到的欄位」，這一輪補上**檢索品質** ——
+七個候選、同一批語料、同一組查詢、同一支比對程式。
+
+**新增的 A 級查證**（`sources/manifest.jsonl`，同網域 4 秒）：
+
+| 查了什麼 | 結果 |
+|---|---|
+| `Alibaba-NLP/gte-multilingual-base` 有沒有 GGUF | **沒有**（HF 全站搜尋只有它的 reranker 版本有）→ Ollama 拉不到 → 出局 |
+| `nomic-ai/nomic-embed-text-v2-moe-GGUF` 是誰發的 | **模型作者自己**（`nomic-ai` 組織），不是第三方轉檔 → A 級，可測 |
+| 六個模型 card 上的**前綴** | `qwen3` 要 `Instruct:…\nQuery:`、`arctic-embed` 要 `query: `、`nomic-v2` 要 `search_query:`／`search_document:`；`bge-m3`、`granite`、`paraphrase` 沒有 |
+| Ollama 的 `paraphrase-multilingual` 到底是哪一個 | **mpnet-base-v2 不是 MiniLM** —— 靠 `ollama show` 的參數量（277.45M）與 `num_ctx 128` 對出來的 |
+| `intfloat/multilingual-e5-*` | MIT、下載數高，但官方 repo **沒有 GGUF**，只有第三方轉檔（B 級）→ 不列入 |
+
+**兩件推翻自己前一版說法的事**：
+
+1. 上午寫「**只有** Snowflake 在機器可讀欄位裡宣告語言清單」——
+   那是只查了六個 repo 的結論。查到第七個（`paraphrase-multilingual-mpnet-base-v2`，
+   50 種語言）就不成立了。**「只有一個」這種話要查完才能說。**
+2. `nomic-embed-text-v2-moe` 的 model card 用粗體寫著前綴 **must** 加，
+   而實測**加了反而更差**（MRR 0.620 → 0.579）。照 model card 做也可能是錯的。
+
+**自己的守門擋住自己**：第一版語料走 Wikipedia 的 `action=query` API，
+34 個請求全部回 `FETCH_ROBOTS_DISALLOWED`。查 `robots.txt` 確認
+`User-agent: *` 底下有 `Disallow: /w/` 與 `Disallow: /api/`。
+**改的是路徑（`/wiki/` 與 `/zh-tw/`，都在放行範圍內），不是改檢查。**
+
+**結論**：`bge-m3` 與它的主要挑戰者 `qwen3-embedding:0.6b` **打平**
+（逐條配對 10:9，MRR 0.793 對 0.790）；兩者都輸給同家族的
+`qwen3-embedding:4b`（對 `bge-m3` 15:1，跨語言 MRR 0.940 對 0.685）。
+完整設計與數字在 `embedding-choice.md`。
+
+> **這一輪量的是檢索品質，不是「哪個比較有名」。** 上午那一輪的下載數
+> （`bge-m3` 38.0 M 對 `qwen3-embedding:0.6b` 7.5 M）在配對比較裡完全沒有預測力 ——
+> 那兩個模型打成硬幣。**把下載數當品質的代理指標，就是在用「多少人用過」回答「準不準」。**

@@ -1129,3 +1129,57 @@ node.exe : [plugin builtin:vite-reporter]
 > 兩個專案各踩一次同一個坑，中間隔了三週。
 
 **影響範圍**：全域（所有 `.ps1` 呼叫原生指令的地方）
+
+## Ollama 上的模型名字不等於它是哪一個模型
+
+**日期**：2026-09-09
+
+**症狀**：要評測 `paraphrase-multilingual`，去抓
+`sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 的 model card
+來確認前綴與維度 —— 那是同名家族裡最有名的一個。抓回來寫著 384 維。
+
+然後 `ollama show paraphrase-multilingual` 回的是 **768 維、277.45M 參數、`num_ctx 128`**。
+對不上。
+
+**原因**：Ollama 那個 tag 底下裝的是 **`paraphrase-multilingual-mpnet-base-v2`**，
+不是 MiniLM。兩個都叫「paraphrase-multilingual」，維度差一倍。
+
+如果沒有對過參數量，這次評測會拿一份**錯的 model card** 去決定
+「這個模型要不要加前綴、維度多少、上下文多長」，而三個答案都會錯。
+更糟的是**它不會報錯** —— 向量照樣算得出來，分數照樣有一個數字。
+
+**怎麼修的**：改成用 `ollama show` 回的**參數量與 `num_ctx` 去反查是哪一個模型**，
+再抓那一個的 card。`num_ctx 128` 是決定性的線索 —— mpnet-base-v2 的
+`max_seq_length` 就是 128，MiniLM-L12-v2 也是 128，但參數量差得遠（278M 對 118M）。
+
+**怎麼不再犯**：`_meta\models.json` 每一列都記了它到底對應到哪一個 HF repo，
+而不是只記 Ollama 的 tag。授權欄位也註明是從哪個 URL 的哪個欄位查來的。
+
+> 這件事對這個專案特別要緊：嵌入模型是唯一實質不可逆的決定，
+> 而「名字對了、模型不對」是一種**靜默**的錯 —— 跟 ADR-0009 講的
+> 「兩個不同模型的向量照樣算得出餘弦」是同一種病，只是發生在更前面一步。
+
+**影響範圍**：全域
+
+## 自己的 robots 檢查擋住自己的量測腳本 —— 那是成功不是故障
+
+**日期**：2026-09-09
+
+**症狀**：嵌入評測要抓 34 頁 Wikipedia 當語料，走的是專案自己的 `Crawler`。
+34 個請求**全部**回 `FETCH_ROBOTS_DISALLOWED`，一頁都沒抓到。
+
+**原因**：第一版用的是 `https://zh.wikipedia.org/w/api.php?action=query&…`，
+因為 API 直接吐純文字比跑 Readability 乾淨。但 Wikipedia 的 `robots.txt`
+對 `User-agent: *` 寫著 `Disallow: /w/` 與 `Disallow: /api/`，
+只放行 `action=mobileview` 與 `load.php`。
+
+**當下的誘惑是去改檢查**（「這是官方 API，本來就該給程式用」）。
+那個念頭要記下來，因為它聽起來很合理，而且只要改一行。
+
+**怎麼修的**：改路徑不改檢查。`/wiki/<Title>` 與 `/zh-tw/<Title>` 都在放行範圍內，
+所以第二版抓 HTML 再走 `decodeHtml` → `extractHtml`。
+**換過來反而更貼近真實**：語料經過的是完整的匯入管線，
+而不是一個吐好純文字的 API —— 量測走另一條路的話，量到的就不是使用者會遇到的東西。
+
+> **一條從來沒有擋過任何東西的規則，跟一條寫壞的規則長得一模一樣。**
+> 這是這條 robots 檢查上線以來第一次真的攔下請求，而攔的是我們自己。

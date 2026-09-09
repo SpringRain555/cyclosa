@@ -149,7 +149,7 @@ peer 範圍 —— 那不是「以後可能會壞」，是宣告上就已經不�
 | `jsdom` | 只為了餵 readability 一個 DOM 而已，`linkedom` 輕得多 |
 | **`@mermaid-js/mermaid-cli`** | **產圖工具，不進 devDependencies。** 它會拉 Chromium 進 `node_modules`（數百 MB），為一個月用兩次的東西讓每次 `npm ci` 都背著它並不划算。改用 `npx -y '@mermaid-js/mermaid-cli@11'` 用到才下載 —— 做法與 `tagcor-ledger` 一致 |
 | Playwright | 第一版靜態優先，**只有 JS-only 的頁面才升級**。升級路徑寫在 `../requirements/REQ-0003-fetch-and-render.md` 的「刻意不做」—— 要先有量測到的 JS-only 比例才引 |
-| 任何嵌入模型的 npm 套件 | 嵌入走**本機 Ollama 的 HTTP 端點**，模型是使用者自己拉的（第一版用 `bge-m3`，1024 維）。裝進 `node_modules` 的話等於把數百 MB 的權重綁進 `npm ci` |
+| 任何嵌入模型的 npm 套件 | 嵌入走**本機 Ollama 的 HTTP 端點**，模型是使用者自己拉的（第一版用 `qwen3-embedding:4b`，2560 維）。裝進 `node_modules` 的話等於把數 GB 的權重綁進 `npm ci` |
 
 ## 執行期的外部相依（不是 npm 套件）
 
@@ -159,7 +159,7 @@ peer 範圍 —— 那不是「以後可能會壞」，是宣告上就已經不�
 | | 用途 | 沒有的話 |
 |---|---|---|
 | `claude` CLI | `agent` 角色：多視角提問與擴展 | 擴展功能報 `PROVIDER_CAPABILITY_MISSING`，其餘照常 |
-| 本機 Ollama ＋ **`bge-m3`** | `chat` 與 `embed` 角色 | 語意檢索報同一個碼；**全文檢索不受影響**（那是純 SQLite） |
+| 本機 Ollama ＋ **`qwen3-embedding:4b`**（2.4 GB）| `chat` 與 `embed` 角色 | 語意檢索報同一個碼；**全文檢索不受影響**（那是純 SQLite） |
 
 > **嵌入模型換掉就全毀，而且它不會報錯。** LightRAG 的文件明寫模型一旦選定就不能換，
 > 換了要全部重算 —— 而**餘弦相似度對兩個不同模型的向量照樣算得出數字**。

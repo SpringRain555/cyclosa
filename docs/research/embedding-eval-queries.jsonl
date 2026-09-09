@@ -1,0 +1,51 @@
+{"note":"嵌入模型評測的查詢集。一行一條。targets 是「可接受的答案」集合（任一命中即算）。kind：cross＝繁中查詢命中英文段落、para＝同義改寫、lex＝字面重疊的對照組（全文檢索應該要贏這一組）。這份檔在跑任何模型之前就寫完並提交 —— 先寫死才不會被結果反過來調整。語料是 2026-09-09 抓的 Wikipedia，頁面清單與版本編號在 tools/research/fetch-eval-corpus.ts 與 sources/manifest.jsonl。"}
+{"id":"c01","kind":"cross","q":"蜘蛛在太空站上結網的實驗","targets":["en:Spider_web#20","en:Spider_web#21","en:Spider_web#22","en:Spider_web#23"],"why":"查詢完全沒有 Skylab、Arabella 這些字面線索"}
+{"id":"c02","kind":"cross","q":"蜘蛛絲的強度比同樣重量的鋼還高","targets":["en:Spider_web#17"]}
+{"id":"c03","kind":"cross","q":"蜘蛛網為什麼會黏，黏膠小滴是怎麼回事","targets":["en:Spider_web#16"]}
+{"id":"c04","kind":"cross","q":"蜘蛛怎麼跨過兩個物體之間的空隙拉出第一條絲","targets":["en:Spider_web#7"]}
+{"id":"c05","kind":"cross","q":"蜘蛛自己為什麼不會被自己的網黏住","targets":["en:Spider_web#11"]}
+{"id":"c06","kind":"cross","q":"歐洲以前用蜘蛛網敷傷口止血","targets":["en:Spider_web#15"]}
+{"id":"c07","kind":"cross","q":"圓網中央那道白色鋸齒狀的絲帶叫什麼","targets":["en:Orb-weaver_spider#8"],"why":"stabilimentum 是專有名詞，查詢裡完全沒有"}
+{"id":"c08","kind":"cross","q":"有些蜘蛛不結網，改用帶費洛蒙的黏球釣蛾","targets":["en:Orb-weaver_spider#6"]}
+{"id":"c09","kind":"cross","q":"每天重織一張新網，並且把舊網吃掉","targets":["en:Orb-weaver_spider#5"]}
+{"id":"c10","kind":"cross","q":"交配之後雌蛛把體型小很多的雄蛛吃掉","targets":["en:Orb-weaver_spider#16","en:Orb-weaver_spider#17","en:Orb-weaver_spider#19"]}
+{"id":"c11","kind":"cross","q":"讓語言模型回答之前先去外部資料來源找資料的做法","targets":["en:Retrieval-augmented_generation#0","en:Retrieval-augmented_generation#1","en:Retrieval-augmented_generation#5"]}
+{"id":"c12","kind":"cross","q":"語意檢索會漏掉關鍵事實，所以再加一次傳統關鍵字搜尋","targets":["en:Retrieval-augmented_generation#12"],"why":"這正是這個專案自己的混合檢索設計"}
+{"id":"c13","kind":"cross","q":"把額外資料直接塞進提示詞裡的那個說法","targets":["en:Retrieval-augmented_generation#4"]}
+{"id":"c14","kind":"cross","q":"一個詞有好幾個意思，卻被壓成同一個向量","targets":["en:Word_embedding#5"]}
+{"id":"c15","kind":"cross","q":"詞向量會把訓練資料裡的性別刻板印象學進去","targets":["en:Word_embedding#12"]}
+{"id":"c16","kind":"cross","q":"把整個句子或整份文件變成一個向量的想法","targets":["en:Word_embedding#10"]}
+{"id":"c17","kind":"cross","q":"建索引時會略過那些沒有鑑別度的常見字","targets":["en:Full-text_search#3"],"why":"stop words；查詢刻意不用「停用詞」三個字"}
+{"id":"c18","kind":"cross","q":"精確率與召回率是衡量搜尋好壞的兩個指標","targets":["en:Full-text_search#4","en:Full-text_search#5"]}
+{"id":"c19","kind":"cross","q":"熱帶氣旋要生成需要海水溫度到幾度","targets":["en:Tropical_cyclone#7","en:Tropical_cyclone#24"]}
+{"id":"c20","kind":"cross","q":"颱風、颶風、氣旋其實是同一種天氣系統的不同叫法","targets":["en:Tropical_cyclone#4","en:Tropical_cyclone#5"]}
+{"id":"c21","kind":"cross","q":"珊瑚體內的共生藻靠光合作用養活珊瑚","targets":["en:Coral_reef#31"]}
+{"id":"c22","kind":"cross","q":"達爾文提出的環礁形成理論：火山島下沉珊瑚往上長","targets":["en:Coral_reef#4","en:Coral_reef#5","en:Coral_reef#6"]}
+{"id":"c23","kind":"cross","q":"真菌跟植物根部共生，植物給糖真菌給礦物質","targets":["en:Mycorrhiza#0","en:Mycorrhiza#2"]}
+{"id":"c24","kind":"cross","q":"樹木之間可以透過地下的菌絲網路傳遞碳","targets":["en:Mycorrhiza#21"]}
+{"id":"c25","kind":"cross","q":"蘭花種子太小沒有養分，要靠真菌才能發芽","targets":["en:Mycorrhiza#30"]}
+{"id":"p01","kind":"para","q":"颱風天要不要上班上課是誰決定的","targets":["zh:颱風假#6"],"why":"正文寫的是「停班停課決定與通報權皆歸直轄市長、縣市長權限」"}
+{"id":"p02","kind":"para","q":"放假的消息前一天晚上幾點以前要公布","targets":["zh:颱風假#7"]}
+{"id":"p03","kind":"para","q":"民營公司員工沒跟著放假的爭議","targets":["zh:颱風假#4","zh:颱風假#5"]}
+{"id":"p04","kind":"para","q":"台鐵改制成公司是哪一年生效的","targets":["zh:臺灣鐵路管理局#5"]}
+{"id":"p05","kind":"para","q":"高鐵通車以後台鐵每年虧損多少","targets":["zh:臺灣鐵路管理局#7"]}
+{"id":"p06","kind":"para","q":"海水變熱珊瑚為什麼會變白","targets":["zh:珊瑚白化#0","zh:珊瑚白化#1"]}
+{"id":"p07","kind":"para","q":"小丑魚跟海葵互相保護對方","targets":["zh:共生#1"]}
+{"id":"p08","kind":"para","q":"螞蟻把蚜蟲當乳牛養來取蜜露","targets":["zh:共生#2"]}
+{"id":"p09","kind":"para","q":"用近似最近鄰演算法找相似向量的資料庫","targets":["zh:向量資料庫#0"]}
+{"id":"p10","kind":"para","q":"福特打破汽車引擎專利壟斷的故事","targets":["zh:開放原始碼#1"]}
+{"id":"p11","kind":"para","q":"二十四節氣被聯合國列入非物質文化遺產","targets":["zh:節氣#0","zh:節氣#1"]}
+{"id":"p12","kind":"para","q":"曆法從平均分割改成按太陽實際位置定的那次改革","targets":["zh:節氣#4","zh:節氣#5"],"why":"正文用的是「平氣法」與「定氣」，查詢刻意不用這兩個詞"}
+{"id":"p13","kind":"para","q":"晚上開氣孔吸二氧化碳、白天關起來省水的植物","targets":["zh:光合作用#15"],"why":"正文是「景天酸循環」"}
+{"id":"p14","kind":"para","q":"用放射性碳追蹤二氧化碳變成醣類的路徑","targets":["zh:光合作用#4","zh:光合作用#12"]}
+{"id":"p15","kind":"para","q":"從文字裡自動認出人名地名機構名的技術","targets":["zh:知識圖譜#5"],"why":"正文是「命名實體識別」"}
+{"id":"p16","kind":"para","q":"這個資料庫不是獨立的伺服器行程，直接連進程式裡","targets":["zh:SQLite#1"]}
+{"id":"p17","kind":"para","q":"不結網、到處走動或埋伏捕食的那類蜘蛛","targets":["zh:蜘蛛#9"]}
+{"id":"p18","kind":"para","q":"蜘蛛先把獵物體內組織化成液體再吸食","targets":["zh:蜘蛛#8"]}
+{"id":"l01","kind":"lex","q":"知識圖譜的三元組","targets":["zh:知識圖譜#2","zh:知識圖譜#0"],"why":"字面完全重疊 —— 全文檢索應該要贏這一組"}
+{"id":"l02","kind":"lex","q":"卡爾文循環","targets":["zh:光合作用#10","zh:光合作用#11"]}
+{"id":"l03","kind":"lex","q":"天然災害停止上班及上課作業辦法","targets":["zh:颱風假#0","zh:颱風假#2"]}
+{"id":"l04","kind":"lex","q":"臺鐵捷運化","targets":["zh:臺灣鐵路管理局#6"]}
+{"id":"l05","kind":"lex","q":"珊瑚白化 大堡礁","targets":["zh:珊瑚白化#3","zh:珊瑚白化#0","zh:珊瑚白化#2"]}
+{"id":"l06","kind":"lex","q":"Araneae 螯肢亞門","targets":["zh:蜘蛛#0"],"why":"中文正文裡夾著拉丁學名 —— 這正是 Stage 12 補上 latin FTS 的那個情形"}
+{"id":"l07","kind":"lex","q":"光系統I 光系統II 電子傳遞鏈","targets":["zh:光合作用#6","zh:光合作用#8","zh:光合作用#9"]}

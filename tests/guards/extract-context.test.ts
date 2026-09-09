@@ -18,11 +18,13 @@
  * 最壞的是 OLMo 的 1.20 token／字元（最好的 Gemma 是 0.67，**差 1.8 倍**）。
  * 那個比例存在 `WORST_TOKENS_PER_CHAR`。
  */
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 import {
   TASK_ANGLES,
   TASK_EXTRACT,
+  REQUIRED_CONTEXT_TOKENS,
   WORST_TOKENS_PER_CHAR,
   missingFor,
   NO_CAPABILITIES,
@@ -44,6 +46,31 @@ describe('抽取的 context 門檻要蓋得住實際送出去的正文', () => {
 
   it('抽取需要 json_schema —— 它是外部文字那三層防護的第二層', () => {
     expect(TASK_EXTRACT.needs).toContain('json_schema');
+  });
+});
+
+describe('送出去的請求要自己指定 context，不吃 Ollama 的預設', () => {
+  it('`REQUIRED_CONTEXT_TOKENS` 蓋得住每一個任務', () => {
+    for (const task of [TASK_ANGLES, TASK_EXTRACT]) {
+      expect(REQUIRED_CONTEXT_TOKENS).toBeGreaterThanOrEqual(task.minContextTokens ?? 0);
+    }
+  });
+
+  /**
+   * **這一條守的是一個 2026-09-09 量到的落差。**
+   *
+   * `/api/tags` 對 `gemma4:31b` 回 `context_length: 262144`，
+   * 而 `ollama ps` 顯示實際載入的是 **32768** —— Ollama 用的是它自己的預設，
+   * 不是模型的上限。閘門看的是前一個，執行時用的是後一個。
+   *
+   * 所以請求裡一定要帶 `num_ctx`。這條測試釘的是「那個常數被送出去了」。
+   */
+  it('`chat-ollama` 的請求裡帶了 `num_ctx`', async () => {
+    const source = await readFile(
+      new URL('../../src/infrastructure/providers/chat-ollama.ts', import.meta.url),
+      'utf8',
+    );
+    expect(source).toContain('num_ctx: REQUIRED_CONTEXT_TOKENS');
   });
 });
 

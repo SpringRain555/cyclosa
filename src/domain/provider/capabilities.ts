@@ -159,3 +159,26 @@ export const TASK_EXTRACT: TaskRequirement = {
  * 守門測試拿它把 `MAX_TEXT_CHARS` 換算成 token 再跟門檻比。
  */
 export const WORST_TOKENS_PER_CHAR = 1.2;
+
+/**
+ * 這個工具送出去的請求**最大**需要多少 context。
+ *
+ * ## 為什麼需要這個數字，而不是只有各任務的門檻
+ *
+ * `capabilitiesOf` 從 `/api/tags` 讀 `context_length`，那是**模型支援的上限**；
+ * 而 Ollama 真的載入時用的是它自己的預設（`OLLAMA_CONTEXT_LENGTH`，
+ * 使用者沒設就是內建值）。2026-09-09 實測 `gemma4:31b`：
+ * `/api/tags` 說 **262144**，`ollama ps` 顯示實際載入的是 **32768**。
+ *
+ * **那兩個數字不一樣，而閘門看的是前一個。** 於是會發生跟
+ * `TASK_EXTRACT` 缺席時一模一樣的事：閘門說可以，執行時把正文截掉，
+ * 而抽出來的關聯照樣帶引文、照樣進待查證。**只是這次發生在下面一層。**
+ *
+ * 所以請求要**明確帶 `num_ctx`**，而這就是那個值：
+ * 取所有任務裡最大的一個（目前是抽取）。不取更大是因為
+ * KV 快取隨 context 線性長 —— 開一個用不到的大 context 是在燒顯示記憶體。
+ */
+export const REQUIRED_CONTEXT_TOKENS = Math.max(
+  TASK_ANGLES.minContextTokens ?? 0,
+  TASK_EXTRACT.minContextTokens ?? 0,
+);

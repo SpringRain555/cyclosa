@@ -22,7 +22,7 @@
  * `/api/chat` 的 `format` 收整份 schema。差別就是 `TASK_ANGLES`
  * 需要 `json_schema` 而不是「會不會輸出 JSON」的那個差別。
  */
-import type { ProviderCapabilities } from '../../domain/provider/index.js';
+import { REQUIRED_CONTEXT_TOKENS, type ProviderCapabilities } from '../../domain/provider/index.js';
 import type { CallOutcome, ChatProvider, ProbeResult } from './types.js';
 
 interface TagsModel {
@@ -198,8 +198,21 @@ export function createOllamaChat(
             model,
             stream: false,
             format: input.schema,
-            // 溫度壓到 0：這不是創作，是**從既有內容歸納**。
-            options: { temperature: 0 },
+            options: {
+              // 溫度壓到 0：這不是創作，是**從既有內容歸納**。
+              temperature: 0,
+              /**
+               * **明確帶 context 大小，不吃 Ollama 的預設。**
+               *
+               * `/api/tags` 回的 `context_length` 是模型支援的上限，
+               * 而實際載入時用的是 `OLLAMA_CONTEXT_LENGTH`（使用者沒設就是內建值）。
+               * 2026-09-09 實測 `gemma4:31b`：前者 262144、後者 32768。
+               * **閘門看的是前一個** —— 不帶這一欄的話，一份 12,000 字的正文
+               * 會在一台設了小 context 的機器上被安靜截掉，
+               * 而抽出來的關聯照樣帶引文、照樣進待查證。
+               */
+              num_ctx: REQUIRED_CONTEXT_TOKENS,
+            },
             messages: [
               { role: 'system', content: input.system },
               { role: 'user', content: input.user },

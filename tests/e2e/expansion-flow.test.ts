@@ -64,6 +64,16 @@ const ARTICLE = `<!doctype html><html lang="zh-TW"><head><meta charset="utf-8">
 /** `/api/tags` 要回報多大的 context。**小於 8000 就配不上 `TASK_ANGLES`。** */
 let chatContextTokens = 128_000;
 
+/**
+ * 第二個模型的 context。**跟上面那個分開**，因為逐任務覆寫要驗的正是
+ * 「閘門檢查的是實際會跑的那一個，不是設定頁上寫的那一個」——
+ * 兩個模型共用同一個數字的話，那件事測不出來。
+ */
+let extractModelContextTokens = 128_000;
+
+/** 每一次 `/api/chat` 用了哪個模型、是哪一種任務。**覆寫有沒有生效只看得到這個。** */
+const chatCalls: { model: string; task: 'angles' | 'extract' }[] = [];
+
 /** 假 Ollama 抽關聯時回什麼。每個測試自己換。 */
 let extraction: unknown = { entities: [], relations: [] };
 
@@ -138,14 +148,21 @@ process.stdout.write(
 );
 `;
 
-async function writeProvidersFile(agent: boolean): Promise<void> {
+/**
+ * `taskModels` 留空時**整個鍵都不寫** —— 那正是舊設定檔的形狀，
+ * 而這個測試檔裡其餘每一條都走那條路，所以向後相容是被實際跑過的，不是宣稱的。
+ */
+async function writeProvidersFile(
+  agent: boolean,
+  taskModels?: Record<string, string>,
+): Promise<void> {
   const dir = join(sandbox, 'LocalAppData', 'Cyclosa');
   await mkdir(dir, { recursive: true });
   await writeFile(
     join(dir, 'providers.json'),
     JSON.stringify({
       version: 1,
-      chat: { baseUrl: ollamaBase, model: 'fake-model' },
+      chat: { baseUrl: ollamaBase, model: 'fake-model', ...(taskModels ? { taskModels } : {}) },
       // **用 node 跑一支假的 CLI** —— `args` 這個設定欄位存在的理由就是這種包裝。
       agent: agent ? { command: process.execPath, args: [agentScript] } : null,
     }),
@@ -184,6 +201,11 @@ beforeAll(async () => {
               capabilities: ['completion', 'tools'],
               details: { context_length: chatContextTokens },
             },
+            {
+              name: 'fake-extract-model',
+              capabilities: ['completion'],
+              details: { context_length: extractModelContextTokens },
+            },
           ],
         }),
       );
@@ -191,9 +213,16 @@ beforeAll(async () => {
     }
     if (path === '/api/chat') {
       void readBody(req).then((raw) => {
-        const body = JSON.parse(raw) as { format?: { properties?: Record<string, unknown> } };
+        const body = JSON.parse(raw) as {
+          model?: unknown;
+          format?: { properties?: Record<string, unknown> };
+        };
         // **靠 schema 認出這是哪一種請求** —— 兩種任務走同一支端點。
         const wantsAngles = body.format?.properties?.['angles'] !== undefined;
+        chatCalls.push({
+          model: String(body.model ?? ''),
+          task: wantsAngles ? 'angles' : 'extract',
+        });
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
           JSON.stringify({
@@ -246,6 +275,8 @@ beforeEach(async () => {
   await writeFile(agentScript, FAKE_AGENT, 'utf8');
 
   chatContextTokens = 128_000;
+  extractModelContextTokens = 128_000;
+  chatCalls.length = 0;
   process.env['CYCLOSA_FAKE_AGENT_MODE'] = 'ok';
   process.env['CYCLOSA_FAKE_AGENT_URLS'] = `${sourcesBase}/article`;
   extraction = { entities: [], relations: [] };
@@ -615,6 +646,110 @@ describe('勾選之後才真的開始', () => {
 });
 
 // ══ 沙箱（Phase F 的驗收條件）═══════════════════════════════
+
+/**
+ * **逐任務覆寫**（2026-09-10）。
+ *
+ * 量測的結論是「兩件事的最好解不是同一個模型」（`docs/research/chat-choice.md`
+ * 發現六），而這一組守的是那個結論被接上去之後**真的分開跑了**。
+ *
+ * 這裡不能用 mock 檢查 —— 覆寫失效的方式是**安靜地用預設模型跑完**，
+ * 結果一樣、畫面一樣、碼一樣。唯一看得出來的地方是**送出去的請求裡的 `model`**，
+ * 所以假 Ollama 記下每一次呼叫用了哪個模型，而斷言看的是那份紀錄。
+ */
+describe('chat 的逐任務覆寫', () => {
+  it('抽取覆寫到另一個模型 → 兩次呼叫真的送到不同的模型', async () => {
+    await writeProvidersFile(true, { angles: '', extract: 'fake-extract-model' });
+    extraction = {
+      entities: [
+        { name: '合成公司', type: 'org' },
+        { name: '合成工作室', type: 'org' },
+      ],
+      relations: [{ subject: '合成公司', rel: '收購', object: '合成工作室', quote: QUOTE }],
+    };
+
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    expect(chosen.ok).toBe(true);
+    await waitForRun(started.data.runId);
+
+    // **兩種任務各自跑在自己的模型上。** 少了 `chatFor` 的話這兩行會是同一個名字。
+    expect(chatCalls.filter((c) => c.task === 'angles').map((c) => c.model)).toEqual([
+      'fake-model',
+    ]);
+    expect(chatCalls.filter((c) => c.task === 'extract').map((c) => c.model)).toEqual([
+      'fake-extract-model',
+    ]);
+
+    // 作業紀錄要記得住**兩個**：換模型重跑結果會不一樣，而生出關聯的是後面那一個。
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    expect(detail.ok).toBe(true);
+    if (!detail.ok) return;
+    const used = JSON.parse(detail.data.run.providers ?? '{}') as Record<string, unknown>;
+    expect(used['chat']).toBe('ollama:fake-model');
+    expect(used['chatExtract']).toBe('ollama:fake-extract-model');
+  });
+
+  /**
+   * **這一條是逐任務覆寫真正的風險。**
+   *
+   * 閘門只看預設模型的話，把抽取覆寫到一個 context 不夠的模型上會**一路通過**：
+   * 設定頁上那一格顯示的是預設模型（128k，綠的），而實際跑的那一個只有 10,000 ——
+   * 於是正文被截掉一半，抽出來的關聯照樣帶引文、照樣進待查證。
+   *
+   * 跟 2026-09-09 修掉的那個缺口是同一種形狀，只是這一次「被檢查的東西」
+   * 與「實際跑的東西」不是差在任務，是差在**模型**。
+   */
+  it('覆寫到 context 不夠的模型 → 勾選就停手，**一個網址都沒抓**', async () => {
+    // 預設模型完全夠用，不夠的只有被覆寫過去的那一個。
+    chatContextTokens = 128_000;
+    extractModelContextTokens = 10_000;
+    await writeProvidersFile(true, { angles: '', extract: 'fake-extract-model' });
+
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    // 角度跑在預設模型上，那一關本來就該過。
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    expect(chosen.ok).toBe(false);
+    if (!chosen.ok) {
+      expect(chosen.code).toBe('PROVIDER_CAPABILITY_MISSING');
+      expect(chosen.detail?.['role']).toBe('chat');
+      expect(chosen.detail?.['needContextTokens']).toBe(TASK_EXTRACT.minContextTokens);
+      // **10,000 是覆寫那個模型的數字**，不是預設模型的 128,000。
+      expect(chosen.detail?.['haveContextTokens']).toBe(10_000);
+    }
+
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    if (!detail.ok) return;
+    expect(detail.data.items).toHaveLength(0);
+  });
+
+  it('沒有覆寫 → 兩件事都跑在預設模型上，作業紀錄不記第二個', async () => {
+    extraction = { entities: [{ name: '合成公司', type: 'org' }], relations: [] };
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) return;
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    expect(chosen.ok).toBe(true);
+    await waitForRun(started.data.runId);
+
+    expect(new Set(chatCalls.map((c) => c.model))).toEqual(new Set(['fake-model']));
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    if (!detail.ok) return;
+    const used = JSON.parse(detail.data.run.providers ?? '{}') as Record<string, unknown>;
+    // **相同就不寫第二次** —— 「A ＋ A」在作業紀錄那一行讀起來像兩個東西。
+    expect(used['chatExtract']).toBeNull();
+  });
+});
 
 describe('agent 的沙箱', () => {
   it('跑完之後沙箱裡**沒有任何抓取產物**', async () => {

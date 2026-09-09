@@ -22,12 +22,26 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { CHAT_TASKS, type ChatTask } from '../../domain/provider/index.js';
 import { pointerFilePath } from '../fs/paths.js';
 
 export interface ChatConfig {
   /** OpenAI 相容端點的根位址，例如 `http://127.0.0.1:11434` */
   readonly baseUrl: string;
   readonly model: string;
+  /**
+   * 逐任務覆寫。**空字串 ＝ 跟著 `model`，不是「沒有模型」** ——
+   * 這兩件事在畫面上要分得開，所以這一欄永遠有全部的鍵，
+   * 不用「缺鍵」表示「沒覆寫」（缺鍵與空字串會在 JSON 來回一趟之後混在一起）。
+   *
+   * ## 為什麼覆寫的是模型而不是整份設定
+   *
+   * `baseUrl` 與 `apiKeyEnv` **刻意不能逐任務覆寫**：它們描述的是「連到哪個端點」，
+   * 而兩個任務跑在不同端點上會讓「本機模型不花錢」這件事按任務而異 ——
+   * 成本上限、逾時、金鑰偵測全部要跟著分岔。
+   * 而真正量出差別的是模型本身（`CHAT_TASKS` 的註解），不是端點。
+   */
+  readonly taskModels: Readonly<Record<ChatTask, string>>;
   /**
    * 帶金鑰的話，**金鑰在哪個環境變數裡** —— 不是金鑰本身。
    *
@@ -89,6 +103,59 @@ export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
  */
 export const RECOMMENDED_CHAT_MODEL = 'qwen3.5:4b';
 
+/**
+ * 逐任務的建議值。**同一輪量測的另一半**（`docs/research/chat-choice.md` 發現六）。
+ *
+ * `angles` 建議 `granite4.2:8b` 而不是 `nemotron-cascade-2:30b`，
+ * 雖然後者的 `seeds` 有效率是 100%（前者 83%）。三個理由，按重要性排：
+ *
+ * 1. **5.3 GB 對 24 GB。** 加上 `qwen3.5:4b` 的 3.4 GB 還是同時常駐得下，
+ *    而 24 GB 那一個換任務就要把對方擠出顯示記憶體 —— 逐任務覆寫的前提就沒了。
+ * 2. **`seeds` 那一欄自己還不可信**（同一份文件的「還沒做」第三條）：
+ *    同樣 `think: false` 之下 `qwen3.5` 兩個型號都是 0%，差距大到不像在量同一件事。
+ *    拿一個還不可信的欄位去換 19 GB 不划算。
+ * 3. 角度彼此的相似度 0.712 是全場最低（`nemotron` 0.735）——
+ *    **那一欄才是「多視角有沒有真的多視角」。**
+ *
+ * `extract` 就是 `RECOMMENDED_CHAT_MODEL` 本身。兩者一致是刻意的：
+ * **預設模型要能單獨把兩個任務都跑完**，覆寫是可選的加分，不是必要條件。
+ */
+export const RECOMMENDED_TASK_MODELS: Readonly<Record<ChatTask, string>> = {
+  angles: 'granite4.2:8b',
+  extract: RECOMMENDED_CHAT_MODEL,
+};
+
+/** 全部沒覆寫的那一份。**每個鍵都在、值是空字串。** */
+export function emptyTaskModels(): Record<ChatTask, string> {
+  return Object.fromEntries(CHAT_TASKS.map((task) => [task, ''])) as Record<ChatTask, string>;
+}
+
+/**
+ * **這個任務實際會跑在哪個模型上。**
+ *
+ * 覆寫是空的就跟著 `model`。回空字串代表「這個任務沒有模型可用」——
+ * 呼叫端要當成沒設定，不要當成「用預設的那個」。
+ */
+export function chatModelFor(chat: ChatConfig | null, task: ChatTask): string {
+  if (chat === null) return '';
+  const override = chat.taskModels[task]?.trim() ?? '';
+  return override.length > 0 ? override : chat.model.trim();
+}
+
+/**
+ * 從任意輸入讀出逐任務覆寫。**不認得的鍵一律丟掉**，不是原樣留著。
+ *
+ * 讀設定檔與收 HTTP 請求用的是同一支，那是刻意的：
+ * 兩份各自寫的解析會漂，而漂掉的那一種形狀是「存進去的鍵讀不出來」。
+ */
+export function taskModelsOf(raw: unknown): Record<ChatTask, string> {
+  const out = emptyTaskModels();
+  if (typeof raw !== 'object' || raw === null) return out;
+  const record = raw as Record<string, unknown>;
+  for (const task of CHAT_TASKS) out[task] = str(record[task]);
+  return out;
+}
+
 export interface ProvidersConfig {
   readonly version: 1;
   readonly chat: ChatConfig | null;
@@ -109,7 +176,14 @@ export interface ProvidersConfig {
  */
 export const DEFAULT_CONFIG: ProvidersConfig = {
   version: 1,
-  chat: { baseUrl: 'http://127.0.0.1:11434', model: '', apiKeyEnv: null },
+  chat: {
+    baseUrl: 'http://127.0.0.1:11434',
+    model: '',
+    apiKeyEnv: null,
+    // **預設不覆寫。** 建議值顯示在設定頁上讓人按，不替他寫進設定檔 ——
+    // 逐任務覆寫的代價是「同時要有兩個模型在機器上」，那不是我們替他決定的事。
+    taskModels: emptyTaskModels(),
+  },
   agent: null,
   // `embed` 跟 `chat` 同一個理由：位址猜得準，**模型名不猜**。
   // 空的就等於沒設定，設定頁把量測選出來的那一個標成「建議」讓人自己按。
@@ -164,6 +238,8 @@ export async function readProvidersConfig(
             baseUrl: str((chatRaw as Record<string, unknown>)['baseUrl']),
             model: str((chatRaw as Record<string, unknown>)['model']),
             apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),
+            // **舊的設定檔沒有這一欄** —— 缺就是全部沒覆寫，而不是壞掉。
+            taskModels: taskModelsOf((chatRaw as Record<string, unknown>)['taskModels']),
           }
         : null;
     const agentArgs = (agentRaw as Record<string, unknown> | null)?.['args'];

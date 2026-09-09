@@ -239,7 +239,9 @@ export async function startExpansion(
     if (caseRow.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
 
     const providers = await load();
-    const chat: ChatProvider | null = providers.chat;
+    // **`chatFor` 不是 `chat`。** 後者是預設模型那一支，而歸納角度可以被覆寫到
+    // 另一個模型上（`CHAT_TASKS`）—— 用錯的話覆寫會被安靜地繞過去。
+    const chat: ChatProvider | null = providers.chatFor('angles');
     if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'chat' });
 
     const probe = await chat.probe();
@@ -290,6 +292,17 @@ export async function startExpansion(
       topic: trimmed,
       providers: JSON.stringify({
         chat: chat.name,
+        /**
+         * **抽取可能跑在另一個模型上**（`CHAT_TASKS`），而作業紀錄那一行的
+         * 存在理由就是「兩次結果不同時查得出換了模型」—— 只記歸納角度那一個的話，
+         * 真正生出關聯的那個模型不在紀錄裡。
+         *
+         * 相同就寫 `null`：畫面把 `null` 濾掉，而「A ＋ A」讀起來像兩個東西。
+         */
+        chatExtract:
+          providers.chatFor('extract')?.name === chat.name
+            ? null
+            : (providers.chatFor('extract')?.name ?? null),
         agent: providers.config.agent?.command ?? null,
       }),
     });
@@ -401,8 +414,9 @@ export async function chooseAngles(
     // 會一路通過，抓完全部網址，然後在每一份文件上把正文截掉一半 ——
     // 而抽出來的關聯照樣帶引文、照樣進待查證，**畫面上看不出任何異常**。
     // ADR-0006 第 3 條說配不上就停手，而那條規則對一個沒宣告的任務等於不存在。
-    if (providers.chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'chat' });
-    const chatProbe = await providers.chat.probe();
+    const extractChat = providers.chatFor('extract');
+    if (extractChat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'chat' });
+    const chatProbe = await extractChat.probe();
     if (chatProbe.kind === 'not-configured')
       return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'chat' });
     if (chatProbe.kind === 'unreachable')
@@ -712,7 +726,9 @@ async function runAngle(
 
     const extracted = await extractInto(db, {
       folder: ctx.folder,
-      chat: ctx.providers.chat as ChatProvider,
+      // **抽取用抽取那一支。** 上面的閘門檢查的也是它 ——
+      // 檢查一支、跑另一支的話，那個閘門就只是裝飾。
+      chat: ctx.providers.chatFor('extract') as ChatProvider,
       itemId: outcome.itemId,
       runId: ctx.state.runId,
       abort: ctx.abort,

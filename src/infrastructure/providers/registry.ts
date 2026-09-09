@@ -11,9 +11,13 @@
  * **快取一個「它是好的」會在最需要準確的時候是錯的**，
  * 而建一個物件的成本是零 —— 真正的成本在 `probe()`，那一支本來就要打出去問。
  */
-import type { ProviderRole } from '../../domain/provider/index.js';
-import { NO_CAPABILITIES, type ProviderCapabilities } from '../../domain/provider/index.js';
-import { readProvidersConfig, type ProvidersConfig } from './config.js';
+import type { ChatTask, ProviderRole } from '../../domain/provider/index.js';
+import {
+  CHAT_TASKS,
+  NO_CAPABILITIES,
+  type ProviderCapabilities,
+} from '../../domain/provider/index.js';
+import { chatModelFor, readProvidersConfig, type ProvidersConfig } from './config.js';
 import { createClaudeAgent } from './agent-claude.js';
 import { createOllamaChat, listOllamaModels } from './chat-ollama.js';
 import type { AgentProvider, ChatProvider, ProbeResult } from './types.js';
@@ -92,21 +96,42 @@ export interface AgentRequest {
 
 export interface Providers {
   readonly config: ProvidersConfig;
+  /**
+   * **預設模型那一支。** 設定頁的「實際打一次」用它。
+   *
+   * **跑任務不要用這一個** —— 用 `chatFor(task)`，否則逐任務覆寫會被繞過去，
+   * 而繞過去的症狀是「設了沒有生效」：畫面上完全看不出來。
+   */
   readonly chat: ChatProvider | null;
+  /** 這個任務實際會跑在哪一支上。**覆寫是空的就是預設那一支。** */
+  chatFor(task: ChatTask): ChatProvider | null;
   agentFor(request: AgentRequest): AgentProvider | null;
 }
 
 export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promise<Providers> {
   const config = await readProvidersConfig(env);
-  const chat =
-    config.chat === null || config.chat.model.length === 0
-      ? null
-      : createOllamaChat(config.chat.baseUrl, config.chat.model, config.chat.apiKeyEnv, env);
+  /**
+   * 同一個模型只建一支。
+   *
+   * 建物件的成本是零（這個檔頭寫過），但**兩支同名的 provider 會各自 probe 一次**，
+   * 而設定頁一打開就會全部 probe —— 兩個任務用同一個模型是最常見的設定，
+   * 沒有理由為它多打一次 `/api/tags`。
+   */
+  const built = new Map<string, ChatProvider>();
+  const chatOf = (model: string): ChatProvider | null => {
+    if (config.chat === null || model.length === 0) return null;
+    const existing = built.get(model);
+    if (existing !== undefined) return existing;
+    const made = createOllamaChat(config.chat.baseUrl, model, config.chat.apiKeyEnv, env);
+    built.set(model, made);
+    return made;
+  };
   const agentCommand = config.agent?.command ?? '';
   const agentArgs = config.agent?.args ?? [];
   return {
     config,
-    chat,
+    chat: chatOf(config.chat?.model.trim() ?? ''),
+    chatFor: (task) => chatOf(chatModelFor(config.chat, task)),
     agentFor: (request) =>
       agentCommand.length === 0
         ? null
@@ -114,10 +139,29 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
   };
 }
 
+/**
+ * `chat` 底下每一個任務**實際會跑在哪個模型上，以及那個模型現在的狀態**。
+ *
+ * 角色層的那一格（`statuses` 裡的 `chat`）講的是預設模型 ——
+ * **覆寫之後那一格就不再等於實際會跑的東西**，所以這裡要分開講。
+ * 少了這一層的話，畫面會出現「角色是綠的、按下擴展卻停手」：
+ * 綠的是預設模型，停手的是覆寫的那一個。
+ */
+export interface ChatTaskStatus {
+  readonly task: ChatTask;
+  /** 實際會跑的模型。**空字串 ＝ 這個任務沒有模型可用** */
+  readonly model: string;
+  /** 是覆寫來的，還是跟著預設。**畫面上要分得開** */
+  readonly overridden: boolean;
+  readonly state: ProviderStatus['state'];
+  readonly capabilities: ProviderCapabilities;
+}
+
 export interface ProvidersView {
   readonly statuses: readonly ProviderStatus[];
   /** Ollama 上真的有的模型。**`null` 代表連不上**，不是「一個都沒有」 */
   readonly chatModels: readonly string[] | null;
+  readonly chatTasks: readonly ChatTaskStatus[];
   readonly config: ProvidersConfig;
 }
 
@@ -132,14 +176,32 @@ export async function describeProviders(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ProvidersView> {
   const providers = await loadProviders(env);
-  const chatConfigured = providers.config.chat?.model ?? '';
+  const chatConfigured = providers.config.chat?.model.trim() ?? '';
   const agentConfigured = providers.config.agent?.command ?? '';
   const embedConfigured = providers.config.embed?.model ?? '';
 
-  const [chatProbe, agentProbe, chatModels] = await Promise.all([
-    providers.chat === null
-      ? Promise.resolve<ProbeResult>({ kind: 'not-configured' })
-      : providers.chat.probe(),
+  /**
+   * 要 probe 哪幾個模型：預設那一個，加上每個任務實際會跑的那一個。
+   *
+   * **同一個模型只 probe 一次。** 兩個任務跟著預設是最常見的設定，
+   * 那種情況下這個 Map 只有一格 —— 逐任務覆寫不該讓打開設定頁變慢三倍。
+   */
+  const plan = CHAT_TASKS.map((task) => ({
+    task,
+    model: chatModelFor(providers.config.chat, task),
+    overridden: (providers.config.chat?.taskModels[task] ?? '').trim().length > 0,
+    provider: providers.chatFor(task),
+  }));
+  const toProbe = new Map<string, ChatProvider>();
+  if (providers.chat !== null) toProbe.set(chatConfigured, providers.chat);
+  for (const row of plan) {
+    if (row.provider !== null && !toProbe.has(row.model)) toProbe.set(row.model, row.provider);
+  }
+
+  const [probed, agentProbe, chatModels] = await Promise.all([
+    Promise.all(
+      [...toProbe].map(async ([model, provider]) => [model, await provider.probe()] as const),
+    ).then((rows) => new Map<string, ProbeResult>(rows)),
     agentConfigured.length === 0
       ? Promise.resolve<ProbeResult>({ kind: 'not-configured' })
       : (
@@ -149,6 +211,9 @@ export async function describeProviders(
       ? Promise.resolve<readonly string[] | null>(null)
       : listOllamaModels(providers.config.chat.baseUrl),
   ]);
+
+  const notConfigured: ProbeResult = { kind: 'not-configured' };
+  const chatProbe = probed.get(chatConfigured) ?? notConfigured;
 
   return {
     statuses: [
@@ -162,6 +227,16 @@ export async function describeProviders(
       statusOf('embed', embedConfigured, embedProbe(embedConfigured, chatModels)),
     ],
     chatModels,
+    chatTasks: plan.map((row) => {
+      const status = statusOf('chat', row.model, probed.get(row.model) ?? notConfigured);
+      return {
+        task: row.task,
+        model: row.model,
+        overridden: row.overridden,
+        state: status.state,
+        capabilities: status.capabilities,
+      };
+    }),
     config: providers.config,
   };
 }

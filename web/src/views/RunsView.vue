@@ -213,8 +213,16 @@ async function startPicked(): Promise<void> {
 function providerLabel(r: Run): string {
   if (r.providers === null) return '';
   try {
-    const parsed = JSON.parse(r.providers) as { chat?: unknown; agent?: unknown };
-    return [parsed.chat, parsed.agent].filter((v) => typeof v === 'string').join(' ＋ ');
+    // `chatExtract` 只在**抽取跑在另一個模型上**時才有值（逐任務覆寫）。
+    // 舊的紀錄沒有這個鍵，而那跟「兩個任務同一個模型」在畫面上是同一件事。
+    const parsed = JSON.parse(r.providers) as {
+      chat?: unknown;
+      chatExtract?: unknown;
+      agent?: unknown;
+    };
+    return [parsed.chat, parsed.chatExtract, parsed.agent]
+      .filter((v) => typeof v === 'string')
+      .join(' ＋ ');
   } catch {
     // 這一欄是說明不是規則 —— 壞掉就不顯示，不要為它讓整頁失敗
     return '';

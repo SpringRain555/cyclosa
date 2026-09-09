@@ -189,6 +189,43 @@ export const TASK_EXTRACT: TaskRequirement = {
 };
 
 /**
+ * **`chat` 這個角色底下有兩個任務，而它們可以跑在不同的模型上。**
+ *
+ * 這組鍵住在 domain，因為設定檔、設定頁與 `expand-service` 三邊都要用同一組
+ * 字串當索引 —— **三份各自寫死的字串會漂**，而漂掉的症狀是「覆寫設了沒有生效」，
+ * 那在畫面上完全看不出來（它會安靜地用預設模型跑）。
+ *
+ * ## 為什麼值得分開跑
+ *
+ * 2026-09-09 量完八個本機模型之後，兩件事的最好解不是同一個
+ * （`docs/research/chat-choice.md` 發現六）：
+ *
+ * | 任務 | 最好的 | 憑什麼 |
+ * |---|---|---|
+ * | `angles` | `granite4.2:8b` | 六條角度（其餘多半四條）、彼此相似度 0.712 最低 |
+ * | `extract` | `qwen3.5:4b` | 引文命中 98%、平均 5 秒（第二名 17 秒） |
+ *
+ * 而 `nemotron-cascade-2:30b` 是反過來的證據：它是角度那一題最好的其中之一
+ * （六條、`seeds` 100%），**同時是抽取那一題唯一真的捏造引文的**
+ * （37 條有 13 條連最寬的比對都找不到）。**一個模型可以在一件事上很好、
+ * 在另一件事上不可信**，而只有一個模型欄位的話，那兩件事只能一起換。
+ *
+ * 這件事做得到的前提也是量出來的：3.4 GB ＋ 5.3 GB ＝ 8.7 GB，
+ * **兩個可以同時常駐**，換任務不必把對方擠出顯示記憶體。
+ */
+export const CHAT_TASKS = ['angles', 'extract'] as const;
+export type ChatTask = (typeof CHAT_TASKS)[number];
+
+/**
+ * 每個 chat 任務要求什麼。**這一份是上面那兩個常數的索引，不是第二份定義** ——
+ * 兩份需求表會漂，而漂掉的那一份會讓閘門對某個任務放行。
+ */
+export const CHAT_TASK_REQUIREMENTS: Readonly<Record<ChatTask, TaskRequirement>> = {
+  angles: TASK_ANGLES,
+  extract: TASK_EXTRACT,
+};
+
+/**
  * 中文最壞情況下每個字元要幾個 token。**量出來的**（見 `TASK_EXTRACT`）。
  * 守門測試拿它把 `MAX_TEXT_CHARS` 換算成 token 再跟門檻比。
  */

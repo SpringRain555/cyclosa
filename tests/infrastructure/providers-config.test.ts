@@ -11,9 +11,14 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { CHAT_TASKS } from '../../src/domain/provider/index.js';
 import {
   DEFAULT_CONFIG,
+  RECOMMENDED_CHAT_MODEL,
+  RECOMMENDED_TASK_MODELS,
   apiKeyEnvOf,
+  chatModelFor,
+  emptyTaskModels,
   providersFilePath,
   readProvidersConfig,
   writeProvidersConfig,
@@ -83,6 +88,108 @@ describe('嵌入模型那一格', () => {
       embed: Record<string, unknown>;
     };
     expect(Object.keys(raw.embed).sort()).toEqual(['baseUrl', 'model']);
+  });
+});
+
+/**
+ * 逐任務覆寫（2026-09-10）。
+ *
+ * **跟 `embed` 那一格是同一種形狀的升級**：新欄位，而每一份既有的
+ * `providers.json` 都缺它。差別是這一次「缺」有一個看不見的失敗模式 ——
+ * 缺鍵讀成 `undefined` 的話，`chat.taskModels[task]` 會在每一次擴展時炸掉，
+ * 而那是在使用者按下擴展之後才發生的。
+ */
+describe('chat 的逐任務覆寫', () => {
+  it('沒有設定檔 → 每個任務的鍵都在，值是空字串', async () => {
+    const config = await readProvidersConfig(env);
+    expect(Object.keys(config.chat?.taskModels ?? {}).sort()).toEqual([...CHAT_TASKS].sort());
+    for (const task of CHAT_TASKS) expect(config.chat?.taskModels[task]).toBe('');
+  });
+
+  it('**舊的設定檔沒有 taskModels，要當成全部沒覆寫**', async () => {
+    await writeFile(
+      providersFilePath(env),
+      JSON.stringify({
+        version: 1,
+        chat: { baseUrl: 'http://127.0.0.1:11434', model: 'qwen3.5:4b', apiKeyEnv: null },
+        agent: null,
+      }),
+      'utf8',
+    );
+    const config = await readProvidersConfig(env);
+    expect(config.chat?.taskModels).toEqual(emptyTaskModels());
+    // **而每個任務仍然解析得出一個模型** —— 沒覆寫就是跟著預設。
+    for (const task of CHAT_TASKS) expect(chatModelFor(config.chat, task)).toBe('qwen3.5:4b');
+  });
+
+  it('存了之後讀回來是同一個', async () => {
+    await writeProvidersConfig(
+      {
+        ...DEFAULT_CONFIG,
+        chat: {
+          baseUrl: 'http://127.0.0.1:11434',
+          model: 'qwen3.5:4b',
+          apiKeyEnv: null,
+          taskModels: { ...emptyTaskModels(), angles: 'granite4.2:8b' },
+        },
+      },
+      env,
+    );
+    const config = await readProvidersConfig(env);
+    expect(chatModelFor(config.chat, 'angles')).toBe('granite4.2:8b');
+    // **沒覆寫的那一個不受影響。** 覆寫一個任務不該把另一個也帶走。
+    expect(chatModelFor(config.chat, 'extract')).toBe('qwen3.5:4b');
+  });
+
+  /**
+   * **不認得的鍵在讀的時候就丟掉。**
+   *
+   * 留著的話它會一直在設定檔裡，而下一次讀出來仍然沒有作用 ——
+   * 一個拼錯的任務名看起來像是設過了。
+   */
+  it('不認得的任務名一律丟掉', async () => {
+    await writeFile(
+      providersFilePath(env),
+      JSON.stringify({
+        version: 1,
+        chat: {
+          baseUrl: 'http://127.0.0.1:11434',
+          model: 'qwen3.5:4b',
+          taskModels: { angles: 'granite4.2:8b', anlges: '打錯的那個' },
+        },
+      }),
+      'utf8',
+    );
+    const config = await readProvidersConfig(env);
+    expect(Object.keys(config.chat?.taskModels ?? {}).sort()).toEqual([...CHAT_TASKS].sort());
+    expect(chatModelFor(config.chat, 'angles')).toBe('granite4.2:8b');
+  });
+
+  it('**沒有預設模型時，覆寫自己撐得起那個任務**', () => {
+    const chat = {
+      baseUrl: 'http://127.0.0.1:11434',
+      model: '',
+      apiKeyEnv: null,
+      taskModels: { ...emptyTaskModels(), extract: 'qwen3.5:4b' },
+    };
+    expect(chatModelFor(chat, 'extract')).toBe('qwen3.5:4b');
+    // 而另一個任務仍然是「沒有模型」——**不是** 悄悄借用隔壁那一個。
+    expect(chatModelFor(chat, 'angles')).toBe('');
+    expect(chatModelFor(null, 'angles')).toBe('');
+  });
+
+  /**
+   * **建議值要每個任務都有一個。**
+   *
+   * 少一個的話，設定頁上那一格的「建議」按鈕會是 `undefined` ——
+   * 而按下去會把那個任務設成字串 `"undefined"`，那是一個永遠找不到的模型名。
+   */
+  it('每個任務都有一個建議值，而抽取那一個就是全域的建議值', () => {
+    expect(Object.keys(RECOMMENDED_TASK_MODELS).sort()).toEqual([...CHAT_TASKS].sort());
+    for (const task of CHAT_TASKS) expect(RECOMMENDED_TASK_MODELS[task].length).toBeGreaterThan(0);
+    // **預設模型要能單獨把兩件事都跑完** —— 覆寫是可選的加分，不是必要條件。
+    // 這兩個一旦分岔，「不設覆寫」就變成一個沒有被量測支持的設定。
+    expect(RECOMMENDED_TASK_MODELS.extract).toBe(RECOMMENDED_CHAT_MODEL);
   });
 });
 

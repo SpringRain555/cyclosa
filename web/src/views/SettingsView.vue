@@ -18,6 +18,7 @@ import { computed, onMounted, ref } from 'vue';
 import {
   api,
   type ApiError,
+  type ChatTask,
   type ProvidersPayload,
   type ProviderRole,
   type ProviderStatus,
@@ -51,6 +52,20 @@ const RECOMMENDED_EMBED = 'qwen3-embedding:4b';
 // web 與 server 是兩份建置，所以只能各抄一份 ——
 // tests/guards/recommended-models.test.ts 釘著它們一致。
 const RECOMMENDED_CHAT = 'qwen3.5:4b';
+/**
+ * 逐任務的建議值。**同一輪量測的另一半** ——
+ * `extract` 就是上面那一個（預設模型要能單獨把兩件事都跑完），
+ * 所以只有 `angles` 是不一樣的字串。
+ */
+const RECOMMENDED_TASK: Record<ChatTask, string> = {
+  angles: 'granite4.2:8b',
+  extract: RECOMMENDED_CHAT,
+};
+
+/** 兩個任務的覆寫。**空字串 ＝ 跟著預設**，不是「沒有模型」 */
+const taskModels = ref<Record<ChatTask, string>>({ angles: '', extract: '' });
+/** 預設是收起來的 —— 大多數人只要一個模型 */
+const showTasks = ref(false);
 
 const testing = ref<ProviderRole | null>(null);
 const testResult = ref<{ role: ProviderRole; text: string } | null>(null);
@@ -70,8 +85,33 @@ async function load(): Promise<void> {
   apiKeyEnv.value = r.data.config.chat?.apiKeyEnv ?? '';
   embedBaseUrl.value = r.data.config.embed?.baseUrl ?? '';
   embedModel.value = r.data.config.embed?.model ?? '';
+  taskModels.value = {
+    angles: r.data.config.chat?.taskModels?.angles ?? '',
+    extract: r.data.config.chat?.taskModels?.extract ?? '',
+  };
+  // **設過覆寫就把那一區打開。** 收起來的設定等於看不見的設定，
+  // 而一個看不見的覆寫正是「設了沒有生效」那種抱怨的來源。
+  if (taskModels.value.angles.length > 0 || taskModels.value.extract.length > 0) {
+    showTasks.value = true;
+  }
 }
 onMounted(() => void load());
+
+const chatTasks = computed(() => payload.value?.chatTasks ?? []);
+
+function taskReadinessOf(task: ChatTask): { ok: boolean; missing: string[] } {
+  return payload.value?.chatReadiness.find((r) => r.task === task) ?? { ok: false, missing: [] };
+}
+
+/** 這一個任務缺什麼。**跟角色層那一行是同一種句子，但講的是這個模型** */
+function taskMissingText(task: ChatTask): string {
+  const flags = taskReadinessOf(task).missing;
+  if (flags.length === 0) return '';
+  const names = flags.map(
+    (f) => t.settings.capabilityNames[f as keyof typeof t.settings.capabilityNames] ?? f,
+  );
+  return fill(t.settings.missing, { flags: names.join('、') });
+}
 
 const statuses = computed(() => payload.value?.statuses ?? []);
 
@@ -107,6 +147,10 @@ async function save(): Promise<void> {
             baseUrl: baseUrl.value.trim(),
             model: model.value.trim(),
             apiKeyEnv: apiKeyEnv.value.trim().length === 0 ? null : apiKeyEnv.value.trim(),
+            taskModels: {
+              angles: taskModels.value.angles.trim(),
+              extract: taskModels.value.extract.trim(),
+            },
           },
     agent: command.value.trim().length === 0 ? null : { command: command.value.trim(), args: [] },
     embed:
@@ -209,6 +253,57 @@ async function test(role: ProviderRole): Promise<void> {
           <p v-if="payload && payload.chatModels === null" class="hint">
             {{ t.settings.chatModelsUnreachable }}
           </p>
+
+          <!--
+            逐任務覆寫。**收起來的是選單，不是狀態** ——
+            即使收著，下面每個任務「實際會跑哪一個」還是看得到，
+            因為覆寫之後上面那個模型欄位就不再等於實際會跑的東西。
+          -->
+          <details class="tasks" :open="showTasks">
+            <summary>{{ t.settings.chatTaskTitle }}</summary>
+            <p class="hint">{{ t.settings.chatTaskWhy }}</p>
+            <div v-for="row in chatTasks" :key="row.task" class="task">
+              <label>
+                <span>{{ t.settings.chatTaskNames[row.task] }}</span>
+                <select
+                  v-if="payload?.chatModels?.length"
+                  :value="taskModels[row.task]"
+                  @change="taskModels[row.task] = ($event.target as HTMLSelectElement).value"
+                >
+                  <option value="">{{ t.settings.chatTaskFollow }}</option>
+                  <option v-for="name in payload.chatModels" :key="name" :value="name">
+                    {{ name }}
+                  </option>
+                </select>
+                <input v-else v-model="taskModels[row.task]" type="text" />
+              </label>
+              <p class="what">{{ t.settings.chatTaskWhat[row.task] }}</p>
+              <p class="hint">
+                <button
+                  v-if="taskModels[row.task] !== RECOMMENDED_TASK[row.task]"
+                  class="link"
+                  type="button"
+                  @click="taskModels[row.task] = RECOMMENDED_TASK[row.task]"
+                >
+                  {{ fill(t.settings.chatTaskRecommend, { model: RECOMMENDED_TASK[row.task] }) }}
+                </button>
+                {{ t.settings.chatTaskRecommendWhy[row.task] }}
+              </p>
+              <!-- **實際會跑的那一個，以及它現在的狀態。**
+                 角色層那一格講的是預設模型，覆寫之後兩者會分岔。 -->
+              <p v-if="row.model.length === 0" class="hint warn">
+                {{ t.settings.chatTaskUnset }}
+              </p>
+              <p v-else :class="['hint', taskReadinessOf(row.task).ok ? '' : 'warn']">
+                {{ fill(t.settings.chatTaskRuns, { model: row.model }) }}
+                <span class="sep">·</span>
+                {{ t.settings.state[row.state] }}
+                <template v-if="taskMissingText(row.task)">
+                  <span class="sep">·</span>{{ taskMissingText(row.task) }}
+                </template>
+              </p>
+            </div>
+          </details>
           <!-- **只填變數的名字。** 金鑰本身不進任何一個檔（2026-09-08）。 -->
           <label>
             <span>{{ t.settings.apiKeyEnv }}</span>
@@ -445,6 +540,46 @@ h2 {
   align-items: center;
   gap: 10px;
   font-size: 13px;
+}
+/**
+ * 逐任務覆寫那一區。
+ *
+ * **收起來的是選單，不是狀態** —— 每個任務「實際會跑哪一個」在收起來的時候
+ * 仍然要看得到，所以那幾行不在 `<details>` 的內容裡……
+ * 除了它們確實在。這是刻意的取捨：兩件事都跟著預設時那三行完全是重複資訊
+ * （上面的模型欄位就是答案），而**設過覆寫的話這一區會自動打開**（`load()`）。
+ */
+.tasks {
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.tasks summary {
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.task {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+.task label {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.task .what {
+  margin: 0;
+  font-size: 12px;
+}
+/** 同一行裡的兩件事之間。**不是標點** —— 它是版面 */
+.sep {
+  color: var(--text-muted);
+  margin: 0 4px;
 }
 input,
 select {

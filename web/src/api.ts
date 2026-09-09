@@ -238,18 +238,46 @@ export interface ProviderStatus {
   capabilities: ProviderCapabilities;
 }
 
+/**
+ * `chat` 底下的兩個任務。**這一組字串在 server 的 `domain/provider` 也有一份** ——
+ * `tests/guards/chat-tasks.test.ts` 釘著兩邊一致（`web/` 與 server 是兩份建置）。
+ */
+export type ChatTask = 'angles' | 'extract';
+
 export interface ProvidersPayload {
   statuses: ProviderStatus[];
   /** Ollama 上真的有的模型。**`null` 代表連不上**，不是「一個都沒有」 */
   chatModels: string[] | null;
+  /** 每個 chat 任務**實際會跑在哪個模型上**，以及那個模型的狀態 */
+  chatTasks: {
+    task: ChatTask;
+    model: string;
+    overridden: boolean;
+    state: ProviderStatus['state'];
+    capabilities: ProviderCapabilities;
+  }[];
   config: {
     version: 1;
-    chat: { baseUrl: string; model: string; apiKeyEnv: string | null } | null;
+    chat: {
+      baseUrl: string;
+      model: string;
+      apiKeyEnv: string | null;
+      /** 逐任務覆寫。**空字串 ＝ 跟著 `model`**，不是「沒有模型」 */
+      taskModels: Record<ChatTask, string>;
+    } | null;
     agent: { command: string; args: string[] } | null;
     /** **沒有 apiKeyEnv** —— 嵌入只接本機端點，理由見 `providers/config.ts` */
     embed: { baseUrl: string; model: string } | null;
   };
   readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
+  /** 逐任務的同一件事。**角色層那一格算的是預設模型，覆寫之後兩者會分岔** */
+  chatReadiness: {
+    task: ChatTask;
+    model: string;
+    overridden: boolean;
+    ok: boolean;
+    missing: string[];
+  }[];
 }
 
 export interface ProviderTest {

@@ -13,10 +13,11 @@
 import { mkdir } from 'node:fs/promises';
 
 import {
+  CHAT_TASK_REQUIREMENTS,
   missingFor,
-  TASK_ANGLES,
-  TASK_EXTRACT,
   TASK_FIND_SOURCES,
+  type ChatTask,
+  type MatchResult,
   type ProviderRole,
 } from '../domain/provider/index.js';
 import {
@@ -26,6 +27,7 @@ import {
 } from '../infrastructure/providers/registry.js';
 import {
   apiKeyEnvOf,
+  taskModelsOf,
   writeProvidersConfig,
   type ProvidersConfig,
 } from '../infrastructure/providers/config.js';
@@ -46,11 +48,60 @@ export interface ProvidersPayload extends ProvidersView {
     readonly ok: boolean;
     readonly missing: readonly string[];
   }[];
+  /**
+   * **`chat` 底下逐任務的同一件事。**
+   *
+   * 角色層那一格算的是「兩個任務都過得了嗎」，而使用者要修的時候需要知道
+   * **是哪一個任務、跑在哪個模型上、缺什麼**。合成一格的話，
+   * 一個覆寫成小 context 模型的抽取，會顯示成「chat 缺 context」——
+   * 而設定頁上那個模型欄位裡寫的是預設模型的名字，看起來完全沒問題。
+   */
+  readonly chatReadiness: readonly {
+    readonly task: ChatTask;
+    readonly model: string;
+    readonly overridden: boolean;
+    readonly ok: boolean;
+    readonly missing: readonly string[];
+  }[];
+}
+
+/** 配對結果攤成畫面上那一行字要的東西。**context 不夠也是一種「缺」。** */
+function missingNames(matches: readonly MatchResult[]): readonly string[] {
+  return [
+    ...new Set(
+      matches.flatMap((m) => {
+        if (m.kind === 'ok') return [];
+        // context 不夠原本完全不會出現在這個清單裡 —— 於是畫面上顯示「缺少：（空白）」。
+        return m.context === null
+          ? [...m.flags]
+          : [...m.flags, `context ${m.context[1]} < ${m.context[0]}`];
+      }),
+    ),
+  ];
 }
 
 export async function listProviders(): Promise<Result<ProvidersPayload>> {
   const cid = correlationId();
   const view = await describeProviders();
+
+  /**
+   * **每個任務對著它自己那個模型算一次。**
+   *
+   * 2026-09-10 之前 `chat` 只有一個模型，所以角色層算一次就夠了。
+   * 逐任務覆寫之後那個假設不成立 —— 而它失效的方式是**看起來沒事**：
+   * 角色層那一格顯示的是預設模型，覆寫的那一個從來不會被檢查。
+   */
+  const chatReadiness = view.chatTasks.map((row) => {
+    const missing = missingNames([missingFor(CHAT_TASK_REQUIREMENTS[row.task], row.capabilities)]);
+    return {
+      task: row.task,
+      model: row.model,
+      overridden: row.overridden,
+      ok: row.state === 'ready' && missing.length === 0,
+      missing,
+    };
+  });
+
   const readiness = view.statuses.map((status) => {
     if (status.role === 'embed') {
       /**
@@ -69,35 +120,32 @@ export async function listProviders(): Promise<Result<ProvidersPayload>> {
       };
     }
     /**
-     * **`chat` 要對兩個任務都過。**
+     * **`chat` 要對兩個任務都過，而且是對各自的模型。**
      *
      * 2026-09-09 之前這裡只看 `TASK_ANGLES`，於是設定頁上顯示的「可以用」
      * 只代表「歸納角度跑得動」—— 而 `chat` 底下還有一個抽取實體與關係，
      * 它要吃 12,000 字的外部正文，context 需求高得多（`TASK_EXTRACT`）。
      * 一個剛好 8000 context 的模型會在這一頁被標成綠的，然後在抽取時
      * **把正文截掉一半而不報錯**。
+     *
+     * 2026-09-10 逐任務覆寫之後，這一格改成**上面那一輪的合併結果** ——
+     * 它不能再自己拿 `status.capabilities` 算，因為那是預設模型的能力。
      */
-    const tasks = status.role === 'agent' ? [TASK_FIND_SOURCES] : [TASK_ANGLES, TASK_EXTRACT];
-    const matches = tasks.map((task) => missingFor(task, status.capabilities));
-    const missing = [
-      ...new Set(
-        matches.flatMap((m) => {
-          if (m.kind === 'ok') return [];
-          // context 不夠也是一種「缺」，而它原本完全不會出現在這個清單裡 ——
-          // 於是畫面上會顯示「缺少：（空白）」。
-          return m.context === null
-            ? [...m.flags]
-            : [...m.flags, `context ${m.context[1]} < ${m.context[0]}`];
-        }),
-      ),
-    ];
+    if (status.role === 'chat') {
+      return {
+        role: status.role,
+        ok: chatReadiness.every((row) => row.ok),
+        missing: [...new Set(chatReadiness.flatMap((row) => row.missing))],
+      };
+    }
+    const missing = missingNames([missingFor(TASK_FIND_SOURCES, status.capabilities)]);
     return {
       role: status.role,
       ok: status.state === 'ready' && missing.length === 0,
       missing,
     };
   });
-  return ok({ ...view, readiness }, cid);
+  return ok({ ...view, readiness, chatReadiness }, cid);
 }
 
 export async function saveProviders(input: unknown): Promise<Result<ProvidersPayload>> {
@@ -114,6 +162,10 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
           // **存的是環境變數的名字，不是金鑰。** 形狀不對的一律當成沒設定，
           // 所以一把不小心貼進來的金鑰不會被寫進設定檔。
           apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),
+          // 逐任務覆寫。**不認得的鍵在這裡就被丟掉**，不會被寫進設定檔 ——
+          // 一個拼錯的任務名留在檔案裡，下次讀出來還是沒有作用，
+          // 而它看起來像是設過了。
+          taskModels: taskModelsOf((chatRaw as Record<string, unknown>)['taskModels']),
         }
       : null;
   const agentCommand = String(

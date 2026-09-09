@@ -19,9 +19,11 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
+import { CHAT_TASKS } from '../../src/domain/provider/index.js';
 import {
   RECOMMENDED_CHAT_MODEL,
   RECOMMENDED_EMBED_MODEL,
+  RECOMMENDED_TASK_MODELS,
 } from '../../src/infrastructure/providers/config.js';
 
 const view = await readFile(
@@ -46,5 +48,35 @@ describe('設定頁的建議模型與 server 的常數一致', () => {
   it('兩個建議都有一顆按得下去的按鈕', () => {
     expect(view).toContain('@click="model = RECOMMENDED_CHAT"');
     expect(view).toContain('@click="embedModel = RECOMMENDED_EMBED"');
+  });
+
+  /**
+   * **逐任務的那幾個也是抄的，所以也要釘。**
+   *
+   * 這一組比上面兩個更容易漂：它們不是「一個字串」而是「一張表」，
+   * 而一張表可以**只有一格對**（另一格是舊模型），
+   * 那種狀態下畫面看起來完全正常。
+   */
+  it('逐任務的建議值與 server 的那張表逐格一致', () => {
+    for (const task of CHAT_TASKS) {
+      expect(view, task).toContain(`  ${task}: `);
+    }
+    // 抽取那一格在設定頁裡是引用常數（`extract: RECOMMENDED_CHAT`），
+    // 所以只有跟預設不同的那些會是字面值 —— 逐格比對要看實際的字串。
+    for (const task of CHAT_TASKS) {
+      const model = RECOMMENDED_TASK_MODELS[task];
+      const literal = `${task}: '${model}',`;
+      const viaConst = model === RECOMMENDED_CHAT_MODEL ? `${task}: RECOMMENDED_CHAT,` : null;
+      expect(
+        view.includes(literal) || (viaConst !== null && view.includes(viaConst)),
+        `${task} 的建議值在設定頁裡不是 ${model}`,
+      ).toBe(true);
+    }
+  });
+
+  it('每個任務的建議都有一顆按得下去的按鈕', () => {
+    // 一顆按鈕跑全部任務（`RECOMMENDED_TASK[row.task]`），所以釘的是那個索引 ——
+    // 它在的話，新增一個任務不會漏掉按鈕。
+    expect(view).toContain('@click="taskModels[row.task] = RECOMMENDED_TASK[row.task]"');
   });
 });

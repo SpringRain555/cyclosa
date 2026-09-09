@@ -38,8 +38,15 @@ export const MAX_ANGLES = 6;
  */
 export const MAX_SELECTED_ANGLES = 5;
 
-const MAX_QUESTION_CHARS = 160;
-const MAX_STANCE_CHARS = 24;
+/**
+ * 子問題與立場的長度上限。**匯出的理由與 `MAX_ENTITIES` 那一組相同：它們要進 schema。**
+ *
+ * 超過 `MAX_QUESTION_CHARS` 的下場是 `text()` 回空字串，
+ * 而空字串在下面那個迴圈裡是 `continue` —— **整條角度被丟掉**。
+ * 模型提了六條、使用者看到五條，而畫面上沒有任何地方說少的那條去哪了。
+ */
+export const MAX_QUESTION_CHARS = 160;
+export const MAX_STANCE_CHARS = 24;
 
 export interface AngleDraft {
   readonly question: string;
@@ -113,6 +120,10 @@ export interface SourceCandidate {
 /** 一條角度最多帶幾個網址回來。**同網域間隔 3 秒**，所以這個數字就是等待時間。 */
 export const MAX_URLS_PER_ANGLE = 6;
 
+/** 候選 URL 與它的理由各自的長度上限。**同樣要進 schema。** */
+export const MAX_URL_CHARS = 2048;
+export const MAX_WHY_CHARS = 200;
+
 /**
  * 整理模型回的候選 URL。
  *
@@ -130,12 +141,12 @@ export function normalizeCandidates(raw: unknown): readonly SourceCandidate[] {
     if (typeof entry !== 'object' || entry === null) continue;
     const row = entry as Raw;
 
-    const url = text(row['url'], 2048);
+    const url = text(row['url'], MAX_URL_CHARS);
     if (!/^https?:\/\/\S+$/i.test(url)) continue;
     if (seen.has(url)) continue;
     seen.add(url);
 
-    out.push({ url, why: text(row['why'], 200) });
+    out.push({ url, why: text(row['why'], MAX_WHY_CHARS) });
   }
   return out;
 }

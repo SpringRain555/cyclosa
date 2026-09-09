@@ -25,6 +25,10 @@ import {
   ENTITY_TYPES,
   MAX_ANGLES,
   MAX_ENTITIES,
+  MAX_QUESTION_CHARS,
+  MAX_STANCE_CHARS,
+  MAX_URL_CHARS,
+  MAX_WHY_CHARS,
   MAX_NAME_CHARS,
   MAX_QUOTE_CHARS,
   MAX_REL_CHARS,
@@ -47,8 +51,11 @@ export const ANGLES_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          question: { type: 'string' },
-          stance: { type: 'string' },
+          // 上界與 `normalizeAngles` 丟棄的門檻是同一個數字。
+          // 沒有它的話，一條 200 字的子問題會**整條被丟掉**，
+          // 而使用者只會看到「模型少給了一條」。
+          question: { type: 'string', maxLength: MAX_QUESTION_CHARS },
+          stance: { type: 'string', maxLength: MAX_STANCE_CHARS },
           seeds: { type: 'array', items: { type: 'integer' } },
         },
         required: ['question', 'stance', 'seeds'],
@@ -108,8 +115,8 @@ export const SOURCES_SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          url: { type: 'string' },
-          why: { type: 'string' },
+          url: { type: 'string', maxLength: MAX_URL_CHARS },
+          why: { type: 'string', maxLength: MAX_WHY_CHARS },
         },
         required: ['url', 'why'],
       },

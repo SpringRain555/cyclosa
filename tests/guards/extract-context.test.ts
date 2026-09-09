@@ -36,7 +36,20 @@ import {
   MAX_RELATIONS,
 } from '../../src/domain/provider/relations.js';
 import { MAX_QUOTE_CHARS, MIN_QUOTE_CHARS } from '../../src/domain/provider/quote.js';
-import { EXTRACT_SCHEMA, MAX_TEXT_CHARS } from '../../src/application/expansion-prompts.js';
+import {
+  MAX_ANGLES,
+  MAX_QUESTION_CHARS,
+  MAX_STANCE_CHARS,
+  MAX_URL_CHARS,
+  MAX_URLS_PER_ANGLE,
+  MAX_WHY_CHARS,
+} from '../../src/domain/provider/angles.js';
+import {
+  ANGLES_SCHEMA,
+  EXTRACT_SCHEMA,
+  MAX_TEXT_CHARS,
+  SOURCES_SCHEMA,
+} from '../../src/application/expansion-prompts.js';
 
 describe('抽取的 context 門檻要蓋得住實際送出去的正文', () => {
   it('最壞的 tokenizer 之下，正文 ＋ 提示詞 ＋ 輸出仍在門檻內', () => {
@@ -147,5 +160,32 @@ describe('抽取 schema 的上界要等於正規化實際執行的上界', () =>
     const quote = props.relations.items.properties.quote;
     expect(quote.minLength).toBe(MIN_QUOTE_CHARS);
     expect(quote.maxLength).toBe(MAX_QUOTE_CHARS);
+  });
+});
+
+/**
+ * **另外兩份 schema 也要，而它們原本只做對了一半。**
+ *
+ * 找到抽取那個缺口之後，照 `lessons.md` 那條「回去看有沒有一個已經做對的兄弟」
+ * 反過來查了一次：`ANGLES_SCHEMA` 與 `SOURCES_SCHEMA` **有 `maxItems`
+ * 但沒有 `maxLength`**，而 `normalizeAngles` 對超過 160 字的 `question`
+ * 是**整條角度丟掉**（`text()` 回空字串，迴圈裡 `continue`）。
+ *
+ * 影響比抽取那一個小得多 —— 角度的輸出本來就短，撐不爆視窗。
+ * 但使用者看得到：模型提了六條、畫面上只有五條，**而沒有任何地方說少的那條去哪了**。
+ */
+describe('角度與來源的 schema 上界，也要等於正規化的門檻', () => {
+  it('角度：條數、子問題長度、立場長度', () => {
+    const angles = ANGLES_SCHEMA.properties.angles;
+    expect(angles.maxItems).toBe(MAX_ANGLES);
+    expect(angles.items.properties.question.maxLength).toBe(MAX_QUESTION_CHARS);
+    expect(angles.items.properties.stance.maxLength).toBe(MAX_STANCE_CHARS);
+  });
+
+  it('來源：候選數、URL 長度、理由長度', () => {
+    const candidates = SOURCES_SCHEMA.properties.candidates;
+    expect(candidates.maxItems).toBe(MAX_URLS_PER_ANGLE);
+    expect(candidates.items.properties.url.maxLength).toBe(MAX_URL_CHARS);
+    expect(candidates.items.properties.why.maxLength).toBe(MAX_WHY_CHARS);
   });
 });

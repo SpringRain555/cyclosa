@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { DatabaseSync } from 'node:sqlite';
 
+import { TASK_EXTRACT } from '../../src/domain/provider/capabilities.js';
 import { createCase } from '../../src/application/case-service.js';
 import { chooseAngles, startExpansion } from '../../src/application/expand-service.js';
 import { getRun } from '../../src/application/run-service.js';
@@ -406,7 +407,7 @@ describe('provider 配不上就停手，不靜默降級（ADR-0006）', () => {
    * **這一條守的是 2026-09-09 修掉的那個缺口。**
    *
    * `TASK_ANGLES` 只要 8000 context，而抽取那一步要吃 12,000 字的外部正文
-   * （`TASK_EXTRACT` 要 18000）。在補上 `TASK_EXTRACT` 之前，一個 10000 context
+   * （`TASK_EXTRACT` 的門檻見那個常數）。在補上 `TASK_EXTRACT` 之前，一個 10000 context
    * 的模型會**一路通過**：角度那一關過、勾選那一關只檢查 chat「有沒有設定」，
    * 然後把全部網址抓完，最後在每一份文件上把正文截掉一半 ——
    * 而抽出來的關聯照樣帶引文、照樣進待查證，畫面上看不出任何異常。
@@ -427,7 +428,10 @@ describe('provider 配不上就停手，不靜默降級（ADR-0006）', () => {
       expect(chosen.detail?.['role']).toBe('chat');
       // **旗標是空的，缺的是 context** —— 所以那兩個數字一定要帶出去，
       // 否則畫面上只會顯示「缺少：（空白）」。
-      expect(chosen.detail?.['needContextTokens']).toBe(18_000);
+      // **引用常數本身，不要抄一份數字。** 2026-09-09 這裡寫死 18000，
+      // 而門檻改成 24000 的時候是這條測試紅了才發現 —— 那次它抓對了，
+      // 但下一次改的人得同時記得改兩個地方，而那正是會漂的形狀。
+      expect(chosen.detail?.['needContextTokens']).toBe(TASK_EXTRACT.minContextTokens);
       expect(chosen.detail?.['haveContextTokens']).toBe(10_000);
     }
 

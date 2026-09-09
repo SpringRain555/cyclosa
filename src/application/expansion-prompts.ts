@@ -24,6 +24,11 @@
 import {
   ENTITY_TYPES,
   MAX_ANGLES,
+  MAX_ENTITIES,
+  MAX_NAME_CHARS,
+  MAX_QUOTE_CHARS,
+  MAX_REL_CHARS,
+  MAX_RELATIONS,
   MAX_URLS_PER_ANGLE,
   MIN_QUOTE_CHARS,
 } from '../domain/provider/index.js';
@@ -137,15 +142,31 @@ export function sourcesUser(topic: string, question: string): string {
 
 // ── 三 · 從一份內容抽實體與關係（chat）────────────────────
 
+/**
+ * ## 每一個上界都是 `domain/provider/` 已經在執行的那一個
+ *
+ * 這份 schema 的每一欄，正規化那一層**本來就會照同一個數字丟掉超出的部分**。
+ * 2026-09-09 之前這裡一個上界都沒寫，於是那些丟棄發生在**模型生完之後** ——
+ * 時間花了、視窗佔了，然後才丟。
+ *
+ * 實測 `gemma4:31b` 抽一份 12,000 字的中文：吐出 43 個實體、29 條關係
+ * （留 20／20），輸出 2,400 個 token，**視窗用掉 87%**。
+ * 再多一點就滿，而滿了之後 Ollama 回的是**一份空字串**，不是錯誤 ——
+ * 那正是第一輪看到的「0 字」。
+ *
+ * 所以這些數字寫在這裡不是為了「更嚴格」，是為了**讓約束發生在它有效的那一層**。
+ * 受限解碼是伺服器端的文法，`maxItems` 一寫上去，模型就吐不出第 21 條。
+ */
 export const EXTRACT_SCHEMA = {
   type: 'object',
   properties: {
     entities: {
       type: 'array',
+      maxItems: MAX_ENTITIES,
       items: {
         type: 'object',
         properties: {
-          name: { type: 'string' },
+          name: { type: 'string', maxLength: MAX_NAME_CHARS },
           type: { type: 'string', enum: [...ENTITY_TYPES] },
         },
         required: ['name', 'type'],
@@ -153,13 +174,17 @@ export const EXTRACT_SCHEMA = {
     },
     relations: {
       type: 'array',
+      maxItems: MAX_RELATIONS,
       items: {
         type: 'object',
         properties: {
-          subject: { type: 'string' },
-          rel: { type: 'string' },
-          object: { type: 'string' },
-          quote: { type: 'string' },
+          subject: { type: 'string', maxLength: MAX_NAME_CHARS },
+          rel: { type: 'string', maxLength: MAX_REL_CHARS },
+          object: { type: 'string', maxLength: MAX_NAME_CHARS },
+          // **引文的上下界就是 `locateQuote` 的判準**：太短當 `too-short`、
+          // 超過 500 直接當 `not-found`。寫進 schema 之後，那兩種
+          // 「生完才發現用不了」就不會再發生。
+          quote: { type: 'string', minLength: MIN_QUOTE_CHARS, maxLength: MAX_QUOTE_CHARS },
         },
         required: ['subject', 'rel', 'object', 'quote'],
       },

@@ -22,10 +22,26 @@
 export const ENTITY_TYPES = ['person', 'org', 'place', 'event', 'work', 'concept'] as const;
 export type EntityType = (typeof ENTITY_TYPES)[number];
 
-const MAX_NAME_CHARS = 80;
-const MAX_REL_CHARS = 40;
-const MAX_ENTITIES = 20;
-const MAX_RELATIONS = 20;
+/**
+ * 正規化時的四個上限。**匯出的理由是它們要進 schema。**
+ *
+ * 2026-09-09 之前這四個是私有的 `const`，於是 `EXTRACT_SCHEMA` 拿不到，
+ * 於是那份 schema 的兩個陣列**沒有上界** —— 而受限解碼只保證形狀，
+ * 一個沒有 `maxItems` 的陣列在任何長度都是合法的。
+ *
+ * 實測的下場（`tools/research/probe-num-ctx.ts`，`gemma4:31b`）：
+ * 模型吐出 **43 個實體、29 條關係**，而這裡只留 20／20 ——
+ * **四成的生成是註定被丟掉的**，而那四成同樣要花時間、同樣要佔視窗。
+ * 更糟的一次是 `translategemma:12b` 的 **55,467 個字元**：
+ * 形狀一直合法，直到視窗用完為止。
+ *
+ * `MAX_ANGLES` 一直是 `export` 的，而 `ANGLES_SCHEMA` 一直帶著 `maxItems` ——
+ * **角度那一步從來沒有失控過。** 差別就只在這四個字。
+ */
+export const MAX_NAME_CHARS = 80;
+export const MAX_REL_CHARS = 40;
+export const MAX_ENTITIES = 20;
+export const MAX_RELATIONS = 20;
 
 export interface EntityDraft {
   readonly name: string;

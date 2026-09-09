@@ -29,14 +29,23 @@ import {
   missingFor,
   NO_CAPABILITIES,
 } from '../../src/domain/provider/capabilities.js';
-import { MAX_TEXT_CHARS } from '../../src/application/expansion-prompts.js';
+import {
+  MAX_ENTITIES,
+  MAX_NAME_CHARS,
+  MAX_REL_CHARS,
+  MAX_RELATIONS,
+} from '../../src/domain/provider/relations.js';
+import { MAX_QUOTE_CHARS, MIN_QUOTE_CHARS } from '../../src/domain/provider/quote.js';
+import { EXTRACT_SCHEMA, MAX_TEXT_CHARS } from '../../src/application/expansion-prompts.js';
 
 describe('抽取的 context 門檻要蓋得住實際送出去的正文', () => {
   it('最壞的 tokenizer 之下，正文 ＋ 提示詞 ＋ 輸出仍在門檻內', () => {
     const bodyTokens = MAX_TEXT_CHARS * WORST_TOKENS_PER_CHAR;
-    // 系統提示與 schema 大約 600，抽出來的實體與引文大約 2000。
+    // 系統提示與 schema 大約 600。
+    // 輸出的預算是 8,000：**2026-09-09 補上 `maxItems` 之後實測 1,289–1,627**，
+    // 取約五倍餘裕。（補之前是 11,474 —— 沒有上界的陣列會一直吐到視窗滿。）
     // **輸出也算在 context 裡** —— 多數執行環境的 context 是「輸入＋輸出」。
-    const need = bodyTokens + 600 + 2000;
+    const need = bodyTokens + 600 + 8000;
     expect(TASK_EXTRACT.minContextTokens ?? 0).toBeGreaterThanOrEqual(need);
   });
 
@@ -59,9 +68,12 @@ describe('送出去的請求要自己指定 context，不吃 Ollama 的預設', 
   /**
    * **這一條守的是一個 2026-09-09 量到的落差。**
    *
-   * `/api/tags` 對 `gemma4:31b` 回 `context_length: 262144`，
+   * `/api/tags` 對 `nemotron-cascade-2:30b` 回 `context_length: 262144`，
    * 而 `ollama ps` 顯示實際載入的是 **32768** —— Ollama 用的是它自己的預設，
    * 不是模型的上限。閘門看的是前一個，執行時用的是後一個。
+   *
+   * **而 `gemma4:31b` 與 `translategemma:12b` 根本沒有那一欄**：宣告是 0、
+   * 閘門當「不知道」放行。對它們來說這條請求參數是唯一擋得住的東西。
    *
    * 所以請求裡一定要帶 `num_ctx`。這條測試釘的是「那個常數被送出去了」。
    */
@@ -86,7 +98,7 @@ describe('context 不夠會被擋下來，而且說得出差多少', () => {
     if (match.kind !== 'missing') return;
     // **旗標是空的，缺的是 context** —— 這正是原本會顯示成「缺少：（空白）」的那種情況
     expect(match.flags).toEqual([]);
-    expect(match.context).toEqual([18_000, 8000]);
+    expect(match.context).toEqual([24_000, 8000]);
   });
 
   it('context 宣告是 0 時放行 —— **不知道與很小是兩件事**', () => {
@@ -95,5 +107,45 @@ describe('context 不夠會被擋下來，而且說得出差多少', () => {
 
   it('夠大的就過', () => {
     expect(missingFor(TASK_EXTRACT, { ...capable, context_tokens: 32_768 }).kind).toBe('ok');
+  });
+});
+
+/**
+ * **送出去的 schema 要帶著正規化那一層的上限。**
+ *
+ * 這一組守的是 2026-09-09 量到的一個具體落差。`EXTRACT_SCHEMA` 的兩個陣列
+ * 原本**沒有 `maxItems`**，而受限解碼只保證形狀 ——
+ * **一個沒有上界的陣列在任何長度都是合法的。**
+ *
+ * 於是 `gemma4:31b` 吐出 43 個實體、29 條關係（`normalizeExtraction` 留 20／20），
+ * 視窗用掉 87%；而 `translategemma:12b` 有一次吐了 55,467 個字元，
+ * 形狀一路合法到視窗用完為止，回來的是一份解不開的東西。
+ *
+ * 機械上的原因很小：`MAX_ANGLES` 是 `export` 的，所以 `ANGLES_SCHEMA`
+ * 一直帶著 `maxItems`、角度那一步從來沒失控過；
+ * 而 `MAX_ENTITIES` 那四個當時是私有的 `const`，**schema 那一層拿不到**。
+ *
+ * 所以這裡釘的不是「有沒有寫上界」，是**兩邊的上界是同一個數字** ——
+ * 只改一邊的話，多出來的那些會回到「生完才丟」的老路上。
+ */
+describe('抽取 schema 的上界要等於正規化實際執行的上界', () => {
+  const props = EXTRACT_SCHEMA.properties;
+
+  it('陣列長度：schema 的 maxItems ＝ domain 的丟棄門檻', () => {
+    expect(props.entities.maxItems).toBe(MAX_ENTITIES);
+    expect(props.relations.maxItems).toBe(MAX_RELATIONS);
+  });
+
+  it('名稱與關係詞的長度上限兩邊一致', () => {
+    expect(props.entities.items.properties.name.maxLength).toBe(MAX_NAME_CHARS);
+    expect(props.relations.items.properties.subject.maxLength).toBe(MAX_NAME_CHARS);
+    expect(props.relations.items.properties.object.maxLength).toBe(MAX_NAME_CHARS);
+    expect(props.relations.items.properties.rel.maxLength).toBe(MAX_REL_CHARS);
+  });
+
+  it('**引文的上下界就是 `locateQuote` 的判準** —— 生完才發現用不了是白花的', () => {
+    const quote = props.relations.items.properties.quote;
+    expect(quote.minLength).toBe(MIN_QUOTE_CHARS);
+    expect(quote.maxLength).toBe(MAX_QUOTE_CHARS);
   });
 });

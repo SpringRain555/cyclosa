@@ -37,7 +37,12 @@ interface TagsModel {
 
 /** 連不上與逾時要分得開，所以逾時自己帶一個訊號。 */
 const PROBE_TIMEOUT_MS = 5000;
-const CHAT_TIMEOUT_MS = 180_000;
+/**
+ * 一次呼叫等多久。**評測記分用的也是這一個** —— 一個模型平均要 200 秒，
+ * 它在這個工具裡就是不能用，不管它答得多好。
+ * 匯出而不是各抄一份，理由與 `num_ctx` 那一條相同：抄的那份會漂。
+ */
+export const CHAT_TIMEOUT_MS = 180_000;
 
 interface Timed {
   readonly signal: AbortSignal;
@@ -206,10 +211,12 @@ export function createOllamaChat(
                *
                * `/api/tags` 回的 `context_length` 是模型支援的上限，
                * 而實際載入時用的是 `OLLAMA_CONTEXT_LENGTH`（使用者沒設就是內建值）。
-               * 2026-09-09 實測 `gemma4:31b`：前者 262144、後者 32768。
-               * **閘門看的是前一個** —— 不帶這一欄的話，一份 12,000 字的正文
-               * 會在一台設了小 context 的機器上被安靜截掉，
-               * 而抽出來的關聯照樣帶引文、照樣進待查證。
+               * 2026-09-09 實測 `nemotron-cascade-2:30b`：前者 262144、後者 32768。
+               * **而 `gemma4:31b` 與 `translategemma:12b` 連那一欄都沒有** ——
+               * 宣告是 0、閘門當「不知道」放行，於是這一層是唯一擋得住的地方。
+               *
+               * 不帶這一欄的話，一份 12,000 字的正文會在一台設了小 context
+               * 的機器上被安靜截掉，而抽出來的關聯照樣帶引文、照樣進待查證。
                */
               num_ctx: REQUIRED_CONTEXT_TOKENS,
             },
@@ -229,17 +236,30 @@ export function createOllamaChat(
             cost: { ...cost, elapsedMs },
           };
         }
-        const body = (await res.json()) as { message?: { content?: unknown } };
+        const body = (await res.json()) as {
+          message?: { content?: unknown };
+          done_reason?: unknown;
+        };
         const content = typeof body.message?.content === 'string' ? body.message.content : '';
         try {
           return { kind: 'ok', value: JSON.parse(content), cost: { ...cost, elapsedMs } };
         } catch {
           // 宣告了 `json_schema` 卻回了不是 JSON 的東西 —— **那是 provider 沒守約定**，
           // 不是我們解析錯了。把它報成 `PROVIDER_OUTPUT_UNPARSEABLE` 而不是靜默略過。
+          //
+          // **但「0 個字元」這句話會把兩件事講成同一件。** 2026-09-09 實測到
+          // 受限解碼撞到視窗上緣時，Ollama 回的是**空字串加 `done_reason: "length"`**，
+          // 而那不是「模型壞了」，是「我們送進去的東西加上它要吐的東西塞不下」——
+          // 兩者的下一步完全不同（換模型 ／ 縮輸入或開大視窗）。
+          // 所以把 provider 自己說的那個理由帶出去，不要只報長度。
+          const why =
+            body.done_reason === 'length'
+              ? `回應是空的，而 provider 說 done_reason=length —— **輸出在 context 用完時被截斷**`
+              : `${content.length} 個字元`;
           return {
             kind: 'error',
             code: 'PROVIDER_OUTPUT_UNPARSEABLE',
-            detail: `${content.length} 個字元`,
+            detail: why,
             cost: { ...cost, elapsedMs },
           };
         }

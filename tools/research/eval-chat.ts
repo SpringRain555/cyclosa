@@ -39,6 +39,7 @@ import {
   locateQuote,
   normalizeAngles,
   normalizeExtraction,
+  REQUIRED_CONTEXT_TOKENS,
 } from '../../src/domain/provider/index.js';
 import {
   ANGLES_SCHEMA,
@@ -79,6 +80,20 @@ interface ChatOutcome {
   readonly value: unknown;
   readonly ms: number;
   readonly why: string | null;
+  /**
+   * 進去與出來各幾個 token（`prompt_eval_count` / `eval_count`）。
+   *
+   * **這兩個數字是 `num_ctx` 那條決定的唯一證據。**
+   * 出貨的請求送 `num_ctx: REQUIRED_CONTEXT_TOKENS`，而那個常數的來歷是
+   * 「正文 14,400 ＋ 提示 600 ＋ **輸出約 2,000**」——
+   * 最後那一項是估的，從來沒有量過。輸入＋輸出真的超過視窗的話，
+   * 受限解碼會在中途沒有空間可用，**而回來的是一份空字串，不是錯誤**。
+   *
+   * 問不到就是 `null`（模型沒回這兩欄）。**不要填 0** —— 那會讓
+   * 「沒有輸出」跟「不知道有多少輸出」在表上長得一樣。
+   */
+  readonly promptTokens: number | null;
+  readonly evalTokens: number | null;
 }
 
 async function askJson(
@@ -86,6 +101,12 @@ async function askJson(
   system: string,
   user: string,
   schema: unknown,
+  /**
+   * `false` 時明確關掉 thinking。**只對宣告了 `thinking` 的模型送** ——
+   * 對其他模型送這一欄 Ollama 會回 400，而那會浪費掉一整輪量測。
+   * `null` ＝ 不帶這一欄，也就是**出貨那一支目前的行為**。
+   */
+  think: boolean | null = null,
   timeoutMs = 300_000,
 ): Promise<ChatOutcome> {
   const t0 = performance.now();
@@ -104,19 +125,45 @@ async function askJson(
         // **這就是 `json_schema: true` 那個宣告背後的東西。**
         format: schema,
         stream: false,
-        options: { temperature: 0 },
+        ...(think === null ? {} : { think }),
+        /**
+         * **要跟出貨的那一支一模一樣。**
+         *
+         * 這一欄 2026-09-09 之前不在這裡，而那讓量測與出貨跑在不同的設定上：
+         * `OLLAMA_CONTEXT_LENGTH` 沒設時 Ollama 載入的是 **32768**（實測），
+         * 而 `chat-ollama.ts` 明確送 18000。兩者的 KV 快取差 1.8 倍，
+         * **而延遲正是這一份要量的東西** —— 用比較寬鬆的設定量出來的秒數，
+         * 不是使用者會遇到的秒數。
+         */
+        options: { temperature: 0, num_ctx: REQUIRED_CONTEXT_TOKENS },
       }),
       signal: controller.signal,
     });
     const ms = performance.now() - t0;
-    if (!res.ok) return { ok: false, value: null, ms, why: `HTTP ${res.status}` };
-    const body = (await res.json()) as { message?: { content?: string } };
+    const none = { promptTokens: null, evalTokens: null };
+    if (!res.ok) return { ok: false, value: null, ms, why: `HTTP ${res.status}`, ...none };
+    const body = (await res.json()) as {
+      message?: { content?: string };
+      prompt_eval_count?: unknown;
+      eval_count?: unknown;
+    };
+    const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+    const counts = {
+      promptTokens: num(body.prompt_eval_count),
+      evalTokens: num(body.eval_count),
+    };
     const content = body.message?.content ?? '';
     try {
-      return { ok: true, value: JSON.parse(content), ms, why: null };
+      return { ok: true, value: JSON.parse(content), ms, why: null, ...counts };
     } catch {
       // 受限解碼**應該**保證這裡解得開。解不開本身就是一個結果。
-      return { ok: false, value: null, ms, why: `不是合法 JSON（${content.length} 字）` };
+      return {
+        ok: false,
+        value: null,
+        ms,
+        why: `不是合法 JSON（${content.length} 字）`,
+        ...counts,
+      };
     }
   } catch (err) {
     return {
@@ -124,6 +171,8 @@ async function askJson(
       value: null,
       ms: performance.now() - t0,
       why: String(err).slice(0, 120),
+      promptTokens: null,
+      evalTokens: null,
     };
   } finally {
     clearTimeout(timer);
@@ -174,8 +223,9 @@ async function runAngles(
   model: string,
   topic: string,
   seeds: readonly SeedItem[],
+  think: boolean | null,
 ): Promise<AnglesRun> {
-  const out = await askJson(model, ANGLES_SYSTEM, anglesUser(topic, seeds), ANGLES_SCHEMA);
+  const out = await askJson(model, ANGLES_SYSTEM, anglesUser(topic, seeds), ANGLES_SCHEMA, think);
   if (!out.ok) {
     return {
       schemaOk: false,
@@ -235,6 +285,8 @@ async function runAngles(
 // ── 任務二：從正文抽實體與關係 ──────────────────────────────
 
 interface ExtractRun {
+  readonly promptTokens: number | null;
+  readonly evalTokens: number | null;
   readonly schemaOk: boolean;
   readonly entities: number;
   readonly relations: number;
@@ -245,11 +297,18 @@ interface ExtractRun {
   readonly sampleMiss: string | null;
 }
 
-async function runExtract(model: string, title: string, text: string): Promise<ExtractRun> {
+async function runExtract(
+  model: string,
+  title: string,
+  text: string,
+  think: boolean | null,
+): Promise<ExtractRun> {
   const body = text.slice(0, MAX_TEXT_CHARS);
-  const out = await askJson(model, EXTRACT_SYSTEM, extractUser(title, body), EXTRACT_SCHEMA);
+  const out = await askJson(model, EXTRACT_SYSTEM, extractUser(title, body), EXTRACT_SCHEMA, think);
   if (!out.ok) {
     return {
+      promptTokens: out.promptTokens,
+      evalTokens: out.evalTokens,
       schemaOk: false,
       entities: 0,
       relations: 0,
@@ -276,6 +335,8 @@ async function runExtract(model: string, title: string, text: string): Promise<E
   const typeSpread = new Set(extraction.entities.map((e) => e.type)).size;
 
   return {
+    promptTokens: out.promptTokens,
+    evalTokens: out.evalTokens,
     schemaOk: true,
     entities: extraction.entities.length,
     relations: extraction.relations.length,
@@ -289,9 +350,24 @@ async function runExtract(model: string, title: string, text: string): Promise<E
 
 // ── 主流程 ──────────────────────────────────────────────────
 
-const [corpusDir, outDir, ...only] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+/**
+ * `--no-think` ＝ 對**宣告了 `thinking` 的模型**明確送 `think: false`。
+ *
+ * 出貨的 `chat-ollama.ts` 目前不帶這一欄，也就是**吃模型自己的預設**，
+ * 而新一代的模型多半預設是開的。第一輪 `olmo-3:32b-think` 的六次抽取
+ * 全部超過出貨的 180 秒（278–300 秒），那些時間幾乎都花在思考上。
+ *
+ * 所以這一欄要量不要猜：**同一個模型、同一份語料，開與關各跑一遍。**
+ * 關掉如果又快又不差，出貨那支就該加這一行；關掉之後品質掉了的話，
+ * 結論就變成「這台機器跑不動會思考的模型」——**那是另一件事，處方也不同。**
+ */
+const noThink = argv.includes('--no-think');
+const [corpusDir, outDir, ...only] = argv.filter((a) => a !== '--no-think');
 if (corpusDir === undefined || outDir === undefined) {
-  console.error('用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [模型 ...]');
+  console.error(
+    '用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [--no-think] [模型 ...]',
+  );
   process.exit(2);
 }
 await mkdir(outDir, { recursive: true });
@@ -302,28 +378,36 @@ const passages: Passage[] = (await readFile(join(corpusDir, 'corpus.jsonl'), 'ut
   .map((l) => JSON.parse(l) as Passage);
 
 /**
- * 抽取用的文件：**一份中文、一份英文**，都是真的抓回來的頁面。
- * 中文那一份特別重要 —— 這個工具的介面是繁中，而 tokenizer 對中文的差異最大。
+ * 抽取用的文件：**每一次重複換一篇，不是同一篇跑三次。**
+ *
+ * 2026-09-09 修正。原本三次送同一份正文，而那讓第二、三次
+ * **大部分的提示詞都命中 KV 快取** —— 秒數會漂亮，但那不是使用者的情況：
+ * 真的在用的時候每一份文件都是新的。
+ *
+ * 同一份重跑三次的實測後果：`prompt_eval_count` 從 13,296 掉到 6,702，
+ * 而輸出在溫度 0 之下也跟著變（2,400 → 11,474 → 1,595 個 token）。
+ * **那三次不是三個獨立樣本，是一次量測加兩次回音。**
+ *
+ * 現在取字數最接近上限的前 n 篇：系統提示照樣命中快取（那本來就會發生），
+ * 正文不會 —— 這才是實際的形狀。中文那幾篇特別重要，
+ * 這個工具的介面是繁中，而 tokenizer 對中文的差異最大。
  */
-function documentOf(lang: 'zh' | 'en'): { title: string; text: string } {
+function documentsOf(lang: 'zh' | 'en', n: number): { title: string; text: string }[] {
   const byPage = new Map<string, string[]>();
   for (const p of passages.filter((x) => x.lang === lang)) {
     const list = byPage.get(p.page) ?? [];
     list.push(p.text);
     byPage.set(p.page, list);
   }
-  // 取字數最接近上限的那一篇 —— **要讓 context 這一欄真的被用到**。
-  let best = { title: '', text: '' };
-  for (const [page, parts] of byPage) {
-    const joined = parts.join('\n');
-    if (Math.abs(joined.length - MAX_TEXT_CHARS) < Math.abs(best.text.length - MAX_TEXT_CHARS)) {
-      best = { title: page, text: joined };
-    }
-  }
-  return best;
+  return [...byPage.entries()]
+    .map(([title, parts]) => ({ title, text: parts.join('\n') }))
+    .sort(
+      (a, b) => Math.abs(a.text.length - MAX_TEXT_CHARS) - Math.abs(b.text.length - MAX_TEXT_CHARS),
+    )
+    .slice(0, n);
 }
 
-const docs = { zh: documentOf('zh'), en: documentOf('en') };
+const docs = { zh: documentsOf('zh', REPEATS), en: documentsOf('en', REPEATS) };
 /** 角度那一步的素材：拿真實頁面的標題當既有內容。 */
 const seeds: SeedItem[] = passages
   .filter((p) => p.lang === 'zh')
@@ -334,17 +418,41 @@ const TOPIC = '蜘蛛結網行為與它的演化';
 
 console.error(
   `語料 ${passages.length} 段｜角度素材 ${seeds.length} 份｜` +
-    `抽取文件 中文 ${docs.zh.text.length} 字（${docs.zh.title}）、英文 ${docs.en.text.length} 字（${docs.en.title}）`,
+    `抽取文件 中文 ${docs.zh.map((d) => `${d.title} ${d.text.length} 字`).join('、')}｜英文 ${docs.en.map((d) => `${d.title} ${d.text.length} 字`).join('、')}`,
 );
 
 const models = only.length > 0 ? only : MODELS_DEFAULT;
+/**
+ * 哪些模型自己宣告了 `thinking`。**問 provider，不要看名字。**
+ * （`olmo-3:32b-think` 名字裡有，而 `qwen3.5:9b` 沒有卻同樣會思考；
+ * 對不會思考的模型送 `think` 則是 HTTP 400，會白白燒掉一整輪量測。）
+ */
+const thinkingModels = new Set<string>();
+{
+  const res = await fetch(`${OLLAMA}/api/tags`);
+  const body = (await res.json()) as { models?: { name?: string; capabilities?: string[] }[] };
+  for (const m of body.models ?? []) {
+    if (Array.isArray(m.capabilities) && m.capabilities.includes('thinking')) {
+      thinkingModels.add(String(m.name));
+    }
+  }
+}
+if (noThink) {
+  console.error(
+    `關掉 thinking：${models.filter((m) => thinkingModels.has(m)).join('、') || '（沒有一個模型宣告 thinking）'}`,
+  );
+}
+
 const results: Record<string, unknown>[] = [];
 
 for (const model of models) {
+  // 只有「要求關掉」且「這個模型真的宣告會思考」時才送那一欄。
+  const think = noThink && thinkingModels.has(model) ? false : null;
+  const label = think === false ? `${model} (think:off)` : model;
   console.error(`\n── ${model}`);
   const angles: AnglesRun[] = [];
   for (let i = 0; i < REPEATS; i++) {
-    const r = await runAngles(model, TOPIC, seeds);
+    const r = await runAngles(model, TOPIC, seeds, think);
     angles.push(r);
     console.error(
       `  角度 ${i + 1}/${REPEATS}: ${r.schemaOk ? `${r.kept} 條、最大相似度 ${r.maxPairSimilarity?.toFixed(3) ?? '—'}` : `失敗（${r.why ?? ''}）`} ${(r.ms / 1000).toFixed(1)}s`,
@@ -354,10 +462,12 @@ for (const model of models) {
   const extracts: (ExtractRun & { lang: string })[] = [];
   for (const lang of ['zh', 'en'] as const) {
     for (let i = 0; i < REPEATS; i++) {
-      const r = await runExtract(model, docs[lang].title, docs[lang].text);
+      // **第 i 次用第 i 篇** —— 三次同一篇的話那不是三個樣本。
+      const doc = docs[lang][i] ?? docs[lang][0];
+      const r = await runExtract(model, doc?.title ?? '', doc?.text ?? '', think);
       extracts.push({ ...r, lang });
       console.error(
-        `  抽取 ${lang} ${i + 1}/${REPEATS}: ${
+        `  抽取 ${lang} ${i + 1}/${REPEATS}: [${r.promptTokens ?? '?'}→${r.evalTokens ?? '?'} tok] ${
           r.schemaOk
             ? `實體 ${r.entities}（${r.typeSpread} 型）、關係 ${r.relations}、引文命中 ${r.quotesFound}/${r.relations}`
             : `失敗（${r.why ?? ''}）`
@@ -372,7 +482,7 @@ for (const model of models) {
   const totalFound = okExtracts.reduce((s, e) => s + e.quotesFound, 0);
 
   results.push({
-    model,
+    model: label,
     angles: {
       schemaOkRate: angles.filter((a) => a.schemaOk).length / angles.length,
       keptMean: mean(okAngles.map((a) => a.kept)),

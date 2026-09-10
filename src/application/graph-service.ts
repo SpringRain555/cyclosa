@@ -169,17 +169,33 @@ export async function subgraphSize(
     const thresholds = isValidThresholds(query.thresholds)
       ? query.thresholds
       : DEFAULT_PROJECTION_THRESHOLDS;
-    const traversal = graph.traverse(db, focus, MAX_HOPS, query.filters, thresholds);
+    /**
+     * **走到硬上限就停。**
+     *
+     * 這一支的預算是 50 ms，而 2026-09-10 的規模量測（5 萬筆／20 萬關聯）
+     * 顯示走完 3 跳要 **1,555 ms（中位數度數的焦點）到 4,566 ms（樞紐）**——
+     * 因為 3 跳鄰域是 3.2 萬到 5.4 萬個節點。
+     *
+     * 那個差距補不回來，而**它也不需要補**：超過 `RENDER_LIMIT` 的子圖
+     * 一律回 413，所以精確的「32,170」不會改變使用者的任何一個決定。
+     */
+    const traversal = graph.traverse(db, focus, MAX_HOPS, query.filters, thresholds, RENDER_LIMIT);
 
     // 累計 —— 「2 跳會帶進 143 個」指的是總共看得到 143 個，不是第 2 跳新增 143 個
     const counts: Record<string, number> = {};
+    const capped: string[] = [];
     let running = traversal.idsByHop[0]?.length ?? 1;
     for (let hop = 1; hop <= MAX_HOPS; hop += 1) {
       running += traversal.idsByHop[hop]?.length ?? 0;
       counts[String(hop)] = running;
+      // 停下來那一跳**自己也是下界** —— 它是「超過上限」才停的，
+      // 所以它的數字已經不是走完會有的那個數字。
+      if (traversal.truncatedAtHop !== null && hop >= traversal.truncatedAtHop) {
+        capped.push(String(hop));
+      }
     }
 
-    return ok({ counts, budget: NODE_BUDGET, overBudget: overBudgetHops(counts) }, cid);
+    return ok({ counts, budget: NODE_BUDGET, overBudget: overBudgetHops(counts), capped }, cid);
   });
 }
 
@@ -204,8 +220,21 @@ export async function subgraph(
       ? query.thresholds
       : DEFAULT_PROJECTION_THRESHOLDS;
 
-    const traversal = graph.traverse(db, focus, query.hops, query.filters, thresholds);
-    if (traversal.visible.size > RENDER_LIMIT) {
+    // 一樣帶上界 —— 超過就是 413，**多走的那些節點是白走的**。
+    //
+    // **但省下來的沒有想像中多**（2026-09-10 實測）：`hops` 是 2 的時候
+    // 本來就只走兩跳，而樞紐的爆炸發生在第 1、2 跳自己身上 ——
+    // 上界救得到的是「還會不會有第 3 跳」，不是這一跳本身。
+    // 真正把樞紐 2 跳壓下來的是**跳內分段**（見 `traverse`），不是這一行。
+    const traversal = graph.traverse(
+      db,
+      focus,
+      query.hops,
+      query.filters,
+      thresholds,
+      RENDER_LIMIT,
+    );
+    if (traversal.visible.size > RENDER_LIMIT || traversal.truncatedAtHop !== null) {
       return err('GRAPH_SUBGRAPH_TOO_LARGE', cid, {
         found: traversal.visible.size,
         limit: RENDER_LIMIT,

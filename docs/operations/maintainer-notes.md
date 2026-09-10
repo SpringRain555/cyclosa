@@ -29,8 +29,19 @@
 | 中文兩個字查不到 | bigram 索引沒寫進去。**索引是匯入時寫的** —— 舊資料要跑 `POST …/rebuild` | `tests/e2e/search-flow.test.ts` |
 | 中文頁面裡的英文／學名查不到 | 同上，而且**那一條是 2026-09-09 才加的**（CJK 的非 CJK 片段進 FTS）。舊索引沒有那些列 | ADR-0009 的補記 |
 | 結果裡有明顯不相干的東西 | **那是 bigram 跨詞誤中**，而它們應該被標成「可能是誤中」並排在後面。沒有被標＝正文讀不到，看 `derived/` | `domain/search/query.ts` |
-| 搜尋很慢 | 候選上限 400、驗證上限 60（`search-service.ts`）。慢多半是**一次讀 60 份正文**，不是 SQL | Stage 13 的效能預算 |
+| 搜尋很慢 | 候選上限 400、驗證上限 60（`search-service.ts`）。慢多半是**一次讀 60 份正文**，不是 SQL | `environment/performance.md`（5 萬筆實測 42 ms）|
+| 語意檢索要好幾秒 | **那是實際成本**（5 萬筆 2.2 秒）—— 2560 維每條 10 KB，掃全表。降段數救不了 | ADR-0028 |
+| 語意檢索要**幾十秒** | 那不是實際成本，那是 schema v7 之前的樣子（缺 `(model, dim, id)` 索引）。**確認 `PRAGMA user_version` 是 7** | migration `007` 的註解 |
 | 摘要上色的位置不對 | `matchStart` 是伺服器算的，而摘要壓過空白 —— 校正在 `offsetsAfterSquash` | `tests/domain/search-query.test.ts` |
+
+## 關聯圖
+
+| 症狀 | 看哪裡 | 誰守著 |
+|---|---|---|
+| 工具列的節點數顯示 `16272+` | **那是下界，不是壞掉。** 走訪走到硬上限 8,000 就停了 | ADR-0029、`tests/infrastructure/traverse-cap.test.ts` |
+| 2 跳查詢要半秒多 | **那是實際成本**（1,900 個節點 ＋ 7,700 條線）。拆解在 `environment/performance.md` | ADR-0029 |
+| 打開關聯圖分頁要一秒 | `defaultFocusId` 要對整張 `edge` 表做兩次 `GROUP BY` 才選得出「連得最多的那一個」 | 沒有預算，量測有記 |
+| 想量 fps | 網址加 `?fps=1`，左上角出現讀數 | `release-checklist.md` D9 |
 
 ## 資料與啟動狀態
 

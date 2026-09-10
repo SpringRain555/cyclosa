@@ -44,6 +44,18 @@ export interface HopCounts {
   readonly budget: number;
   /** 超過預算的那幾格。工具列把它們標成琥珀色 */
   readonly overBudget: readonly string[];
+  /**
+   * 哪幾格的數字是**下界**而不是實際值。
+   *
+   * 走訪在超過 `RENDER_LIMIT` 之後就停了（2026-09-10 的規模量測：
+   * 走完 3 跳要 1.5–4.6 秒，而這一支的預算是 50 ms）。
+   * **超過硬上限的子圖一律回 413，所以「32,170」與「超過 8,000」
+   * 對使用者是同一句話** —— 而後者便宜得多。
+   *
+   * 這一欄存在的理由是**不要讓一個下界看起來像一個數**。
+   * 畫面上那幾格要顯示「8000+」，不是「8001」。
+   */
+  readonly capped: readonly string[];
 }
 
 export function normalizeHops(raw: unknown): number {

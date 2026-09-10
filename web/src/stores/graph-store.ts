@@ -38,6 +38,8 @@ export const useGraphStore = defineStore('graph', () => {
   const subgraph = ref<Subgraph | null>(null);
   const hopCounts = ref<Record<string, number>>({});
   const overBudget = ref<string[]>([]);
+  /** 數字是下界的那幾格（走訪在硬上限停了）*/
+  const capped = ref<string[]>([]);
   const budget = ref(2000);
   const totalNodeCount = ref(0);
 
@@ -136,6 +138,7 @@ export const useGraphStore = defineStore('graph', () => {
     if (sizes.ok) {
       hopCounts.value = sizes.data.counts;
       overBudget.value = sizes.data.overBudget;
+      capped.value = sizes.data.capped;
     }
   }
 
@@ -265,6 +268,7 @@ export const useGraphStore = defineStore('graph', () => {
     selectedEdges,
     hopCounts,
     overBudget,
+    capped,
     budget,
     totalNodeCount,
     loading,

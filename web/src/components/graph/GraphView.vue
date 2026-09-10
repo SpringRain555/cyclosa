@@ -279,7 +279,42 @@ function onLayoutMessage(event: MessageEvent<LayoutMessage>): void {
 
 // ── 每一幀 ──────────────────────────────────────────────────
 
+/**
+ * fps 讀數，**`?fps=1` 才出現**。
+ *
+ * 它存在的理由是 ADR-0007：換渲染器的觸發條件是
+ * 〈**8k 節點時互動 fps 掉到 30 以下**〉—— 而一個沒有人量得到的
+ * 觸發條件等於沒有觸發條件。Stage 13 那兩項 fps 預算是六項裡
+ * **唯一兩項伺服器量不到的**（它們在瀏覽器裡，而且跟 GPU 有關）。
+ *
+ * 數的是 `onEngineTick`，不是另開一個 `requestAnimationFrame` 迴圈 ——
+ * 因為引擎永遠「在跑」（`cooldownTicks(Infinity)`，見檔案開頭），
+ * 所以每一次 tick 就是一幀。**另開一個迴圈量到的是瀏覽器還能不能排幀，
+ * 不是這張圖畫得多快。**
+ */
+const fpsOn = typeof window !== 'undefined' && new URLSearchParams(location.search).has('fps');
+const fps = ref(0);
+let frames = 0;
+let fpsSince = 0;
+
+function countFrame(): void {
+  if (!fpsOn) return;
+  const at = performance.now();
+  if (fpsSince === 0) {
+    fpsSince = at;
+    return;
+  }
+  frames += 1;
+  const span = at - fpsSince;
+  if (span >= 500) {
+    fps.value = Math.round((frames * 1000) / span);
+    frames = 0;
+    fpsSince = at;
+  }
+}
+
 function onFrame(): void {
+  countFrame();
   const instance = graph;
   if (instance === null) return;
   const focus = byId.get(props.focusId);
@@ -470,7 +505,10 @@ watch(
 </script>
 
 <template>
-  <div ref="host" class="canvas"></div>
+  <div ref="host" class="canvas">
+    <!-- 量測用，`?fps=1` 才出現。數字而已 —— i18n 不需要進來。 -->
+    <p v-if="fpsOn" class="fps">{{ fps }} fps &middot; {{ nodes.length }}</p>
+  </div>
 </template>
 
 <style scoped>
@@ -480,5 +518,20 @@ watch(
   min-height: 0;
   position: relative;
   overflow: hidden;
+}
+
+.fps {
+  position: absolute;
+  top: var(--gap);
+  left: var(--gap);
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  z-index: 2;
 }
 </style>

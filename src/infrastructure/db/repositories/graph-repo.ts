@@ -341,6 +341,13 @@ export interface Traversal {
   readonly projectedEntities: ReadonlyMap<string, string[]>;
   /** 展開成節點的實體 */
   readonly expandedEntities: ReadonlySet<string>;
+  /**
+   * 走到第幾跳就因為超過 `stopAfter` 而停下來的。`null` ＝ 走完了。
+   *
+   * **停下來之後的每一個數字都是下界，不是實際值** ——
+   * 呼叫端要把這件事說出去，不能拿它當成一個數。
+   */
+  readonly truncatedAtHop: number | null;
 }
 
 /**
@@ -383,71 +390,111 @@ function entitiesCarryingNamedEdges(
  * **焦點永遠看得見**，即使它是一個低於展開門檻的實體 ——
  * 使用者明確指定了它，投影門檻管的是「順便畫進來的東西」。
  */
+/**
+ * 從焦點往外走 `maxHops` 跳。
+ *
+ * ## `stopAfter`：走到看得見的節點超過這個數就停
+ *
+ * 2026-09-10 的規模量測（`docs/environment/performance.md`）：
+ * 5 萬筆／20 萬關聯的合成資料上，從一個**中位數度數（3）**的節點走 3 跳
+ * 會走到 **32,170 個節點、1,555 ms**；從樞紐走是 **54,318 個、4,566 ms**。
+ * 而 `/subgraph/size` 的預算是 **50 ms**。
+ *
+ * **那個差距不是實作補得回來的** —— 走到 5.4 萬個節點這件事本身就不可能在
+ * 50 ms 內做完。真正的問題是**它根本不需要走那麼遠**：
+ * 超過 `RENDER_LIMIT` 的子圖一律回 413，所以「32,170」與「超過 8,000」
+ * 對使用者是同一句話。第二句便宜得多。
+ *
+ * 所以這一支收一個上界，超過就停，並且**說出自己停了**（`truncatedAtHop`）。
+ * 不說的話，呼叫端會把一個下界當成一個數 —— 那正是這個 repo 反覆修的那種錯。
+ */
 export function traverse(
   db: DatabaseSync,
   focusId: string,
   maxHops: number,
   filters: SubgraphFilters,
   thresholds: ProjectionThresholds,
+  stopAfter: number = Number.POSITIVE_INFINITY,
 ): Traversal {
   const visible = new Set<string>([focusId]);
   const hopOf = new Map<string, number>([[focusId, 0]]);
   const idsByHop: string[][] = [[focusId]];
   const projectedEntities = new Map<string, string[]>();
   const expandedEntities = new Set<string>();
+  let truncatedAtHop: number | null = null;
 
   let frontier: string[] = [focusId];
 
   for (let hop = 1; hop <= maxHops; hop += 1) {
-    if (frontier.length === 0) {
+    // **超過上界就不再往外走。** 剩下幾跳的數字補成目前的累計值，
+    // 而 `truncatedAtHop` 讓呼叫端知道那些是下界。
+    if (truncatedAtHop !== null || frontier.length === 0) {
       idsByHop.push([]);
       continue;
     }
 
-    const raw = neighboursOf(db, frontier, filters);
-    const entityIds = [...new Set(raw.filter((n) => n.kind === 'entity').map((n) => n.id))];
-    const counts = mentionCounts(db, entityIds);
-    const carrying = entitiesCarryingNamedEdges(db, entityIds, filters);
-
-    const arrived: string[] = [];
-    const transparent: string[] = [];
-
-    for (const neighbour of raw) {
-      if (neighbour.kind === 'item') {
-        arrived.push(neighbour.id);
-        continue;
-      }
-      const projection = projectionFor(
-        counts.get(neighbour.id) ?? 0,
-        thresholds,
-        carrying.has(neighbour.id),
-      );
-      if (projection === 'node') {
-        expandedEntities.add(neighbour.id);
-        arrived.push(neighbour.id);
-      } else if (projection === 'edge') {
-        // **透明的**：它自己不畫，但穿過它到得了別的文件，而那算同一跳
-        transparent.push(neighbour.id);
-      }
-      // `attribute` 是死路 —— 它只被一份文件提到，穿過去到不了任何新東西
-    }
-
-    if (transparent.length > 0) {
-      const mentioning = itemsMentioning(db, [...new Set(transparent)], filters);
-      for (const [entityId, itemIds] of mentioning) {
-        for (const itemId of itemIds) arrived.push(itemId);
-        const existing = projectedEntities.get(entityId);
-        if (existing === undefined) projectedEntities.set(entityId, [...itemIds]);
-        else existing.push(...itemIds);
-      }
-    }
-
     const fresh: string[] = [];
-    for (const id of arrived) {
-      if (visible.has(id)) continue;
-      visible.add(id);
-      hopOf.set(id, hop);
-      fresh.push(id);
+
+    /**
+     * **一跳之內也要分段檢查，不能等這一跳做完。**
+     *
+     * 2026-09-10 第一版的上界只在跳與跳之間檢查，而量測顯示它幾乎沒有用：
+     * 從一個**中位數度數（3）**的節點出發，第 2 跳結束時只有 1,922 個節點
+     * （遠低於上界 8,000），而第 3 跳一口氣帶進 **32,170 個** ——
+     * 爆炸整個發生在一跳之內，跳與跳之間的檢查看不到它。
+     *
+     * 分段之後最多只會多走一段（400 個），而不是多走一整跳。
+     */
+    for (const slice of chunk(frontier)) {
+      const raw = neighboursOf(db, slice, filters);
+      const entityIds = [...new Set(raw.filter((n) => n.kind === 'entity').map((n) => n.id))];
+      const counts = mentionCounts(db, entityIds);
+      const carrying = entitiesCarryingNamedEdges(db, entityIds, filters);
+
+      const arrived: string[] = [];
+      const transparent: string[] = [];
+
+      for (const neighbour of raw) {
+        if (neighbour.kind === 'item') {
+          arrived.push(neighbour.id);
+          continue;
+        }
+        const projection = projectionFor(
+          counts.get(neighbour.id) ?? 0,
+          thresholds,
+          carrying.has(neighbour.id),
+        );
+        if (projection === 'node') {
+          expandedEntities.add(neighbour.id);
+          arrived.push(neighbour.id);
+        } else if (projection === 'edge') {
+          // **透明的**：它自己不畫，但穿過它到得了別的文件，而那算同一跳
+          transparent.push(neighbour.id);
+        }
+        // `attribute` 是死路 —— 它只被一份文件提到，穿過去到不了任何新東西
+      }
+
+      if (transparent.length > 0) {
+        const mentioning = itemsMentioning(db, [...new Set(transparent)], filters);
+        for (const [entityId, itemIds] of mentioning) {
+          for (const itemId of itemIds) arrived.push(itemId);
+          const existing = projectedEntities.get(entityId);
+          if (existing === undefined) projectedEntities.set(entityId, [...itemIds]);
+          else existing.push(...itemIds);
+        }
+      }
+
+      for (const id of arrived) {
+        if (visible.has(id)) continue;
+        visible.add(id);
+        hopOf.set(id, hop);
+        fresh.push(id);
+      }
+
+      if (visible.size > stopAfter) {
+        truncatedAtHop = hop;
+        break;
+      }
     }
 
     idsByHop.push(fresh);
@@ -461,7 +508,7 @@ export function traverse(
     else projectedEntities.set(entityId, kept);
   }
 
-  return { idsByHop, visible, hopOf, projectedEntities, expandedEntities };
+  return { idsByHop, visible, hopOf, projectedEntities, expandedEntities, truncatedAtHop };
 }
 
 /** 走訪出來的實體要畫成什麼。**投影的判斷在 domain，這裡只餵資料。** */

@@ -606,6 +606,8 @@ export const t = {
       relayout: '重新佈局',
       counts: '畫面上 {visible}／專題共 {total} 個節點',
       overBudget: '超過 {budget} 個節點，這一格沒有被驗收過',
+      /** 走訪在硬上限就停了，所以那個數字是下界。**不要讓下界看起來像一個數。** */
+      capped: '超過 {limit} 個節點就停止計算了 —— 這一格按下去會是「範圍太大」。實際數字更多',
       focusOn: '以此為焦點',
       openInReader: '在閱讀器開啟',
     },

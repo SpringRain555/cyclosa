@@ -1,0 +1,38 @@
+-- schema v7 —— 向量掃描的索引（Stage 13 的規模量測找出來的）
+--
+-- 欄位與值域的權威是 docs/architecture/data-model.md。**改這裡就要改那一份。**
+
+-- ── 一個索引，48 秒變 2.2 秒 ──────────────────────────────
+--
+-- `listVectors` 是游標式分頁：
+--
+--     SELECT … FROM vector WHERE model = ? AND dim = ? AND id > ? ORDER BY id LIMIT 2000
+--
+-- v1 給它的索引是 `idx_vector_model(model, dim)`。那個索引**滿足得了篩選，
+-- 滿足不了排序** —— 於是每一批的查詢計畫都是：
+--
+--     SEARCH vector USING INDEX idx_vector_model (model=? AND dim=?)
+--     USE TEMP B-TREE FOR ORDER BY
+--
+-- 也就是**每取 2000 列，就先把符合條件的全部 184,613 列排一次序**，
+-- 而 `embedding` 那個 10 KB 的 BLOB 跟著流過那個排序。一次全掃 93 批，
+-- 所以那件事做了 93 次。
+--
+-- 2026-09-10 在 5 萬筆的合成資料上實測（`docs/environment/performance.md`）：
+--
+-- | | 一批 2000 列 | 全掃 184,613 條 |
+-- |---|---|---|
+-- | `(model, dim)` | 554 ms | **48,456 ms** |
+-- | `(model, dim, id)` | 20 ms | **2,176 ms** |
+--
+-- **這不是設計極限，是缺了一個索引。** 而它不會有任何症狀 ——
+-- 小專題上兩者都是幾毫秒，測試全綠，功能完全正確。
+-- 它只在資料變多之後才長出來，而那時候看起來像「語意檢索本來就慢」。
+--
+-- ## 為什麼是換掉不是新增
+--
+-- `(model, dim, id)` 的前綴就是 `(model, dim)`，所以原本那個索引服務得了的
+-- 查詢（`vectorStats`、`vectorModels`、模型不符的檢查）它一樣服務得了。
+-- 兩個都留的話是**多付一份寫入成本換零個查詢**。
+DROP INDEX IF EXISTS idx_vector_model;
+CREATE INDEX idx_vector_scan ON vector(model, dim, id);

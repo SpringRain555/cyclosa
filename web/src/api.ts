@@ -411,6 +411,8 @@ export interface HopCounts {
   counts: Record<string, number>;
   budget: number;
   overBudget: string[];
+  /** 這幾格的數字是**下界**（走訪在硬上限停了）。畫面上要顯示「8000+」 */
+  capped: string[];
 }
 
 // ── 關聯與裁決（Stage 8）────────────────────────────────────

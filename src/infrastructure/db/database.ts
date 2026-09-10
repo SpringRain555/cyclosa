@@ -13,7 +13,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, 'migrations');
 
 /** 這一版程式認得的 schema 版本。**比資料庫的版本小就代表資料庫被新版寫過。** */
-export const SUPPORTED_SCHEMA_VERSION = 6;
+export const SUPPORTED_SCHEMA_VERSION = 7;
 
 export type OpenOutcome =
   | { readonly kind: 'ok'; readonly db: DatabaseSync }

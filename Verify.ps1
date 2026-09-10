@@ -105,8 +105,12 @@ if ($Report) {
         "| node:sqlite 的 SQLite | $sqlite |"
         "| PowerShell | $($PSVersionTable.PSVersion) |"
         ''
-        '> 效能數字不在這裡 —— 那些要等 Stage 13 的合成資料驗收，'
-        '> 而且要連同量測方法一起寫。**沒有量測條件的數字不能拿來做決定。**'
+        '> **效能數字不在這裡**，在 `docs/environment/performance.md` ——'
+        '> 它們要連同量測條件一起讀（語料的形狀、從哪一個節點、查哪一個詞、'
+        '> 重複幾次）。**沒有量測條件的數字不能拿來做決定。**'
+        '>'
+        '> 這一份是機器事實，每次 `-Report` 重新產生；那一份是手寫的量測報告。'
+        '> **兩者不要合併** —— 合併之後下一次 `-Report` 會把報告蓋掉。'
         ''
     )
     $path = Join-Path $dir "$(Get-Date -Format 'yyyy-MM-dd').md"

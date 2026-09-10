@@ -66,6 +66,32 @@ function isOverBudget(hop: number): boolean {
   return store.overBudget.includes(String(hop));
 }
 
+/**
+ * 這一格的數字是**下界**還是實際值。
+ *
+ * 走訪在硬上限（8,000）就停了 —— 那是 2026-09-10 規模量測的結果：
+ * 走完 3 跳要一秒半到四秒半，而超過硬上限的子圖一律回 413，
+ * **所以那幾萬個節點是白數的**。
+ *
+ * 而下界要看得出來是下界。「8001」與「8000+」是兩句不同的話。
+ */
+function isCapped(hop: number): boolean {
+  return store.capped.includes(String(hop));
+}
+
+function countLabel(hop: number): string {
+  const n = countFor(hop);
+  if (n === null) return '—';
+  return isCapped(hop) ? `${n}+` : String(n);
+}
+
+/** 滑過去說明為什麼。**超過硬上限那一句要蓋過超過預算那一句** —— 它比較嚴重。 */
+function hopTitle(hop: number): string {
+  if (isCapped(hop)) return fill(t.graph.toolbar.capped, { limit: countFor(hop) ?? 0 });
+  if (isOverBudget(hop)) return fill(t.graph.toolbar.overBudget, { budget: store.budget });
+  return '';
+}
+
 watch(
   slug,
   (next) => {
@@ -119,13 +145,11 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
             :key="hop"
             type="button"
             :class="{ on: store.hops === hop, over: isOverBudget(hop) }"
-            :title="
-              isOverBudget(hop) ? fill(t.graph.toolbar.overBudget, { budget: store.budget }) : ''
-            "
+            :title="hopTitle(hop)"
             @click="store.setHops(hop)"
           >
             <span class="n">{{ fill(t.graph.toolbar.hopUnit, { n: hop }) }}</span>
-            <span class="count mono">{{ countFor(hop) ?? '—' }}</span>
+            <span class="count mono">{{ countLabel(hop) }}</span>
           </button>
         </div>
 

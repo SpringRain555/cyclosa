@@ -2,6 +2,18 @@
     "note":  "產生物。改了 .md 裡的 mermaid 就重跑 tools/diagrams/Render-Diagrams.ps1。",
     "diagrams":  [
                      {
+                         "document":  "app-lifecycle.md",
+                         "index":  1,
+                         "svg":  "app-lifecycle-1.svg",
+                         "sha256":  "ed7cbc0b1c1f40f2e1ba9b5de90edea7d511c42a981fe71f6a2508e3ede72f8d"
+                     },
+                     {
+                         "document":  "app-lifecycle.md",
+                         "index":  2,
+                         "svg":  "app-lifecycle-2.svg",
+                         "sha256":  "8d9473f571ddf82fea8047febb3d91877c0cb40707fba440869974b3bd2b25af"
+                     },
+                     {
                          "document":  "data-model.md",
                          "index":  1,
                          "svg":  "data-model-1.svg",
@@ -35,7 +47,7 @@
                          "document":  "state-machines.md",
                          "index":  3,
                          "svg":  "state-machines-3.svg",
-                         "sha256":  "f97ba1f2aa7dce5d06378e96101443898cf3388a2115154086198e4cae18b767"
+                         "sha256":  "dbfcf0336c56b5a70f2ba51e7a74b3be2ac49ed490cd6b2c3b0dee0688e78a05"
                      },
                      {
                          "document":  "state-machines.md",

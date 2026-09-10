@@ -223,7 +223,16 @@ async function processUrls(
         action === 'complete' ? 'done' : action === 'complete-partial' ? 'partial' : 'failed';
     }
 
-    runs.settleRunRow(db, { id: state.runId, status, succeeded, failed, now });
+    // **取消是誰按的要跟著寫下去。** 兩種取消的 `status` 都是 `已取消`，
+    // 而畫面要說得出「關掉程式時一起停的」與「你按了取消」的差別。
+    runs.settleRunRow(db, {
+      id: state.runId,
+      status,
+      succeeded,
+      failed,
+      endedReason: status === 'cancelled' ? state.cancelReason : null,
+      now,
+    });
 
     // **標題名次整批重排一次**（不是每筆一次）——理由在 domain/search/collate.ts
     reindexTitleRank(db);

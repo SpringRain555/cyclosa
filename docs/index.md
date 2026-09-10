@@ -61,6 +61,7 @@
 | 文件 | 現況 | 它是什麼的權威 | **不要**寫在這裡 |
 |---|:--:|---|---|
 | `walkthrough.md` | ✅ | **一次完整流程的步驟順序**，以及每一步用不用模型 | 規則本身、欄位、狀態轉移 |
+| `app-lifecycle.md` | ✅ | **啟動、單一實例、關閉**的完整路徑與目前的缺口 | 資料流（在 `walkthrough.md`）|
 | `overview.md` | ✅ | 分層規則、擷取流程、檔案地圖 | 欄位細節、UI 版面 |
 | `state-machines.md` | ✅ | 每個狀態機**「從 A 能不能到 B」的轉移表** | 觸發轉移的 UI 在哪一頁 |
 | `data-model.md` | ✅ | 表、欄位、值域、索引與資料模型的決定 | 查詢怎麼寫、UI 怎麼顯示 |
@@ -71,7 +72,7 @@
 | `error-codes.md` | ✅ | 每個錯誤碼的成因與「使用者該做什麼」 | 錯誤在哪一行被丟出來 |
 | `glossary.md` | ✅ | 中文詞 ↔ 識別字，以及**不可以叫什麼** | 概念的完整定義 |
 | `multilingual.md` | ✅ | 語言偵測、雙軌索引、跨語言實體對齊、翻譯的地位 | 檢索實作 |
-| `diagrams/*.svg` ＋ `manifest.json` | ✅ | （產生物）**7 個檔**。mermaid 正本在各文件裡，`manifest.json` 記每段原始碼的 SHA-256 | —— |
+| `diagrams/*.svg` ＋ `manifest.json` | ✅ | （產生物）**9 個檔**。mermaid 正本在各文件裡，`manifest.json` 記每段原始碼的 SHA-256 | —— |
 
 > **為什麼 `walkthrough.md` 是新的一份，而不是接在 `overview.md` 後面。**
 > 兩份回答的是不同的問題：`overview.md` 回答「程式怎麼排、這條流程的不變條件是什麼」，

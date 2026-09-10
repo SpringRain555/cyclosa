@@ -12,6 +12,7 @@ import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { isActive, isPaused } from './run-registry.js';
+import { sweepStaleRuns } from './run-sweep.js';
 import { viewAngles, type AngleView } from './expand-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
@@ -29,6 +30,10 @@ async function open(dataRoot: string, slug: string, cid: string) {
     opened.db.close();
     return err('CASE_NOT_FOUND', cid, { slug });
   }
+  // **這個行程第一次打開這個專題時，把上一次沒有收尾的作業掃掉。**
+  // 不掃的話，一個上次被強制結束的作業會永遠標著「執行中」，
+  // 而且連取消都取消不掉（`run-sweep.ts` 寫了完整的理由）。
+  sweepStaleRuns(opened.db, slug);
   return opened.db;
 }
 

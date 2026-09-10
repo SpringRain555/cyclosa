@@ -16,6 +16,7 @@
  * 而**已經寫進資料庫的東西留著** —— 那正是「取消時已寫入的保留」的同一條原則。
  * 單一實例、單一使用者（ADR-0020），所以一個 Map 就夠。
  */
+import type { RunEndedReason } from '../domain/ingest/state.js';
 import { RunChannel, type RunEvent } from './run-events.js';
 
 export interface Cancellable {
@@ -33,6 +34,13 @@ export interface ActiveRun {
    */
   cancellable: Cancellable | null;
   cancelled: boolean;
+  /**
+   * **誰按的取消。** `null` ＝ 使用者自己按的，那是絕大多數。
+   *
+   * 迴圈收尾時把它寫進 `run.ended_reason`，於是畫面分得出
+   * 「你按了取消」與「關閉程式時一起停的」—— 兩者的 `status` 都是 `已取消`。
+   */
+  cancelReason: RunEndedReason | null;
   /**
    * 暫停中。
    *
@@ -69,6 +77,7 @@ export function register(runId: string): ActiveRun {
     channel: new RunChannel(),
     cancellable: null,
     cancelled: false,
+    cancelReason: null,
     paused: false,
     gate: async () => {
       // `while` 不是 `if`：被叫醒之後如果又被暫停了，要再等一次。
@@ -139,14 +148,32 @@ export function replayOf(runId: string): readonly RunEvent[] {
  * 取消。**回 `false` 代表那個 run 根本不在執行中** ——
  * 呼叫端負責把它變成一個有碼的錯誤（這一層不認得錯誤碼）。
  */
-export function cancel(runId: string): boolean {
+export function cancel(runId: string, reason: RunEndedReason | null = null): boolean {
   const state = active.get(runId);
   if (state === undefined) return false;
   state.cancelled = true;
+  state.cancelReason = reason;
   state.paused = false;
   // **暫停中的作業也要取消得掉。** 不放走等在 gate 上的那個，
   // 迴圈永遠不會回到「檢查 cancelled」那一行。
   release(runId);
   state.cancellable?.stop();
   return true;
+}
+
+/**
+ * 全部取消。**關閉程式走這一支。**
+ *
+ * 「關掉程式」與「使用者按取消」對一個正在跑的作業是同一件事：
+ * 不再往下做，已經寫進去的留著（ADR-0023）。差別只在**誰按的**，
+ * 而那件事記在 `run.ended_reason`（schema v8），不是一個新狀態。
+ *
+ * **回傳的是「叫了幾個停下來」，不是「幾個已經停好了」** ——
+ * 迴圈要跑到下一個項與項之間才看得到 `cancelled`，而正在抓的那一項會做完。
+ * 呼叫端要自己等（有上限地等），等不到的那些由下一次啟動的孤兒掃描接住。
+ */
+export function cancelAll(): number {
+  let stopped = 0;
+  for (const runId of [...active.keys()]) if (cancel(runId, 'shutdown')) stopped += 1;
+  return stopped;
 }

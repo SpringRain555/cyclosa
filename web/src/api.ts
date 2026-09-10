@@ -165,6 +165,13 @@ export interface Run {
   succeeded: number;
   failed: number;
   errorCode: string | null;
+  /**
+   * 取消是誰按的。**`null` ＝ 使用者自己按的**，那是絕大多數。
+   *
+   * `'shutdown'` ＝ 關閉程式時一起停的、`'stale'` ＝ 上一次沒有正常關閉。
+   * 三者的 `status` 都是 `cancelled`，而畫面要說得出差別。
+   */
+  endedReason: 'shutdown' | 'stale' | null;
   correlationId: string;
   startedAt: number | null;
   endedAt: number | null;

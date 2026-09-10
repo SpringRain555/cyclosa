@@ -7,11 +7,13 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
-import type { RunStatus } from '../../../domain/ingest/state.js';
+import type { RunEndedReason, RunStatus } from '../../../domain/ingest/state.js';
 import type { RunEdgeFact, RunItemFact } from '../../../domain/run/index.js';
 
 export type RunItemOutcome =
   'queued' | 'running' | 'ok' | 'duplicate' | 'failed' | 'skipped' | 'cancelled';
+
+export type { RunEndedReason };
 
 export interface RunRow {
   readonly id: string;
@@ -22,6 +24,15 @@ export interface RunRow {
   readonly succeeded: number;
   readonly failed: number;
   readonly errorCode: string | null;
+  /**
+   * 怎麼結束的（schema v8）。**只有取消才有值，而且不是每一次取消都有。**
+   *
+   * `null` ＝ 使用者自己按的取消（或這一列根本不是取消）、
+   * `'shutdown'` ＝ 關閉程式時一起取消的、
+   * `'stale'` ＝ 掃描標的：上一次結束時它還沒跑完（**分不出**是關閉時沒趕上，
+   * 還是被強制結束）。
+   */
+  readonly endedReason: RunEndedReason | null;
   readonly correlationId: string;
   readonly startedAt: number | null;
   readonly endedAt: number | null;
@@ -64,6 +75,7 @@ function toRun(row: Raw): RunRow {
     succeeded: Number(row['succeeded'] ?? 0),
     failed: Number(row['failed'] ?? 0),
     errorCode: str(row['error_code']),
+    endedReason: str(row['ended_reason']) as RunEndedReason | null,
     correlationId: String(row['correlation_id'] ?? ''),
     startedAt: num(row['started_at']),
     endedAt: num(row['ended_at']),
@@ -151,12 +163,23 @@ export function settleRunRow(
     readonly succeeded: number;
     readonly failed: number;
     readonly errorCode?: string | null;
+    /** 幾乎都是不給 —— 只有關閉程式與啟動掃孤兒那兩條路會帶（schema v8）。 */
+    readonly endedReason?: RunEndedReason | null;
     readonly now: number;
   },
 ): void {
   db.prepare(
-    'UPDATE run SET status = ?, succeeded = ?, failed = ?, error_code = ?, ended_at = ? WHERE id = ?',
-  ).run(input.status, input.succeeded, input.failed, input.errorCode ?? null, input.now, input.id);
+    `UPDATE run SET status = ?, succeeded = ?, failed = ?, error_code = ?, ended_reason = ?, ended_at = ?
+     WHERE id = ?`,
+  ).run(
+    input.status,
+    input.succeeded,
+    input.failed,
+    input.errorCode ?? null,
+    input.endedReason ?? null,
+    input.now,
+    input.id,
+  );
 }
 
 export function getRun(db: DatabaseSync, id: string): RunRow | null {
@@ -225,6 +248,40 @@ export function cancelPendingItems(db: DatabaseSync, runId: string, now: number)
     )
     .run(now, runId);
   return Number(result.changes);
+}
+
+/**
+ * 標著「執行中」的作業。
+ *
+ * **只有 `running`，`queued` 不算。** 這一條不是保守，是正確：
+ * 擴展的 `排隊` 的意思是**「在等你勾」**（`POST /runs` 產生切入角度之後
+ * 就停在這裡），而那個狀態**撐得過重新啟動** —— `chooseAngles` 只看
+ * 資料庫裡的 `status === 'queued'`，不問記憶體裡有沒有這個 run。
+ * 把它掃掉等於把一個使用者還沒回答的問題丟掉。
+ *
+ * 呼叫端仍然要濾掉本行程正在跑的那些（`isActive`），
+ * 因為掃描在專題**第一次被打開**時才跑，而那時候可能已經有作業在跑了。
+ */
+export function listRunningRunIds(db: DatabaseSync): readonly string[] {
+  const rows = db
+    .prepare("SELECT id FROM run WHERE status = 'running' ORDER BY created_at")
+    .all() as Raw[];
+  return rows.map((r) => String(r['id']));
+}
+
+/**
+ * 把一列沒收尾的作業標成已取消，並記下**為什麼**。
+ *
+ * 不動 `succeeded`／`failed` —— 那兩個數字是它跑到一半時真的完成的量，
+ * 而 `settleRunRow` 會覆寫它們。
+ */
+export function markRunEnded(
+  db: DatabaseSync,
+  input: { readonly id: string; readonly reason: RunEndedReason; readonly now: number },
+): void {
+  db.prepare(
+    "UPDATE run SET status = 'cancelled', ended_reason = ?, ended_at = ? WHERE id = ?",
+  ).run(input.reason, input.now, input.id);
 }
 
 // ── 切入角度（schema v4）────────────────────────────────────

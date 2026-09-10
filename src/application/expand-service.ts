@@ -593,12 +593,14 @@ async function processExpansion(
     const succeeded = outcomes.filter((o) => o !== 'failed').length;
     const failed = outcomes.length - succeeded;
 
+    // 取消是誰按的要跟著寫下去 —— 理由與 `ingest-service.ts` 那一處相同。
     runs.settleRunRow(db, {
       id: state.runId,
       status,
       succeeded,
       failed,
       errorCode: fatal,
+      endedReason: status === 'cancelled' ? state.cancelReason : null,
       now,
     });
     reindexTitleRank(db);

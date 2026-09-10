@@ -25,6 +25,8 @@ import {
 } from '../../application/ingest-service.js';
 import { undoRun } from '../../application/undo-service.js';
 import { activeCount } from '../../application/run-registry.js';
+import { shutdownSequence, targetOf } from './shutdown.js';
+import { logger } from '../../shared/log.js';
 import {
   changeItemStatus,
   getItem,
@@ -219,11 +221,18 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       data: { activeRuns: running, shuttingDown: true },
       correlationId: 'shutdown',
     });
-    // **先讓回應出去再關。** 100ms 是為了讓 socket 真的送出去 ——
-    // 直接 exit 的話畫面會看到一個連線中斷，而不是一句「已經關掉了」。
-    setTimeout(() => {
-      void app.close().then(() => process.exit(0));
-    }, 100).unref();
+    /**
+     * **關閉序列在 `shutdown.ts`，而且它是一個可以單獨測的函式。**
+     *
+     * 這裡曾經是 `setTimeout(100) → app.close() → exit(0)`，而那在
+     * 「正在看一個執行中的作業」的時候**永遠不會走到 `exit`** ——
+     * 開著的 SSE 進度通道走 `reply.hijack()`，Fastify 預設收不掉它。
+     * 那正是二次確認對話框在講的那個情境。詳見 `shutdown.ts` 的檔頭。
+     */
+    void shutdownSequence(targetOf(app)).then((outcome) => {
+      logger.info('關閉序列完成', { ...outcome });
+      process.exit(0);
+    });
     return reply;
   });
 

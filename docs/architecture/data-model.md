@@ -3,9 +3,10 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v6`，已實作。**
+> **現況：`schema v8`，已實作。**
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
-> `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`），
+> `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`、
+> `007-vector-scan-index.sql`、`008-run-ended-reason.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07，Stage 5）**：11 張表、18 個索引、3 條 trigger。
@@ -29,6 +30,16 @@
 >   點註錨的是**哪一份快照**（`snapshot_sha256`），
 >   以及**一則點註在圖上就是一個 `kind='note'` 的 `item`，兩者同一個 id**。
 >   第二條之前只存在於 `domain/ingest/state.ts` 的一段註解裡，而**註解攔不住 INSERT**。
+> - **v7（2026-09-10，Stage 13）**：**沒有新欄位也沒有新表**，一個索引換掉另一個 ——
+>   `idx_vector_model(model, dim)` → `idx_vector_scan(model, dim, id)`。
+>   語意檢索的全掃 **48,456 ms → 2,176 ms**。缺的不是設計，是排序欄位進不了索引
+>   （`USE TEMP B-TREE FOR ORDER BY`）。它在小專題上完全沒有症狀。
+> - **v8（2026-09-10）**：`run` 補 **一欄** `ended_reason`。
+>   它記的不是狀態，是**「這次取消是誰按的」** —— 使用者自己按的（`NULL`）、
+>   關閉程式時一起停的（`'shutdown'`）、上一次沒有正常關閉（`'stale'`）。
+>   三者的 `status` 都是 `cancelled`，而**畫面必須說得出差別**：
+>   在這一版之前，一個被強制結束留下來的作業看起來像「我自己取消了它」。
+>   **沒有新增第七個狀態**，理由與 `排隊` 那一段相同（見 `state-machines.md`）。
 >
 > **升級既有資料庫之前會先用 `VACUUM INTO` 留一份複本到 `<資料根>\backups\`**，
 > 而且**備份失敗就不 migrate** —— 沒有退路的 migration 是這個專案不該自己製造的風險。

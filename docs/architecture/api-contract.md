@@ -387,6 +387,12 @@
 暫停／續跑對一個不在執行中的作業 → `GRAPH_TRANSITION_INVALID`（跟取消同一個約定）。
 
 > **`paused` 不在 `run.status` 裡**，它跟 `live` 一樣是執行時的事實（ADR-0023）。
+>
+> **`endedReason` 相反 —— 它在資料庫裡**（schema v8）。`null` ＝ 使用者自己按的取消、
+> `shutdown` ＝ 關閉程式時一起停的、`stale` ＝ 上一次結束時它還沒跑完
+> （**分不出**是關閉時沒趕上收尾，還是被強制結束）。
+> 三者的 `status` 都是 `cancelled`，而畫面要說得出差別：
+> 少了它，一個被強制結束留下來的作業看起來像「我自己取消了它」。
 
 ### `POST /api/system/shutdown` —— 結束 Cyclosa
 
@@ -406,6 +412,14 @@
 
 **瀏覽器關掉分頁不會走到這裡**，那是刻意的 ——
 你可能開了兩個分頁，也可能是誤關，而 `beforeunload` 本來就不保證送得出去。
+
+**`force` 那一段走的是一條有上限的關閉序列**（`interface/http/shutdown.ts`）：
+叫作業停 → 等回應送出去 → 有上限地等它們收尾 → **收掉所有連線** → `close()`
+也有上限，逾時就直接離開。收連線那一步不能少 —— Fastify 預設收不掉
+進行中的請求，而進度通道就是一條進行中的請求。完整說明在
+[`app-lifecycle.md`](app-lifecycle.md)。
+
+被這條序列停下來的作業，`run.ended_reason` 會是 `shutdown`。
 
 ### 改名為什麼要回整個 `CaseSummary`
 

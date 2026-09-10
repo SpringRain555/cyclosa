@@ -523,6 +523,14 @@ async function rebuild(): Promise<void> {
               })
             }}
           </p>
+          <!--
+            **「已取消」有三種來源，而使用者只按過其中一種。**
+            沒有這一句的話，一個被強制結束留下來的作業看起來像
+            「我自己取消了它」—— 而那件事沒有發生過。
+          -->
+          <p v-if="run.endedReason" class="ended-reason">
+            {{ t.runEndedReason[run.endedReason] }}
+          </p>
           <div class="controls">
             <template v-if="run.live">
               <button :disabled="busyControl" @click="pauseOrResume(run.paused)">
@@ -887,6 +895,11 @@ textarea:focus,
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.ended-reason {
+  margin: 6px 0 0;
+  color: var(--text-tertiary);
+  font-size: 13px;
 }
 table {
   width: 100%;

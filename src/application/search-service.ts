@@ -63,6 +63,7 @@ import { semanticCandidates } from '../infrastructure/index/vector-reader.js';
 import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
 import { readDerived } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
+import { sweepStaleRuns } from './run-sweep.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
 
@@ -249,6 +250,11 @@ export async function searchCase(
   let semanticOrd: ReadonlyMap<string, number>;
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
+
+    // **先掃掉上一次沒收尾的作業，再問「索引還在寫嗎」。**
+    // 不掃的話，一個被強制結束留下來的 `running` 會讓底下的 `incomplete`
+    // 永遠是 true —— 也就是**之後每一次搜尋**都掛一句「結果可能不完整」。
+    sweepStaleRuns(db, slug);
 
     // **`semantic` 模式不跑字面那兩路。** 使用者要的就是「用字不同的那些」——
     // 混進字面命中會讓這個模式跟 `hybrid` 沒有差別，而那樣它就沒有存在的理由。

@@ -75,6 +75,21 @@ export const READ_IS_NOT_A_STATUS = true;
 
 export type RunStatus = 'queued' | 'running' | 'done' | 'partial' | 'cancelled' | 'failed';
 
+/**
+ * **不是狀態，是「這次取消是誰按的」。**
+ *
+ * 關掉程式與使用者按取消對一個正在跑的作業是同一件事：不再往下做、
+ * 已寫入的保留（ADR-0023）。所以它們共用 `cancelled`，**不新增第七個狀態** ——
+ * 多一個狀態值會讓每一個讀 `status` 的地方都要多處理一種情形。
+ *
+ * `null`（沒有這個值）＝ 使用者自己按的。其餘兩個見
+ * `migrations/008-run-ended-reason.sql`。
+ *
+ * **`stale` 的意思是「上一次結束時它還沒跑完」，不是「當掉了」** ——
+ * 掃描分不出那次結束是按了結束鍵（而作業沒趕上收尾）還是被強制結束的。
+ */
+export type RunEndedReason = 'shutdown' | 'stale';
+
 export type RunAction =
   | 'start'
   /** 全部項目成功 */

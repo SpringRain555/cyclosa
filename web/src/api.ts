@@ -156,6 +156,13 @@ export interface RunItem {
   at: number | null;
 }
 
+/** 「全部標成未讀」的回應。**`done: false` 那一次什麼都沒改。** */
+export interface ReadReset {
+  read: number;
+  cleared: number;
+  done: boolean;
+}
+
 export interface Run {
   id: string;
   kind: 'import' | 'expand';
@@ -771,6 +778,16 @@ export const api = {
     }),
   itemAction: (slug: string, itemId: string, action: 'exclude' | 'restore' | 'retry') =>
     request<unknown>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/${action}`, { method: 'POST' }),
+
+  /**
+   * 整個專題全部標成未讀。**兩段式，門在伺服器端**（同 `shutdown`）：
+   * 不帶 `force` 只回「有幾份標著已讀」，帶了才真的清。
+   */
+  clearAllRead: (slug: string, force: boolean) =>
+    request<ReadReset>(`/api/cases/${enc(slug)}/items/unread-all`, {
+      method: 'POST',
+      body: JSON.stringify({ force }),
+    }),
 
   // ── 圖 ──────────────────────────────────────────────────
   //

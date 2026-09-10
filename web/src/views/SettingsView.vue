@@ -27,13 +27,14 @@ import {
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import SourcesPanel from '../components/SourcesPanel.vue';
+import StatusGuide from '../components/StatusGuide.vue';
 
 const payload = ref<ProvidersPayload | null>(null);
 const error = ref<ApiError | null>(null);
 const saving = ref(false);
 const savedAt = ref(0);
 
-const tab = ref<'models' | 'sources'>('models');
+const tab = ref<'models' | 'sources' | 'guide'>('models');
 
 const baseUrl = ref('');
 const model = ref('');
@@ -232,9 +233,19 @@ async function test(role: ProviderRole): Promise<void> {
       <button :class="{ on: tab === 'sources' }" @click="tab = 'sources'">
         {{ t.settings.tabs.sources }}
       </button>
+      <!--
+        **狀態說明放在設定裡，不是圖上的第二顆按鈕。**
+        圖上那一欄回答「我看到的這條線是什麼」（要即時、要窄），
+        這一頁回答「這張圖總共用了哪些記號」（要完整）。
+        兩邊讀同一份宣告，所以不會漂。
+      -->
+      <button :class="{ on: tab === 'guide' }" @click="tab = 'guide'">
+        {{ t.settings.tabs.guide }}
+      </button>
     </nav>
 
     <SourcesPanel v-if="tab === 'sources'" />
+    <StatusGuide v-else-if="tab === 'guide'" />
 
     <template v-else>
       <ErrorPanel v-if="error" :error="error" />

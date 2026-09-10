@@ -159,6 +159,48 @@ async function saveRename(): Promise<void> {
   await load();
 }
 
+/**
+ * 全部標成未讀。
+ *
+ * **二次確認的門在伺服器端**：第一次呼叫只回「有幾份標著已讀」，
+ * 什麼都不改；帶了 `force` 才真的清。只做在畫面上的話它是一個繞得過的提醒，
+ * 而這件事沒有回頭路 —— 哪幾份讀過是使用者累積出來的資訊。
+ *
+ * 確認那句話要說出**三件事**：數字、回不去、以及那個副作用
+ * （已讀是「復原」用來判斷「人動過這一份」的訊號之一）。
+ */
+const unreadBusy = ref(false);
+const unreadNote = ref<string | null>(null);
+
+async function clearAllRead(): Promise<void> {
+  const c = selected.value;
+  if (c === null) return;
+  unreadBusy.value = true;
+  unreadNote.value = null;
+  const probe = await api.clearAllRead(c.slug, false);
+  if (!probe.ok) {
+    unreadBusy.value = false;
+    renameError.value = probe.error;
+    return;
+  }
+  if (probe.data.read === 0) {
+    unreadBusy.value = false;
+    unreadNote.value = t.caseList.unreadNone;
+    return;
+  }
+  if (!window.confirm(fill(t.caseList.unreadConfirm, { n: probe.data.read, name: c.name }))) {
+    unreadBusy.value = false;
+    return;
+  }
+  const done = await api.clearAllRead(c.slug, true);
+  unreadBusy.value = false;
+  if (!done.ok) {
+    renameError.value = done.error;
+    return;
+  }
+  unreadNote.value = fill(t.caseList.unreadDone, { n: done.data.cleared });
+}
+
 function when(ms: number | null): string {
   return ms === null ? t.caseList.never : new Date(ms).toLocaleDateString('zh-Hant');
 }
@@ -263,6 +305,14 @@ onMounted(load);
           <button type="button" :disabled="selected === null" @click="startRename">
             {{ t.caseList.rename }}
           </button>
+          <!--
+            **全部標成未讀。** 二次確認的門在伺服器端 ——
+            第一次呼叫只回「有幾份標著已讀」，帶了 force 才真的清。
+            這件事沒有回頭路：哪幾份讀過是使用者累積出來的資訊。
+          -->
+          <button type="button" :disabled="selected === null || unreadBusy" @click="clearAllRead">
+            {{ t.caseList.unreadAll }}
+          </button>
           <RouterLink
             v-if="selected"
             class="act"
@@ -284,6 +334,7 @@ onMounted(load);
 
       <!-- **資料夾會跟著改，按下去之前就要知道。** -->
       <p v-if="renaming" class="muted small">{{ t.caseList.renameHint }}</p>
+      <p v-if="unreadNote" class="muted small">{{ unreadNote }}</p>
       <ErrorPanel v-if="renameError" :error="renameError" />
 
       <table>

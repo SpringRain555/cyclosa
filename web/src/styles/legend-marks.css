@@ -1,0 +1,126 @@
+/**
+ * 圖例樣本的畫法。**圖上那一欄與設定頁的說明分頁共用這一份。**
+ *
+ * 各寫一份的話，設定頁上的虛線會慢慢變成另一種虛線 —— 而那正是
+ * 這份說明存在的理由的反面：它要讓人看完就不用再學第二次。
+ *
+ * 顏色一律走 token（`tokens.css`），這裡不出現任何一個色碼。
+ */
+
+.mark {
+  flex-shrink: 0;
+}
+
+/* ── 方塊與環 ─────────────────────────────────────────── */
+
+.mark.swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
+
+/* **描邊也要畫進圖例**，否則說明跟畫面不一致。
+   用 box-shadow 不用 border —— border 會把色塊縮小，兩排就對不齊。 */
+.mark.item {
+  background: var(--node-item);
+  box-shadow: 0 0 0 1px var(--node-outline);
+}
+.mark.note {
+  background: var(--node-note);
+  box-shadow: 0 0 0 1px var(--node-outline);
+}
+/* 實體靠**空心**分，不靠顏色 —— 圖例也要照著畫。 */
+.mark.entity {
+  border: 1.5px solid var(--node-entity);
+}
+/* 已排除／已否決不用顏色，用**打叉**（ADR-0018：那一段的顏色預算滿了）。 */
+.mark.crossed {
+  color: var(--edge-rejected);
+  text-align: center;
+  line-height: 11px;
+  font-size: 11px;
+}
+/* 環是圓的，跟上面三個方的分得開 —— **顏色與形狀兩重編碼**。 */
+.mark.ring-selected {
+  border: 1.5px solid var(--ring-selected);
+  border-radius: 50%;
+}
+.mark.focus {
+  border: 1.5px solid var(--focus-marker);
+  border-radius: 50%;
+}
+/* 已讀在圖上是**標籤的字重**，不是一個環（ADR-0024）。 */
+.mark.weight {
+  width: auto;
+  font-weight: 700;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.mark.ui-success {
+  background: var(--ui-success);
+}
+.mark.ui-danger {
+  background: var(--ui-danger);
+}
+.mark.ui-action {
+  background: var(--ui-action);
+}
+
+/* ── 線 ───────────────────────────────────────────────── */
+
+.mark.line {
+  width: 26px;
+  text-align: center;
+  color: var(--edge-rejected);
+}
+/* **漸細＝有方向。** 等寬＝沒有方向（ADR-0018 的 B1 層）。 */
+.mark.tapered {
+  height: 0;
+  border-top: 3px solid var(--edge-confirmed);
+  clip-path: polygon(0 0, 100% 40%, 100% 60%, 0 100%);
+}
+.mark.boxed {
+  height: 0;
+  border-top: 1.5px solid var(--edge-confirmed);
+  position: relative;
+}
+/* **方塊就是那個實體本人**，不是裝飾 —— 它是被攤平的那個節點。 */
+.mark.boxed::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--node-entity);
+}
+.mark.uniform {
+  height: 0;
+  border-top: 1.5px solid var(--edge-confirmed);
+}
+.mark.dotted {
+  height: 0;
+  border-top: 1.5px dotted var(--edge-confirmed);
+}
+.mark.folded {
+  height: 0;
+  border-top: 1.5px solid var(--line);
+  opacity: 0.5;
+}
+/* **已否決那一條要自己的規則，不能靠 `.mark.line` 順便給的顏色。**
+   守門測試第一次跑就抓到這個：`rejected` 那個 class 當時沒有任何畫法，
+   叉只是剛好繼承了上層的字色 —— 也就是說改一下 `.mark.line`
+   就會讓它安靜地變成另一個顏色，而沒有東西會發現。 */
+.mark.rejected {
+  color: var(--edge-rejected);
+  line-height: 1;
+}
+.mark.pending {
+  height: 0;
+  border-top: 2px dashed var(--edge-pending);
+}
+.mark.confirmed {
+  height: 0;
+  border-top: 2px solid var(--edge-confirmed);
+}

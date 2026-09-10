@@ -10,7 +10,16 @@
 import { computed } from 'vue';
 
 import type { ConfidenceTier } from '../../api';
-import { t } from '../../i18n/zh-TW';
+import { guideItem, guideSection, t } from '../../i18n/zh-TW';
+import { compactSections } from './legend-items';
+
+/**
+ * **這一欄顯示的是那份清單的子集，不是自己的一份。**
+ *
+ * 完整版在設定頁的「狀態說明」分頁 —— 兩邊讀同一份宣告
+ * （`legend-items.ts`），所以不可能一邊有、一邊沒有。
+ */
+const sections = compactSections();
 
 const props = defineProps<{
   projection: number;
@@ -42,24 +51,12 @@ const projectionValue = computed({
   <aside class="legend">
     <h2>{{ t.graph.legend.title }}</h2>
 
-    <section>
-      <h3>{{ t.graph.legend.nodes }}</h3>
-      <p class="row"><span class="swatch item"></span>{{ t.graph.legend.nodeItem }}</p>
-      <p class="row"><span class="swatch note"></span>{{ t.graph.legend.nodeNote }}</p>
-      <p class="row"><span class="swatch entity"></span>{{ t.graph.legend.nodeEntity }}</p>
-      <p class="row"><span class="swatch focus"></span>{{ t.graph.legend.focus }}</p>
-    </section>
-
-    <section>
-      <h3>{{ t.graph.legend.edges }}</h3>
-      <p class="row"><span class="line tapered"></span>{{ t.graph.legend.layerNamed }}</p>
-      <p class="row"><span class="line boxed"></span>{{ t.graph.legend.layerComention }}</p>
-      <p class="row"><span class="line dotted"></span>{{ t.graph.legend.layerSimilarity }}</p>
-      <p class="row"><span class="line folded"></span>{{ t.graph.legend.layerDerived }}</p>
-      <hr />
-      <p class="row"><span class="line pending"></span>{{ t.graph.legend.statusPending }}</p>
-      <p class="row"><span class="line confirmed"></span>{{ t.graph.legend.statusConfirmed }}</p>
-      <p class="row"><span class="line rejected">✕</span>{{ t.graph.legend.statusRejected }}</p>
+    <section v-for="s in sections" :key="s.key">
+      <h3>{{ guideSection(s.key) }}</h3>
+      <p v-for="item in s.items" :key="item.key" class="row">
+        <span :class="['mark', item.mark]">{{ item.glyph ?? '' }}</span>
+        {{ guideItem(item.key).short }}
+      </p>
     </section>
 
     <section>
@@ -140,79 +137,10 @@ section {
   color: var(--text-secondary);
   line-height: 1.4;
 }
-.swatch {
-  width: 11px;
-  height: 11px;
+/* **樣本的畫法搬到 `styles/legend-marks.css`** —— 設定頁的「狀態說明」
+   分頁用同一份。各留一份的話，兩邊的虛線會慢慢變成兩種虛線。 */
+.row .mark {
   flex-shrink: 0;
-  border-radius: 2px;
-}
-/* **描邊也要畫進圖例**，否則說明跟畫面不一致（同下面那條理由）。
-   用 box-shadow 不用 border —— border 會把色塊縮小，兩排就對不齊。 */
-.swatch.item {
-  background: var(--node-item);
-  box-shadow: 0 0 0 1px var(--node-outline);
-}
-.swatch.note {
-  background: var(--node-note);
-  box-shadow: 0 0 0 1px var(--node-outline);
-}
-/* 焦點是一個環不是一個填色，所以圖例上也是一個環 —— 而且是圓的，
-   跟上面三個方的分得開。**顏色與形狀兩重編碼**（ADR-0018 規則 2）。 */
-.swatch.focus {
-  border: 1.5px solid var(--focus-marker);
-  border-radius: 50%;
-}
-/* 實體靠**空心**分，不靠顏色 —— 圖例也要照著畫，否則說明跟畫面不一致 */
-.swatch.entity {
-  border: 1.5px solid var(--node-entity);
-}
-.line {
-  width: 26px;
-  flex-shrink: 0;
-  text-align: center;
-  color: var(--edge-rejected);
-}
-.line::before {
-  content: '';
-  display: block;
-  height: 0;
-}
-.line.tapered {
-  height: 0;
-  border-top: 3px solid var(--edge-confirmed);
-  border-right: 0;
-  clip-path: polygon(0 0, 100% 40%, 100% 60%, 0 100%);
-}
-.line.boxed {
-  height: 0;
-  border-top: 1.5px solid var(--edge-confirmed);
-  position: relative;
-}
-.line.boxed::after {
-  content: '';
-  position: absolute;
-  left: 9px;
-  top: -4px;
-  width: 7px;
-  height: 7px;
-  border: 1.5px solid var(--node-entity);
-}
-.line.dotted {
-  height: 0;
-  border-top: 1.5px dotted var(--edge-confirmed);
-}
-.line.folded {
-  height: 0;
-  border-top: 1.5px solid var(--line);
-  opacity: 0.5;
-}
-.line.pending {
-  height: 0;
-  border-top: 2px dashed var(--edge-pending);
-}
-.line.confirmed {
-  height: 0;
-  border-top: 2px solid var(--edge-confirmed);
 }
 hr {
   border: 0;

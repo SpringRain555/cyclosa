@@ -199,6 +199,18 @@ export const t = {
     renameHint:
       '資料夾名稱會跟著改。已經匯出的證據包留在原本的資料夾裡 —— 那份檔案裡寫的是舊名字。',
     renamePlaceholder: '新的專題名稱',
+    unreadAll: '全部標成未讀',
+    /**
+     * **這句話要說三件事**：數字、回不去、以及那個副作用。
+     *
+     * 第三件不是恐嚇：`domain/run/undo.ts` 把「你讀過」當成「人動過這一份」
+     * 的訊號之一，而復原一次作業時人動過的會被留下來。
+     * 清掉已讀等於部分解除那層保護，而使用者按下去之前有權知道。
+     */
+    unreadConfirm:
+      '「{name}」現在有 {n} 份標成已讀，要全部標回未讀嗎？\n\n哪幾份讀過是你累積出來的資訊，清掉之後回不來。\n\n抓回來的內容、你的判定（已排除、已確認）都不會被動到。但要注意：復原一次作業時，「你讀過的」是它用來決定留下哪些資料的依據之一 —— 清掉之後，那些作業的復原會刪掉比現在更多的東西。',
+    unreadDone: '已經把 {n} 份標回未讀。',
+    unreadNone: '這個專題現在沒有任何一份標著已讀。',
   },
   createCase: {
     title: '新增專題',
@@ -632,26 +644,139 @@ export const t = {
 
     legend: {
       title: '圖例與篩選',
-      nodes: '節點',
-      nodeItem: '資料',
-      nodeNote: '筆記',
-      nodeEntity: '實體',
-      edges: '關聯',
-      layerNamed: '具名關係（漸細＝有方向）',
-      layerComention: '共同提及（線中點是那個實體）',
-      layerSimilarity: '相似度（等寬點線）',
-      layerDerived: '轉載（摺進來源節點）',
-      statusPending: '待查證（琥珀虛線）',
-      statusConfirmed: '已確認（灰實線）',
-      statusRejected: '已否決（打叉，預設隱藏）',
       showDerived: '把轉載的線畫出來',
       showRejected: '顯示已否決的',
       projection: '實體提到幾篇才成為節點',
       projectionHint: '低於這個數字的實體會被攤平成一條線，只被一篇提到的完全不畫。',
       minConfidence: '可信度下限',
       tierAny: '不限',
-      focus: '焦點',
       hint: '明暗只表示遠近，不表示程度。',
+    },
+
+    /**
+     * **顏色與記號的說明，一份。**
+     *
+     * `short` 給圖上那一欄（232px，看著圖即時對照），
+     * `long` 給設定頁的「狀態說明」分頁（一次看完）。
+     * 清單本身在 `components/graph/legend-items.ts`，
+     * 而 `tests/guards/legend-coverage.test.ts` 釘住三邊對得上。
+     *
+     * 兩個 map 刻意宣告成 `Record<string, …>`：清單是資料驅動的，
+     * 而**「少一個 key」這件事由測試抓，不是由型別抓** ——
+     * 型別只擋得住寫死的存取，擋不住一個從陣列裡拿出來的 key。
+     */
+    guide: {
+      title: '狀態說明',
+      what: '圖上每一個顏色、每一種線、每一個記號的意思。看完這一頁就不用在圖上猜。',
+      sections: {
+        nodes: '節點',
+        rings: '環與強調',
+        layers: '關聯的四層',
+        status: '查證狀態',
+        projection: '實體投影的三段',
+        panel: '面板上的顏色',
+        rules: '四條通則',
+      } as Readonly<Record<string, string>>,
+      items: {
+        nodeItem: {
+          short: '資料（抓回來的）',
+          long: '從網路或檔案抓回來的一份東西：網頁、PDF、圖片、Markdown、論文。方形、填滿冷藍，外面一圈深色描邊。',
+        },
+        nodeNote: {
+          short: '筆記（自己寫的）',
+          long: '你自己寫的點註。方形、填滿暖洋紅。它與資料藍的差別在色盲下也分得開，這是量過的。',
+        },
+        nodeEntity: {
+          short: '實體（空心）',
+          long: '從正文裡抽出來的人、組織、地點、作品。空心線框、不描邊 —— 它靠形狀跟前兩種分開，不靠第三個顏色。那個顏色不存在：掃過整個色相環之後，能同時通過藍與洋紅的第三色全部落在琥珀到綠之間，而那一段保留給狀態。',
+        },
+        nodeExcluded: {
+          short: '已排除（打叉）',
+          long: '你把它排除掉的資料。中間一個叉，預設隱藏。只由人設定 —— 機器不會自己排除任何東西。',
+        },
+        ringSelected: {
+          short: '選取（青色外環）',
+          long: '你現在點的那一個。「剛讀過」不是一個獨立狀態，它就是選取。',
+        },
+        ringFocus: {
+          short: '焦點（紫色環）',
+          long: '這一次子圖的出發點，一圈傾斜的紫色緞帶。它永遠停在畫面正中央 —— 轉動中心就是焦點，不是畫面中心點。',
+        },
+        readWeight: {
+          short: '已讀＝標籤變細',
+          long: '未讀的節點標籤是粗體，讀過之後變回一般字重。它在圖上不是一個環 —— 那個環量過幾何之後拿掉了，因為它的半徑跟方塊的側影撞在一起。實體沒有「已讀」這件事，一律一般字重。',
+        },
+        neighbour: {
+          short: '一跳鄰域只提亮',
+          long: '離焦點一跳的節點會亮一點，其餘的暗一點，沒有第二個框。休息狀態固定帶一層霧化底。',
+        },
+        layerNamed: {
+          short: '具名關係（漸細）',
+          long: '要引文、要你裁決的那一種：「收購」「任職於」。漸細代表有方向 —— 從粗的那一端指向細的那一端。四層裡只有這一層會被裁決。',
+        },
+        layerComention: {
+          short: '共同提及（線中方塊）',
+          long: '兩份資料提到同一個實體，而那個實體還沒有多到值得自己站成一個節點。線中間那個空心方塊就是那個實體本人，不是裝飾。',
+        },
+        layerComentionOpen: {
+          short: '共同提及（實體已展開）',
+          long: '同一種關係，但那個實體已經展開成節點了，所以線上不需要再放一個方塊，畫成等寬。等寬代表沒有方向。',
+        },
+        layerSimilarity: {
+          short: '相似度（點線）',
+          long: '兩份內容像。這是算出來的結果，不是誰提出的主張 —— 所以它不能被確認或否決，下次重算會把判斷蓋掉。',
+        },
+        layerDerived: {
+          short: '衍生（摺進來源）',
+          long: '轉載、翻譯這一類機器可驗的關係。預設摺進來源節點裡，左欄那個開關可以把它畫出來。它不進裁決。它存在的用途是算「出處 5 筆，但獨立來源只有 2 個」。',
+        },
+        statusPending: {
+          short: '待查證（琥珀虛線）',
+          long: '機器提出來、還沒有人看過的主張。虛線加琥珀是兩重編碼 —— 只靠顏色的話，它在色盲下會跟已確認撞在一起。',
+        },
+        statusConfirmed: {
+          short: '已確認（灰實線）',
+          long: '你看過出處、同意了。灰色是刻意的：已確認是常態，而常態不該是畫面上最搶眼的東西。',
+        },
+        statusRejected: {
+          short: '已否決（打叉）',
+          long: '你否決過的主張，預設隱藏。它不用顏色用形狀 —— 那一段的顏色預算滿了，而一個打叉在任何色覺下都是一個打叉。否決是墓碑：機器不會再提同一條，除非它帶著先前沒有的出處回來，那時它會標著「曾被否決」。',
+        },
+        projectionOne: {
+          short: '被 1 份提到：不畫',
+          long: '它只是那一份資料的一個屬性。攤平出來是 0 條線 —— 畫成線跟不畫在畫面上一模一樣，所以這個門檻沒有做成旋鈕。',
+        },
+        projectionTwo: {
+          short: '被 2 份提到：投影成線',
+          long: '兩份資料之間畫一條共同提及線，那個實體變成線中間的方塊。',
+        },
+        projectionThree: {
+          short: '被 3 份以上提到：展開成節點',
+          long: '它自己站成一個空心節點。門檻可以在左欄調，而且不進資料庫 —— 它是一個看法，不是一筆資料。例外：帶著具名關係的實體一律畫成節點。',
+        },
+        panelSuccess: { short: '綠：確認', long: '只出現在面板與文字上，不上關聯圖。' },
+        panelDanger: {
+          short: '紅：真的壞掉的東西',
+          long: '紅色在關聯圖上永遠不會出現。它留給失敗，不留給「你不同意的主張」—— 否決一條關聯不是一個錯誤。',
+        },
+        panelAction: { short: '藍：主要動作', long: '按鈕與連結。同樣不上關聯圖。' },
+        ruleDepth: {
+          short: '明暗只表示遠近',
+          long: '一個節點比較暗，代表它離你比較遠，不代表它比較不重要或比較不可信。',
+        },
+        ruleDirection: {
+          short: '漸細＝有方向',
+          long: '線從粗漸細代表它有方向；等寬代表沒有方向。這是四層裡唯一靠形狀傳達方向的地方。',
+        },
+        ruleWidth: {
+          short: '粗細讀不出數字',
+          long: '線粗一點代表可信度高一點，但你不該從寬度反推出一個分數 —— 人對寬度的判讀誤差比那個分數的解析度還大。要看數字就點那條線。',
+        },
+        ruleSecondEncoding: {
+          short: '每個狀態都有第二重編碼',
+          long: '顏色之外一定還有一樣東西：形狀、線型、圖示或文字。所以這張圖在色盲、在灰階列印、在半夜調暗的螢幕上都讀得出來。',
+        },
+      } as Readonly<Record<string, { short: string; long: string }>>,
     },
 
     selection: {
@@ -860,6 +985,7 @@ export const t = {
     tabs: {
       models: '模型',
       sources: '來源網站',
+      guide: '狀態說明',
     },
     /** 現在正在用哪一個 —— **要在按下去之前看得到，不是想起來的時候。** */
     activeNone: '還沒設定模型',
@@ -1025,6 +1151,23 @@ export const t = {
 } as const;
 
 /** 把 `{name}` 換成值。**訊息本身仍然只在這個檔案裡。** */
+/**
+ * 說明清單的取用。
+ *
+ * **key 是從 `legend-items.ts` 的陣列裡拿出來的字串**，所以型別檢查幫不上忙 ——
+ * 它擋得住寫死的存取，擋不住一個資料驅動的 key。少一個 key 由
+ * `tests/guards/legend-coverage.test.ts` 抓。
+ *
+ * 取不到時回 key 本身而不是空字串：**一個看得見的怪字比一片空白容易發現**。
+ */
+export function guideSection(key: string): string {
+  return t.graph.guide.sections[key] ?? key;
+}
+
+export function guideItem(key: string): { readonly short: string; readonly long: string } {
+  return t.graph.guide.items[key] ?? { short: key, long: '' };
+}
+
 export function fill(template: string, values: Readonly<Record<string, string | number>>): string {
   return template.replace(/\{(\w+)\}/g, (whole, key: string) =>
     key in values ? String(values[key]) : whole,

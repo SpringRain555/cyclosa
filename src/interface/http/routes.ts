@@ -29,6 +29,7 @@ import { shutdownSequence, targetOf } from './shutdown.js';
 import { logger } from '../../shared/log.js';
 import {
   changeItemStatus,
+  clearAllRead,
   getItem,
   getItemContent,
   getSnapshot,
@@ -673,6 +674,25 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
       if (dataRoot === null) return reply;
       const read = req.body?.read !== false;
       return send(reply, await markRead(dataRoot, req.params.slug, req.params.itemId, read));
+    },
+  );
+
+  /**
+   * 整個專題全部標成未讀。
+   *
+   * **`/items/unread-all` 放在 `:itemId` 那幾支的後面是刻意的** ——
+   * Fastify 的路由是靜態段優先，不會把 `unread-all` 當成一個 itemId，
+   * 但**讀這個檔的人會**，所以它緊接著那一組，而不是散在別的地方。
+   *
+   * 兩段式，門在伺服器端（形狀同 `/api/system/shutdown`）：
+   * 沒帶 `force` 只回「有幾份標著已讀」，帶了才真的清。
+   */
+  app.post<{ Params: { slug: string }; Body: { force?: unknown } }>(
+    '/api/cases/:slug/items/unread-all',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await clearAllRead(dataRoot, req.params.slug, req.body?.force === true));
     },
   );
 

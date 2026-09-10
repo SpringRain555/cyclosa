@@ -17,7 +17,7 @@
 import { computed, ref, watch } from 'vue';
 
 import type { EdgeLayer, SubgraphEdge, SubgraphNode } from '../../api';
-import { fill, t } from '../../i18n/zh-TW';
+import { fill, guideItem, t } from '../../i18n/zh-TW';
 
 const props = defineProps<{
   node: SubgraphNode | null;
@@ -101,7 +101,7 @@ function relLabel(edge: SubgraphEdge): string {
         <dd>{{ kindLabel }}</dd>
 
         <template v-if="node.kind === 'entity' && node.mentionCount !== null">
-          <dt>{{ t.graph.legend.nodeEntity }}</dt>
+          <dt>{{ guideItem('nodeEntity').short }}</dt>
           <dd>{{ fill(t.graph.selection.mentions, { n: node.mentionCount }) }}</dd>
         </template>
 

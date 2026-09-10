@@ -285,6 +285,29 @@ export function setReadAt(db: DatabaseSync, id: string, at: number | null): void
   db.prepare('UPDATE item SET read_at = ? WHERE id = ?').run(at, id);
 }
 
+/**
+ * 整個專題全部標成未讀。回傳**被改動的列數**。
+ *
+ * **跟 `setReadAt` 一樣不寫 `updated_at`**，而這一條在批次版特別重要：
+ * 寫了的話，「把已讀清掉」這個動作會把專題推到清單最上面
+ * （`listCases` 依 `updatedAt` 排序），看起來像剛剛編輯過它。
+ * **已讀是關於「你」的事實，不是關於這份資料的事實。**
+ *
+ * `WHERE read_at IS NOT NULL` 讓回傳的數字是「真的被清掉幾份」，
+ * 而不是「這個專題有幾份資料」—— 那兩個數字在畫面上是兩句不同的話。
+ */
+export function clearAllReadAt(db: DatabaseSync): number {
+  const result = db.prepare('UPDATE item SET read_at = NULL WHERE read_at IS NOT NULL').run();
+  return Number(result.changes);
+}
+
+/** 現在有幾份標著已讀。**確認對話框要說出這個數字。** */
+export function countRead(db: DatabaseSync): number {
+  const row = db.prepare('SELECT COUNT(*) AS n FROM item WHERE read_at IS NOT NULL').get() as
+    Record<string, unknown> | undefined;
+  return Number(row?.['n'] ?? 0);
+}
+
 export function setTitleRank(db: DatabaseSync, id: string, rank: string): void {
   db.prepare('UPDATE item SET title_rank = ? WHERE id = ?').run(rank, id);
 }

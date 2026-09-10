@@ -183,6 +183,46 @@ export async function markRead(
   });
 }
 
+export interface ReadReset {
+  /** 現在有幾份標著已讀。**確認那句話要說出這個數字。** */
+  readonly read: number;
+  /** 真的被清掉幾份。沒帶 `force` 的那一次是 0。 */
+  readonly cleared: number;
+  /** 這一次到底做了沒有。 */
+  readonly done: boolean;
+}
+
+/**
+ * 整個專題全部標成未讀。
+ *
+ * ## 兩段式，而且門在伺服器端
+ *
+ * 沒帶 `force` 只回「有幾份標著已讀」，**什麼都不改**；帶了才真的清。
+ * 形狀跟 `POST /api/system/shutdown` 一樣，理由也一樣：
+ * **把二次確認只做在前端的話，它是一個繞得過的提醒**，
+ * 而這個動作沒有回頭路 —— 哪幾份讀過是使用者累積出來的資訊。
+ *
+ * ## 它有一個跨模組的副作用，而確認文案必須說出來
+ *
+ * `domain/run/undo.ts` 把 **`item.read === true` 當成「人動過這一份」**
+ * 的三種訊號之一，而復原一次作業時「人動過的」會被留下來。
+ * 也就是說：**把已讀全部清掉，會讓既有作業的「復原」刪掉更多東西。**
+ *
+ * 這不是這個功能的 bug，是它真的做的事 —— 而使用者按下去之前有權知道。
+ */
+export async function clearAllRead(
+  dataRoot: string,
+  slug: string,
+  force: boolean,
+): Promise<Result<ReadReset>> {
+  return withCase<ReadReset>(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    const read = items.countRead(db);
+    if (!force) return ok({ read, cleared: 0, done: false }, cid);
+    return ok({ read, cleared: items.clearAllReadAt(db), done: true }, cid);
+  });
+}
+
 /**
  * 已排除／復原。**只有人能做**（state-machines）——
  * 所以這支的 actor 寫死成 `human`，而不是從呼叫端傳進來。

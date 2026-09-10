@@ -13,11 +13,11 @@
 import { mkdir } from 'node:fs/promises';
 
 import {
-  CHAT_TASK_REQUIREMENTS,
+  MODEL_TASKS,
   missingFor,
-  TASK_FIND_SOURCES,
-  type ChatTask,
   type MatchResult,
+  type ModelTask,
+  type ProviderCapabilities,
   type ProviderRole,
 } from '../domain/provider/index.js';
 import {
@@ -49,20 +49,29 @@ export interface ProvidersPayload extends ProvidersView {
     readonly missing: readonly string[];
   }[];
   /**
-   * **`chat` 底下逐任務的同一件事。**
+   * **逐任務的同一件事，四個任務全部都有。**
    *
-   * 角色層那一格算的是「兩個任務都過得了嗎」，而使用者要修的時候需要知道
-   * **是哪一個任務、跑在哪個模型上、缺什麼**。合成一格的話，
-   * 一個覆寫成小 context 模型的抽取，會顯示成「chat 缺 context」——
+   * 角色層那一格算的是「這個角色底下每一個任務都過得了嗎」，
+   * 而使用者要修的時候需要知道**是哪一個任務、跑在哪個模型上、缺什麼**。
+   * 合成一格的話，一個覆寫成小 context 模型的抽取會顯示成「chat 缺 context」——
    * 而設定頁上那個模型欄位裡寫的是預設模型的名字，看起來完全沒問題。
+   *
+   * 2026-09-10 從只有 `chat` 的兩個任務擴成四個（`MODEL_TASKS`）。
+   * 在那之前「找來源」與「嵌入」在設定頁上沒有自己的一列 ——
+   * 而使用者問的是「我能不能替每一件事各挑一個模型」，那需要一份完整清單。
    */
-  readonly chatReadiness: readonly {
-    readonly task: ChatTask;
-    readonly model: string;
-    readonly overridden: boolean;
-    readonly ok: boolean;
-    readonly missing: readonly string[];
-  }[];
+  readonly taskReadiness: readonly TaskReadiness[];
+}
+
+export interface TaskReadiness {
+  readonly task: ModelTask;
+  readonly role: ProviderRole;
+  /** 實際會跑的模型。**空字串 ＝ 沒設定，或跟著這個角色自己的預設** */
+  readonly model: string;
+  /** 是逐任務覆寫來的，還是跟著角色的預設。**畫面上要分得開** */
+  readonly overridden: boolean;
+  readonly ok: boolean;
+  readonly missing: readonly string[];
 }
 
 /** 配對結果攤成畫面上那一行字要的東西。**context 不夠也是一種「缺」。** */
@@ -90,66 +99,85 @@ export async function listProviders(): Promise<Result<ProvidersPayload>> {
    * 2026-09-10 之前 `chat` 只有一個模型，所以角色層算一次就夠了。
    * 逐任務覆寫之後那個假設不成立 —— 而它失效的方式是**看起來沒事**：
    * 角色層那一格顯示的是預設模型，覆寫的那一個從來不會被檢查。
+   *
+   * 同一天再擴一次：`agent` 與 `embed` 底下的任務也各自算，
+   * 因為設定頁上那張表要四列都有「缺哪幾樣」，不能只有中間兩列有。
    */
-  const chatReadiness = view.chatTasks.map((row) => {
-    const missing = missingNames([missingFor(CHAT_TASK_REQUIREMENTS[row.task], row.capabilities)]);
+  const chatByTask = new Map(view.chatTasks.map((row) => [row.task as string, row]));
+  const statusByRole = new Map(view.statuses.map((row) => [row.role, row]));
+
+  const taskReadiness: TaskReadiness[] = MODEL_TASKS.map((entry) => {
+    const chatRow = chatByTask.get(entry.task);
+    const status = statusByRole.get(entry.role);
+
+    /**
+     * 拿哪一份能力來配對，**取決於這個任務有沒有自己的模型**。
+     *
+     * `chat` 底下兩個任務各自探過自己那個模型，所以用它們自己的；
+     * 其餘的只有一個模型，角色層那一份就是它自己那一份。
+     */
+    const capabilities: ProviderCapabilities | undefined =
+      chatRow?.capabilities ?? status?.capabilities;
+    const state = chatRow?.state ?? status?.state ?? 'not-configured';
+
+    /**
+     * **沒設定的時候不列「缺哪幾樣」。**
+     *
+     * 一個完全沒設定的角色，能力宣告當然是全空的，所以配對一定回「缺 X」——
+     * 而畫面上那句話是「這個角色要跑的任務需要 X，**而目前設定的模型沒有**」。
+     * 那句話對一個沒有模型的角色是錯的：問題不是模型不夠好，是還沒選。
+     *
+     * 2026-09-10 發現。在那之前它只影響角色層那一行，
+     * 而擴成四列的表格之後**四列會同時說同一句錯話**。
+     */
+    const missing =
+      capabilities === undefined || state === 'not-configured'
+        ? []
+        : missingNames([missingFor(entry.requirement, capabilities)]);
+
     return {
-      task: row.task,
-      model: row.model,
-      overridden: row.overridden,
-      ok: row.state === 'ready' && missing.length === 0,
+      task: entry.task,
+      role: entry.role,
+      model: chatRow?.model ?? modelOfRole(entry.role, view.config),
+      overridden: chatRow?.overridden ?? false,
+      ok: state === 'ready' && missing.length === 0,
       missing,
     };
   });
 
+  /**
+   * 角色層那一格 ＝ **它底下每一個任務的合併**，不是自己算一次。
+   *
+   * 2026-09-09 之前這裡只看 `TASK_ANGLES`，於是設定頁上顯示的「可以用」
+   * 只代表「歸納角度跑得動」—— 而 `chat` 底下還有一個抽取實體與關係，
+   * 它要吃 12,000 字的外部正文，context 需求高得多（`TASK_EXTRACT`）。
+   * 一個剛好 8000 context 的模型會在這一頁被標成綠的，然後在抽取時
+   * **把正文截掉一半而不報錯**。
+   *
+   * 2026-09-10 逐任務覆寫之後，它不能再自己拿 `status.capabilities` 算 ——
+   * 那是預設模型的能力，而覆寫的那一個從來不會被檢查。
+   */
   const readiness = view.statuses.map((status) => {
-    if (status.role === 'embed') {
-      /**
-       * **`ok` 的意思是「模型選好了，而且它真的在 Ollama 上」。**
-       *
-       * v0.11.0 之後語意檢索真的會用到它，所以這一格終於等於
-       * 「語意查得動」—— **但只等於一半**：向量是**逐專題**的，
-       * 一個沒有按過「建立語意索引」的專題，這裡是綠的而搜尋仍然找不到東西。
-       * 那個數字在搜尋面板上（它是逐專題的，這一頁不是）。
-       *
-       * 2026-09-09 之前這裡永遠回 `false`，因為模型還沒選。現在選好了
-       * （`qwen3-embedding:4b`，量測見 `docs/research/embedding-choice.md`），
-       * 所以這一格反映的是設定的實際狀態，而**畫面上要講清楚它只是一半** ——
-       * 否則一個綠勾會被讀成「這個專題的搜尋已經有語意了」。
-       */
-      return {
-        role: status.role,
-        ok: status.state === 'ready',
-        missing: [] as readonly string[],
-      };
-    }
-    /**
-     * **`chat` 要對兩個任務都過，而且是對各自的模型。**
-     *
-     * 2026-09-09 之前這裡只看 `TASK_ANGLES`，於是設定頁上顯示的「可以用」
-     * 只代表「歸納角度跑得動」—— 而 `chat` 底下還有一個抽取實體與關係，
-     * 它要吃 12,000 字的外部正文，context 需求高得多（`TASK_EXTRACT`）。
-     * 一個剛好 8000 context 的模型會在這一頁被標成綠的，然後在抽取時
-     * **把正文截掉一半而不報錯**。
-     *
-     * 2026-09-10 逐任務覆寫之後，這一格改成**上面那一輪的合併結果** ——
-     * 它不能再自己拿 `status.capabilities` 算，因為那是預設模型的能力。
-     */
-    if (status.role === 'chat') {
-      return {
-        role: status.role,
-        ok: chatReadiness.every((row) => row.ok),
-        missing: [...new Set(chatReadiness.flatMap((row) => row.missing))],
-      };
-    }
-    const missing = missingNames([missingFor(TASK_FIND_SOURCES, status.capabilities)]);
+    const rows = taskReadiness.filter((row) => row.role === status.role);
     return {
       role: status.role,
-      ok: status.state === 'ready' && missing.length === 0,
-      missing,
+      ok: rows.length > 0 ? rows.every((row) => row.ok) : status.state === 'ready',
+      missing: [...new Set(rows.flatMap((row) => row.missing))],
     };
   });
-  return ok({ ...view, readiness, chatReadiness }, cid);
+  return ok({ ...view, readiness, taskReadiness }, cid);
+}
+
+/**
+ * 這個角色設定的模型是哪一個。
+ *
+ * `agent` 回的是 `--model` 那一欄，**空字串代表「不帶，用 CLI 自己的預設」**——
+ * 而畫面上那兩件事要分得開（`agentModelHint`）。
+ */
+function modelOfRole(role: ProviderRole, config: ProvidersConfig): string {
+  if (role === 'agent') return config.agent?.model ?? '';
+  if (role === 'embed') return config.embed?.model ?? '';
+  return config.chat?.model ?? '';
 }
 
 export async function saveProviders(input: unknown): Promise<Result<ProvidersPayload>> {
@@ -200,6 +228,12 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
         : {
             command: agentCommand,
             args: Array.isArray(agentArgsRaw) ? agentArgsRaw.map((a) => String(a)) : [],
+            // `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設**，那是一個有效的選擇。
+            model: String(
+              (typeof agentRaw === 'object' && agentRaw !== null
+                ? (agentRaw as Record<string, unknown>)['model']
+                : '') ?? '',
+            ).trim(),
           },
     embed: embed === null || embed.baseUrl.length === 0 ? null : embed,
   };

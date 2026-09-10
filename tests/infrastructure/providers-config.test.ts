@@ -204,3 +204,60 @@ describe('金鑰欄位存的是名字不是金鑰', () => {
     expect(apiKeyEnvOf(42)).toBeNull();
   });
 });
+
+/**
+ * `agent` 的 `--model`（2026-09-10 補上）。
+ *
+ * **在這之前「找來源」這個任務完全沒有模型欄位** —— 設定頁上那張逐任務的表
+ * 少一列，而使用者只能去改 CLI 自己的設定。
+ *
+ * 這一組守的是與 `embed` 那一格同一種東西：**新欄位落在舊設定檔上會怎樣。**
+ * 每一份既有的 `providers.json` 都沒有 `agent.model`，
+ * 而缺欄位的處理方式決定了升級之後那一格是「留白＝用 CLI 預設」
+ * 還是一個 `undefined` 被送進 `--model`。
+ */
+describe('agent 的模型欄位', () => {
+  it('舊設定檔沒有這一欄，讀出來是空字串不是 undefined', async () => {
+    await writeFile(
+      providersFilePath(env),
+      JSON.stringify({ version: 1, agent: { command: 'claude', args: [] } }),
+      'utf8',
+    );
+    const config = await readProvidersConfig(env);
+    // **空字串與 undefined 在這裡差很多**：前者讓 `--model` 整個不帶，
+    // 後者會被 `String()` 變成 'undefined' 送給 CLI。
+    expect(config.agent?.model).toBe('');
+  });
+
+  it('寫進去再讀出來是同一個值', async () => {
+    await writeProvidersConfig(
+      {
+        version: 1,
+        chat: null,
+        agent: { command: 'claude', args: [], model: 'sonnet' },
+        embed: null,
+      },
+      env,
+    );
+    const config = await readProvidersConfig(env);
+    expect(config.agent?.model).toBe('sonnet');
+  });
+
+  it('`args` 與 `model` 是兩件事，不會互相蓋掉', async () => {
+    // `args` 是包裝用的前綴（`npx claude`、`wsl claude`），
+    // `model` 是我們自己那一組旗標裡的一個。**兩者的位置不同**，
+    // 合成一欄的話，一個帶前綴的包裝會把模型參數推到錯的位置。
+    await writeProvidersConfig(
+      {
+        version: 1,
+        chat: null,
+        agent: { command: 'npx', args: ['claude'], model: 'opus' },
+        embed: null,
+      },
+      env,
+    );
+    const config = await readProvidersConfig(env);
+    expect(config.agent?.args).toEqual(['claude']);
+    expect(config.agent?.model).toBe('opus');
+  });
+});

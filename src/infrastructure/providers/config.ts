@@ -58,6 +58,16 @@ export interface AgentConfig {
   /** CLI 的名字或完整路徑。**預設 `claude`，靠 PATH 找** */
   readonly command: string;
   /**
+   * 交給 CLI 的 `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設。**
+   *
+   * 2026-09-10 補上。在那之前「找來源」這個任務**完全沒有模型欄位** ——
+   * 而設定頁上那張逐任務的表少了一列，使用者只能去改 CLI 自己的設定。
+   *
+   * 這一欄與 `chat.taskModels` 不同形狀，是因為 `agent` 底下只有一個任務
+   * （`MODEL_TASKS`）。多了第二個任務的那一天再改成一張表。
+   */
+  readonly model: string;
+  /**
    * 接在 `command` 後面、我們自己那些旗標**前面**的參數。
    *
    * 存在的理由是包裝：`npx claude`、`wsl claude`、或者測試裡的
@@ -248,6 +258,8 @@ export async function readProvidersConfig(
         ? {
             command: str((agentRaw as Record<string, unknown>)['command']),
             args: Array.isArray(agentArgs) ? agentArgs.map((a) => String(a)) : [],
+            // **舊的設定檔沒有這一欄** —— 缺就是空字串（不帶 `--model`），不是壞掉。
+            model: str((agentRaw as Record<string, unknown>)['model']),
           }
         : null;
     const embedRaw = parsed['embed'];

@@ -217,6 +217,60 @@ export const CHAT_TASKS = ['angles', 'extract'] as const;
 export type ChatTask = (typeof CHAT_TASKS)[number];
 
 /**
+ * 嵌入。**沒有任何布林能力要求**，那不是漏寫的。
+ *
+ * `browse`／`tools`／`json_schema`／`vision` 四個旗標描述的是**對話模型**
+ * 會不會做某件事，而嵌入端點一件都不做 —— 它吃一段文字、吐一個向量。
+ * 「這個模型行不行」在嵌入這一邊是另一個問題（維度對不對、品質好不好），
+ * 而那兩個問題**這一層回答不了**：維度是寫進資料庫的硬約束（ADR-0009），
+ * 品質要量（`docs/research/embedding-choice.md`）。
+ *
+ * 所以這裡是一份**誠實的空需求**，而不是把嵌入排除在任務表之外 ——
+ * 排除的話，設定頁上那張表就少一列，而使用者要在別的地方找它。
+ */
+export const TASK_EMBED: TaskRequirement = {
+  needs: [],
+};
+
+/**
+ * **這個工具會用到模型的全部四個地方，以及各自跑在哪個角色上。**
+ *
+ * ## 為什麼要有這一份，而不是讓畫面自己列
+ *
+ * 2026-09-10 之前，「哪些事會用到模型」這個問題的答案散在三處：
+ * `PROVIDER_ROLES`（三個角色）、`CHAT_TASKS`（chat 底下兩個任務）、
+ * 以及設定頁上手寫的版面。**三處都不是完整答案** ——
+ * 而使用者問的是「我能不能替每一件事各挑一個模型」，那需要一份完整清單。
+ *
+ * ## 角色與任務是多對一，而且會繼續是
+ *
+ * `chat` 底下有兩個任務，是因為量出來它們的最好解不同（見 `CHAT_TASKS`）。
+ * `agent` 與 `embed` 目前各只有一個 —— **那是現況不是規則**，
+ * 所以這份表用「任務」當主鍵，不是用「角色」。
+ */
+export const MODEL_TASKS = [
+  { task: 'find-sources', role: 'agent', requirement: TASK_FIND_SOURCES },
+  { task: 'angles', role: 'chat', requirement: TASK_ANGLES },
+  { task: 'extract', role: 'chat', requirement: TASK_EXTRACT },
+  { task: 'embed', role: 'embed', requirement: TASK_EMBED },
+] as const satisfies readonly {
+  readonly task: string;
+  readonly role: ProviderRole;
+  readonly requirement: TaskRequirement;
+}[];
+
+export type ModelTask = (typeof MODEL_TASKS)[number]['task'];
+
+/** 這個任務跑在哪個角色上。**`undefined` 是不可能的** —— 型別保證它在表裡。 */
+export function roleOfTask(task: ModelTask): ProviderRole {
+  return (MODEL_TASKS.find((t) => t.task === task) as (typeof MODEL_TASKS)[number]).role;
+}
+
+export function requirementOfTask(task: ModelTask): TaskRequirement {
+  return (MODEL_TASKS.find((t) => t.task === task) as (typeof MODEL_TASKS)[number]).requirement;
+}
+
+/**
  * 每個 chat 任務要求什麼。**這一份是上面那兩個常數的索引，不是第二份定義** ——
  * 兩份需求表會漂，而漂掉的那一份會讓閘門對某個任務放行。
  */

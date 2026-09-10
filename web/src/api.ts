@@ -244,6 +244,15 @@ export interface ProviderStatus {
  */
 export type ChatTask = 'angles' | 'extract';
 
+/**
+ * **這個工具會用到模型的全部四個地方。**
+ *
+ * server 的 `domain/provider/capabilities.ts` 有 `MODEL_TASKS` 那一份定義，
+ * 這裡是抄的（`web/` 與 server 是兩份建置，型別跨不過去）——
+ * `tests/guards/chat-tasks.test.ts` 釘著兩邊一致。
+ */
+export type ModelTask = 'find-sources' | ChatTask | 'embed';
+
 export interface ProvidersPayload {
   statuses: ProviderStatus[];
   /** Ollama 上真的有的模型。**`null` 代表連不上**，不是「一個都沒有」 */
@@ -265,14 +274,21 @@ export interface ProvidersPayload {
       /** 逐任務覆寫。**空字串 ＝ 跟著 `model`**，不是「沒有模型」 */
       taskModels: Record<ChatTask, string>;
     } | null;
-    agent: { command: string; args: string[] } | null;
+    /** `model` 走 CLI 的 `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設** */
+    agent: { command: string; args: string[]; model: string } | null;
     /** **沒有 apiKeyEnv** —— 嵌入只接本機端點，理由見 `providers/config.ts` */
     embed: { baseUrl: string; model: string } | null;
   };
   readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
-  /** 逐任務的同一件事。**角色層那一格算的是預設模型，覆寫之後兩者會分岔** */
-  chatReadiness: {
-    task: ChatTask;
+  /**
+   * 逐任務的同一件事，**四個任務全部都有**。
+   *
+   * 角色層那一格算的是「底下每一個任務都過得了嗎」，
+   * 而使用者要修的時候需要知道**是哪一個任務、跑在哪個模型上、缺什麼**。
+   */
+  taskReadiness: {
+    task: ModelTask;
+    role: ProviderRole;
     model: string;
     overridden: boolean;
     ok: boolean;

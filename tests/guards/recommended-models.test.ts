@@ -75,8 +75,22 @@ describe('設定頁的建議模型與 server 的常數一致', () => {
   });
 
   it('每個任務的建議都有一顆按得下去的按鈕', () => {
-    // 一顆按鈕跑全部任務（`RECOMMENDED_TASK[row.task]`），所以釘的是那個索引 ——
+    // 一顆按鈕跑全部任務（`RECOMMENDED_TASK_ALL[row.task]`），所以釘的是那個索引 ——
     // 它在的話，新增一個任務不會漏掉按鈕。
-    expect(view).toContain('@click="taskModels[row.task] = RECOMMENDED_TASK[row.task]"');
+    //
+    // **2026-09-10 換了形狀**：那張表擴成跨角色的四列之後，寫回哪一個 ref
+    // 依角色而異（chat 寫 `taskModels`、embed 寫 `embedModel`、
+    // agent 寫 `agentModel`），所以繫結從直接指派改成一支轉換函式。
+    expect(view).toContain('@click="setModelOf(row.task, RECOMMENDED_TASK_ALL[row.task])"');
+  });
+
+  it('沒有依據的那一格是空字串，不是一個編出來的模型名', () => {
+    // `find-sources` 跑在 agent 上，而**我們沒有量過在那一邊換模型的效果**
+    // —— `docs/research/` 那幾輪量的是本機 chat 模型。
+    // 空字串讓那一列不出現建議按鈕；填一個名字會讓它看起來像量過的。
+    const start = view.indexOf('const RECOMMENDED_TASK_ALL');
+    expect(start).toBeGreaterThan(-1);
+    const block = view.slice(start, view.indexOf('};', start));
+    expect(block).toMatch(/'find-sources':\s*''/);
   });
 });

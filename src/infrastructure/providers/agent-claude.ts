@@ -139,6 +139,14 @@ export interface ClaudeAgentOptions {
   readonly command: string;
   /** 接在 `command` 之後、我們的旗標之前。見 `config.ts` 的 `AgentConfig.args` */
   readonly args: readonly string[];
+  /**
+   * 交給 CLI 的 `--model`。**空字串 ＝ 不帶這個旗標**，讓 CLI 用它自己的預設。
+   *
+   * 「不帶」與「帶一個空的」是兩件事：後者會讓 CLI 拿一個空字串去解析模型名。
+   * 這是這個 repo 2026-09-09 記過的同一種錯（`lessons.md`
+   * 「沒有帶的參數也是一個決定」）—— 所以這裡明確地不帶。
+   */
+  readonly model: string;
   /** JSON Schema，直接交給 `--json-schema` */
   readonly schema: Readonly<Record<string, unknown>>;
   readonly systemPrompt: string;
@@ -147,7 +155,7 @@ export interface ClaudeAgentOptions {
 
 export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
   return {
-    name: `claude:${options.command}`,
+    name: options.model.length > 0 ? `claude:${options.model}` : `claude:${options.command}`,
 
     /**
      * **只確認 CLI 在不在，不打一次 API。**
@@ -202,6 +210,8 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
         '--no-session-persistence',
         '--disable-slash-commands',
       ];
+      // 空字串 ＝ 不帶，讓 CLI 用自己的預設。
+      if (options.model.length > 0) args.push('--model', options.model);
       if (options.maxCostUsd !== null) {
         args.push('--max-budget-usd', String(options.maxCostUsd));
       }

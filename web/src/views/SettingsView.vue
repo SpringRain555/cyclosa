@@ -19,6 +19,7 @@ import {
   api,
   type ApiError,
   type ChatTask,
+  type ModelTask,
   type ProvidersPayload,
   type ProviderRole,
   type ProviderStatus,
@@ -37,6 +38,8 @@ const tab = ref<'models' | 'sources'>('models');
 const baseUrl = ref('');
 const model = ref('');
 const command = ref('');
+/** CLI 的 `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設** */
+const agentModel = ref('');
 /** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
 const apiKeyEnv = ref('');
 const embedBaseUrl = ref('');
@@ -62,11 +65,22 @@ const RECOMMENDED_TASK: Record<ChatTask, string> = {
   extract: RECOMMENDED_CHAT,
 };
 
+/**
+ * 表格那一欄用的建議值，**四個任務都有一格**。
+ *
+ * `find-sources` 是空字串 —— **那不是「沒有建議」，是「建議不要帶」**：
+ * agent 的模型由 CLI 自己的設定決定，而我們沒有量過在那一邊換模型的效果
+ * （`docs/research/` 那幾輪量的是本機 chat 模型）。
+ * 空字串讓那一列不出現建議按鈕，而不是出現一個沒有依據的名字。
+ */
+const RECOMMENDED_TASK_ALL: Record<ModelTask, string> = {
+  'find-sources': '',
+  ...RECOMMENDED_TASK,
+  embed: RECOMMENDED_EMBED,
+};
+
 /** 兩個任務的覆寫。**空字串 ＝ 跟著預設**，不是「沒有模型」 */
 const taskModels = ref<Record<ChatTask, string>>({ angles: '', extract: '' });
-/** 預設是收起來的 —— 大多數人只要一個模型 */
-const showTasks = ref(false);
-
 const testing = ref<ProviderRole | null>(null);
 const testResult = ref<{ role: ProviderRole; text: string } | null>(null);
 
@@ -82,6 +96,7 @@ async function load(): Promise<void> {
   baseUrl.value = r.data.config.chat?.baseUrl ?? '';
   model.value = r.data.config.chat?.model ?? '';
   command.value = r.data.config.agent?.command ?? '';
+  agentModel.value = r.data.config.agent?.model ?? '';
   apiKeyEnv.value = r.data.config.chat?.apiKeyEnv ?? '';
   embedBaseUrl.value = r.data.config.embed?.baseUrl ?? '';
   embedModel.value = r.data.config.embed?.model ?? '';
@@ -89,22 +104,40 @@ async function load(): Promise<void> {
     angles: r.data.config.chat?.taskModels?.angles ?? '',
     extract: r.data.config.chat?.taskModels?.extract ?? '',
   };
-  // **設過覆寫就把那一區打開。** 收起來的設定等於看不見的設定，
-  // 而一個看不見的覆寫正是「設了沒有生效」那種抱怨的來源。
-  if (taskModels.value.angles.length > 0 || taskModels.value.extract.length > 0) {
-    showTasks.value = true;
-  }
+  // **2026-09-10 起這一區不再收起來。** 原本它是一個 `<details>`，
+  // 而「收起來的設定等於看不見的設定」—— 現在它是一張永遠攤開的表，
+  // 所以那個「設過就自動打開」的補丁不再需要。
 }
 onMounted(() => void load());
 
-const chatTasks = computed(() => payload.value?.chatTasks ?? []);
+/** 四個任務那張表的資料來源。**順序由 server 決定**，畫面不自己排。 */
+const taskRows = computed(() => payload.value?.taskReadiness ?? []);
 
-function taskReadinessOf(task: ChatTask): { ok: boolean; missing: string[] } {
-  return payload.value?.chatReadiness.find((r) => r.task === task) ?? { ok: false, missing: [] };
+function taskReadinessOf(task: ModelTask): { ok: boolean; missing: string[] } {
+  return payload.value?.taskReadiness.find((r) => r.task === task) ?? { ok: false, missing: [] };
+}
+
+/**
+ * 表格那一格現在填的是什麼、改了要寫回哪裡。
+ *
+ * **三個角色的模型欄位形狀本來就不一樣**（chat 是逐任務覆寫、
+ * embed 是角色自己那一個、agent 是 CLI 的旗標），而表格要它們看起來一樣。
+ * 這兩支就是那個轉換 —— **它只在這一層做，不往下傳**。
+ */
+function modelValueOf(task: ModelTask): string {
+  if (task === 'find-sources') return agentModel.value;
+  if (task === 'embed') return embedModel.value;
+  return taskModels.value[task];
+}
+
+function setModelOf(task: ModelTask, value: string): void {
+  if (task === 'find-sources') agentModel.value = value;
+  else if (task === 'embed') embedModel.value = value;
+  else taskModels.value[task] = value;
 }
 
 /** 這一個任務缺什麼。**跟角色層那一行是同一種句子，但講的是這個模型** */
-function taskMissingText(task: ChatTask): string {
+function taskMissingText(task: ModelTask): string {
   const flags = taskReadinessOf(task).missing;
   if (flags.length === 0) return '';
   const names = flags.map(
@@ -152,7 +185,10 @@ async function save(): Promise<void> {
               extract: taskModels.value.extract.trim(),
             },
           },
-    agent: command.value.trim().length === 0 ? null : { command: command.value.trim(), args: [] },
+    agent:
+      command.value.trim().length === 0
+        ? null
+        : { command: command.value.trim(), args: [], model: agentModel.value.trim() },
     embed:
       embedBaseUrl.value.trim().length === 0
         ? null
@@ -205,6 +241,9 @@ async function test(role: ProviderRole): Promise<void> {
 
       <p class="no-fallback">{{ t.settings.noFallback }}</p>
 
+      <h2 class="group">{{ t.settings.sectionModels }}</h2>
+      <p class="group-what">{{ t.settings.sectionModelsWhat }}</p>
+
       <section v-for="status in statuses" :key="status.role" class="role">
         <header>
           <h2>{{ t.settings.roles[status.role] }}</h2>
@@ -254,56 +293,10 @@ async function test(role: ProviderRole): Promise<void> {
             {{ t.settings.chatModelsUnreachable }}
           </p>
 
-          <!--
-            逐任務覆寫。**收起來的是選單，不是狀態** ——
-            即使收著，下面每個任務「實際會跑哪一個」還是看得到，
-            因為覆寫之後上面那個模型欄位就不再等於實際會跑的東西。
-          -->
-          <details class="tasks" :open="showTasks">
-            <summary>{{ t.settings.chatTaskTitle }}</summary>
-            <p class="hint">{{ t.settings.chatTaskWhy }}</p>
-            <div v-for="row in chatTasks" :key="row.task" class="task">
-              <label>
-                <span>{{ t.settings.chatTaskNames[row.task] }}</span>
-                <select
-                  v-if="payload?.chatModels?.length"
-                  :value="taskModels[row.task]"
-                  @change="taskModels[row.task] = ($event.target as HTMLSelectElement).value"
-                >
-                  <option value="">{{ t.settings.chatTaskFollow }}</option>
-                  <option v-for="name in payload.chatModels" :key="name" :value="name">
-                    {{ name }}
-                  </option>
-                </select>
-                <input v-else v-model="taskModels[row.task]" type="text" />
-              </label>
-              <p class="what">{{ t.settings.chatTaskWhat[row.task] }}</p>
-              <p class="hint">
-                <button
-                  v-if="taskModels[row.task] !== RECOMMENDED_TASK[row.task]"
-                  class="link"
-                  type="button"
-                  @click="taskModels[row.task] = RECOMMENDED_TASK[row.task]"
-                >
-                  {{ fill(t.settings.chatTaskRecommend, { model: RECOMMENDED_TASK[row.task] }) }}
-                </button>
-                {{ t.settings.chatTaskRecommendWhy[row.task] }}
-              </p>
-              <!-- **實際會跑的那一個，以及它現在的狀態。**
-                 角色層那一格講的是預設模型，覆寫之後兩者會分岔。 -->
-              <p v-if="row.model.length === 0" class="hint warn">
-                {{ t.settings.chatTaskUnset }}
-              </p>
-              <p v-else :class="['hint', taskReadinessOf(row.task).ok ? '' : 'warn']">
-                {{ fill(t.settings.chatTaskRuns, { model: row.model }) }}
-                <span class="sep">·</span>
-                {{ t.settings.state[row.state] }}
-                <template v-if="taskMissingText(row.task)">
-                  <span class="sep">·</span>{{ taskMissingText(row.task) }}
-                </template>
-              </p>
-            </div>
-          </details>
+          <!-- **逐任務覆寫搬到下面那一段了**（2026-09-10）。
+             這裡只留「這個角色連到哪、用哪個預設模型」——
+             而「每一件事各自跑哪一個」是一張跨角色的表，
+             放在一個角色底下的話，找來源與嵌入永遠不會出現在它旁邊。 -->
           <!-- **只填變數的名字。** 金鑰本身不進任何一個檔（2026-09-08）。 -->
           <label>
             <span>{{ t.settings.apiKeyEnv }}</span>
@@ -313,6 +306,22 @@ async function test(role: ProviderRole): Promise<void> {
           <p v-if="status.auth && status.auth !== 'none'" :class="['hint', status.auth]">
             {{ t.settings.auth[status.auth] }}
           </p>
+          <!--
+            **讀不到的時候，畫面上要說得出「怎麼設」與「為什麼還是讀不到」。**
+            最常見的原因不是打錯字，是 `setx` 之後沒有重開 —— 環境變數是
+            行程啟動時繼承的一份拷貝，已經開著的程式讀不到後來設的值。
+            一個只寫「沒偵測到」的畫面會讓人一直重打那個名字。
+          -->
+          <template v-if="apiKeyEnv.trim().length > 0 && status.auth === 'env-missing'">
+            <p class="hint">{{ t.settings.apiKeyHowTo }}</p>
+            <code class="setx"
+              >setx {{ apiKeyEnv.trim() }} "&lt;{{ t.settings.apiKeyPlaceholder }}&gt;"</code
+            >
+            <p class="hint warn">{{ t.settings.apiKeyRestart }}</p>
+            <div class="actions">
+              <button type="button" @click="load()">{{ t.settings.apiKeyRecheck }}</button>
+            </div>
+          </template>
         </div>
 
         <div v-else-if="status.role === 'agent'" class="form">
@@ -321,6 +330,15 @@ async function test(role: ProviderRole): Promise<void> {
             <input v-model="command" type="text" placeholder="claude" />
           </label>
           <p class="hint">{{ t.settings.agentCommandHint }}</p>
+          <!--
+            `--model`。**空著是一個有效的選擇**，不是沒設定 ——
+            那表示「用 CLI 自己的預設」，而那個預設是使用者在 CLI 那邊設的。
+          -->
+          <label>
+            <span>{{ t.settings.agentModel }}</span>
+            <input v-model="agentModel" type="text" :placeholder="t.settings.agentModelDefault" />
+          </label>
+          <p class="hint">{{ t.settings.agentModelHint }}</p>
         </div>
 
         <!--
@@ -393,6 +411,94 @@ async function test(role: ProviderRole): Promise<void> {
           </span>
         </div>
       </section>
+
+      <!--
+        ── 段落二：各任務模型 ───────────────────────────────
+
+        **這張表是跨角色的**，而那是它存在的全部理由。
+        逐任務覆寫原本放在 `chat` 那一區底下，於是「找來源」與「嵌入」
+        永遠不會出現在它旁邊 —— 而使用者問的是
+        「我能不能替每一件事各挑一個模型」，那需要一份完整清單。
+
+        每一列右邊那句話講的是**實際會跑的那一個**，不是上面設定的預設 ——
+        覆寫之後兩者會分岔，而分岔的時候只看預設欄位是看不出來的。
+      -->
+      <h2 class="group">{{ t.settings.sectionTasks }}</h2>
+      <p class="group-what">{{ t.settings.sectionTasksWhat }}</p>
+
+      <table class="tasks-table">
+        <thead>
+          <tr>
+            <th>{{ t.settings.taskTableHead.task }}</th>
+            <th>{{ t.settings.taskTableHead.role }}</th>
+            <th>{{ t.settings.taskTableHead.model }}</th>
+            <th>{{ t.settings.taskTableHead.status }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in taskRows" :key="row.task">
+            <td>
+              <span class="task-name">{{ t.settings.taskNames[row.task] }}</span>
+              <span class="task-what">{{ t.settings.taskWhat[row.task] }}</span>
+            </td>
+            <td class="role-cell">{{ t.settings.roles[row.role] }}</td>
+            <td>
+              <!--
+                agent 那一列是文字欄不是下拉，因為**那支 CLI 不吐模型清單** ——
+                給一個空的下拉比給一個文字欄糟：它看起來像「一個都沒有」。
+              -->
+              <input
+                v-if="row.role === 'agent'"
+                type="text"
+                :value="modelValueOf(row.task)"
+                :placeholder="t.settings.agentModelDefault"
+                @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
+              />
+              <select
+                v-else-if="payload?.chatModels?.length"
+                :value="modelValueOf(row.task)"
+                @change="setModelOf(row.task, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="">
+                  {{ row.role === 'chat' ? t.settings.chatTaskFollow : t.settings.embedModelPick }}
+                </option>
+                <option v-for="name in payload.chatModels" :key="name" :value="name">
+                  {{ name }}
+                </option>
+              </select>
+              <input
+                v-else
+                type="text"
+                :value="modelValueOf(row.task)"
+                @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
+              />
+              <!-- 建議值是使用者按下去的，不是我們替他填的 -->
+              <button
+                v-if="
+                  RECOMMENDED_TASK_ALL[row.task] &&
+                  modelValueOf(row.task) !== RECOMMENDED_TASK_ALL[row.task]
+                "
+                class="link"
+                type="button"
+                @click="setModelOf(row.task, RECOMMENDED_TASK_ALL[row.task])"
+              >
+                {{ fill(t.settings.chatTaskRecommend, { model: RECOMMENDED_TASK_ALL[row.task] }) }}
+              </button>
+            </td>
+            <td :class="['task-status', row.ok ? 'ok' : 'warn']">
+              <!-- **實際會跑的那一個。** 空著代表跟著角色的預設，或者根本沒設定。 -->
+              <span v-if="row.model.length > 0" class="runs">
+                {{ fill(t.settings.chatTaskRuns, { model: row.model }) }}
+              </span>
+              <span v-else class="runs muted">{{ t.settings.taskFollowsDefault }}</span>
+              <span v-if="row.overridden" class="badge">{{ t.settings.taskOverridden }}</span>
+              <span v-if="taskMissingText(row.task)" class="missing">
+                {{ taskMissingText(row.task) }}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
       <div class="save">
         <button class="primary" :disabled="saving" @click="save">{{ t.settings.save }}</button>
@@ -551,34 +657,109 @@ h2 {
  * **收起來的是選單，不是狀態** —— 每個任務「實際會跑哪一個」在收起來的時候
  * 仍然要看得到，所以那幾行不在 `<details>` 的內容裡……
  * 除了它們確實在。這是刻意的取捨：兩件事都跟著預設時那三行完全是重複資訊
- * （上面的模型欄位就是答案），而**設過覆寫的話這一區會自動打開**（`load()`）。
+ * （上面的模型欄位就是答案）。
+ *
+ * **2026-09-10 從一個 `<details>` 換成一張永遠攤開的表。**
+ * 收起來的設定等於看不見的設定，而一個看不見的覆寫正是
+ * 「設了沒有生效」那種抱怨的來源。
  */
-.tasks {
-  border: 1px solid var(--line-subtle);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  margin-bottom: 10px;
+
+/* ── 兩個段落的標題 ────────────────────────────────── */
+.group {
+  margin: 28px 0 4px;
+  font-size: 15px;
+  color: var(--text);
 }
-.tasks summary {
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
+.group:first-of-type {
+  margin-top: 12px;
 }
-.task {
-  display: grid;
-  gap: 4px;
-  margin-top: 10px;
-}
-.task label {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-}
-.task .what {
-  margin: 0;
+.group-what {
+  margin: 0 0 14px;
   font-size: 12px;
+  color: var(--text-tertiary);
+  max-width: 62ch;
+  line-height: 1.6;
+}
+
+/* ── 各任務模型那張表 ──────────────────────────────── */
+.tasks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tasks-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.tasks-table td {
+  padding: 10px 10px 10px 0;
+  border-bottom: 1px solid var(--line-subtle);
+  vertical-align: top;
+}
+.tasks-table td:first-child {
+  min-width: 15ch;
+}
+.task-name {
+  display: block;
+  color: var(--text-secondary);
+}
+.task-what {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 34ch;
+  line-height: 1.5;
+}
+.role-cell {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+/* **實際會跑的那一個。** 覆寫之後上面的預設欄位就不再等於它 */
+.task-status {
+  display: table-cell;
+  min-width: 20ch;
+}
+.task-status .runs {
+  display: block;
+  color: var(--text-secondary);
+}
+.task-status .runs.muted {
+  color: var(--text-muted);
+}
+.task-status.warn .runs {
+  color: var(--edge-pending);
+}
+.task-status .missing {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+.badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+/* setx 那一行要看得出來是可以整行複製的指令 */
+.setx {
+  display: block;
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  background: var(--bg-app);
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  font-size: 12px;
+  user-select: all;
+  overflow-x: auto;
 }
 /** 同一行裡的兩件事之間。**不是標點** —— 它是版面 */
 .sep {

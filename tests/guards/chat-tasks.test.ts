@@ -23,7 +23,11 @@
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
-import { CHAT_TASKS, CHAT_TASK_REQUIREMENTS } from '../../src/domain/provider/capabilities.js';
+import {
+  CHAT_TASKS,
+  CHAT_TASK_REQUIREMENTS,
+  MODEL_TASKS,
+} from '../../src/domain/provider/capabilities.js';
 
 const web = new URL('../../web/src/', import.meta.url);
 const api = await readFile(new URL('api.ts', web), 'utf8');
@@ -36,7 +40,8 @@ function keysOf(source: string, blockName: string): string[] {
   if (start < 0) return [];
   const end = source.indexOf('\n    },', start);
   const block = source.slice(start, end < 0 ? undefined : end);
-  return [...block.matchAll(/^\s{6}([a-z]+):/gm)].map((m) => m[1] as string).sort();
+  // 鍵可能帶引號（`'find-sources':`），因為它有連字號。
+  return [...block.matchAll(/^\s{6}'?([a-z-]+)'?:/gm)].map((m) => m[1] as string).sort();
 }
 
 const expected = [...CHAT_TASKS].sort();
@@ -67,5 +72,66 @@ describe('chat 的任務名在 server 與 web 是同一組', () => {
     const block = view.slice(start, view.indexOf('};', start));
     const keys = [...block.matchAll(/^\s{2}([a-z]+):/gm)].map((m) => m[1] as string).sort();
     expect(keys).toEqual(expected);
+  });
+});
+
+/**
+ * 2026-09-10：**同一種形狀又多了一組字串，所以守它的測試也要跟著多一組。**
+ *
+ * 設定頁上那張「各任務模型」的表是跨角色的，於是任務名從 `chat` 底下的兩個
+ * 擴成四個（`MODEL_TASKS`）。而擴出來的那兩個 —— `find-sources` 與 `embed`
+ * —— 走的是**跟 chat 完全不同的欄位**（前者是 CLI 的旗標，後者是角色自己的模型），
+ * 所以「i18n 有而 server 沒有」這種漂法在它們身上更容易發生。
+ */
+const allTasks = MODEL_TASKS.map((t) => t.task).sort();
+
+describe('四個任務的名字在 server 與 web 是同一組', () => {
+  it('`CHAT_TASKS` 就是 `MODEL_TASKS` 裡角色是 chat 的那些', () => {
+    // 兩份定義**必須推導得出對方** —— 否則加一個 chat 任務時會只加到一邊，
+    // 而症狀是「設定檔裡那個覆寫永遠讀不出來」。
+    const fromRegistry = MODEL_TASKS.filter((t) => t.role === 'chat')
+      .map((t) => t.task)
+      .sort();
+    expect(fromRegistry).toEqual([...CHAT_TASKS].sort());
+  });
+
+  it('每個任務都在表裡有一份需求宣告', () => {
+    expect(allTasks.length).toBe(new Set(allTasks).size);
+    for (const entry of MODEL_TASKS) {
+      // **`embed` 的需求是空的，而那不是漏寫**（見 `TASK_EMBED` 的註解）——
+      // 四個布林旗標描述的是對話模型會不會做某件事，而嵌入端點一件都不做。
+      // 所以這裡不能一律要求非空；能要求的是**只有它可以是空的**。
+      if (entry.task === 'embed') expect(entry.requirement.needs).toEqual([]);
+      else expect(entry.requirement.needs.length, entry.task).toBeGreaterThan(0);
+    }
+  });
+
+  it('`web/src/api.ts` 的 ModelTask 聯集涵蓋全部四個', () => {
+    const line = api.match(/export type ModelTask = [^;]+;/)?.[0] ?? '';
+    expect(line).not.toBe('');
+    for (const task of allTasks) {
+      // `ChatTask` 是被引用進去的，所以那兩個不會逐字出現在這一行。
+      if ((CHAT_TASKS as readonly string[]).includes(task)) continue;
+      expect(line, task).toContain(`'${task}'`);
+    }
+    expect(line).toContain('ChatTask');
+  });
+
+  it('i18n 的任務名與說明各自涵蓋全部四個', () => {
+    for (const block of ['taskNames', 'taskWhat']) {
+      expect(keysOf(i18n, block), block).toEqual(allTasks);
+    }
+  });
+
+  it('設定頁那張表的建議值涵蓋全部四個', () => {
+    const start = view.indexOf('const RECOMMENDED_TASK_ALL: Record<ModelTask, string> = {');
+    expect(start).toBeGreaterThan(-1);
+    const block = view.slice(start, view.indexOf('};', start));
+    // `...RECOMMENDED_TASK` 展開了 chat 那兩個，所以逐字寫出來的只有另外兩個。
+    expect(block).toContain('...RECOMMENDED_TASK');
+    for (const task of allTasks) {
+      if ((CHAT_TASKS as readonly string[]).includes(task)) continue;
+      expect(block, task).toMatch(new RegExp(`'?${task}'?:`));
+    }
   });
 });

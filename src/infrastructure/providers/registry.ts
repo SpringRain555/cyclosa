@@ -134,6 +134,7 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
   };
   const agentCommand = config.agent?.command ?? '';
   const agentArgs = config.agent?.args ?? [];
+  const agentModel = config.agent?.model.trim() ?? '';
   const embedModel = config.embed?.model.trim() ?? '';
   return {
     config,
@@ -146,7 +147,12 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
     agentFor: (request) =>
       agentCommand.length === 0
         ? null
-        : createClaudeAgent({ command: agentCommand, args: agentArgs, ...request }),
+        : createClaudeAgent({
+            command: agentCommand,
+            args: agentArgs,
+            model: agentModel,
+            ...request,
+          }),
   };
 }
 

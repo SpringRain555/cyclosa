@@ -9,7 +9,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type ApiError, type CaseSummary, type DataRootInfo } from '../api';
+import { api, type ApiError, type CaseDeletion, type CaseSummary, type DataRootInfo } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 
@@ -201,6 +201,98 @@ async function clearAllRead(): Promise<void> {
   unreadNote.value = fill(t.caseList.unreadDone, { n: done.data.cleared });
 }
 
+/**
+ * 封存與重新開啟。**這一支 API 從 Stage 5 就在，而在這之前零個呼叫點** ——
+ * 一個沒有按鈕的狀態轉移，使用者永遠到不了那個狀態。
+ */
+const statusBusy = ref(false);
+
+async function toggleArchive(): Promise<void> {
+  const c = selected.value;
+  if (c === null) return;
+  const action = c.status === 'archived' ? 'reopen' : 'archive';
+  statusBusy.value = true;
+  const r = await api.setCaseStatus(c.slug, action);
+  statusBusy.value = false;
+  if (!r.ok) {
+    renameError.value = r.error;
+    return;
+  }
+  unreadNote.value = fill(action === 'archive' ? t.caseList.archiveDone : t.caseList.reopenDone, {
+    name: c.name,
+  });
+  await load();
+}
+
+/**
+ * 刪除專題。
+ *
+ * **不是 `window.confirm`** —— 這一顆要求逐字打對名稱，而那需要一個輸入框。
+ * 「全部標成未讀」用一次確認就夠，因為它清掉的是關於**你**的標記；
+ * 這一顆清掉的是**蒐集來的東西本身**。兩者的後果不在同一個量級。
+ *
+ * 第一段（`confirmName: null`）只問「會失去什麼」，一個檔都不動 ——
+ * 對話框上那些數字就是那一次回來的。
+ */
+const deleting = ref<CaseDeletion | null>(null);
+const deleteTyped = ref('');
+const deleteBusy = ref(false);
+
+/** 打對了才給按。**伺服器端也會再比一次** —— 這裡只是讓那顆鍵不要看起來可按。 */
+const deleteArmed = computed(
+  () => deleting.value !== null && deleteTyped.value.trim() === deleting.value.name,
+);
+
+function humanBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+async function startDelete(): Promise<void> {
+  const c = selected.value;
+  if (c === null) return;
+  deleteBusy.value = true;
+  renameError.value = null;
+  const probe = await api.deleteCase(c.slug, null);
+  deleteBusy.value = false;
+  if (!probe.ok) {
+    renameError.value = probe.error;
+    return;
+  }
+  deleteTyped.value = '';
+  deleting.value = probe.data;
+}
+
+function cancelDelete(): void {
+  deleting.value = null;
+  deleteTyped.value = '';
+}
+
+async function confirmDelete(): Promise<void> {
+  const c = selected.value;
+  if (c === null || !deleteArmed.value) return;
+  deleteBusy.value = true;
+  const r = await api.deleteCase(c.slug, deleteTyped.value.trim());
+  deleteBusy.value = false;
+  if (!r.ok) {
+    renameError.value = r.error;
+    return;
+  }
+  deleting.value = null;
+  deleteTyped.value = '';
+  // **選取要清掉** —— 那個專題不在了，操作列不能繼續指著它。
+  pickedSlug.value = null;
+  unreadNote.value = fill(t.caseList.delDone, { name: r.data.name, to: r.data.movedTo ?? '' });
+  await load();
+}
+
 function when(ms: number | null): string {
   return ms === null ? t.caseList.never : new Date(ms).toLocaleDateString('zh-Hant');
 }
@@ -313,6 +405,26 @@ onMounted(load);
           <button type="button" :disabled="selected === null || unreadBusy" @click="clearAllRead">
             {{ t.caseList.unreadAll }}
           </button>
+          <!--
+            **封存／重新開啟。** 這一支 API 從 Stage 5 就在，
+            而在 Stage 15 之前**零個呼叫點** —— 一個沒有按鈕的狀態轉移，
+            使用者永遠到不了那個狀態。
+          -->
+          <button type="button" :disabled="selected === null || statusBusy" @click="toggleArchive">
+            {{ selected?.status === 'archived' ? t.caseList.reopen : t.caseList.archive }}
+          </button>
+          <!--
+            **刪除不是 window.confirm。** 它要求逐字打對名稱，所以需要一個輸入框；
+            而那個比對**在伺服器端也會再做一次**。
+          -->
+          <button
+            type="button"
+            class="danger"
+            :disabled="selected === null || deleteBusy"
+            @click="startDelete"
+          >
+            {{ t.caseList.del }}
+          </button>
           <RouterLink
             v-if="selected"
             class="act"
@@ -403,6 +515,50 @@ onMounted(load);
           <button @click="creating = false">{{ t.createCase.cancel }}</button>
           <button class="primary" :disabled="newName.trim().length === 0" @click="submitCreate">
             {{ t.createCase.submit }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!--
+      **刪除專題。** 這個對話框的工作是讓使用者在按下去之前看見四件事：
+      會失去什麼、佔多大、資料夾搬去哪、以及**磁碟空間不會變多**。
+
+      最後那一件最容易漏，而漏掉的後果是使用者刪了一個 4 GB 的專題、
+      去看硬碟、發現一點都沒空出來 —— 然後不知道該相信哪一句話。
+
+      點外面**不會**關掉它（沒有 `@click.self`）—— 一個正在打字的確認框
+      被誤點關掉，使用者要從頭再來一次。
+    -->
+    <div v-if="deleting" class="modal">
+      <div class="dialog danger-dialog">
+        <h2>{{ fill(t.caseList.delTitle, { name: deleting.name }) }}</h2>
+        <p>
+          {{
+            fill(t.caseList.delLose, {
+              items: deleting.stats.itemCount.toLocaleString(),
+              notes: deleting.stats.noteCount.toLocaleString(),
+              entities: deleting.stats.entityCount.toLocaleString(),
+              edges: deleting.stats.edgeCount.toLocaleString(),
+            })
+          }}
+        </p>
+        <p>{{ fill(t.caseList.delSize, { size: humanBytes(deleting.bytes) }) }}</p>
+        <p class="muted small">{{ t.caseList.delMoved }}</p>
+        <p class="muted small">{{ t.caseList.delSpace }}</p>
+        <label class="field">
+          <span>{{ t.caseList.delTypeName }}</span>
+          <input
+            v-model="deleteTyped"
+            type="text"
+            :placeholder="deleting.name"
+            :disabled="deleteBusy"
+          />
+        </label>
+        <div class="dialog-actions">
+          <button :disabled="deleteBusy" @click="cancelDelete">{{ t.caseList.delCancel }}</button>
+          <button class="danger" :disabled="!deleteArmed || deleteBusy" @click="confirmDelete">
+            {{ t.caseList.delConfirm }}
           </button>
         </div>
       </div>
@@ -638,6 +794,15 @@ tbody tr.picked {
   padding: 22px 24px;
   width: min(520px, 92vw);
 }
+/* 刪除對話框：**上緣一條紅線**，而不是整片紅底。
+   那條線的工作是讓人在打字之前先知道自己在哪一個對話框裡。 */
+.danger-dialog {
+  border-top: 2px solid var(--ui-danger);
+}
+.danger-dialog p {
+  margin: 6px 0;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

@@ -44,6 +44,9 @@
 | `CASE_FOLDER_EXISTS` | error | 要建的資料夾已經存在且不是空的 | 換名稱，或用「開啟既有資料夾」把它當成既有專題開起來 |
 | `CASE_ARCHIVED` | error | 對已封存的專題做了需要它是使用中的操作 | 先重新開啟這個專題 |
 | `CASE_RENAME_BLOCKED` | error | 改名時資料夾搬不動 —— 有東西正開著它（執行中的作業、檔案總管）| 讓作業跑完或關掉那個視窗，再試一次 |
+| `CASE_NAME_MISMATCH` | error | 刪除時打的名稱跟專題名對不起來。**這不是驗證失敗，這是那道門本身** —— 比對在伺服器端，只在畫面上比是繞得過的 | 逐字打對專題名稱再試一次 |
+| `CASE_STATUS_INVALID` | error | 現在的狀態做不了這個動作（最實際的是「作業還在跑的時候按封存」）。**與 `CASE_ARCHIVED` 分開，因為那個碼在這裡會說謊** —— 舊實作回「這個專題已封存」，而它明明沒有 | 訊息會說出該做什麼。作業在跑就先讓它跑完或取消 |
+| `CASE_DELETE_BLOCKED` | error | 刪除時資料夾搬不進 `backups\` —— 有東西正開著它 | 讓作業跑完或關掉那個視窗，再試一次。**那個專題完整留著，沒有被刪掉一半** |
 | `CASE_SCHEMA_TOO_NEW` | error | `case.sqlite` 的 schema 版本比這個程式新（被新版寫過）| 升級 Cyclosa。**不要用舊版繼續開**，會寫壞資料 |
 | `CASE_SCHEMA_MIGRATE_FAILED` | error | migration 中途失敗 | 資料庫已經回復到 migration 前的狀態。把 `correlation_id` 交出來；`backups\` 裡有 migration 前的複本 |
 | `CASE_UNEXPECTED` | error | 專題操作的未預期例外 | 把 `correlation_id` 交出來 |
@@ -56,6 +59,9 @@
 | `IO_POINTER_MALFORMED` | error | 指標檔存在但不是合法 JSON，或缺 `data_root` 欄 | 訊息裡有指標檔的完整路徑。刪掉它重新選一次，或手動修好 |
 | `IO_DATA_ROOT_MISSING` | error | 指標檔指到的路徑不存在（外接硬碟沒插、資料夾被搬走）| 訊息會寫「指標檔在哪、它指到哪」。把那個路徑接回來，或重新選一個 |
 | `IO_DATA_ROOT_NOT_WRITABLE` | error | 資料根存在但寫不進去（權限、唯讀磁碟）| 檢查那個資料夾的權限，或換一個位置 |
+| `IO_DATA_ROOT_BUSY` | error | 有作業在跑的時候要搬資料根。搬家會把 `case.sqlite` 從一個正在寫它的行程底下抽走 | 等作業跑完或先取消它。`detail.activeRuns` 是還在跑的數量 |
+| `IO_DATA_ROOT_TARGET_INVALID` | error | 要搬過去的位置不能用。`detail.reason`：`same`（就是現在這個）、`nested`（在現在這個底下，等於搬進自己）、`not-empty`（那裡已經有東西，蓋過去會毀掉它）| 換一個空的資料夾 |
+| `IO_DATA_ROOT_MOVE_BLOCKED` | error | 資料根搬不動（有東西開著它），或跨磁碟區複製失敗 | **原本的資料完整留在原地，指標檔也沒有改。** 關掉開著那個資料夾的東西再試一次 |
 | `IO_DISK_FULL` | error | 寫入時磁碟空間不足 | 清出空間再重試。**已經寫進去的東西不會壞** —— 交易沒有完成就不會留下半筆 |
 | `IO_SNAPSHOT_MISSING` | partial | `item.sha256` 對應的快照檔不見了 | 那一項的閱讀器打不開。可以重新擷取（會產生新快照），**但原有的點註會標成「找不到原文位置」** |
 | `IO_SNAPSHOT_CORRUPT` | error | 快照檔存在但雜湊對不上 —— **有人動過不可變的東西** | 這違反 ADR-0003。不要覆蓋它；把 `correlation_id` 交出來，並確認是不是同步軟體或防毒動過 `sources\` |

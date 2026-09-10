@@ -53,16 +53,43 @@ describe('健康檢查', () => {
   });
 });
 
-describe('指標檔的四種失敗各自說得出原因', () => {
-  it('指標檔不存在 → IO_POINTER_MISSING，而且帶著指標檔的位置', async () => {
+describe('指標檔的失敗各自說得出原因', () => {
+  /**
+   * **這一條在 Stage 15 換了方向。**
+   *
+   * 原本是「指標檔不存在 → `IO_POINTER_MISSING`」，而那個碼現在只在
+   * 自動建立**也失敗**的時候才會出現（`bootstrap-service.ts`）。
+   *
+   * 換掉的是行為不是原則：REQ-0001 要擋的一直是
+   * **「明明有資料，卻看到一個空清單」**，
+   * 而「全新安裝看到一個空清單」正是它應該有的樣子。
+   * 底下三條（指標檔壞掉、指到的地方不見了、寫不進去）**一條都沒有動** ——
+   * 那三種都可能有一整份舊資料在後面，它們才是那條要擋的線。
+   */
+  it('指標檔不存在 → 自動建一個預設資料根，不問任何問題', async () => {
     await boot();
     const res = await app.inject({ method: 'GET', url: '/api/cases' });
     const body = res.json();
-    expect(body.ok).toBe(false);
-    expect(body.code).toBe('IO_POINTER_MISSING');
-    // **不是一個空清單** —— 這是 REQ-0001 的驗收條件
-    expect(body.data).toBeUndefined();
-    expect(String(body.detail.pointerPath)).toContain('system_paths.json');
+    expect(body.ok, JSON.stringify(body)).toBe(true);
+    expect(body.data).toEqual([]);
+
+    // 而且它真的落在磁碟上、就在指標檔隔壁。
+    const root = (await app.inject({ method: 'GET', url: '/api/system/data-root' })).json();
+    expect(root.data.dataRoot).toBe(join(localAppData, 'Cyclosa', 'data'));
+    expect((await readdir(root.data.dataRoot)).sort()).toEqual([
+      'backups',
+      'cases',
+      'exports',
+      'logs',
+      'tmp',
+    ]);
+  });
+
+  it('自動建完之後直接建得起專題 —— 開箱即用的那句話就是這一條', async () => {
+    await boot();
+    const made = await app.inject({ method: 'POST', url: '/api/cases', payload: { name: '開箱' } });
+    expect(made.json().ok, made.body).toBe(true);
+    expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().data).toHaveLength(1);
   });
 
   it('指標檔壞掉 → IO_POINTER_MALFORMED', async () => {
@@ -101,6 +128,33 @@ describe('指標檔的四種失敗各自說得出原因', () => {
     // 「指標檔在哪、它指到哪、那個路徑怎麼了」是同一句話裡的三件事
     expect(String(body.detail.pointerPath)).toContain('system_paths.json');
     expect(String(body.detail.dataRoot)).toBe(ghost);
+  });
+
+  /**
+   * **這一條守著 Stage 15 最危險的那個邊。**
+   *
+   * 指標檔指到 `E:\...` 而隨身碟沒插，是一個**後面有一整份資料**的狀態。
+   * 自動建立如果在這裡也開火，使用者會看到一個乾淨的空清單、
+   * 一個字都沒說 —— 而他上一次關掉程式的時候那裡有 20 個專題。
+   *
+   * 那是 REQ-0001 花了四個錯誤碼在擋的事，
+   * **不能被一個「貼心的預設值」從後門放進來。**
+   */
+  it('指到的地方不見了 → 不會偷偷建一個預設資料根頂替', async () => {
+    await mkdir(join(localAppData, 'Cyclosa'), { recursive: true });
+    await writeFile(
+      join(localAppData, 'Cyclosa', 'system_paths.json'),
+      JSON.stringify({ version: 1, dataRoot: join(sandbox, 'unplugged'), updatedAt: '' }),
+      'utf8',
+    );
+    await boot();
+
+    // 說出原因，而不是換一個地方假裝沒事。
+    expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().code).toBe(
+      'IO_DATA_ROOT_MISSING',
+    );
+    // 而且預設資料根**根本沒有被建出來** —— 指標檔也還指著原本那個地方。
+    expect(await readdir(join(localAppData, 'Cyclosa'))).toEqual(['system_paths.json']);
   });
 });
 
@@ -169,6 +223,15 @@ describe('設定資料根 → 建專題 → 清單', () => {
     expect(res.json().code).toBe('CASE_NAME_EMPTY');
   });
 
+  /**
+   * **這一條在 Stage 15 換了方向，而它原本就沒在測自己的名字。**
+   *
+   * 舊的內容是「`new` 狀態不能直接封存 —— 轉移表上沒有那一條」，
+   * 而那條規則本身是錯的：一個建了才發現不需要的專題，
+   * 使用者只剩下刪除這一條路。轉移表補了 `new → archived`。
+   *
+   * 順帶把名字說的那件事真的測起來 —— **舊的 body 從來沒碰過重新開啟。**
+   */
   it('封存之後不能再封存，但可以重新開啟', async () => {
     await boot();
     await app.inject({ method: 'POST', url: '/api/system/data-root', payload: { dataRoot } });
@@ -176,13 +239,23 @@ describe('設定資料根 → 建專題 → 清單', () => {
       await app.inject({ method: 'POST', url: '/api/cases', payload: { name: '封存測試' } })
     ).json().data;
 
-    // new 狀態不能直接封存 —— 轉移表上沒有那一條
-    const tooEarly = await app.inject({
-      method: 'POST',
-      url: `/api/cases/${encodeURIComponent(c.slug)}/status`,
-      payload: { action: 'archive' },
-    });
-    expect(tooEarly.json().code).toBe('CASE_ARCHIVED');
+    const status = async (action: 'archive' | 'reopen'): Promise<{ ok: boolean; code?: string }> =>
+      (
+        await app.inject({
+          method: 'POST',
+          url: `/api/cases/${encodeURIComponent(c.slug)}/status`,
+          payload: { action },
+        })
+      ).json();
+
+    // 剛建好（`new`）就封存得掉。
+    expect((await status('archive')).ok, '新專題應該封存得掉').toBe(true);
+    // 已經封存了還按封存 —— **這一次 `CASE_ARCHIVED` 說的是實話。**
+    expect((await status('archive')).code).toBe('CASE_ARCHIVED');
+    // 而重新開啟走得回去。
+    expect((await status('reopen')).ok).toBe(true);
+    // 沒封存的時候按重新開啟不是「已封存」，是「這個狀態做不了」。
+    expect((await status('reopen')).code).toBe('CASE_STATUS_INVALID');
   });
 
   it('找不到的專題回 404', async () => {

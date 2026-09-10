@@ -187,6 +187,26 @@
 | `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回 Ollama 上真的有的模型清單（`chatModels`，**`null` 代表連不上**，不是「一個都沒有」）|
 | `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）|
 | `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs}` |
+| `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（Stage 15，見下）|
+| `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
+| `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**（Stage 15）|
+
+> ### 第一次啟動不問任何問題（Stage 15）
+>
+> `GET /api/system/data-root` 在**指標檔不存在**時自動建
+> `%LOCALAPPDATA%\Cyclosa\data` 並寫指標檔 —— 前端每次進清單頁第一個打的就是它。
+>
+> **只有「指標檔不存在」走自動建立。** 另外三種失敗
+> （`IO_POINTER_MALFORMED`、`IO_DATA_ROOT_MISSING`、`IO_DATA_ROOT_NOT_WRITABLE`）
+> 一律照原樣回，因為**它們後面可能有一整份資料**：
+> 指標檔指到 `E:\…` 而隨身碟沒插的時候自動頂替一個空資料夾，
+> 使用者會看到一個乾淨的空清單、一個字都沒說。
+> 那正是 REQ-0001 花四個錯誤碼在擋的事。
+>
+> `move` 的守門：有作業在跑（`IO_DATA_ROOT_BUSY`）、目標不能用
+> （`IO_DATA_ROOT_TARGET_INVALID`，`detail.reason` 是
+> `same`／`nested`／`not-empty`）。**搬完才寫指標檔** ——
+> 失敗時舊的地方原封不動，指標檔也還指著它。
 
 > **`GET` 與 `test` 是兩件事，而且分開得很刻意。**
 > 打開設定頁**不該產生費用** —— 所以 `GET` 對 `agent` 只跑 `--version`、
@@ -270,9 +290,21 @@
 |---|---|
 | `GET /api/cases` | 清單 ＋ 每個專題的統計（節點數、實體數、關聯數、**待查證幾條**、最後擴展時間）|
 | `POST /api/cases` | 建立。三次點擊以內完成的那一步 |
-| `POST /api/cases/open` | 開啟既有資料夾（把一個搬過來的專題掛回來）|
-| `POST /api/cases/:id/archive` ／ `/reopen` | 封存與重新開啟 |
-| `POST /api/cases/:id/rename` | 改名。**名稱與資料夾一起改**，回的是**新的** `CaseSummary`（`slug` 已經是新的）|
+| `POST /api/cases/:slug/status` | `{action: 'archive' \| 'reopen'}`。封存與重新開啟 |
+| `POST /api/cases/:slug/rename` | 改名。**名稱與資料夾一起改**，回的是**新的** `CaseSummary`（`slug` 已經是新的）|
+| `POST /api/cases/:slug/delete` | 刪除。**兩段式**，見下面那一節 |
+
+> **2026-09-11 更正兩處。** 這張表原本寫著
+> `POST /api/cases/:id/archive ／ /reopen`（實作一直是一支 `/status` 帶 `action`），
+> 以及 `POST /api/cases/open`（開啟既有資料夾）—— **後者從來沒有被實作過。**
+>
+> 前者是形狀漂了，後者是**一份用權威語氣描述了不存在世界的文件**，
+> 而那正是 ADR-0001 寫下來要防的東西。
+> 兩個都是 Stage 15 把封存接上按鈕時才撞到的。
+>
+> 「開啟既有資料夾」目前唯一的做法是**把資料夾放進資料根的 `cases\` 底下**，
+> 下一次列清單就會看到它（`listCases` 掃的就是那一層）。
+> `CASE_FOLDER_EXISTS` 的訊息裡還提到那顆不存在的按鈕，**這是已知的**。
 
 ### 資料節點
 
@@ -440,6 +472,37 @@
 > 「你讀過這一份」當成「人動過」的三種訊號之一，而復原一次作業時
 > 人動過的會被留下來。**清掉已讀會讓既有作業的復原刪掉更多東西。**
 > 那不是 bug，是它真的做的事 —— 而確認那句話必須說出來。
+
+### `POST /api/cases/:slug/delete` —— 刪除專題
+
+**第三個兩段式，而這一個的門更重。**
+
+| 請求 | 回什麼 | 做什麼 |
+|---|---|---|
+| `{}` | `{ name, stats, bytes, done: false, movedTo: null }` | **一個檔都不動** |
+| `{ "confirmName": "<專題名>" }` | `{ …, done: true, movedTo }` | 逐字對得上才刪 |
+
+前面兩顆（結束、全部標成未讀）用一次確認就夠；這一顆要求**逐字打對名稱**，
+因為它清掉的是**蒐集來的東西本身**，而那是這個工具存在的理由。
+**比對在伺服器端** —— 只在畫面上比是繞得過的。
+
+`bytes` 是**整個專題資料夾**的大小，含 `sources\` 的快照 ——
+那通常就是大部分。只算 `case.sqlite` 的話，畫面會對一個 4 GB 的專題說「佔 200 KB」。
+
+> **刪除是「搬」不是「刪」。** 資料夾搬進
+> `backups\deleted-<slug>-<時間戳>\`（同磁碟區的 `rename`，瞬間、不多佔空間）。
+> app 這一側就是刪掉了：清單上沒有它、狀態機裡沒有「已刪除」（REQ-0001）、
+> **而且 app 永遠不讀 `backups\`**。那個資料夾是留給檔案總管的。
+>
+> 代價是**磁碟空間不會變多**，而那句話必須出現在畫面上 ——
+> 否則使用者刪了一個 4 GB 的專題、去看硬碟、發現一點都沒空出來。
+
+失敗路徑：名字對不上 → `CASE_NAME_MISMATCH`；有東西開著那個資料夾 →
+`CASE_DELETE_BLOCKED`（**專題完整留著，沒有被刪掉一半**）。
+
+**已封存的專題刪得掉** —— 這裡刻意不套 `assertMutable`：
+封存的意思是「不再改動它的內容」，而刪除不是一次改動。
+「封存起來，過一陣子確定不要了再刪」本來就是那兩個狀態最常見的走法。
 
 ### 改名為什麼要回整個 `CaseSummary`
 

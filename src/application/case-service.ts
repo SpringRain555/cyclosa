@@ -19,7 +19,7 @@ import {
   updateCaseStatus,
   type CaseStats,
 } from '../infrastructure/db/repositories/case-repo.js';
-import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
+import { backupsDir, casesDir, deletedCaseDir, folderBytes } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
@@ -202,7 +202,17 @@ export async function changeCaseStatus(
     if (row === null) return err('CASE_NOT_FOUND', cid, { slug });
 
     const to = nextCaseStatus(row.status, action);
-    if (to === null) return err('CASE_ARCHIVED', cid, { from: row.status, action });
+    if (to === null) {
+      /**
+       * **這裡原本一律回 `CASE_ARCHIVED`，而那對大部分情形是一句假話。**
+       *
+       * 最實際的那一種是「作業還在跑的時候按封存」——
+       * 使用者看到的訊息會是「這個專題已封存」，而它明明沒有。
+       * 分成兩句：真的已封存才說已封存，其餘說出現在的狀態。
+       */
+      if (row.status === 'archived') return err('CASE_ARCHIVED', cid, { from: row.status, action });
+      return err('CASE_STATUS_INVALID', cid, { from: row.status, action });
+    }
 
     updateCaseStatus(opened.db, to, Date.now());
     return ok(to, cid);
@@ -334,6 +344,97 @@ export async function renameCase(
       /* 已經關了 */
     }
   }
+}
+
+/** 刪除之前要先看見的東西：**會失去什麼、佔多大、搬去哪。** */
+export interface CaseDeletion {
+  readonly name: string;
+  readonly stats: CaseStats;
+  /** 整個專題資料夾的大小。**含 `sources\` 的快照** —— 那通常是大部分。 */
+  readonly bytes: number;
+  readonly done: boolean;
+  /** 刪掉之後那個資料夾搬去哪。`done` 是 false 的時候是 `null`。 */
+  readonly movedTo: string | null;
+}
+
+/**
+ * 刪除專題 —— **兩段式，而且門在伺服器端。**
+ *
+ * ## 為什麼是「打對名字」而不是一個確認鍵
+ *
+ * 「全部標成未讀」用一次確認就夠，因為它清掉的是關於**你**的標記；
+ * 這一顆清掉的是**蒐集來的東西本身**，而那是這個工具存在的理由。
+ * 兩者的後果不在同一個量級，門也就不該是同一道。
+ *
+ * `confirmName` 是 `null` 就只回「你會失去什麼」，一個檔都不動。
+ * 帶了名字就必須**逐字相同**（前後空白會被 trim，其餘不寬待）。
+ *
+ * ## 搬不是刪
+ *
+ * 資料夾搬進 `backups\deleted-<slug>-<時間戳>\`（storage-layout `backups\`）。
+ * 同一個磁碟區的 `rename` 是瞬間的、不多佔一份空間 ——
+ * **而磁碟空間也因此不會變多**，那句話要出現在畫面上。
+ *
+ * app 這一側就是刪掉了：清單上沒有它、狀態機裡沒有「已刪除」（REQ-0001）。
+ * 那個資料夾是留給檔案總管的。
+ *
+ * ## 已封存的也刪得掉
+ *
+ * 這裡**刻意不呼叫 `assertMutable`**。封存的意思是「不再改動它的內容」，
+ * 而刪除不是一次改動 —— 「封存起來，過一陣子確定不要了再刪」
+ * 本來就是那兩個狀態最常見的走法。
+ */
+export async function deleteCase(
+  dataRoot: string,
+  slug: string,
+  confirmName: string | null,
+): Promise<Result<CaseDeletion>> {
+  const cid = correlationId();
+  const folder = join(casesDir(dataRoot), slug);
+  if (!(await pathExists(join(folder, CASE_DB_FILE)))) return err('CASE_NOT_FOUND', cid, { slug });
+
+  const opened = await openCaseDatabase(join(folder, CASE_DB_FILE), {
+    backupDir: backupsDir(dataRoot),
+    backupLabel: slug,
+  });
+  if (opened.kind !== 'ok') return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { slug });
+
+  let name: string;
+  let stats: CaseStats;
+  try {
+    const row = readCase(opened.db);
+    if (row === null) return err('CASE_NOT_FOUND', cid, { slug });
+    name = row.name;
+    stats = readStats(opened.db);
+  } finally {
+    // **一定要在搬之前關掉。** Windows 上開著的檔案會讓整個資料夾搬不動。
+    opened.db.close();
+  }
+
+  const bytes = await folderBytes(folder);
+
+  if (confirmName === null) {
+    return ok({ name, stats, bytes, done: false, movedTo: null }, cid);
+  }
+  if (confirmName.trim() !== name) {
+    return err('CASE_NAME_MISMATCH', cid, { slug });
+  }
+
+  const target = deletedCaseDir(dataRoot, slug, new Date());
+  try {
+    await mkdir(backupsDir(dataRoot), { recursive: true });
+    await rename(folder, target);
+  } catch (e) {
+    logger.warn('刪除時資料夾搬不動', {
+      correlationId: cid,
+      slug,
+      reason: String((e as Error).message),
+    });
+    return err('CASE_DELETE_BLOCKED', cid, { slug });
+  }
+
+  logger.info('專題已刪除', { correlationId: cid, slug, bytes });
+  return ok({ name, stats, bytes, done: true, movedTo: target }, cid);
 }
 
 /** 一個專題能不能被寫入。**寫入路徑呼叫它，不要自己比對狀態字串。** */

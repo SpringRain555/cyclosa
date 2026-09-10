@@ -8,8 +8,8 @@
  *
  * ⚠️ **這個檔案裡不能出現任何實際的私人路徑。** 預設值一律從環境推導。
  */
-import { constants } from 'node:fs';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { constants, type Dirent } from 'node:fs';
+import { access, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -39,6 +39,21 @@ export function pointerFilePath(env: NodeJS.ProcessEnv = process.env): string {
   const base =
     env['LOCALAPPDATA'] ?? join(env['XDG_DATA_HOME'] ?? join(homedir(), '.local', 'share'));
   return join(base, 'Cyclosa', 'system_paths.json');
+}
+
+/**
+ * 沒有指標檔時要用的資料根：**指標檔的隔壁**（`…\Cyclosa\data`）。
+ *
+ * ## 為什麼是這裡
+ *
+ * 這個位置有兩個性質是別的地方沒有的：**一定寫得進去**（它就是那個
+ * 「這台機器上這個程式的資料」的標準位置），而且**不在 repo 底下**
+ * —— 後者是 ADR-0004 的紅線，一個預設值不能把它推翻掉。
+ *
+ * 兩者共用 `pointerFilePath` 的推導，所以非 Windows 上它們也還是鄰居。
+ */
+export function defaultDataRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return join(dirname(pointerFilePath(env)), 'data');
 }
 
 /**
@@ -139,6 +154,34 @@ export async function ensureDataRootLayout(dataRoot: string): Promise<void> {
   }
 }
 
+/**
+ * 一個資料夾實際佔多少位元組。**讀不到的略過，不讓整個數字失敗** ——
+ * 這個數字是拿去給人看「你要刪掉多大的東西」，
+ * 少算一個檔比整句話變成錯誤有用。
+ */
+export async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) {
+      total += await folderBytes(p);
+    } else if (e.isFile()) {
+      try {
+        total += (await stat(p)).size;
+      } catch {
+        /* 讀不到就當 0 */
+      }
+    }
+  }
+  return total;
+}
+
 export function casesDir(dataRoot: string): string {
   return join(dataRoot, 'cases');
 }
@@ -147,9 +190,25 @@ export function caseDir(dataRoot: string, caseId: string): string {
   return join(dataRoot, 'cases', caseId);
 }
 
-/** migration 前的複本放這裡。**不是版本歷史，也不是回收桶**（storage-layout）。 */
+/**
+ * migration 前的複本、以及被刪掉的專題資料夾。
+ *
+ * **不是版本歷史，也不是回收桶** —— 而那句話是關於 **app**：
+ * 這裡沒有清單、沒有還原鍵，狀態機裡沒有「已刪除」（storage-layout `backups\`）。
+ * 留給檔案總管的，不是留給程式的。
+ */
 export function backupsDir(dataRoot: string): string {
   return join(dataRoot, 'backups');
+}
+
+/**
+ * 被刪掉的專題搬去哪。**時間戳在名字裡**，所以刪掉同名專題兩次不會互相蓋掉。
+ *
+ * 用 `-` 不用 `:`（Windows 檔名不收冒號）。
+ */
+export function deletedCaseDir(dataRoot: string, slug: string, now: Date): string {
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  return join(backupsDir(dataRoot), `deleted-${slug}-${stamp}`);
 }
 
 /** **任何專題都不擁有它**，所以一次性的東西放這裡。 */

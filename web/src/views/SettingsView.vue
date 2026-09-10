@@ -28,13 +28,14 @@ import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import SourcesPanel from '../components/SourcesPanel.vue';
 import StatusGuide from '../components/StatusGuide.vue';
+import StoragePanel from '../components/StoragePanel.vue';
 
 const payload = ref<ProvidersPayload | null>(null);
 const error = ref<ApiError | null>(null);
 const saving = ref(false);
 const savedAt = ref(0);
 
-const tab = ref<'models' | 'sources' | 'guide'>('models');
+const tab = ref<'models' | 'sources' | 'guide' | 'storage'>('models');
 
 const baseUrl = ref('');
 const model = ref('');
@@ -242,10 +243,19 @@ async function test(role: ProviderRole): Promise<void> {
       <button :class="{ on: tab === 'guide' }" @click="tab = 'guide'">
         {{ t.settings.tabs.guide }}
       </button>
+      <!--
+        **資料位置。** 第一次啟動不再問「資料要放哪」（Stage 15），
+        所以這一頁存在的第一個理由是**告訴使用者它在哪** ——
+        方便的代價不該是「我不知道我的東西在哪個資料夾」。
+      -->
+      <button :class="{ on: tab === 'storage' }" @click="tab = 'storage'">
+        {{ t.settings.tabs.storage }}
+      </button>
     </nav>
 
     <SourcesPanel v-if="tab === 'sources'" />
     <StatusGuide v-else-if="tab === 'guide'" />
+    <StoragePanel v-else-if="tab === 'storage'" />
 
     <template v-else>
       <ErrorPanel v-if="error" :error="error" />

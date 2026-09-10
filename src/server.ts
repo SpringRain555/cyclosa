@@ -12,7 +12,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
 import { registerStatic } from './interface/http/static.js';
-import { resolveDataRootOrExplain } from './application/bootstrap-service.js';
+import { resolveOrCreateDataRoot } from './application/bootstrap-service.js';
 import { correlationId } from './shared/id.js';
 import { logger } from './shared/log.js';
 
@@ -85,7 +85,9 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
     }
   });
 
-  const resolved = await resolveDataRootOrExplain();
+  // **第一次啟動自動建，不問**（Stage 15）。故障的那三種仍然照原樣往上回 ——
+  // 理由在 `resolveOrCreateDataRoot` 的註解裡。
+  const resolved = await resolveOrCreateDataRoot();
   if (resolved.ok) {
     ctx.dataRoot = resolved.data.dataRoot;
     logger.info('資料根已就緒', { correlationId: resolved.correlationId });

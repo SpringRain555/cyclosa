@@ -38,6 +38,28 @@ export const ERROR_CODES = {
    * 兩者對使用者是同一件事：**關掉再試一次**，而那正是訊息要說的。
    */
   CASE_RENAME_BLOCKED: 'error',
+  /**
+   * 刪除時打的名字跟專題名對不起來（Stage 15）。
+   *
+   * **這不是驗證失敗，這是那道門本身。** 刪除的守門就是「逐字打對」，
+   * 而那個比對**在伺服器端** —— 只在畫面上比的話，那是一個繞得過的提醒。
+   */
+  CASE_NAME_MISMATCH: 'error',
+  /**
+   * 現在這個狀態做不了這個動作（Stage 15）。
+   *
+   * **與 `CASE_ARCHIVED` 分開，因為那個碼會說謊**：作業還在跑的時候按封存，
+   * 舊的實作回的是「這個專題已封存」—— 而它明明沒有。
+   */
+  CASE_STATUS_INVALID: 'error',
+  /**
+   * 刪除時資料夾搬不進 `backups\`（Stage 15）。
+   *
+   * 與 `CASE_RENAME_BLOCKED` 同一個成因（有東西開著那個資料夾），
+   * **而使用者要做的事不同**：改名失敗是「關掉再試」，
+   * 刪除失敗要多說一句「那個專題還在，沒有被刪掉一半」。
+   */
+  CASE_DELETE_BLOCKED: 'error',
   CASE_SCHEMA_TOO_NEW: 'error',
   CASE_SCHEMA_MIGRATE_FAILED: 'error',
   CASE_UNEXPECTED: 'error',
@@ -47,6 +69,21 @@ export const ERROR_CODES = {
   IO_POINTER_MALFORMED: 'error',
   IO_DATA_ROOT_MISSING: 'error',
   IO_DATA_ROOT_NOT_WRITABLE: 'error',
+  /**
+   * 有作業在跑，資料根不准搬（Stage 15）。
+   *
+   * 搬家會把 `case.sqlite` 從一個正在寫它的行程底下抽走。
+   * **這個碼帶著「幾個作業」** —— 因為使用者的下一步是去看那幾個作業。
+   */
+  IO_DATA_ROOT_BUSY: 'error',
+  /**
+   * 要搬過去的那個位置不能用（Stage 15）。`detail.reason` 分三種：
+   * `same`（跟現在同一個）、`nested`（在現在這個底下，搬進去會變成搬進自己）、
+   * `not-empty`（那裡已經有東西，蓋過去會毀掉別人的資料）。
+   */
+  IO_DATA_ROOT_TARGET_INVALID: 'error',
+  /** 資料根搬不動 —— 有東西開著它。**資料完整留在原地。** */
+  IO_DATA_ROOT_MOVE_BLOCKED: 'error',
   IO_DISK_FULL: 'error',
   IO_SNAPSHOT_MISSING: 'partial',
   IO_SNAPSHOT_CORRUPT: 'error',

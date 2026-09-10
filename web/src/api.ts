@@ -90,6 +90,19 @@ export interface DataRootInfo {
   pointerPath: string;
 }
 
+/**
+ * 刪除之前要先看見的東西。**`done` 是 false 的那一次一個檔都沒動** ——
+ * 那一次回的是「你按下去會失去什麼」。
+ */
+export interface CaseDeletion {
+  name: string;
+  stats: CaseStats;
+  /** 整個專題資料夾的大小，**含 `sources\` 的快照** —— 那通常是大部分。 */
+  bytes: number;
+  done: boolean;
+  movedTo: string | null;
+}
+
 export type ItemStatus = 'pending' | 'fetched' | 'parsed' | 'included' | 'excluded' | 'failed';
 
 export interface Item {
@@ -681,10 +694,30 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(seed === undefined ? { name } : { name, seed }),
     }),
+  /**
+   * 換一個資料根，**既有的東西跟著搬過去**。
+   *
+   * 與 `setDataRoot` 是兩件事：那一支是「還沒有的時候指一個」，
+   * 這一支是「已經有了，連同裡面的東西換個地方」。
+   */
+  moveDataRoot: (dataRoot: string) =>
+    request<DataRootInfo>('/api/system/data-root/move', {
+      method: 'POST',
+      body: JSON.stringify({ dataRoot }),
+    }),
   setCaseStatus: (slug: string, action: 'archive' | 'reopen') =>
     request<string>(`/api/cases/${enc(slug)}/status`, {
       method: 'POST',
       body: JSON.stringify({ action }),
+    }),
+  /**
+   * 刪除專題。**兩段式** —— `confirmName` 是 `null` 只回「你會失去什麼」，
+   * 一個檔都不動；帶了名字才真的刪，而且名字要逐字對得上（比對在伺服器端）。
+   */
+  deleteCase: (slug: string, confirmName: string | null) =>
+    request<CaseDeletion>(`/api/cases/${enc(slug)}/delete`, {
+      method: 'POST',
+      body: JSON.stringify(confirmName === null ? {} : { confirmName }),
     }),
 
   // ── 匯入 ────────────────────────────────────────────────

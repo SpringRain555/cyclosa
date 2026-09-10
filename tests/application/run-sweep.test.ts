@@ -14,7 +14,11 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
-import { insertCase } from '../../src/infrastructure/db/repositories/case-repo.js';
+import {
+  insertCase,
+  readCase,
+  updateCaseStatus,
+} from '../../src/infrastructure/db/repositories/case-repo.js';
 import { hasRunningRun } from '../../src/infrastructure/index/reader.js';
 import { forgetSwept, sweepStaleRuns } from '../../src/application/run-sweep.js';
 import { register, unregister } from '../../src/application/run-registry.js';
@@ -128,5 +132,64 @@ describe('掃掉上一次沒有收尾的作業', () => {
     expect(sweepStaleRuns(db, '測試專題')).toBe(0);
     expect(runs.getRun(db, 'r1')?.status).toBe('done');
     expect(runs.getRun(db, 'r1')?.endedReason).toBeNull();
+  });
+});
+
+/**
+ * **卡在「蒐集中」的專題**（Stage 15 找到的第二個症狀）。
+ *
+ * 專題狀態在作業開始時寫成 `collecting`、結束時寫回 `ready`，
+ * 而**兩邊都在行程裡** —— 行程沒機會跑完第二步就死掉，那一列永遠留著。
+ *
+ * 它到 Stage 15 才被看見，因為在這之前**沒有任何按鈕會讀這個欄位**：
+ * 封存的 API 從 Stage 5 就在，而它零個呼叫點。
+ */
+describe('把卡在「蒐集中」的專題放回「就緒」', () => {
+  it('沒有作業在跑的時候會放回去', () => {
+    updateCaseStatus(db, 'collecting', Date.now());
+    sweepStaleRuns(db, '測試專題');
+    expect(readCase(db)?.status).toBe('ready');
+  });
+
+  /**
+   * **這一條是這個修復真正要涵蓋的路。**
+   *
+   * v0.14.0 的正常關閉會把作業寫成 `已取消`，於是孤兒掃描
+   * 一列都掃不到 —— 舊的實作在那裡直接早退，而專題仍然停在 `collecting`。
+   * 也就是說**那條修好的路反而繞過了這個修復**。
+   */
+  it('作業已經是「已取消」（正常關閉留下的）也要放回去 —— 掃不到東西不等於沒事', () => {
+    insertRunning('r1');
+    runs.settleRunRow(db, {
+      id: 'r1',
+      status: 'cancelled',
+      succeeded: 0,
+      failed: 0,
+      now: Date.now(),
+    });
+    updateCaseStatus(db, 'collecting', Date.now());
+
+    expect(sweepStaleRuns(db, '測試專題')).toBe(0);
+    expect(readCase(db)?.status).toBe('ready');
+  });
+
+  it('這個行程真的還有作業在跑的時候不動它 —— 那時候「蒐集中」是對的', () => {
+    insertRunning('r1');
+    register('r1');
+    updateCaseStatus(db, 'collecting', Date.now());
+    try {
+      sweepStaleRuns(db, '測試專題');
+      expect(readCase(db)?.status).toBe('collecting');
+    } finally {
+      unregister('r1');
+    }
+  });
+
+  it('不是「蒐集中」的專題一個字都不改', () => {
+    // 已封存的專題不能被這條路悄悄改回「就緒」——
+    // 那會讓一個使用者明確封存過的東西自己解除封存。
+    updateCaseStatus(db, 'archived', Date.now());
+    sweepStaleRuns(db, '測試專題');
+    expect(readCase(db)?.status).toBe('archived');
   });
 });

@@ -11,10 +11,16 @@ import type { ItemStatus } from '../../domain/ingest/state.js';
 import {
   changeCaseStatus,
   createCase,
+  deleteCase,
   listCases,
   renameCase,
 } from '../../application/case-service.js';
-import { initDataRoot, resolveDataRootOrExplain } from '../../application/bootstrap-service.js';
+import {
+  initDataRoot,
+  moveDataRoot,
+  resolveDataRootOrExplain,
+  resolveOrCreateDataRoot,
+} from '../../application/bootstrap-service.js';
 import {
   cancelRun,
   channelOf,
@@ -123,8 +129,16 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
    */
   app.get('/healthz', async () => ({ app: 'cyclosa', version: ctx.version }));
 
+  /**
+   * **前端每次進清單頁第一個打的就是這一支**，所以自動建立掛在這裡 ——
+   * 啟動時建失敗（磁碟滿了、剛好沒權限）之後，重新整理一次就會再試。
+   *
+   * 底下其他端點的 `resolveDataRootOrExplain` **刻意不換成這一支**：
+   * 那些地方要的是「說出為什麼不能服務你」，
+   * 而「順手建一個資料根」不該是查一份專題清單的副作用。
+   */
   app.get('/api/system/data-root', async (_req, reply) => {
-    const r = await resolveDataRootOrExplain();
+    const r = await resolveOrCreateDataRoot();
     if (r.ok) ctx.dataRoot = r.data.dataRoot;
     return send(reply, r);
   });
@@ -135,6 +149,27 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
       return reply.code(400).send({ ok: false, code: 'IO_POINTER_MALFORMED' });
     }
     const r = await initDataRoot(value.trim());
+    if (r.ok) ctx.dataRoot = r.data.dataRoot;
+    return send(reply, r);
+  });
+
+  /**
+   * 換一個資料根，**既有的東西跟著搬過去**（Stage 15）。
+   *
+   * 與上面那一支 `POST` 的差別是「已經有一個」與「還沒有」——
+   * 所以這一支要求 `ctx.dataRoot` 不是 `null`，而且它會搬檔案。
+   *
+   * **有作業在跑時擋下來**：`activeCount()` 在這一層拿，
+   * 因為 `run-registry` 是 interface 這一側的東西，
+   * 而 application 那一層不該知道有沒有一個 HTTP 伺服器在跑作業。
+   */
+  app.post<{ Body: { dataRoot?: unknown } }>('/api/system/data-root/move', async (req, reply) => {
+    if (ctx.dataRoot === null) return send(reply, await resolveDataRootOrExplain());
+    const value = req.body?.dataRoot;
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      return reply.code(400).send({ ok: false, code: 'IO_DATA_ROOT_TARGET_INVALID' });
+    }
+    const r = await moveDataRoot(ctx.dataRoot, value.trim(), activeCount());
     if (r.ok) ctx.dataRoot = r.data.dataRoot;
     return send(reply, r);
   });
@@ -163,6 +198,26 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
         return reply.code(400).send({ ok: false, code: 'GRAPH_TRANSITION_INVALID' });
       }
       return send(reply, await changeCaseStatus(ctx.dataRoot, req.params.slug, action));
+    },
+  );
+
+  /**
+   * 刪除專題。**兩段式，第二段的門在伺服器端**（比照結束與全部標成未讀）。
+   *
+   * 沒帶 `confirmName` 只回「你會失去什麼」，一個檔都不動；
+   * 帶了就必須逐字對得上。**只在畫面上比對的話，那是一個繞得過的門** ——
+   * 而這一顆按鈕刪掉的是蒐集來的東西本身。
+   *
+   * 用 `POST` 不用 `DELETE`：它要帶一個 body（那個名字），
+   * 而 `DELETE` 帶 body 在中介層與快取上是一片灰色地帶。
+   */
+  app.post<{ Params: { slug: string }; Body: { confirmName?: unknown } }>(
+    '/api/cases/:slug/delete',
+    async (req, reply) => {
+      if (ctx.dataRoot === null) return send(reply, await resolveDataRootOrExplain());
+      const raw = req.body?.confirmName;
+      const confirmName = typeof raw === 'string' ? raw : null;
+      return send(reply, await deleteCase(ctx.dataRoot, req.params.slug, confirmName));
     },
   );
 

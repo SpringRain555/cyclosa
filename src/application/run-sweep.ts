@@ -44,6 +44,7 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
+import { readCase, updateCaseStatus } from '../infrastructure/db/repositories/case-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { logger } from '../shared/log.js';
 import { isActive } from './run-registry.js';
@@ -69,13 +70,57 @@ export function sweepStaleRuns(db: DatabaseSync, slug: string): number {
   // **本行程正在跑的不算孤兒。** 第一次打開這個專題的時候，
   // 使用者可能已經在同一個行程裡按過匯入了。
   const orphans = running.filter((id) => !isActive(id));
-  if (orphans.length === 0) return 0;
 
   const now = Date.now();
   for (const id of orphans) {
     runs.markRunEnded(db, { id, reason: 'stale', now });
     runs.cancelPendingItems(db, id, now);
   }
-  logger.info('掃掉上一次沒有收尾的作業', { slug, count: orphans.length });
+  if (orphans.length > 0) {
+    logger.info('掃掉上一次沒有收尾的作業', { slug, count: orphans.length });
+  }
+
+  // **這一步在 `orphans.length === 0` 的時候也要跑** —— 見下面的註解。
+  repairStuckCollecting(
+    db,
+    slug,
+    running.some((id) => isActive(id)),
+    now,
+  );
   return orphans.length;
+}
+
+/**
+ * 把卡在「蒐集中」的專題放回「就緒」（Stage 15）。
+ *
+ * ## 這是一個第二個症狀，而它躲過了 v0.14.0
+ *
+ * 專題狀態在作業開始時被寫成 `collecting`，在作業結束時寫回 `ready`
+ * （`ingest-service.ts`／`expand-service.ts`）。**兩邊都在行程裡** ——
+ * 行程沒機會跑完第二步就死掉的話，那一列永遠留在 `collecting`。
+ *
+ * v0.14.0 修掉的是 `run.status`，而**專題狀態是另一個欄位、另一條路**：
+ * 正常關閉會把作業寫成 `已取消`（所以孤兒掃描找不到東西可掃、直接早退），
+ * 而專題仍然停在 `collecting`。也就是說**那條修好的路反而繞過了這個修復**。
+ *
+ * ## 為什麼它到 Stage 15 才被看見
+ *
+ * 因為在這之前**沒有任何按鈕會讀這個欄位** —— 封存的 API 從 Stage 5
+ * 就在，而它零個呼叫點。`collecting` 不能封存，
+ * 於是一個卡住的專題就是一個**永遠封存不了也說不出為什麼**的專題。
+ *
+ * 「沒有人呼叫過的程式碼裡沒有事實」，這是第二次。
+ */
+function repairStuckCollecting(
+  db: DatabaseSync,
+  slug: string,
+  stillLive: boolean,
+  now: number,
+): void {
+  // 這個行程真的還有作業在跑 —— 那 `collecting` 是對的，不要動它。
+  if (stillLive) return;
+  const row = readCase(db);
+  if (row === null || row.status !== 'collecting') return;
+  updateCaseStatus(db, 'ready', now);
+  logger.info('把卡在蒐集中的專題放回就緒', { slug });
 }

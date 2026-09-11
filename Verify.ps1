@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    驗證閘門：lint、型別、測試、五條守門、圖表是否過期。
+    驗證閘門：lint、型別、測試（含 tests\guards\ 那一區）、圖表是否過期。
 
 .DESCRIPTION
     **每個 Stage 收尾都要跑這一支，而且要全綠才算收尾。**
@@ -61,7 +61,7 @@ try {
     Invoke-Check 'prettier' { & npx prettier --check . }
     Invoke-Check '型別（server 與測試）' { & npx tsc -p tsconfig.json --noEmit }
     Invoke-Check '型別（web）' { & npx vue-tsc -p tsconfig.web.json --noEmit }
-    Invoke-Check '測試（含五條守門）' { & npx vitest run --reporter=dot }
+    Invoke-Check '測試（含守門）' { & npx vitest run --reporter=dot }
     Invoke-Check '兩份 agent 檔逐字相同' { & (Join-Path $root 'tools\Sync-AgentDocs.ps1') -Check }
 
     # 圖表過期只是提醒，不擋 —— 產圖需要網路與 npx 下載 Chromium，

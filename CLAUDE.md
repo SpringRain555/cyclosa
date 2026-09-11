@@ -51,7 +51,11 @@
 > （它只肯往空專題寫）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-**423 個測試**，其中**六條**是守門測試。資料庫是 **schema v4**。
+守門測試在 `tests/guards/`。資料庫是 **schema v8**。
+
+> 這裡原本寫死「423 個測試、六條守門、schema v4」，而 2026-09-11 回頭對的時候
+> **三個數字全部過期**（實際是 854 個、15 個檔、v8）。手維護的數字每一版都會漂，
+> 而**漂掉的數字跟正確的數字長得一模一樣**。要現在的數字就跑 `.\Verify.ps1`。
 
 **動裁決之前一定要知道的三件**：
 
@@ -249,7 +253,9 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 | `npm test`（423 個）| ✅ |
 | `npm run build` | ✅ |
 
-**六條守門測試**（`tests/guards/`）—— 每一條都用注入真實違規驗過會紅：
+**守門測試全在 `tests/guards/`** —— 每一條都用注入真實違規驗過會紅。
+**不要在這裡數它們有幾條**（原本寫的「六條」底下只列了五項）；
+下面這五條是最容易誤踩的：
 
 1. `domain/` 零 I/O、不 import 其他層、不 import 任何 npm 套件
 2. `domain/graph/` 額外零依賴（連 `domain/` 的其他資料夾都不能 import）

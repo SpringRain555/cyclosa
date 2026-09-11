@@ -123,10 +123,10 @@
 |---|:--:|---|
 | `Start Cyclosa.cmd`（雙擊）| ✅ | 一鍵啟動。等同 `.\Launch.ps1` |
 | `.\Launch.ps1` | ✅ | 同上，**但要從終端機跑**。`-SkipBuild` 跳過建置檢查、`-Foreground` 讓 server 留在這個視窗裡 |
-| `.\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含六條守門）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
+| `.\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含 `tests/guards/` 那一區）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
 | `.\Verify.ps1 -Report` | ✅ | 另外產出**去識別化**的環境快照 |
 | `npm run dev` ＋ `npm run dev:server` | ✅ | 開發用，有熱重載 |
-| `npm test` | ✅ | 800 個測試 |
+| `npm test` | ✅ | 跑全部測試（**數量不寫在這裡** —— 寫死的數字每一版都會漂）|
 
 **已經實際跑過的**（2026-09-07，Node v24.15.0）：`Verify.ps1` 全綠、
 build 出來的 server 走完一次真實的匯入 —— 4 個網址（其中一個 404、一個被 robots 擋、

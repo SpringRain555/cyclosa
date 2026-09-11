@@ -224,308 +224,338 @@ async function test(role: ProviderRole): Promise<void> {
 </script>
 
 <template>
-  <main :class="['settings', { wide: tab === 'sources' }]">
-    <h1>{{ t.settings.title }}</h1>
+  <!--
+    **捲動的是外層，內容的寬度是內層。**
 
-    <nav class="tabs">
-      <button :class="{ on: tab === 'models' }" @click="tab = 'models'">
-        {{ t.settings.tabs.models }}
-      </button>
-      <button :class="{ on: tab === 'sources' }" @click="tab = 'sources'">
-        {{ t.settings.tabs.sources }}
-      </button>
-      <!--
-        **狀態說明放在設定裡，不是圖上的第二顆按鈕。**
-        圖上那一欄回答「我看到的這條線是什麼」（要即時、要窄），
-        這一頁回答「這張圖總共用了哪些記號」（要完整）。
-        兩邊讀同一份宣告，所以不會漂。
-      -->
-      <button :class="{ on: tab === 'guide' }" @click="tab = 'guide'">
-        {{ t.settings.tabs.guide }}
-      </button>
-      <!--
-        **資料位置。** 第一次啟動不再問「資料要放哪」（Stage 15），
-        所以這一頁存在的第一個理由是**告訴使用者它在哪** ——
-        方便的代價不該是「我不知道我的東西在哪個資料夾」。
-      -->
-      <button :class="{ on: tab === 'storage' }" @click="tab = 'storage'">
-        {{ t.settings.tabs.storage }}
-      </button>
-    </nav>
+    原本兩件事寫在同一個元素上（`max-width` ＋ `margin-inline: auto` ＋
+    `overflow-y: auto`），而那有兩個後果：
 
-    <SourcesPanel v-if="tab === 'sources'" />
-    <StatusGuide v-else-if="tab === 'guide'" />
-    <StoragePanel v-else-if="tab === 'storage'" />
+    1. **`margin-inline: auto` 會把 flex 子項的 `stretch` 取消掉** ——
+       於是這一塊的寬度變成「由內容決定」，不是「填滿再置中」。
+       實測：模型分頁 760px、來源網站分頁 785px，同一頁寬度會跟著內容跳。
+    2. 捲軸跟著內容跑到畫面中間，右邊留一大片空白 ——
+       在寬螢幕上那看起來就是壞的。
+  -->
+  <main class="settings">
+    <div :class="['inner', { wide: tab === 'sources' }]">
+      <h1>{{ t.settings.title }}</h1>
 
-    <template v-else>
-      <ErrorPanel v-if="error" :error="error" />
-
-      <p class="no-fallback">{{ t.settings.noFallback }}</p>
-
-      <h2 class="group">{{ t.settings.sectionModels }}</h2>
-      <p class="group-what">{{ t.settings.sectionModelsWhat }}</p>
-
-      <section v-for="status in statuses" :key="status.role" class="role">
-        <header>
-          <h2>{{ t.settings.roles[status.role] }}</h2>
-          <span :class="['state', status.state]">{{ t.settings.state[status.state] }}</span>
-          <span v-if="status.detail" class="detail">{{ status.detail }}</span>
-        </header>
-        <p class="what">{{ t.settings.roleWhat[status.role] }}</p>
-
-        <!-- 名稱、版本、用途 —— 三件事分開列。**版本問不到就說問不到**，
-           不要編一個看起來像版本號的東西。 -->
-        <dl v-if="status.state === 'ready'" class="facts">
-          <dt>{{ t.settings.version }}</dt>
-          <dd :class="{ muted: !status.version }">
-            {{ status.version || t.settings.versionUnknown }}
-          </dd>
-        </dl>
-
-        <!-- chat：位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
-        <div v-if="status.role === 'chat'" class="form">
-          <label>
-            <span>{{ t.settings.chatBaseUrl }}</span>
-            <input v-model="baseUrl" type="text" />
-          </label>
-          <label>
-            <span>{{ t.settings.chatModel }}</span>
-            <select v-if="payload?.chatModels?.length" v-model="model">
-              <option value="">{{ t.settings.chatModelPick }}</option>
-              <option v-for="name in payload.chatModels" :key="name" :value="name">
-                {{ name }}
-              </option>
-            </select>
-            <input v-else v-model="model" type="text" />
-          </label>
-          <p class="hint">
-            <!-- 建議值是使用者按下去的，不是我們替他填的 -->
-            <button
-              v-if="model !== RECOMMENDED_CHAT"
-              class="link"
-              type="button"
-              @click="model = RECOMMENDED_CHAT"
-            >
-              {{ fill(t.settings.chatRecommend, { model: RECOMMENDED_CHAT }) }}
-            </button>
-            {{ t.settings.chatRecommendWhy }}
-          </p>
-          <p v-if="payload && payload.chatModels === null" class="hint">
-            {{ t.settings.chatModelsUnreachable }}
-          </p>
-
-          <!-- **逐任務覆寫搬到下面那一段了**（2026-09-10）。
-             這裡只留「這個角色連到哪、用哪個預設模型」——
-             而「每一件事各自跑哪一個」是一張跨角色的表，
-             放在一個角色底下的話，找來源與嵌入永遠不會出現在它旁邊。 -->
-          <!-- **只填變數的名字。** 金鑰本身不進任何一個檔（2026-09-08）。 -->
-          <label>
-            <span>{{ t.settings.apiKeyEnv }}</span>
-            <input v-model="apiKeyEnv" type="text" placeholder="OPENAI_API_KEY" />
-          </label>
-          <p class="hint">{{ t.settings.apiKeyEnvHint }}</p>
-          <p v-if="status.auth && status.auth !== 'none'" :class="['hint', status.auth]">
-            {{ t.settings.auth[status.auth] }}
-          </p>
-          <!--
-            **讀不到的時候，畫面上要說得出「怎麼設」與「為什麼還是讀不到」。**
-            最常見的原因不是打錯字，是 `setx` 之後沒有重開 —— 環境變數是
-            行程啟動時繼承的一份拷貝，已經開著的程式讀不到後來設的值。
-            一個只寫「沒偵測到」的畫面會讓人一直重打那個名字。
-          -->
-          <template v-if="apiKeyEnv.trim().length > 0 && status.auth === 'env-missing'">
-            <p class="hint">{{ t.settings.apiKeyHowTo }}</p>
-            <code class="setx"
-              >setx {{ apiKeyEnv.trim() }} "&lt;{{ t.settings.apiKeyPlaceholder }}&gt;"</code
-            >
-            <p class="hint warn">{{ t.settings.apiKeyRestart }}</p>
-            <div class="actions">
-              <button type="button" @click="load()">{{ t.settings.apiKeyRecheck }}</button>
-            </div>
-          </template>
-        </div>
-
-        <div v-else-if="status.role === 'agent'" class="form">
-          <label>
-            <span>{{ t.settings.agentCommand }}</span>
-            <input v-model="command" type="text" placeholder="claude" />
-          </label>
-          <p class="hint">{{ t.settings.agentCommandHint }}</p>
-          <!--
-            `--model`。**空著是一個有效的選擇**，不是沒設定 ——
-            那表示「用 CLI 自己的預設」，而那個預設是使用者在 CLI 那邊設的。
-          -->
-          <label>
-            <span>{{ t.settings.agentModel }}</span>
-            <input v-model="agentModel" type="text" :placeholder="t.settings.agentModelDefault" />
-          </label>
-          <p class="hint">{{ t.settings.agentModelHint }}</p>
-        </div>
-
+      <nav class="tabs">
+        <button :class="{ on: tab === 'models' }" @click="tab = 'models'">
+          {{ t.settings.tabs.models }}
+        </button>
+        <button :class="{ on: tab === 'sources' }" @click="tab = 'sources'">
+          {{ t.settings.tabs.sources }}
+        </button>
         <!--
-          embed：位址 ＋ 模型，**沒有金鑰欄位**（只接本機端點）。
-
-          **那句「換掉要全部重算」比下拉選單重要**，所以它在選單上面而不是下面 ——
-          三個角色裡只有這一個換掉有不可逆的代價，而畫面上看不出來的話
-          使用者會把它當成另外兩個一樣可以隨便換。
+          **狀態說明放在設定裡，不是圖上的第二顆按鈕。**
+          圖上那一欄回答「我看到的這條線是什麼」（要即時、要窄），
+          這一頁回答「這張圖總共用了哪些記號」（要完整）。
+          兩邊讀同一份宣告，所以不會漂。
         -->
-        <div v-else-if="status.role === 'embed'" class="form">
-          <p class="warn">{{ t.settings.embedIrreversible }}</p>
-          <label>
-            <span>{{ t.settings.embedBaseUrl }}</span>
-            <input v-model="embedBaseUrl" type="text" />
-          </label>
-          <label>
-            <span>{{ t.settings.embedModel }}</span>
-            <select v-if="payload?.chatModels?.length" v-model="embedModel">
-              <option value="">{{ t.settings.embedModelPick }}</option>
-              <option v-for="name in payload.chatModels" :key="name" :value="name">
-                {{ name }}
-              </option>
-            </select>
-            <input v-else v-model="embedModel" type="text" />
-          </label>
-          <p class="hint">
-            <!-- **建議值是使用者按下去的，不是我們替他填的** -->
-            <button
-              v-if="embedModel !== RECOMMENDED_EMBED"
-              class="link"
-              type="button"
-              @click="embedModel = RECOMMENDED_EMBED"
-            >
-              {{ fill(t.settings.embedRecommend, { model: RECOMMENDED_EMBED }) }}
-            </button>
-            {{ t.settings.embedRecommendWhy }}
-          </p>
-          <p class="hint">{{ t.settings.embedNotWired }}</p>
-        </div>
+        <button :class="{ on: tab === 'guide' }" @click="tab = 'guide'">
+          {{ t.settings.tabs.guide }}
+        </button>
+        <!--
+          **資料位置。** 第一次啟動不再問「資料要放哪」（Stage 15），
+          所以這一頁存在的第一個理由是**告訴使用者它在哪** ——
+          方便的代價不該是「我不知道我的東西在哪個資料夾」。
+        -->
+        <button :class="{ on: tab === 'storage' }" @click="tab = 'storage'">
+          {{ t.settings.tabs.storage }}
+        </button>
+      </nav>
 
-        <!-- 能力宣告攤開來。**它是配對規則真正看的東西** -->
-        <div v-if="status.state === 'ready' && status.role !== 'embed'" class="caps">
-          <span class="caps-label">{{ t.settings.capabilities }}</span>
-          <span
-            v-for="flag in CAPABILITY_FLAGS"
-            :key="flag"
-            :class="['cap', { on: status.capabilities[flag] }]"
-          >
-            {{ t.settings.capabilityNames[flag] }}
-          </span>
-          <span class="cap ctx">{{ contextText(status) }}</span>
-        </div>
+      <SourcesPanel v-if="tab === 'sources'" />
+      <StatusGuide v-else-if="tab === 'guide'" />
+      <StoragePanel v-else-if="tab === 'storage'" />
 
-        <p v-if="missingText(status.role)" class="missing">{{ missingText(status.role) }}</p>
+      <template v-else>
+        <ErrorPanel v-if="error" :error="error" />
 
-        <!-- **三個角色都可以「實際打一次」（v0.11.0）。**
-           `embed` 原本沒有這顆按鈕，因為那個角色還沒有實作 ——
-           而它其實是最該按的一個：模型在不在清單上，設定頁載入時就看得到；
-           **它吐不吐得出向量，只有真的打一次才知道**。 -->
-        <div class="actions">
-          <button :disabled="testing !== null" @click="test(status.role)">
-            {{ testing === status.role ? t.settings.testing : t.settings.test }}
-          </button>
-          <!-- **會不會花錢要在按之前就說。** agent 是外部服務，chat 是本機 -->
-          <span class="hint">
-            {{ status.role === 'agent' ? t.settings.testCostsMoney : t.settings.testFree }}
-          </span>
-          <span v-if="testResult?.role === status.role" class="test-result">
-            {{ testResult.text }}
-          </span>
-        </div>
-      </section>
+        <p class="no-fallback">{{ t.settings.noFallback }}</p>
 
-      <!--
-        ── 段落二：各任務模型 ───────────────────────────────
+        <h2 class="group">{{ t.settings.sectionModels }}</h2>
+        <p class="group-what">{{ t.settings.sectionModelsWhat }}</p>
 
-        **這張表是跨角色的**，而那是它存在的全部理由。
-        逐任務覆寫原本放在 `chat` 那一區底下，於是「找來源」與「嵌入」
-        永遠不會出現在它旁邊 —— 而使用者問的是
-        「我能不能替每一件事各挑一個模型」，那需要一份完整清單。
+        <section v-for="status in statuses" :key="status.role" class="role">
+          <header>
+            <h2>{{ t.settings.roles[status.role] }}</h2>
+            <span :class="['state', status.state]">{{ t.settings.state[status.state] }}</span>
+            <span v-if="status.detail" class="detail">{{ status.detail }}</span>
+          </header>
+          <p class="what">{{ t.settings.roleWhat[status.role] }}</p>
 
-        每一列右邊那句話講的是**實際會跑的那一個**，不是上面設定的預設 ——
-        覆寫之後兩者會分岔，而分岔的時候只看預設欄位是看不出來的。
-      -->
-      <h2 class="group">{{ t.settings.sectionTasks }}</h2>
-      <p class="group-what">{{ t.settings.sectionTasksWhat }}</p>
+          <!-- 名稱、版本、用途 —— 三件事分開列。**版本問不到就說問不到**，
+             不要編一個看起來像版本號的東西。 -->
+          <dl v-if="status.state === 'ready'" class="facts">
+            <dt>{{ t.settings.version }}</dt>
+            <dd :class="{ muted: !status.version }">
+              {{ status.version || t.settings.versionUnknown }}
+            </dd>
+          </dl>
 
-      <table class="tasks-table">
-        <thead>
-          <tr>
-            <th>{{ t.settings.taskTableHead.task }}</th>
-            <th>{{ t.settings.taskTableHead.role }}</th>
-            <th>{{ t.settings.taskTableHead.model }}</th>
-            <th>{{ t.settings.taskTableHead.status }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in taskRows" :key="row.task">
-            <td>
-              <span class="task-name">{{ t.settings.taskNames[row.task] }}</span>
-              <span class="task-what">{{ t.settings.taskWhat[row.task] }}</span>
-            </td>
-            <td class="role-cell">{{ t.settings.roles[row.role] }}</td>
-            <td>
-              <!--
-                agent 那一列是文字欄不是下拉，因為**那支 CLI 不吐模型清單** ——
-                給一個空的下拉比給一個文字欄糟：它看起來像「一個都沒有」。
-              -->
-              <input
-                v-if="row.role === 'agent'"
-                type="text"
-                :value="modelValueOf(row.task)"
-                :placeholder="t.settings.agentModelDefault"
-                @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
-              />
-              <select
-                v-else-if="payload?.chatModels?.length"
-                :value="modelValueOf(row.task)"
-                @change="setModelOf(row.task, ($event.target as HTMLSelectElement).value)"
-              >
-                <option value="">
-                  {{ row.role === 'chat' ? t.settings.chatTaskFollow : t.settings.embedModelPick }}
-                </option>
+          <!-- chat：位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
+          <div v-if="status.role === 'chat'" class="form">
+            <label>
+              <span>{{ t.settings.chatBaseUrl }}</span>
+              <input v-model="baseUrl" type="text" />
+            </label>
+            <label>
+              <span>{{ t.settings.chatModel }}</span>
+              <select v-if="payload?.chatModels?.length" v-model="model">
+                <option value="">{{ t.settings.chatModelPick }}</option>
                 <option v-for="name in payload.chatModels" :key="name" :value="name">
                   {{ name }}
                 </option>
               </select>
-              <input
-                v-else
-                type="text"
-                :value="modelValueOf(row.task)"
-                @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
-              />
+              <input v-else v-model="model" type="text" />
+            </label>
+            <p class="hint">
               <!-- 建議值是使用者按下去的，不是我們替他填的 -->
               <button
-                v-if="
-                  RECOMMENDED_TASK_ALL[row.task] &&
-                  modelValueOf(row.task) !== RECOMMENDED_TASK_ALL[row.task]
-                "
+                v-if="model !== RECOMMENDED_CHAT"
                 class="link"
                 type="button"
-                @click="setModelOf(row.task, RECOMMENDED_TASK_ALL[row.task])"
+                @click="model = RECOMMENDED_CHAT"
               >
-                {{ fill(t.settings.chatTaskRecommend, { model: RECOMMENDED_TASK_ALL[row.task] }) }}
+                {{ fill(t.settings.chatRecommend, { model: RECOMMENDED_CHAT }) }}
               </button>
-            </td>
-            <td :class="['task-status', row.ok ? 'ok' : 'warn']">
-              <!-- **實際會跑的那一個。** 空著代表跟著角色的預設，或者根本沒設定。 -->
-              <span v-if="row.model.length > 0" class="runs">
-                {{ fill(t.settings.chatTaskRuns, { model: row.model }) }}
-              </span>
-              <span v-else class="runs muted">{{ t.settings.taskFollowsDefault }}</span>
-              <span v-if="row.overridden" class="badge">{{ t.settings.taskOverridden }}</span>
-              <span v-if="taskMissingText(row.task)" class="missing">
-                {{ taskMissingText(row.task) }}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+              {{ t.settings.chatRecommendWhy }}
+            </p>
+            <p v-if="payload && payload.chatModels === null" class="hint">
+              {{ t.settings.chatModelsUnreachable }}
+            </p>
 
-      <div class="save">
-        <button class="primary" :disabled="saving" @click="save">{{ t.settings.save }}</button>
-        <span v-if="savedAt" class="hint">{{ t.settings.saved }}</span>
-      </div>
-    </template>
+            <!-- **逐任務覆寫搬到下面那一段了**（2026-09-10）。
+               這裡只留「這個角色連到哪、用哪個預設模型」——
+               而「每一件事各自跑哪一個」是一張跨角色的表，
+               放在一個角色底下的話，找來源與嵌入永遠不會出現在它旁邊。 -->
+            <!-- **只填變數的名字。** 金鑰本身不進任何一個檔（2026-09-08）。 -->
+            <label>
+              <span>{{ t.settings.apiKeyEnv }}</span>
+              <input v-model="apiKeyEnv" type="text" placeholder="OPENAI_API_KEY" />
+            </label>
+            <p class="hint">{{ t.settings.apiKeyEnvHint }}</p>
+            <p v-if="status.auth && status.auth !== 'none'" :class="['hint', status.auth]">
+              {{ t.settings.auth[status.auth] }}
+            </p>
+            <!--
+              **讀不到的時候，畫面上要說得出「怎麼設」與「為什麼還是讀不到」。**
+              最常見的原因不是打錯字，是 `setx` 之後沒有重開 —— 環境變數是
+              行程啟動時繼承的一份拷貝，已經開著的程式讀不到後來設的值。
+              一個只寫「沒偵測到」的畫面會讓人一直重打那個名字。
+            -->
+            <template v-if="apiKeyEnv.trim().length > 0 && status.auth === 'env-missing'">
+              <p class="hint">{{ t.settings.apiKeyHowTo }}</p>
+              <code class="setx"
+                >setx {{ apiKeyEnv.trim() }} "&lt;{{ t.settings.apiKeyPlaceholder }}&gt;"</code
+              >
+              <p class="hint warn">{{ t.settings.apiKeyRestart }}</p>
+              <div class="actions">
+                <button type="button" @click="load()">{{ t.settings.apiKeyRecheck }}</button>
+              </div>
+            </template>
+          </div>
+
+          <div v-else-if="status.role === 'agent'" class="form">
+            <label>
+              <span>{{ t.settings.agentCommand }}</span>
+              <input v-model="command" type="text" placeholder="claude" />
+            </label>
+            <p class="hint">{{ t.settings.agentCommandHint }}</p>
+            <!--
+              `--model`。**空著是一個有效的選擇**，不是沒設定 ——
+              那表示「用 CLI 自己的預設」，而那個預設是使用者在 CLI 那邊設的。
+            -->
+            <label>
+              <span>{{ t.settings.agentModel }}</span>
+              <input v-model="agentModel" type="text" :placeholder="t.settings.agentModelDefault" />
+            </label>
+            <p class="hint">{{ t.settings.agentModelHint }}</p>
+          </div>
+
+          <!--
+            embed：位址 ＋ 模型，**沒有金鑰欄位**（只接本機端點）。
+
+            **那句「換掉要全部重算」比下拉選單重要**，所以它在選單上面而不是下面 ——
+            三個角色裡只有這一個換掉有不可逆的代價，而畫面上看不出來的話
+            使用者會把它當成另外兩個一樣可以隨便換。
+          -->
+          <div v-else-if="status.role === 'embed'" class="form">
+            <p class="warn">{{ t.settings.embedIrreversible }}</p>
+            <label>
+              <span>{{ t.settings.embedBaseUrl }}</span>
+              <input v-model="embedBaseUrl" type="text" />
+            </label>
+            <label>
+              <span>{{ t.settings.embedModel }}</span>
+              <select v-if="payload?.chatModels?.length" v-model="embedModel">
+                <option value="">{{ t.settings.embedModelPick }}</option>
+                <option v-for="name in payload.chatModels" :key="name" :value="name">
+                  {{ name }}
+                </option>
+              </select>
+              <input v-else v-model="embedModel" type="text" />
+            </label>
+            <p class="hint">
+              <!-- **建議值是使用者按下去的，不是我們替他填的** -->
+              <button
+                v-if="embedModel !== RECOMMENDED_EMBED"
+                class="link"
+                type="button"
+                @click="embedModel = RECOMMENDED_EMBED"
+              >
+                {{ fill(t.settings.embedRecommend, { model: RECOMMENDED_EMBED }) }}
+              </button>
+              {{ t.settings.embedRecommendWhy }}
+            </p>
+            <p class="hint">{{ t.settings.embedNotWired }}</p>
+          </div>
+
+          <!-- 能力宣告攤開來。**它是配對規則真正看的東西** -->
+          <div v-if="status.state === 'ready' && status.role !== 'embed'" class="caps">
+            <span class="caps-label">{{ t.settings.capabilities }}</span>
+            <span
+              v-for="flag in CAPABILITY_FLAGS"
+              :key="flag"
+              :class="['cap', { on: status.capabilities[flag] }]"
+            >
+              {{ t.settings.capabilityNames[flag] }}
+            </span>
+            <span class="cap ctx">{{ contextText(status) }}</span>
+          </div>
+
+          <p v-if="missingText(status.role)" class="missing">{{ missingText(status.role) }}</p>
+
+          <!-- **三個角色都可以「實際打一次」（v0.11.0）。**
+             `embed` 原本沒有這顆按鈕，因為那個角色還沒有實作 ——
+             而它其實是最該按的一個：模型在不在清單上，設定頁載入時就看得到；
+             **它吐不吐得出向量，只有真的打一次才知道**。 -->
+          <div class="actions">
+            <button :disabled="testing !== null" @click="test(status.role)">
+              {{ testing === status.role ? t.settings.testing : t.settings.test }}
+            </button>
+            <!-- **會不會花錢要在按之前就說。** agent 是外部服務，chat 是本機 -->
+            <span class="hint">
+              {{ status.role === 'agent' ? t.settings.testCostsMoney : t.settings.testFree }}
+            </span>
+            <span v-if="testResult?.role === status.role" class="test-result">
+              {{ testResult.text }}
+            </span>
+          </div>
+        </section>
+
+        <!--
+          ── 段落二：各任務模型 ───────────────────────────────
+
+          **這張表是跨角色的**，而那是它存在的全部理由。
+          逐任務覆寫原本放在 `chat` 那一區底下，於是「找來源」與「嵌入」
+          永遠不會出現在它旁邊 —— 而使用者問的是
+          「我能不能替每一件事各挑一個模型」，那需要一份完整清單。
+
+          每一列右邊那句話講的是**實際會跑的那一個**，不是上面設定的預設 ——
+          覆寫之後兩者會分岔，而分岔的時候只看預設欄位是看不出來的。
+        -->
+        <h2 class="group">{{ t.settings.sectionTasks }}</h2>
+        <p class="group-what">{{ t.settings.sectionTasksWhat }}</p>
+
+        <!--
+          **這張表有自己的捲動容器。**
+
+          四欄的最小寬度加起來是 728px，而模型分頁的行長是 760px
+          （扣掉左右內距之後只剩 712px）—— 也就是說**它在任何視窗寬度下
+          都塞不進去**，而原本的後果是整個設定頁橫向捲動 31px。
+
+          讓表自己捲，比把行長放寬好：760px 是給那一欄表單文字的行長，
+          不該為了一張表而改掉。
+        -->
+        <div class="table-scroll">
+          <table class="tasks-table">
+            <thead>
+              <tr>
+                <th>{{ t.settings.taskTableHead.task }}</th>
+                <th>{{ t.settings.taskTableHead.role }}</th>
+                <th>{{ t.settings.taskTableHead.model }}</th>
+                <th>{{ t.settings.taskTableHead.status }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in taskRows" :key="row.task">
+                <td>
+                  <span class="task-name">{{ t.settings.taskNames[row.task] }}</span>
+                  <span class="task-what">{{ t.settings.taskWhat[row.task] }}</span>
+                </td>
+                <td class="role-cell">{{ t.settings.roles[row.role] }}</td>
+                <td>
+                  <!--
+                    agent 那一列是文字欄不是下拉，因為**那支 CLI 不吐模型清單** ——
+                    給一個空的下拉比給一個文字欄糟：它看起來像「一個都沒有」。
+                  -->
+                  <input
+                    v-if="row.role === 'agent'"
+                    type="text"
+                    :value="modelValueOf(row.task)"
+                    :placeholder="t.settings.agentModelDefault"
+                    @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
+                  />
+                  <select
+                    v-else-if="payload?.chatModels?.length"
+                    :value="modelValueOf(row.task)"
+                    @change="setModelOf(row.task, ($event.target as HTMLSelectElement).value)"
+                  >
+                    <option value="">
+                      {{
+                        row.role === 'chat' ? t.settings.chatTaskFollow : t.settings.embedModelPick
+                      }}
+                    </option>
+                    <option v-for="name in payload.chatModels" :key="name" :value="name">
+                      {{ name }}
+                    </option>
+                  </select>
+                  <input
+                    v-else
+                    type="text"
+                    :value="modelValueOf(row.task)"
+                    @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
+                  />
+                  <!-- 建議值是使用者按下去的，不是我們替他填的 -->
+                  <button
+                    v-if="
+                      RECOMMENDED_TASK_ALL[row.task] &&
+                      modelValueOf(row.task) !== RECOMMENDED_TASK_ALL[row.task]
+                    "
+                    class="link"
+                    type="button"
+                    @click="setModelOf(row.task, RECOMMENDED_TASK_ALL[row.task])"
+                  >
+                    {{
+                      fill(t.settings.chatTaskRecommend, { model: RECOMMENDED_TASK_ALL[row.task] })
+                    }}
+                  </button>
+                </td>
+                <td :class="['task-status', row.ok ? 'ok' : 'warn']">
+                  <!-- **實際會跑的那一個。** 空著代表跟著角色的預設，或者根本沒設定。 -->
+                  <span v-if="row.model.length > 0" class="runs">
+                    {{ fill(t.settings.chatTaskRuns, { model: row.model }) }}
+                  </span>
+                  <span v-else class="runs muted">{{ t.settings.taskFollowsDefault }}</span>
+                  <span v-if="row.overridden" class="badge">{{ t.settings.taskOverridden }}</span>
+                  <span v-if="taskMissingText(row.task)" class="missing">
+                    {{ taskMissingText(row.task) }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="save">
+          <button class="primary" :disabled="saving" @click="save">{{ t.settings.save }}</button>
+          <span v-if="savedAt" class="hint">{{ t.settings.saved }}</span>
+        </div>
+      </template>
+    </div>
   </main>
 </template>
 
@@ -585,16 +615,30 @@ async function test(role: ProviderRole): Promise<void> {
  *
  * 模型那一頁是一組表單，760px 是給它的行長；
  * **來源網站是一張八欄的表**，塞進 760px 之後每一格都在換行。
+ *
+ * ## 2026-09-11：捲動與寬度拆成兩層
+ *
+ * 原本兩件事都在 `.settings` 上，而那有一個量得到的後果：
+ * **`margin-inline: auto` 把 flex 子項的 `stretch` 取消掉了** ——
+ * 於是這一塊變成「由內容決定寬度」。實測模型分頁 760px、
+ * 來源網站分頁 785px，**同一頁的寬度跟著內容跳**，
+ * 而捲軸也跟著跑到畫面中間、右邊留一大片空白。
+ *
+ * 現在外層負責填滿與捲動（捲軸在視窗邊緣），內層負責行長與置中。
  */
 .settings {
-  padding: 20px 24px 60px;
   overflow-y: auto;
   height: 100%;
+  width: 100%;
+}
+
+.inner {
+  padding: 20px 24px 60px;
   max-width: 760px;
   margin-inline: auto;
 }
 
-.settings.wide {
+.inner.wide {
   max-width: 1180px;
 }
 h1 {
@@ -703,6 +747,21 @@ h2 {
 }
 
 /* ── 各任務模型那張表 ──────────────────────────────── */
+
+/**
+ * **寬表格自己捲，不要讓整頁跟著捲。**
+ *
+ * 這張表四欄的最小寬度加起來是 728px，而這一頁的行長是 760px
+ * （扣掉內距只剩 712px）—— 它在**任何**視窗寬度下都塞不進去。
+ * 修之前的症狀是整個設定頁固定橫向溢出 31px。
+ */
+.table-scroll {
+  overflow-x: auto;
+  /* 捲動容器在 flex／grid 底下要這一行才縮得下去。這裡是一般流，
+     但寫著它，之後版面改成 flex 的時候不會安靜地壞掉。 */
+  min-width: 0;
+}
+
 .tasks-table {
   width: 100%;
   border-collapse: collapse;
@@ -722,7 +781,7 @@ h2 {
   vertical-align: top;
 }
 .tasks-table td:first-child {
-  min-width: 15ch;
+  min-width: 12ch;
 }
 .task-name {
   display: block;
@@ -733,7 +792,9 @@ h2 {
   margin-top: 2px;
   font-size: 12px;
   color: var(--text-muted);
-  max-width: 34ch;
+  /* **這一欄的最大寬度就是整張表的最小寬度。** 34ch 的時候四欄加起來
+     是 728px，而這一頁的內容寬只有 712px —— 也就是永遠差一點。 */
+  max-width: 26ch;
   line-height: 1.5;
 }
 .role-cell {
@@ -743,7 +804,7 @@ h2 {
 /* **實際會跑的那一個。** 覆寫之後上面的預設欄位就不再等於它 */
 .task-status {
   display: table-cell;
-  min-width: 20ch;
+  min-width: 16ch;
 }
 .task-status .runs {
   display: block;

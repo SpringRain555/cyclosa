@@ -164,6 +164,16 @@ watch(
   height: 100%;
   min-height: 0;
 }
+/**
+ * **這一列上只有一個東西可以被壓縮：專題名稱。**
+ *
+ * flex 子項預設 `min-width: auto`，所以它們**不會縮到比內容窄** ——
+ * 一個長專題名會把右邊的「設定」與「結束 Cyclosa」整個推出畫面，
+ * 而那兩顆是這一列上最不能不見的東西（一個是出口，一個是關機）。
+ *
+ * 所以下面每一格都標了 `flex: none`，只有 `.crumb.current` 可以縮，
+ * 縮到放不下就變成刪節號。
+ */
 .topbar {
   display: flex;
   align-items: center;
@@ -173,6 +183,9 @@ watch(
   padding: 0 16px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--line-subtle);
+}
+.topbar > * {
+  flex: none;
 }
 .brand {
   font-weight: 600;
@@ -191,8 +204,14 @@ watch(
 .crumb:hover {
   color: var(--text-secondary);
 }
+/* **這一列上唯一可以被壓縮的東西。** 專題名稱多長都不該把出口推出畫面。 */
 .crumb.current {
   color: var(--text);
+  flex: 0 1 auto;
+  min-width: 4ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sep {
   color: var(--text-muted);
@@ -219,11 +238,18 @@ watch(
   box-shadow: inset 0 -2px 0 var(--ring-selected);
 }
 /* 現在用的模型常駐在設定連結旁邊 —— **狀態不佔一個目的地。** */
+/* 模型名稱可能很長（三個角色各一個），**但它不該把按鈕撐出畫面** —— 放不下就切掉。 */
 .models {
   color: var(--text-muted);
   font-size: 11px;
   margin-right: 8px;
   font-family: ui-monospace, monospace;
+  display: inline-block;
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .models.none {
@@ -238,6 +264,9 @@ watch(
   font-size: 12px;
   padding: 4px 10px;
   margin-left: 10px;
+  /* **不換行。** 換成兩行的話它會比 44px 的頂列高，整條線就歪了
+     （實測 768px 寬時這顆變成 48px 高）。 */
+  white-space: nowrap;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: transparent;
@@ -268,6 +297,7 @@ watch(
   border-radius: var(--radius);
   color: var(--text-tertiary);
   text-decoration: none;
+  white-space: nowrap;
 }
 .settings-link:hover {
   background: var(--bg-hover);

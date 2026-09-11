@@ -142,6 +142,7 @@ export async function exportEvidence(
   if (opened.kind === 'schema-too-new')
     return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
   if (opened.kind === 'migrate-failed') return err('CASE_SCHEMA_MIGRATE_FAILED', cid, {});
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
 
   let pack: EvidencePack;
   try {

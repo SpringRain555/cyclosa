@@ -54,6 +54,7 @@ async function withCase<T>(
     return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
   if (opened.kind === 'migrate-failed')
     return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { at: opened.at });
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
 
   try {
     if (readCase(opened.db) === null) return err('CASE_NOT_FOUND', cid, { slug });

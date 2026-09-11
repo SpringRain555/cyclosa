@@ -167,6 +167,9 @@ export async function createSampleCase(dataRoot: string): Promise<Result<SampleR
 
   const folder = caseDir(dataRoot, summary.slug);
   const opened = await openCaseDatabase(join(folder, 'case.sqlite'));
+  // 剛建好的專題照理不會不見 —— 但如果真的不見了，那句話該是「找不到」，
+  // 不是「migration 失敗」。
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug: summary.slug });
   if (opened.kind !== 'ok') return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { slug: summary.slug });
 
   try {
@@ -374,21 +377,4 @@ export async function seedSampleIfEmpty(dataRoot: string): Promise<void> {
     // **這不是啟動失敗。** 沒有範例專案的 Cyclosa 仍然完全可用。
     logger.warn('建立範例專案時出了例外', { reason: String((e as Error).message) });
   }
-}
-
-/** 範例專案還在不在。「重建」那顆按鈕要拿它決定要不要提示已經有了。 */
-export async function sampleExists(dataRoot: string): Promise<boolean> {
-  const corpus = await loadCorpus();
-  const { readdir } = await import('node:fs/promises');
-  const dirs = await readdir(casesDir(dataRoot)).catch(() => [] as string[]);
-  for (const slug of dirs) {
-    const opened = await openCaseDatabase(join(casesDir(dataRoot), slug, 'case.sqlite'));
-    if (opened.kind !== 'ok') continue;
-    try {
-      if (readCase(opened.db)?.name === corpus.caseName) return true;
-    } finally {
-      opened.db.close();
-    }
-  }
-  return false;
 }

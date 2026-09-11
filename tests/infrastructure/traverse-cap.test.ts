@@ -68,7 +68,7 @@ beforeEach(async () => {
   const folder = join(dataRoot, 'cases', SLUG);
   await mkdir(folder, { recursive: true });
 
-  const opened = await openCaseDatabase(join(folder, 'case.sqlite'));
+  const opened = await openCaseDatabase(join(folder, 'case.sqlite'), { create: true });
   if (opened.kind !== 'ok') throw new Error('打不開測試資料庫：' + opened.kind);
   opened.db
     .prepare(

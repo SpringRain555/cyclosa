@@ -113,6 +113,7 @@ async function openCase(dataRoot: string, slug: string): Promise<DatabaseSync | 
   });
   if (opened.kind === 'schema-too-new') return 'CASE_SCHEMA_TOO_NEW';
   if (opened.kind === 'migrate-failed') return 'CASE_SCHEMA_MIGRATE_FAILED';
+  if (opened.kind === 'missing') return 'CASE_NOT_FOUND';
   return opened.db;
 }
 

@@ -27,7 +27,7 @@ let sandbox: string;
 let db: DatabaseSync;
 
 async function openDb(): Promise<DatabaseSync> {
-  const opened = await openCaseDatabase(join(sandbox, 'case.sqlite'));
+  const opened = await openCaseDatabase(join(sandbox, 'case.sqlite'), { create: true });
   if (opened.kind !== 'ok') throw new Error(`開不起來：${opened.kind}`);
   return opened.db;
 }

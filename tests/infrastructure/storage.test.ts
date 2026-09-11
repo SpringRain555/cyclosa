@@ -153,6 +153,7 @@ describe('schema migration', () => {
     const opened = await openCaseDatabase(join(dir, 'fresh.sqlite'), {
       backupDir: join(dir, 'backups'),
       backupLabel: 'fresh',
+      create: true,
     });
     expect(opened.kind).toBe('ok');
     if (opened.kind === 'ok') opened.db.close();
@@ -182,7 +183,7 @@ describe('schema migration', () => {
 
 describe('索引寫入', () => {
   async function freshDb(): Promise<DatabaseSync> {
-    const opened = await openCaseDatabase(join(dir, 'idx.sqlite'));
+    const opened = await openCaseDatabase(join(dir, 'idx.sqlite'), { create: true });
     if (opened.kind !== 'ok') throw new Error('開不起來');
     opened.db
       .prepare(

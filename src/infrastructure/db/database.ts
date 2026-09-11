@@ -5,7 +5,7 @@
  * 引了就需要編譯工具鏈，而一鍵啟動就沒了（ADR-0002、ADR-0009）。
  */
 import { DatabaseSync } from 'node:sqlite';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +17,23 @@ export const SUPPORTED_SCHEMA_VERSION = 8;
 
 export type OpenOutcome =
   | { readonly kind: 'ok'; readonly db: DatabaseSync }
+  /**
+   * **檔案不存在，而且這一次不是要建立它。**
+   *
+   * 在這個成員出現之前，兩種情況各有一種壞法：
+   *
+   * - 資料夾不在 → `new DatabaseSync()` 直接丟例外，呼叫端走不到任何一個分支，
+   *   使用者看到 `IO_UNEXPECTED`（500）—— 而我們其實完全知道發生了什麼事
+   * - **資料夾在、檔案不在 → 它會悄悄建一個新的空資料庫**，跑完 migration，
+   *   然後 `readCase()` 回 null。畫面上答對了（`CASE_NOT_FOUND`），
+   *   **資料根裡卻多了一個沒有人要的 `case.sqlite`**。
+   *   `historyByHost()`（來源清單的狀態彙整）逐一打開 `cases\` 底下每個資料夾，
+   *   所以一個殘留的空資料夾會在每一次打開「來源網站」分頁時被寫進一個檔案 ——
+   *   從一個唯讀的畫面裡。
+   *
+   * 所以預設**不建檔**，要建的那一條（建立專題）明確說 `create: true`。
+   */
+  | { readonly kind: 'missing' }
   /** 資料庫的 schema 比這個程式新 —— **不要用舊版繼續開，會寫壞資料** */
   | { readonly kind: 'schema-too-new'; readonly found: number; readonly supported: number }
   | { readonly kind: 'migrate-failed'; readonly at: string; readonly reason: string };
@@ -31,6 +48,13 @@ export interface OpenOptions {
   readonly backupDir?: string | undefined;
   /** 備份檔名的前綴，用專題 slug。 */
   readonly backupLabel?: string | undefined;
+  /**
+   * **檔案不存在時建一個新的。** 預設 `false` —— 只有建立專題那一條該是 `true`。
+   *
+   * 反過來的預設（「預設會建，要擋的人自己說」）會讓每一個新呼叫端都繼承那個副作用，
+   * 而它沒有症狀：多出來的只是一個空的 `case.sqlite`。
+   */
+  readonly create?: boolean | undefined;
 }
 
 async function migrationFiles(): Promise<string[]> {
@@ -46,8 +70,26 @@ async function migrationFiles(): Promise<string[]> {
  */
 export async function openCaseDatabase(
   path: string,
+  options: OpenOptions & { readonly create: true },
+): Promise<Exclude<OpenOutcome, { kind: 'missing' }>>;
+export async function openCaseDatabase(path: string, options?: OpenOptions): Promise<OpenOutcome>;
+/**
+ * 兩個重載把一個不變式交給編譯器：**`create: true` 不會回 `missing`**。
+ * 沒有這一層的話，建立專題那一條得寫一個永遠走不到的分支，
+ * 而一個走不到的分支遲早會被人填進一句錯的訊息。
+ */
+export async function openCaseDatabase(
+  path: string,
   options: OpenOptions = {},
 ): Promise<OpenOutcome> {
+  if (options.create !== true) {
+    try {
+      await access(path);
+    } catch {
+      return { kind: 'missing' };
+    }
+  }
+
   const db = new DatabaseSync(path);
 
   // WAL：讀寫不互相擋。這也是「單一實例只是體驗、不是資料保證」的那條依據

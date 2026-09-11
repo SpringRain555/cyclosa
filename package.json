@@ -1,6 +1,6 @@
 {
   "name": "cyclosa",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "private": true,
   "type": "module",
   "description": "從一個「點」出發，用 LLM 主動擴展成一張每條關聯都帶出處的網。純本機，資料存在專案外的資料根目錄。",

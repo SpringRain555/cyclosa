@@ -40,7 +40,7 @@ function insertEdge(
 
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'cyclosa-db-'));
-  const opened = await openCaseDatabase(join(dir, 'case.sqlite'));
+  const opened = await openCaseDatabase(join(dir, 'case.sqlite'), { create: true });
   if (opened.kind !== 'ok') throw new Error(`開不起來：${opened.kind}`);
   db = opened.db;
   insertItem('i1');

@@ -74,6 +74,7 @@ export async function undoRun(
   if (opened.kind === 'schema-too-new')
     return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
   if (opened.kind === 'migrate-failed') return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { slug });
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
 
   const db: DatabaseSync = opened.db;
   let plan: UndoPlan;

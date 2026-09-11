@@ -20,11 +20,11 @@
 export const errorMessages: Readonly<Record<string, string>> = {
   // ── 專題 ──────────────────────────────────────────────
   CASE_NOT_FOUND:
-    '找不到這個專題的資料夾。它可能被搬走或刪掉了 —— 用「開啟既有資料夾」重新指到它。',
+    '找不到這個專題。它可能被搬走、改名或刪掉了 —— 回專題清單看看它還在不在。如果是你手動搬走的，把整個資料夾放回資料根的 cases 底下，清單就會再出現它。',
   CASE_NAME_EMPTY: '請輸入專題名稱。',
   CASE_NAME_DUPLICATE: '已經有同名的專題了。換一個名稱，或直接開啟既有的那一個。',
   CASE_FOLDER_EXISTS:
-    '那個位置已經有一個同名資料夾，但它不是一個專題。換一個名稱，或用「開啟既有資料夾」。',
+    '資料根裡已經有一個同名的資料夾，但裡面沒有專題 —— Cyclosa 不會往一個不是它建的資料夾裡寫東西。換一個名稱；或者到「設定 → 資料位置」看資料根在哪，用檔案總管打開 cases 底下那個資料夾，確定不需要之後自己刪掉或搬走。',
   CASE_ARCHIVED: '這個專題已封存，不能改動。要繼續的話先重新開啟它。',
   CASE_RENAME_BLOCKED:
     '資料夾正被使用中，改不了名。先讓執行中的作業跑完，或關掉開著那個資料夾的視窗，再試一次。',
@@ -74,7 +74,7 @@ export const errorMessages: Readonly<Record<string, string>> = {
   FETCH_UNEXPECTED: '擷取時出了預期外的問題。請把下面的識別碼交出來。',
 
   // ── 抽取 ──────────────────────────────────────────────
-  PARSE_EMPTY_CONTENT: '抽不到正文。可以看「原始快照」確認那一頁本來就有沒有內容。',
+  PARSE_EMPTY_CONTENT: '抽不到正文。可以按閱讀器上的「看原始快照」確認那一頁本來就有沒有內容。',
   PARSE_JS_ONLY:
     '這一頁的內容要靠瀏覽器執行程式才會出現，靜態抓不到。目前不會交出一份空正文假裝它本來就沒東西。',
   PARSE_LOW_CONFIDENCE:
@@ -83,7 +83,7 @@ export const errorMessages: Readonly<Record<string, string>> = {
     '這份 PDF 沒有文字層（多半是掃描的），所以只能框選區域做註記，不能選文字。',
   PARSE_PDF_ENCRYPTED: '這份 PDF 有密碼或限制擷取。請自己解除之後再匯入。',
   PARSE_IMAGE_UNSUPPORTED: '這個圖片格式解不開。轉成 PNG、JPEG 或 WebP 再匯入。',
-  PARSE_ENCODING: '這一份的文字編碼判不出來，正文可能有亂碼。可以用「原始快照」對照。',
+  PARSE_ENCODING: '這一份的文字編碼判不出來，正文可能有亂碼。可以按閱讀器上的「看原始快照」對照。',
   PARSE_UNEXPECTED: '解析內容時出了預期外的問題。請把下面的識別碼交出來。',
 
   // ── LLM 與嵌入 ────────────────────────────────────────
@@ -170,7 +170,6 @@ export const t = {
   caseList: {
     title: '專題',
     newCase: '新增專題',
-    openExisting: '開啟既有資料夾',
     hint: '一個專題是一個資料夾。整個搬走、備份、丟給別人，都是搬那一個資料夾。',
     stats: {
       cases: '專題',

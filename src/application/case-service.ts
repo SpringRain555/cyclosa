@@ -139,7 +139,9 @@ export async function createCase(
       await mkdir(join(folder, sub), { recursive: true });
     }
 
-    const opened = await openCaseDatabase(join(folder, CASE_DB_FILE));
+    // **唯一一條建檔的路。** 其餘的開法一律 `create` 預設 false，
+    // 檔案不在就回 `missing` —— 見 `OpenOutcome` 那一段。
+    const opened = await openCaseDatabase(join(folder, CASE_DB_FILE), { create: true });
     if (opened.kind === 'schema-too-new') {
       return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
     }
@@ -196,6 +198,7 @@ export async function changeCaseStatus(
   if (opened.kind === 'migrate-failed') {
     return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { at: opened.at });
   }
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
 
   try {
     const row = readCase(opened.db);
@@ -275,7 +278,11 @@ export async function renameCase(
     backupDir: backupsDir(dataRoot),
     backupLabel: slug,
   });
-  if (current.kind !== 'ok') return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { slug });
+  if (current.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
+  if (current.kind === 'schema-too-new')
+    return err('CASE_SCHEMA_TOO_NEW', cid, { found: current.found });
+  if (current.kind === 'migrate-failed')
+    return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { at: current.at });
   let status: CaseStatus;
   try {
     const row = readCase(current.db);
@@ -308,7 +315,11 @@ export async function renameCase(
   if (opened.kind !== 'ok') {
     if (moving) await rename(to, from).catch(() => undefined);
     return err(
-      opened.kind === 'schema-too-new' ? 'CASE_SCHEMA_TOO_NEW' : 'CASE_SCHEMA_MIGRATE_FAILED',
+      opened.kind === 'missing'
+        ? 'CASE_NOT_FOUND'
+        : opened.kind === 'schema-too-new'
+          ? 'CASE_SCHEMA_TOO_NEW'
+          : 'CASE_SCHEMA_MIGRATE_FAILED',
       cid,
       { slug: nextSlug },
     );
@@ -397,7 +408,14 @@ export async function deleteCase(
     backupDir: backupsDir(dataRoot),
     backupLabel: slug,
   });
-  if (opened.kind !== 'ok') return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { slug });
+  // **三種失敗三個碼。** 這一行原本是 `!== 'ok'` → `MIGRATE_FAILED`，
+  // 於是一個被新版程式寫過的專題按刪除，會得到「migration 失敗」——
+  // 而根本沒有任何 migration 跑過。
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
+  if (opened.kind === 'schema-too-new')
+    return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
+  if (opened.kind === 'migrate-failed')
+    return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { at: opened.at });
 
   let name: string;
   let stats: CaseStats;

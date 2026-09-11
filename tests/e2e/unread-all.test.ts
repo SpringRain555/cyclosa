@@ -154,21 +154,15 @@ describe('全部標成未讀', () => {
       url: '/api/cases/沒有這個專題/items/unread-all',
       payload: { force: true },
     });
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    expect((res.json() as { ok: boolean }).ok).toBe(false);
-
     /**
-     * **這裡刻意不釘那個碼。**
+     * **現在釘住了。** 2026-09-10 寫這條的時候刻意不釘那個碼 ——
+     * 那時這一支（還有 `markRead`、`rebuild` 在內的十幾支）一律回
+     * `IO_UNEXPECTED`（500），而釘死 500 等於把那個錯誤變成規格。
      *
-     * 實測（2026-09-10）：不存在的專題 slug 在 `markRead`、`rebuild`
-     * 與這一支上**一律**回 `IO_UNEXPECTED`（500），不是 `CASE_NOT_FOUND`（404）——
-     * 因為 `openCaseDatabase` 在一個不存在的資料夾裡開檔就直接丟例外，
-     * 走不到 `readCase() === null` 那個分支。
-     *
-     * 那是一個既有的、跨多支端點的問題（使用者看到的是
-     * 「出了預期外的問題」，而我們其實完全知道發生了什麼事）。
-     * **修它要動 `openCaseDatabase` 的回傳型別，那是另一件事** ——
-     * 在這裡釘死 500 等於把那個錯誤變成規格。
+     * 2026-09-11 `openCaseDatabase` 多了一個 `missing` 的結果之後，
+     * 它回的就是它該回的。**跨端點的那一張表在 `case-not-found.test.ts`。**
      */
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ ok: false, code: 'CASE_NOT_FOUND' });
   });
 });

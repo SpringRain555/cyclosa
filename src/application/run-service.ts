@@ -26,6 +26,7 @@ async function open(dataRoot: string, slug: string, cid: string) {
     return err('CASE_SCHEMA_TOO_NEW', cid, { found: opened.found });
   if (opened.kind === 'migrate-failed')
     return err('CASE_SCHEMA_MIGRATE_FAILED', cid, { at: opened.at });
+  if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug });
   if (readCase(opened.db) === null) {
     opened.db.close();
     return err('CASE_NOT_FOUND', cid, { slug });

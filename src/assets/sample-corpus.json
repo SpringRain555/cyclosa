@@ -1,0 +1,210 @@
+{
+  "version": 1,
+  "caseName": "範例：公開的資料能不能用",
+  "seed": "一份政府公開的資料，我可以重製、改寫、再散布嗎？",
+  "source": {
+    "dataset": "中文法規＿法律資料檔下載",
+    "datasetUrl": "https://data.gov.tw/dataset/18289",
+    "agency": "法務部資訊處",
+    "licence": "政府資料開放授權條款－第 1 版",
+    "licenceUrl": "https://law.moj.gov.tw/Service/Copyright.aspx",
+    "downloadUrl": "https://sendlaw.moj.gov.tw/PublicData/GetFile.ashx?DType=XML&AuData=CF",
+    "datasetUpdatedAt": "2026/8/28",
+    "retrievedAt": "2026-09-11",
+    "alsoPublicDomain": "著作權法第 9 條：憲法、法律、命令或公文不得為著作權之標的。"
+  },
+  "articles": [
+    {
+      "key": "cr9",
+      "law": "著作權法",
+      "article": "第 9 條",
+      "text": "下列各款不得為著作權之標的︰\n一、憲法、法律、命令或公文。\n二、中央或地方機關就前款著作作成之翻譯物或編輯物。\n三、標語及通用之符號、名詞、公式、數表、表格、簿冊或時曆。\n四、單純為傳達事實之新聞報導所作成之語文著作。\n五、依法令舉行之各類考試試題及其備用試題。\n前項第一款所稱公文，包括公務員於職務上草擬之文告、講稿、新聞稿及其他文書。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=J0070017&flno=9"
+    },
+    {
+      "key": "cr10",
+      "law": "著作權法",
+      "article": "第 10 條",
+      "text": "著作人於著作完成時享有著作權。但本法另有規定者，從其規定。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=J0070017&flno=10"
+    },
+    {
+      "key": "cr44",
+      "law": "著作權法",
+      "article": "第 44 條",
+      "text": "中央或地方機關，因立法或行政目的所需，認有必要將他人著作列為內部參考資料時，在合理範圍內，得重製他人之著作。但依該著作之種類、用途及其重製物之數量、方法，有害於著作財產權人之利益者，不在此限。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=J0070017&flno=44"
+    },
+    {
+      "key": "cr52",
+      "law": "著作權法",
+      "article": "第 52 條",
+      "text": "為報導、評論、教學、研究或其他正當目的之必要，在合理範圍內，得引用已公開發表之著作。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=J0070017&flno=52"
+    },
+    {
+      "key": "cr64",
+      "law": "著作權法",
+      "article": "第 64 條",
+      "text": "依第四十四條至第四十七條、第四十八條之一至第五十條、第五十二條、第五十三條、第五十五條、第五十七條、第五十八條、第六十條至第六十三條規定利用他人著作者，應明示其出處。\n前項明示出處，就著作人之姓名或名稱，除不具名著作或著作人不明者外，應以合理之方式為之。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=J0070017&flno=64"
+    },
+    {
+      "key": "cr65",
+      "law": "著作權法",
+      "article": "第 65 條",
+      "text": "著作之合理使用，不構成著作財產權之侵害。\n著作之利用是否合於第四十四條至第六十三條所定之合理範圍或其他合理使用之情形，應審酌一切情狀，尤應注意下列事項，以為判斷之基準：\n一、利用之目的及性質，包括係為商業目的或非營利教育目的。\n二、著作之性質。\n三、所利用之質量及其在整個著作所占之比例。\n四、利用結果對著作潛在市場與現在價值之影響。\n著作權人團體與利用人團體就著作之合理使用範圍達成協議者，得為前項判斷之參考。\n前項協議過程中，得諮詢著作權專責機關之意見。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=J0070017&flno=65"
+    },
+    {
+      "key": "gi6",
+      "law": "政府資訊公開法",
+      "article": "第 6 條",
+      "text": "與人民權益攸關之施政、措施及其他有關之政府資訊，以主動公開為原則，並應適時為之。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=I0020026&flno=6"
+    },
+    {
+      "key": "gi7",
+      "law": "政府資訊公開法",
+      "article": "第 7 條",
+      "text": "下列政府資訊，除依第十八條規定限制公開或不予提供者外，應主動公開：\n一、條約、對外關係文書、法律、緊急命令、中央法規標準法所定之命令、法規命令及地方自治法規。\n二、政府機關為協助下級機關或屬官統一解釋法令、認定事實、及行使裁量權，而訂頒之解釋性規定及裁量基準。\n三、政府機關之組織、職掌、地址、電話、傳真、網址及電子郵件信箱帳號。\n四、行政指導有關文書。\n五、施政計畫、業務統計及研究報告。\n六、預算及決算書。\n七、請願之處理結果及訴願之決定。\n八、書面之公共工程及採購契約。\n九、支付或接受之補助。\n十、合議制機關之會議紀錄。\n前項第五款所稱研究報告，指由政府機關編列預算委託專家、學者進行之報告或派赴國外從事考察、進修、研究或實習人員所提出之報告。\n第一項第十款所稱合議制機關之會議紀錄，指由依法獨立行使職權之成員組成之決策性機關，其所審議議案之案由、議程、決議內容及出席會議成員名單。",
+      "url": "https://law.moj.gov.tw/LawClass/LawSingle.aspx?pcode=I0020026&flno=7"
+    }
+  ],
+  "entities": [
+    {
+      "key": "fairUse",
+      "type": "concept",
+      "name": "合理使用"
+    },
+    {
+      "key": "official",
+      "type": "concept",
+      "name": "公文"
+    },
+    {
+      "key": "copyright",
+      "type": "concept",
+      "name": "著作權"
+    },
+    {
+      "key": "cite",
+      "type": "concept",
+      "name": "明示出處"
+    },
+    {
+      "key": "govInfo",
+      "type": "concept",
+      "name": "政府資訊"
+    },
+    {
+      "key": "agency",
+      "type": "org",
+      "name": "中央或地方機關"
+    }
+  ],
+  "edges": [
+    {
+      "from": "cr9",
+      "to": "official",
+      "rel": "排除",
+      "origin": "human",
+      "quote": "一、憲法、法律、命令或公文。"
+    },
+    {
+      "from": "cr9",
+      "to": "official",
+      "rel": "定義",
+      "origin": "human",
+      "quote": "前項第一款所稱公文，包括公務員於職務上草擬之文告、講稿、新聞稿及其他文書。"
+    },
+    {
+      "from": "cr10",
+      "to": "copyright",
+      "rel": "定義",
+      "origin": "human",
+      "quote": "著作人於著作完成時享有著作權。"
+    },
+    {
+      "from": "cr65",
+      "to": "fairUse",
+      "rel": "定義",
+      "origin": "human",
+      "quote": "著作之合理使用，不構成著作財產權之侵害。"
+    },
+    {
+      "from": "cr52",
+      "to": "fairUse",
+      "rel": "適用",
+      "origin": "machine",
+      "confidence": 0.82,
+      "quote": "為報導、評論、教學、研究或其他正當目的之必要，在合理範圍內，得引用已公開發表之著作。"
+    },
+    {
+      "from": "cr44",
+      "to": "fairUse",
+      "rel": "適用",
+      "origin": "machine",
+      "confidence": 0.61,
+      "quote": "在合理範圍內，得重製他人之著作。"
+    },
+    {
+      "from": "cr44",
+      "to": "agency",
+      "rel": "適用於",
+      "origin": "machine",
+      "confidence": 0.88,
+      "quote": "中央或地方機關，因立法或行政目的所需"
+    },
+    {
+      "from": "cr64",
+      "to": "cite",
+      "rel": "要求",
+      "origin": "machine",
+      "confidence": 0.91,
+      "quote": "應明示其出處"
+    },
+    {
+      "from": "cr52",
+      "to": "cr64",
+      "rel": "受限於",
+      "origin": "machine",
+      "confidence": 0.74,
+      "evidenceFrom": "cr64",
+      "quote": "第五十二條"
+    },
+    {
+      "from": "cr44",
+      "to": "cr64",
+      "rel": "受限於",
+      "origin": "machine",
+      "confidence": 0.74,
+      "evidenceFrom": "cr64",
+      "quote": "依第四十四條至第四十七條"
+    },
+    {
+      "from": "gi7",
+      "to": "govInfo",
+      "rel": "列舉",
+      "origin": "machine",
+      "confidence": 0.79,
+      "quote": "下列政府資訊，除依第十八條規定限制公開或不予提供者外，應主動公開："
+    },
+    {
+      "from": "gi6",
+      "to": "govInfo",
+      "rel": "要求",
+      "origin": "machine",
+      "confidence": 0.85,
+      "quote": "以主動公開為原則，並應適時為之。"
+    },
+    {
+      "from": "gi7",
+      "to": "official",
+      "rel": "包含",
+      "origin": "machine",
+      "confidence": 0.31,
+      "quote": "一、條約、對外關係文書、法律、緊急命令、中央法規標準法所定之命令、法規命令及地方自治法規。"
+    }
+  ]
+}

@@ -705,6 +705,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ dataRoot }),
     }),
+  /**
+   * 重建範例專案。已經有一份的時候回 `CASE_NAME_DUPLICATE` ——
+   * **重建不該悄悄產生第二份。**
+   */
+  rebuildSample: () =>
+    request<{ slug: string; items: number; entities: number; edges: number }>(
+      '/api/system/sample',
+      { method: 'POST' },
+    ),
   setCaseStatus: (slug: string, action: 'archive' | 'reopen') =>
     request<string>(`/api/cases/${enc(slug)}/status`, {
       method: 'POST',

@@ -21,6 +21,7 @@ import {
   resolveDataRootOrExplain,
   resolveOrCreateDataRoot,
 } from '../../application/bootstrap-service.js';
+import { createSampleCase } from '../../application/sample-service.js';
 import {
   cancelRun,
   channelOf,
@@ -151,6 +152,18 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     const r = await initDataRoot(value.trim());
     if (r.ok) ctx.dataRoot = r.data.dataRoot;
     return send(reply, r);
+  });
+
+  /**
+   * 重建範例專案（Stage 15）。
+   *
+   * 第一次啟動會自動放一份；刪掉之後**不會自己回來**，
+   * 而這一支是那個「我想要回來」的明確動作。
+   * 已經有一份的時候回 `CASE_NAME_DUPLICATE` —— 重建不該悄悄產生第二份。
+   */
+  app.post('/api/system/sample', async (_req, reply) => {
+    if (ctx.dataRoot === null) return send(reply, await resolveDataRootOrExplain());
+    return send(reply, await createSampleCase(ctx.dataRoot));
   });
 
   /**

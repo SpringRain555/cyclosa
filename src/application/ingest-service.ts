@@ -364,7 +364,15 @@ export async function processOneUrl(
  * **網路與本機檔案在這裡匯流** —— 上面兩條路只負責把位元組拿到手。
  * 快照、雜湊、抽取、索引都只有這一份實作。
  */
-async function ingestBytes(
+/**
+ * 一份位元組走完整條管線：寫快照 → 抽正文 → 寫索引（→ 視設定寫向量）。
+ *
+ * **`export` 是給範例專案用的**（`sample-service.ts`，Stage 15）。
+ * 那一支不能走 `importFile`，因為 `importFile` 把 `requestedUrl` 寫成 `null` ——
+ * 而範例專案要示範的正是「每一份東西都指得回它的來源」。
+ * 它也不該在第一次啟動時去載入 provider（那會打網路）。
+ */
+export async function ingestBytes(
   db: DatabaseSync,
   folder: string,
   input: {

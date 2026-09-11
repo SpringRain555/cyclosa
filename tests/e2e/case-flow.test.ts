@@ -71,7 +71,10 @@ describe('指標檔的失敗各自說得出原因', () => {
     const res = await app.inject({ method: 'GET', url: '/api/cases' });
     const body = res.json();
     expect(body.ok, JSON.stringify(body)).toBe(true);
-    expect(body.data).toEqual([]);
+    // **不是空的** —— 裡面有一份範例專案（Stage 15）。
+    expect(body.data.map((c: { name: string }) => c.name)).toEqual([
+      expect.stringContaining('範例'),
+    ]);
 
     // 而且它真的落在磁碟上、就在指標檔隔壁。
     const root = (await app.inject({ method: 'GET', url: '/api/system/data-root' })).json();
@@ -89,6 +92,56 @@ describe('指標檔的失敗各自說得出原因', () => {
     await boot();
     const made = await app.inject({ method: 'POST', url: '/api/cases', payload: { name: '開箱' } });
     expect(made.json().ok, made.body).toBe(true);
+    // 自己建的那一個 ＋ 範例。
+    expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().data).toHaveLength(2);
+  });
+
+  /**
+   * **範例專案刪掉之後不會自己回來**（Stage 15 的收尾條件之一）。
+   *
+   * 這件事沒有靠一個「使用者刪過了」的旗標，靠的是**資料根本身**：
+   * 放範例只發生在資料根是這一次才建出來的時候。
+   * 一個少一份狀態的設計不會有「旗標與現實對不上」這種狀態。
+   *
+   * > 一個會自己長回來的範例專案，使用者第二次刪它的時候
+   * > 就不會再相信這個程式的任何一顆刪除鍵。
+   */
+  it('範例專案刪掉之後，重新啟動不會自己回來', async () => {
+    await boot();
+    const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json().data as {
+      slug: string;
+      name: string;
+    }[];
+    expect(listed).toHaveLength(1);
+    const sample = listed[0]!;
+
+    const gone = await app.inject({
+      method: 'POST',
+      url: `/api/cases/${encodeURIComponent(sample.slug)}/delete`,
+      payload: { confirmName: sample.name },
+    });
+    expect(gone.json().ok, gone.body).toBe(true);
+
+    // 重新啟動一次 —— 指標檔已經在了，所以不會再走自動建立那條路。
+    await app.close();
+    await boot();
+    expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().data).toEqual([]);
+  });
+
+  it('但按下「重建範例專案」就會回來', async () => {
+    await boot();
+    const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json().data as {
+      slug: string;
+      name: string;
+    }[];
+    await app.inject({
+      method: 'POST',
+      url: `/api/cases/${encodeURIComponent(listed[0]!.slug)}/delete`,
+      payload: { confirmName: listed[0]!.name },
+    });
+
+    const again = await app.inject({ method: 'POST', url: '/api/system/sample' });
+    expect(again.json().ok, again.body).toBe(true);
     expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().data).toHaveLength(1);
   });
 

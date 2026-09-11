@@ -17,6 +17,7 @@ import {
 import { correlationId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
+import { seedSampleIfEmpty } from './sample-service.js';
 
 export interface DataRootInfo {
   readonly dataRoot: string;
@@ -85,7 +86,12 @@ export async function resolveOrCreateDataRoot(
 ): Promise<Result<DataRootInfo>> {
   const first = await resolveDataRootOrExplain(env);
   if (first.ok || first.code !== 'IO_POINTER_MISSING') return first;
-  return initDataRoot(defaultDataRoot(env), env);
+
+  const made = await initDataRoot(defaultDataRoot(env), env);
+  // **只有這一條路會放範例專案** —— 資料根是這一次才建出來的，
+  // 所以「使用者刪過了」不需要另外記一個旗標。理由在 `seedSampleIfEmpty`。
+  if (made.ok) await seedSampleIfEmpty(made.data.dataRoot);
+  return made;
 }
 
 /**

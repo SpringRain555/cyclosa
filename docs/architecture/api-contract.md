@@ -190,6 +190,7 @@
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（Stage 15，見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
 | `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**（Stage 15）|
+| `POST /api/system/sample` | 重建範例專案。已經有一份時回 `CASE_NAME_DUPLICATE` —— **重建不該悄悄產生第二份** |
 
 > ### 第一次啟動不問任何問題（Stage 15）
 >
@@ -202,6 +203,10 @@
 > 指標檔指到 `E:\…` 而隨身碟沒插的時候自動頂替一個空資料夾，
 > 使用者會看到一個乾淨的空清單、一個字都沒說。
 > 那正是 REQ-0001 花四個錯誤碼在擋的事。
+>
+> **自動建立的同時會放一份範例專案**（Stage 15）。它只發生在這一條路上，
+> 所以「使用者刪過了」不需要另外記旗標 ——
+> **「資料根存不存在」已經是那個旗標**。做法與理由在 `sample-service.ts`。
 >
 > `move` 的守門：有作業在跑（`IO_DATA_ROOT_BUSY`）、目標不能用
 > （`IO_DATA_ROOT_TARGET_INVALID`，`detail.reason` 是

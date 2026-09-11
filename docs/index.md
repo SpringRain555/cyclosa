@@ -126,6 +126,7 @@
 | `embedding-choice.md` | ✅ | **嵌入模型的量測**（七個候選、1955 段真實網頁）與選定的理由 | 語意檢索怎麼接（那是 roadmap）|
 | `embedding-eval-queries.jsonl` | ✅ | （**先登記後量測**）50 條查詢與它們的關聯判定 | 量測結果 |
 | `chat-choice.md` | ✅ | **`chat` 角色的量測**：`json_schema: true` 這個宣告實際上是什麼樣子 | 該選哪個模型（結論在文件裡，設定值由使用者填）|
+| `sample-corpus-licence.md` | ✅ | **範例專案語料的授權查證**（兩個獨立依據、官方下載管道、robots 那一條） | 範例專案怎麼產生（那是 `sample-service.ts`）|
 | `sources/manifest.jsonl` | ✅ | （產生物）來源的 URL、時間、SHA-256 | —— |
 
 > 後兩份**在 2026-09-06 之前標 ❌ 不是 ⬜**：2026-09-04 那次調查沒有留紀錄，

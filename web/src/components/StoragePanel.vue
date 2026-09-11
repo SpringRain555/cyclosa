@@ -56,6 +56,37 @@ async function move(): Promise<void> {
   done.value = fill(t.settings.storage.moveDone, { to: r.data.dataRoot });
 }
 
+/**
+ * 重建範例專案。
+ *
+ * **已經有一份的時候伺服器回 `CASE_NAME_DUPLICATE`**，而那不是一個錯誤 ——
+ * 它是「你已經有了」。所以這裡把它翻成一句話，不丟到錯誤面板上。
+ */
+const sampleBusy = ref(false);
+const sampleNote = ref<string | null>(null);
+const sampleError = ref<ApiError | null>(null);
+
+async function rebuildSample(): Promise<void> {
+  sampleBusy.value = true;
+  sampleNote.value = null;
+  sampleError.value = null;
+  const r = await api.rebuildSample();
+  sampleBusy.value = false;
+  if (r.ok) {
+    sampleNote.value = fill(t.settings.storage.sampleDone, {
+      items: r.data.items,
+      entities: r.data.entities,
+      edges: r.data.edges,
+    });
+    return;
+  }
+  if (r.error.code === 'CASE_NAME_DUPLICATE') {
+    sampleNote.value = t.settings.storage.sampleExists;
+    return;
+  }
+  sampleError.value = r.error;
+}
+
 onMounted(load);
 </script>
 
@@ -93,6 +124,22 @@ onMounted(load);
 
     <p v-if="done" class="done">{{ done }}</p>
     <ErrorPanel v-if="error" :error="error" />
+
+    <!--
+      **範例專案。** 它放在這一頁而不是專題清單上，理由是
+      「它是關於這份安裝的事」，不是關於某一個專題的事 ——
+      跟資料放哪裡屬於同一類問題。
+    -->
+    <h2>{{ t.settings.storage.sampleTitle }}</h2>
+    <p class="what">{{ t.settings.storage.sampleWhat }}</p>
+    <p class="what">{{ t.settings.storage.sampleLicence }}</p>
+    <!-- **這一句一定要說**：那幾條已確認的關聯是示範資料。 -->
+    <p class="what">{{ t.settings.storage.sampleNotReal }}</p>
+    <button type="button" :disabled="sampleBusy" @click="rebuildSample">
+      {{ sampleBusy ? t.settings.storage.sampleBusy : t.settings.storage.sampleBuild }}
+    </button>
+    <p v-if="sampleNote" class="done">{{ sampleNote }}</p>
+    <ErrorPanel v-if="sampleError" :error="sampleError" />
   </section>
 </template>
 

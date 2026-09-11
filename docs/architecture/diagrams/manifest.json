@@ -1,5 +1,6 @@
 {
-    "note":  "產生物。改了 .md 裡的 mermaid 就重跑 tools/diagrams/Render-Diagrams.ps1。",
+    "note":  "產生物。改了 .md 裡的 mermaid 或 tools/diagrams/mermaid-config.json 就重跑 tools/diagrams/Render-Diagrams.ps1。",
+    "theme":  "d14084cdda9114eff57696537e08105f2ebd22243fdbc94c62e284514724b3e7",
     "diagrams":  [
                      {
                          "document":  "app-lifecycle.md",

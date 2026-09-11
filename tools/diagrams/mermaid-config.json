@@ -7,13 +7,13 @@
   },
   "themeVariables": {
     "background": "#0f1115",
-    "primaryColor": "#1a1e26",
-    "primaryTextColor": "#e6e8ec",
+    "primaryColor": "#1e222b",
+    "primaryTextColor": "#e6e8ee",
     "primaryBorderColor": "#3a4150",
-    "secondaryColor": "#161a21",
-    "tertiaryColor": "#232833",
+    "secondaryColor": "#171a21",
+    "tertiaryColor": "#252a35",
     "lineColor": "#8b93a3",
-    "textColor": "#e6e8ec",
+    "textColor": "#e6e8ee",
     "fontFamily": "Microsoft JhengHei UI, Microsoft JhengHei, Noto Sans TC, sans-serif"
   }
 }

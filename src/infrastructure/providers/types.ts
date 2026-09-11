@@ -9,7 +9,7 @@
  * **統一的只有兩件事**：能力宣告的形狀，與「一次呼叫回報了什麼成本」。
  * 那兩件是 `domain/provider` 要用的，而它們確實一樣。
  */
-import type { ProviderCapabilities } from '../../domain/provider/index.js';
+import type { JsonMode, ProviderCapabilities } from '../../domain/provider/index.js';
 import type { ErrorCode } from '../../domain/errors/codes.js';
 
 /** 一次呼叫的計費事實。**沒回報就是 `null`，不要填 0。** */
@@ -63,6 +63,25 @@ export interface ChatProvider {
     },
     signal?: AbortSignal,
   ): Promise<CallOutcome<unknown>>;
+  /**
+   * 「符合 schema」由誰保證（Stage 16）。**不打網路** —— 只讀已經知道的事實，
+   * 所以設定頁一打開就可以問，不會產生費用。
+   */
+  jsonMode(): Promise<JsonModeReport>;
+  /**
+   * **量一次並記下來。會送出真的請求**，線上端點可能計費。
+   *
+   * 沒有這一支的 provider（本機 Ollama）不需要量：它的保證是協定的定義。
+   */
+  checkJson?(signal?: AbortSignal): Promise<CallOutcome<JsonModeReport>>;
+}
+
+export interface JsonModeReport {
+  readonly mode: JsonMode;
+  /** 量的時間（epoch 毫秒）。**`null` ＝ 不是量出來的**（協定保證，或還沒量）*/
+  readonly checkedAt: number | null;
+  /** 給人看的一句話：保證從哪來，或為什麼是這個結果 */
+  readonly detail: string;
 }
 
 /**

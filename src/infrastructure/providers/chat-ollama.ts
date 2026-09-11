@@ -17,13 +17,30 @@
  *
  * ## 為什麼用 `/api/chat` 而不是 `/v1/chat/completions`
  *
- * OpenAI 相容那條路的 `response_format` 只到 `json_object`
- * （「回一份 JSON」），而我們要的是**符合這份 schema 的 JSON**。
- * `/api/chat` 的 `format` 收整份 schema。差別就是 `TASK_ANGLES`
- * 需要 `json_schema` 而不是「會不會輸出 JSON」的那個差別。
+ * **這一段 2026-09-11 改寫過，原本的理由被量測推翻了。**
+ *
+ * 原本寫的是「OpenAI 相容那條路的 `response_format` 只到 `json_object`」。
+ * 重量一次（Ollama 0.33.2）：`/v1` **支援 `json_schema` 而且真的套用** ——
+ * 一份模型不可能自己猜到的 schema、一句往反方向拉的提示詞，6/6 符合，
+ * 而不帶 `response_format` 的對照組 0/6 是 JSON。
+ * **一句沒有日期的量測結果，會在對方升版之後變成假話。**
+ *
+ * 留在原生這條的理由換成兩個量得到的東西：
+ *
+ * 1. **`/v1` 送不了 `think: false`。** 同一題 `qwen3.5:4b`：
+ *    `/v1` 4.1 秒、2,935 字的思考 —— 跟原生 `think: true` 一模一樣；
+ *    原生 `think: false` **0.45 秒、0 字**。見下面 `think` 那一段為什麼這一欄重要
+ * 2. **`num_ctx` 只有原生這條送得出去。** 少了它，正文會在小 context 的機器上被安靜截斷
+ *
+ * 線上的 OpenAI 相容端點走 `chat-openai.ts`（Stage 16）。
+ * 完整量測在 `docs/research/openai-compat-json-schema.md`。
  */
 import { REQUIRED_CONTEXT_TOKENS, type ProviderCapabilities } from '../../domain/provider/index.js';
+import { CHAT_TIMEOUT_MS, PROBE_TIMEOUT_MS, authHeader, withTimeout } from './http.js';
 import type { CallOutcome, ChatProvider, ProbeResult } from './types.js';
+
+/** 搬到 `http.ts` 了；留一個轉匯出，因為 `tools/research/score-chat.ts` 從這裡拿。 */
+export { CHAT_TIMEOUT_MS };
 
 interface TagsModel {
   readonly name?: unknown;
@@ -33,44 +50,6 @@ interface TagsModel {
     readonly parameter_size?: unknown;
     readonly quantization_level?: unknown;
   };
-}
-
-/** 連不上與逾時要分得開，所以逾時自己帶一個訊號。 */
-const PROBE_TIMEOUT_MS = 5000;
-/**
- * 一次呼叫等多久。**評測記分用的也是這一個** —— 一個模型平均要 200 秒，
- * 它在這個工具裡就是不能用，不管它答得多好。
- * 匯出而不是各抄一份，理由與 `num_ctx` 那一條相同：抄的那份會漂。
- */
-export const CHAT_TIMEOUT_MS = 180_000;
-
-interface Timed {
-  readonly signal: AbortSignal;
-  /** **我們的計時器燒掉了**，而不是外面取消。兩者的碼不一樣 */
-  timedOut: boolean;
-  done(): void;
-}
-
-function withTimeout(ms: number, outer?: AbortSignal): Timed {
-  const controller = new AbortController();
-  const state: Timed = {
-    signal: controller.signal,
-    timedOut: false,
-    done: () => {
-      clearTimeout(timer);
-      outer?.removeEventListener('abort', onAbort);
-    },
-  };
-  const timer = setTimeout(() => {
-    state.timedOut = true;
-    controller.abort(new Error('timeout'));
-  }, ms);
-  const onAbort = (): void => controller.abort(outer?.reason);
-  if (outer !== undefined) {
-    if (outer.aborted) controller.abort(outer.reason);
-    else outer.addEventListener('abort', onAbort, { once: true });
-  }
-  return state;
 }
 
 export function capabilitiesOf(model: TagsModel): ProviderCapabilities {
@@ -126,28 +105,6 @@ export async function listOllamaModels(
   }
 }
 
-/**
- * 這個端點要不要帶金鑰，以及金鑰從哪來。
- *
- * ## 金鑰只從環境變數讀，不存進任何一個檔
- *
- * 這個工具到 Stage 10.5 為止一個機密都不存 —— 兩個 provider 都是本機的。
- * 接雲端端點會改變那件事，而**改變它的代價不只是「多一個欄位」**：
- * 設定檔會被備份、會被同步、會在求助時被整份貼出來。
- *
- * 所以設定裡存的是**環境變數的名字**，不是值。
- * 畫面上顯示「偵測到／沒偵測到」，而值只在送出請求的那一刻讀一次。
- */
-function authHeader(
-  apiKeyEnv: string | null,
-  env: NodeJS.ProcessEnv,
-): Readonly<Record<string, string>> {
-  if (apiKeyEnv === null || apiKeyEnv.length === 0) return {};
-  const value = env[apiKeyEnv];
-  if (typeof value !== 'string' || value.trim().length === 0) return {};
-  return { authorization: `Bearer ${value.trim()}` };
-}
-
 export function createOllamaChat(
   baseUrl: string,
   model: string,
@@ -174,6 +131,10 @@ export function createOllamaChat(
 
   return {
     name: `ollama:${model}`,
+
+    // **原生 `format` 永遠是受限解碼** —— 那是這條協定的定義，不需要量。
+    jsonMode: () =>
+      Promise.resolve({ mode: 'schema', checkedAt: null, detail: 'ollama-native-format' }),
 
     async probe(signal?: AbortSignal): Promise<ProbeResult> {
       if (model.length === 0) return { kind: 'not-configured' };

@@ -72,13 +72,16 @@ describe('版本號四邊一致', () => {
   });
 
   /**
-   * **兩份 agent 檔的現況標題也對得上。**
+   * **兩份 agent 檔與 `docs/index.md` 的現況標題也對得上。**
+   *
+   * `docs/index.md` 是同一天加的：它的「現況」停在 **Stage 11**，
+   * 寫著「還沒有的只有語意檢索」—— 而那時已經到 v0.17 了。
    *
    * 這一條守的是一個活了 12 個版本的落差（見檔頭）。兩份都查而不是只查
    * `CLAUDE.md`：`AGENTS.md` 雖然是 `tools\Sync-AgentDocs.ps1` 產生的，
    * 但**忘了跑那支腳本**正是這條測試該抓到的情況之一。
    */
-  it.each(['CLAUDE.md', 'AGENTS.md'])('`%s` 的現況標題對得上', (file) => {
+  it.each(['CLAUDE.md', 'AGENTS.md', 'docs/index.md'])('`%s` 的現況標題對得上', (file) => {
     const doc = read(file);
     const found = new RegExp(`## 現況：.*（v(${SEMVER})）`).exec(doc);
     expect(found, `${file} 裡找不到「## 現況：…（vX.Y.Z）」`).not.toBeNull();

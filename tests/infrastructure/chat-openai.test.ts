@@ -1,0 +1,371 @@
+/**
+ * OpenAI 相容端點（Stage 16）—— 對著一個**行為可以設定**的假端點。
+ *
+ * ## 為什麼是假端點，而不是量真的
+ *
+ * 真的量過了：Ollama 0.33.2 的 `/v1`（`docs/research/openai-compat-json-schema.md`）。
+ * 但那一個端點只展示得出一種行為（`json_schema` 支援而且真的套用），
+ * 而這支程式要處理的是**三種**：真的套用、收了但安靜忽略、直接拒絕。
+ * 後兩種在這台機器上沒有一個端點演得出來，所以由這裡演。
+ *
+ * **完全隔離**：`provider-checks.json` 寫在臨時的 `LOCALAPPDATA` 底下，
+ * 環境變數用一個傳進去的物件，不動 `process.env`。
+ */
+import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import {
+  createOpenAiChat,
+  listOpenAiModels,
+} from '../../src/infrastructure/providers/chat-openai.js';
+import { checksFilePath, readJsonChecks } from '../../src/infrastructure/providers/json-checks.js';
+
+const KEY_ENV = 'CYCLOSA_TEST_KEY';
+/** 刻意長得像一把真的金鑰 —— 洩漏檢查找的就是它。 */
+const KEY = 'sk-test-0123456789abcdefDEADBEEF';
+
+interface Behaviour {
+  models: 'ok' | 'auth' | 'missing-v1';
+  /** `json_schema` 那一種請求怎麼回 */
+  schema: 'enforced' | 'ignored' | 'rejected' | 'auth' | 'rate-limited';
+  /** `json_object` 那一種請求回不回物件 */
+  object: boolean;
+  /** 任務本身（非量測）的那一次回什麼內容 */
+  answer: string;
+  finish: string;
+  /** 錯誤內文要不要把請求標頭回顯出來 —— 有的伺服器真的會 */
+  echoHeaders: boolean;
+}
+
+let server: Server;
+let base: string;
+let sandbox: string;
+let env: NodeJS.ProcessEnv;
+let behaviour: Behaviour;
+let seen: { path: string; auth: string | undefined; body: Record<string, unknown> }[];
+
+function bodyOf(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve) => {
+    let raw = '';
+    req.on('data', (c: Buffer) => (raw += c.toString('utf8')));
+    req.on('end', () =>
+      resolve(raw.length > 0 ? (JSON.parse(raw) as Record<string, unknown>) : {}),
+    );
+  });
+}
+
+function completion(content: string, finish = 'stop'): string {
+  return JSON.stringify({ choices: [{ message: { content }, finish_reason: finish }] });
+}
+
+beforeEach(async () => {
+  sandbox = await mkdtemp(join(tmpdir(), 'cyclosa-openai-'));
+  env = { LOCALAPPDATA: sandbox, [KEY_ENV]: KEY };
+  seen = [];
+  behaviour = {
+    models: 'ok',
+    schema: 'enforced',
+    object: true,
+    answer: JSON.stringify({ ok: true }),
+    finish: 'stop',
+    echoHeaders: false,
+  };
+
+  server = createServer((req, res) => {
+    void (async () => {
+      const path = (req.url ?? '').replace(/^\/v1/, '');
+      const body = await bodyOf(req);
+      seen.push({ path, auth: req.headers.authorization, body });
+      const send = (status: number, text: string): void => {
+        res.writeHead(status, { 'content-type': 'application/json' });
+        res.end(text);
+      };
+
+      if (path === '/models') {
+        if (behaviour.models === 'auth') return send(401, '{"error":"bad key"}');
+        if (behaviour.models === 'missing-v1') return send(404, 'not found');
+        return send(
+          200,
+          JSON.stringify({ data: [{ id: 'm1', context_length: 128000 }, { id: 'm2' }] }),
+        );
+      }
+
+      if (path === '/chat/completions') {
+        const fmt = body['response_format'] as { type?: string } | undefined;
+        const messages = (body['messages'] as { content: string }[]) ?? [];
+        const isProbe = messages.some((m) => m.content.includes('介紹你自己'));
+        const isObjectProbe = messages.some((m) => m.content.includes('欄位 ok，值是 true'));
+
+        if (fmt?.type === 'json_schema') {
+          if (behaviour.schema === 'auth') return send(401, '{"error":"bad key"}');
+          if (behaviour.schema === 'rate-limited') return send(429, '{"error":"slow down"}');
+          if (behaviour.schema === 'rejected') {
+            // 回顯在最前面：落在截斷的範圍之內，測得到的才是遮蔽本身，不是截斷剛好藏掉它。
+            const echo = behaviour.echoHeaders ? ` auth=${req.headers.authorization ?? ''}` : '';
+            return send(400, `{"error":"unsupported response_format json_schema"${echo}}`);
+          }
+          if (isProbe) {
+            return send(
+              200,
+              completion(
+                behaviour.schema === 'enforced'
+                  ? JSON.stringify({ probe: 'cyclosa-json-schema-probe', n: 7 })
+                  : '我是一個語言模型。',
+              ),
+            );
+          }
+          return send(200, completion(behaviour.answer, behaviour.finish));
+        }
+
+        if (fmt?.type === 'json_object') {
+          if (!behaviour.object) return send(400, '{"error":"no json mode"}');
+          if (isObjectProbe) return send(200, completion(JSON.stringify({ ok: true })));
+          return send(200, completion(behaviour.answer, behaviour.finish));
+        }
+        return send(200, completion('一般的回答'));
+      }
+      send(404, 'nope');
+    })();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('no port');
+  base = `http://127.0.0.1:${address.port}/v1`;
+});
+
+afterEach(async () => {
+  await new Promise<void>((r) => server.close(() => r()));
+  await rm(sandbox, { recursive: true, force: true });
+});
+
+const OK_SCHEMA = {
+  type: 'object',
+  properties: { ok: { type: 'boolean' } },
+  required: ['ok'],
+  additionalProperties: false,
+} as const;
+
+function chat(model = 'm1') {
+  return createOpenAiChat(base, model, KEY_ENV, env);
+}
+
+const completions = (): number => seen.filter((s) => s.path === '/chat/completions').length;
+
+// ── 模型清單與探測 ─────────────────────────────────────────────
+
+describe('模型清單與探測', () => {
+  it('列得出 /models 的 id，而且帶的是環境變數的**值**', async () => {
+    expect(await listOpenAiModels(base, KEY_ENV, env)).toEqual(['m1', 'm2']);
+    expect(seen[0]?.auth).toBe(`Bearer ${KEY}`);
+  });
+
+  it('被拒的時候是 null，不是「一個都沒有」', async () => {
+    behaviour.models = 'auth';
+    expect(await listOpenAiModels(base, KEY_ENV, env)).toBeNull();
+  });
+
+  it('就緒時帶出對方報的 context；沒報的是 0（不知道）', async () => {
+    const p1 = await chat('m1').probe();
+    const p2 = await chat('m2').probe();
+    expect(p1.kind === 'ready' && p1.capabilities.context_tokens).toBe(128000);
+    expect(p2.kind === 'ready' && p2.capabilities.context_tokens).toBe(0);
+  });
+
+  it('清單上沒有的模型 ＝ 沒設定（跟 Ollama 那邊同一個判準）', async () => {
+    expect((await chat('not-there').probe()).kind).toBe('not-configured');
+  });
+
+  it('金鑰被拒要說出來，不是「連不上」', async () => {
+    behaviour.models = 'auth';
+    const p = await chat().probe();
+    expect(p.kind).toBe('unreachable');
+    if (p.kind === 'unreachable') expect(p.detail).toContain('金鑰被拒');
+  });
+
+  it('/models 回 404 時提示位址通常以 /v1 結尾', async () => {
+    behaviour.models = 'missing-v1';
+    const p = await chat().probe();
+    if (p.kind === 'unreachable') expect(p.detail).toContain('/v1');
+    else expect.fail(p.kind);
+  });
+
+  it('**打開設定頁不產生任何一次對話請求** —— probe 與 jsonMode 只讀', async () => {
+    await chat().probe();
+    await chat().jsonMode();
+    expect(completions()).toBe(0);
+  });
+});
+
+// ── 格式量測 ──────────────────────────────────────────────────
+
+describe('格式量測（checkJson）', () => {
+  it('真的套用 → schema，而且帶著時間記下來', async () => {
+    const before = Date.now();
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('schema');
+    const stored = [...(await readJsonChecks(env)).values()];
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.checkedAt).toBeGreaterThanOrEqual(before);
+  });
+
+  /**
+   * **這一條是量測設計存在的理由。** 一個收了 `response_format` 卻沒有照做的端點，
+   * 在「用一句話介紹你自己」那一題會回一句自我介紹 —— 而不是被當成支援。
+   */
+  it('收了但安靜忽略 → 往下一級量，結果是 object，而且說出為什麼', async () => {
+    behaviour.schema = 'ignored';
+    const r = await chat().checkJson!();
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(r.value.mode).toBe('object');
+      expect(r.value.detail).toContain('收了但沒有套用');
+    }
+  });
+
+  it('直接拒絕、但 json_object 可以 → object', async () => {
+    behaviour.schema = 'rejected';
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('object');
+  });
+
+  it('兩種都不行 → none', async () => {
+    behaviour.schema = 'rejected';
+    behaviour.object = false;
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('none');
+  });
+
+  /**
+   * **量不出來的時候什麼都不記。** 記成 `none` 的話，一次暫時的限流或打錯的金鑰
+   * 會變成一個永久的「這個端點不支援」。
+   */
+  it.each([
+    ['auth', 'PROVIDER_AUTH_REJECTED'],
+    ['rate-limited', 'PROVIDER_RATE_LIMITED'],
+  ] as const)('%s → %s，不記任何結果', async (mode, code) => {
+    behaviour.schema = mode;
+    const r = await chat().checkJson!();
+    expect(r.kind === 'error' && r.code).toBe(code);
+    expect((await readJsonChecks(env)).size).toBe(0);
+  });
+
+  it('429 只打一次 —— 立刻停、不重試', async () => {
+    behaviour.schema = 'rate-limited';
+    await chat().checkJson!();
+    expect(completions()).toBe(1);
+  });
+});
+
+// ── 任務呼叫 ──────────────────────────────────────────────────
+
+describe('json()', () => {
+  it('沒量過就先量，然後照量到的模式送', async () => {
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind).toBe('ok');
+    // 量測一次（json_schema 支援就不會打第二次）＋ 任務一次
+    expect(completions()).toBe(2);
+    const task = seen.at(-1)?.body['response_format'] as { type: string };
+    expect(task.type).toBe('json_schema');
+  });
+
+  it('量過之後不再量 —— 一次量測不該每跑一次任務就付一次錢', async () => {
+    await chat().checkJson!();
+    const n = completions();
+    await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(completions()).toBe(n + 1);
+  });
+
+  it('object 模式：送 json_object，schema 寫進系統提示', async () => {
+    behaviour.schema = 'rejected';
+    await chat().checkJson!();
+    const r = await chat().json({ system: '原本的系統提示', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind).toBe('ok');
+    const task = seen.at(-1)?.body;
+    expect((task?.['response_format'] as { type: string }).type).toBe('json_object');
+    const system = (task?.['messages'] as { role: string; content: string }[])[0]?.content ?? '';
+    expect(system).toContain('原本的系統提示');
+    expect(system).toContain('"required":["ok"]');
+  });
+
+  /**
+   * **注入。** 端點不保證形狀時，一份夾帶了「動作」的回應要被擋下來 ——
+   * 這是 `expansion-prompts.ts` 檔頭三層防護的第二層，在這種端點上由這裡執行。
+   */
+  it('object 模式：形狀不對 → SCHEMA_MISMATCH，不是 ok', async () => {
+    behaviour.schema = 'rejected';
+    behaviour.answer = JSON.stringify({ ok: true, action: 'confirm-all-edges' });
+    await chat().checkJson!();
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_OUTPUT_SCHEMA_MISMATCH');
+    if (r.kind === 'error') expect(r.detail).toContain('$.action');
+  });
+
+  it('schema 模式也驗 —— 端點說支援卻沒做到，一樣擋', async () => {
+    behaviour.answer = JSON.stringify({ ok: 'yes' });
+    await chat().checkJson!();
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_OUTPUT_SCHEMA_MISMATCH');
+  });
+
+  it('none → 停手，而且一次對話請求都不送', async () => {
+    behaviour.schema = 'rejected';
+    behaviour.object = false;
+    await chat().checkJson!();
+    const n = completions();
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_JSON_UNSUPPORTED');
+    expect(completions()).toBe(n);
+  });
+
+  /**
+   * **量測舊了。** 上次量的是支援，這次卻被拒 —— 說出來、叫人重新檢查，
+   * **不自己換一個模式重送**：那會讓結果來自一組跟畫面上顯示的不同的條件。
+   */
+  it('schema 模式被拒 → 說量測可能舊了，而且不換模式重送', async () => {
+    await chat().checkJson!();
+    behaviour.schema = 'rejected';
+    const n = completions();
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_JSON_UNSUPPORTED');
+    if (r.kind === 'error') expect(r.detail).toContain('重新檢查');
+    expect(completions()).toBe(n + 1);
+  });
+
+  it('被截斷的空回應說得出是被截斷，不只是「解析不出來」', async () => {
+    behaviour.answer = '';
+    behaviour.finish = 'length';
+    await chat().checkJson!();
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_OUTPUT_UNPARSEABLE');
+    if (r.kind === 'error') expect(r.detail).toContain('finish_reason=length');
+  });
+
+  it('金額成本是 null（這個協定不回報），不是 0', async () => {
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.cost.costUsd).toBeNull();
+  });
+});
+
+// ── 金鑰不外洩 ─────────────────────────────────────────────────
+
+describe('金鑰只存名字', () => {
+  /**
+   * 有的伺服器會把請求標頭回顯在錯誤內文裡，而那一段會進 `detail` ——
+   * `detail` 會進日誌、進 `provider-checks.json`、在求助時被整份貼出來。
+   */
+  it('錯誤內文把 Authorization 回顯出來，detail 與量測檔裡都沒有金鑰', async () => {
+    behaviour.schema = 'rejected';
+    behaviour.echoHeaders = true;
+    const r = await chat().checkJson!();
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(r.value.detail).not.toContain(KEY);
+      expect(r.value.detail).toContain('***');
+    }
+    const file = await readFile(checksFilePath(env), 'utf8');
+    expect(file).not.toContain(KEY);
+  });
+});

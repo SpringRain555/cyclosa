@@ -147,8 +147,9 @@ onMounted(load);
 .storage {
   max-width: 720px;
 }
+/* 跟設定頁的 `.what` 與 `.facts dt` 同一組 token —— 兩頁並排，說明文字的深淺要一樣。 */
 .what {
-  color: var(--text-dim);
+  color: var(--text-secondary);
   font-size: 13px;
   margin: 6px 0;
 }
@@ -160,7 +161,7 @@ dl {
   align-items: baseline;
 }
 dt {
-  color: var(--text-dim);
+  color: var(--text-tertiary);
   font-size: 13px;
 }
 dd {

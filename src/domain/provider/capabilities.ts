@@ -34,7 +34,16 @@ export interface ProviderCapabilities {
   /** 自己上得了網。**agent 才可能有** —— chat 端點沒有這種東西 */
   readonly browse: boolean;
   readonly tools: boolean;
-  /** 輸出保證符合給定的 JSON schema。**不是「會不會輸出 JSON」** */
+  /**
+   * 輸出保證符合給定的 JSON schema。**不是「會不會輸出 JSON」**。
+   *
+   * Stage 16 起「保證」有兩種來源，而這一欄對兩者都是 `true`：
+   * 端點自己保證（受限解碼），或 provider 這一層事後驗證 —— 形狀不對就回錯誤，
+   * **不交出一份沒被限制過的輸出**。對任務來說兩者的約定一樣：
+   * 拿到的要嘛符合 schema、要嘛是一個錯誤。
+   *
+   * **差別不藏起來**：是哪一種由 `JsonMode` 說出來，設定頁與作業紀錄都看得到。
+   */
   readonly json_schema: boolean;
   readonly vision: boolean;
   /** 0 表示不知道。**不知道與很小是兩件事**，見 `missingFor` */
@@ -77,6 +86,26 @@ export function missingFor(task: TaskRequirement, have: ProviderCapabilities): M
   if (flags.length === 0 && context === null) return { kind: 'ok' };
   return { kind: 'missing', flags, context };
 }
+
+/**
+ * 「輸出符合 schema」這件事**由誰保證**（Stage 16）。
+ *
+ * | 值 | 意思 |
+ * |---|---|
+ * | `schema` | 端點保證 —— Ollama 的 `format`、OpenAI 相容端點的 `response_format: json_schema` |
+ * | `object` | 端點只保證「是一份 JSON」，**形狀由這一側事後驗證**（`conformsTo`）|
+ * | `none` | 兩者都不保證 —— 需要 `json_schema` 的任務在這個端點上跑不了 |
+ * | `unchecked` | 還沒量過。**第一次真的跑任務時會量**，結果寫進作業紀錄 |
+ *
+ * ## 為什麼是量的，不是宣告的
+ *
+ * 2026-09-11 之前 `chat-ollama.ts` 的檔頭寫著「OpenAI 相容那條路的 `response_format`
+ * 只到 `json_object`」。重量一次：Ollama 0.33.2 的 `/v1` **支援 `json_schema` 而且真的套用**
+ * （6/6 符合，對照組 0/6 是 JSON）。**一句沒有日期的量測結果，會在對方升版之後變成假話** ——
+ * 所以這個值每個端點、每個模型各量一次，而且帶著量的時間。
+ * （`docs/research/openai-compat-json-schema.md`）
+ */
+export type JsonMode = 'schema' | 'object' | 'none' | 'unchecked';
 
 /** 全都沒有的宣告。**沒設定 provider 時用它**，而不是用 `null` 到處判。 */
 export const NO_CAPABILITIES: ProviderCapabilities = {

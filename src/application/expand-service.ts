@@ -103,6 +103,25 @@ const SEED_EXCERPT_CHARS = 120;
 const MENTION_REL = '提到';
 const MENTION_CONFIDENCE = 0.9;
 
+/**
+ * 第一階段寫下的 `providers_json`。**讀不回來就是空的**，不是錯誤 ——
+ * 舊版寫的作業沒有 `json` 那一欄（Stage 16 之前），補寫時從空的開始。
+ */
+function parseProviders(raw: string | null): Record<string, unknown> & {
+  json: Record<string, unknown>;
+} {
+  try {
+    const parsed = JSON.parse(raw ?? '{}') as Record<string, unknown>;
+    const json =
+      typeof parsed['json'] === 'object' && parsed['json'] !== null
+        ? (parsed['json'] as Record<string, unknown>)
+        : {};
+    return { ...parsed, json };
+  } catch {
+    return { json: {} };
+  }
+}
+
 /** provider 載入方式可以換 —— **測試用一個假的 CLI 與一個假的 Ollama**，其餘完全走真實路徑。 */
 export type ProvidersLoader = () => Promise<Providers>;
 
@@ -305,6 +324,12 @@ export async function startExpansion(
             ? null
             : (providers.chatFor('extract')?.name ?? null),
         agent: providers.config.agent?.command ?? null,
+        /**
+         * **這一次的格式保證是哪一種**（Stage 16）。在呼叫**之後**讀，
+         * 因為沒量過的端點會在那一次呼叫裡先量 —— 呼叫前讀的會是「還沒量」。
+         * 抽取那一個到第二階段才確定，那時候補寫（`updateRunProviders`）。
+         */
+        json: { angles: (await chat.jsonMode()).mode, extract: null },
       }),
     });
     const spent = charge(EMPTY_BUDGET_STATE, call.cost.costUsd, call.cost.elapsedMs);
@@ -425,6 +450,29 @@ export async function chooseAngles(
     const extractMatch = missingFor(TASK_EXTRACT, chatProbe.capabilities);
     if (extractMatch.kind === 'missing')
       return capabilityError(cid, 'chat', extractMatch.flags, extractMatch.context);
+
+    /**
+     * **格式保證也在開始之前確定**（Stage 16）—— 跟上面那一段同一個理由：
+     * 不要抓完 30 個網址才發現這個端點連 JSON 都不回。
+     *
+     * 線上端點沒量過的話，這裡量一次（一到兩個很小的請求）；
+     * 量出 `none` 就停，量出 `object` 就照事後驗證跑，**而那件事寫進作業紀錄**。
+     */
+    let extractJson = await extractChat.jsonMode();
+    if (extractJson.mode === 'unchecked' && extractChat.checkJson !== undefined) {
+      const measured = await extractChat.checkJson();
+      if (measured.kind === 'error') return err(measured.code, cid, { role: 'chat' });
+      extractJson = measured.value;
+    }
+    if (extractJson.mode === 'none') {
+      return err('PROVIDER_JSON_UNSUPPORTED', cid, { role: 'chat', detail: extractJson.detail });
+    }
+    const recorded = parseProviders(run.providers);
+    runs.updateRunProviders(
+      db,
+      runId,
+      JSON.stringify({ ...recorded, json: { ...recorded.json, extract: extractJson.mode } }),
+    );
 
     runs.selectAngles(db, runId, chosen);
     runs.updateRunTotal(db, runId, chosen.length);

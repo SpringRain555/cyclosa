@@ -25,9 +25,11 @@ import {
   loadProviders,
   type ProvidersView,
 } from '../infrastructure/providers/registry.js';
+import type { JsonModeReport } from '../infrastructure/providers/types.js';
 import {
   apiKeyEnvOf,
   taskModelsOf,
+  transportOf,
   writeProvidersConfig,
   type ProvidersConfig,
 } from '../infrastructure/providers/config.js';
@@ -189,6 +191,8 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
   const chat =
     typeof chatRaw === 'object' && chatRaw !== null
       ? {
+          // 缺或不認得 ＝ 本機 Ollama（Stage 16 之前唯一的選項）。**不猜** —— 見 `ChatTransport`。
+          transport: transportOf((chatRaw as Record<string, unknown>)['transport']),
           baseUrl: String((chatRaw as Record<string, unknown>)['baseUrl'] ?? '').trim(),
           model: String((chatRaw as Record<string, unknown>)['model'] ?? '').trim(),
           // **存的是環境變數的名字，不是金鑰。** 形狀不對的一律當成沒設定，
@@ -253,6 +257,11 @@ export interface ProviderTest {
   /** provider 回報的實際花費。**`null` ＝ 它沒回報，不是 0** */
   readonly costUsd: number | null;
   readonly elapsedMs: number;
+  /**
+   * `chat` 的「符合 schema」由誰保證（Stage 16）。線上端點按這顆按鈕**會重量一次**，
+   * 所以這一格是剛量出來的結果；其餘角色是 `null`。
+   */
+  readonly jsonMode: JsonModeReport | null;
 }
 
 /**
@@ -288,14 +297,46 @@ export async function testProvider(
         code: call.kind === 'ok' ? null : call.code,
         costUsd: call.cost.costUsd,
         elapsedMs: call.cost.elapsedMs,
+        jsonMode: null,
       },
       cid,
     );
   }
 
   if (role === 'chat') {
-    if (providers.chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });
-    const call = await providers.chat.json({
+    const chat = providers.chat;
+    if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });
+
+    /**
+     * **線上端點：先重量一次格式支援。** 這顆按鈕因此同時是「重新檢查」——
+     * 量測結果帶著時間存下來，而「多久算舊」沒有誠實的數字，
+     * 所以讓人自己決定什麼時候再量（`json-checks.ts` 檔頭）。
+     *
+     * 量不出來（被拒、限流、連不上）就停在那裡回報，不接著打測試 ——
+     * 同一個原因會讓測試那一次也失敗，而先失敗的那一個訊息比較準。
+     */
+    let measured: JsonModeReport | null = null;
+    let measureMs = 0;
+    if (chat.checkJson !== undefined) {
+      const check = await chat.checkJson();
+      measureMs = check.cost.elapsedMs;
+      if (check.kind === 'error') {
+        return ok(
+          {
+            role,
+            ok: false,
+            code: check.code,
+            costUsd: check.cost.costUsd,
+            elapsedMs: measureMs,
+            jsonMode: null,
+          },
+          cid,
+        );
+      }
+      measured = check.value;
+    }
+
+    const call = await chat.json({
       system: '只回 JSON。',
       user: '回一個 ok 欄位是 true 的物件。',
       schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
@@ -306,7 +347,8 @@ export async function testProvider(
         ok: call.kind === 'ok',
         code: call.kind === 'ok' ? null : call.code,
         costUsd: call.cost.costUsd,
-        elapsedMs: call.cost.elapsedMs,
+        elapsedMs: measureMs + call.cost.elapsedMs,
+        jsonMode: measured ?? (await chat.jsonMode()),
       },
       cid,
     );
@@ -332,6 +374,7 @@ export async function testProvider(
       code: call.kind === 'ok' ? null : call.code,
       costUsd: call.cost.costUsd,
       elapsedMs: call.cost.elapsedMs,
+      jsonMode: null,
     },
     cid,
   );

@@ -255,6 +255,20 @@ export interface ProviderCapabilities {
   context_tokens: number;
 }
 
+/** `chat` 走哪一種協定（Stage 16）。**server 的 `ChatTransport` 也有一份**（兩份建置）。 */
+export type ChatTransport = 'ollama' | 'openai';
+
+/**
+ * 「符合 schema」由誰保證（Stage 16）。**server 的 `JsonMode` 也有一份**（兩份建置）。
+ *
+ * `checkedAt` 是 `null` 的時候不是量出來的 —— 協定本身保證（本機 Ollama），或還沒量。
+ */
+export interface JsonModeReport {
+  mode: 'schema' | 'object' | 'none' | 'unchecked';
+  checkedAt: number | null;
+  detail: string;
+}
+
 export interface ProviderStatus {
   readonly version?: string | null;
   readonly auth?: 'none' | 'env-set' | 'env-missing';
@@ -263,6 +277,10 @@ export interface ProviderStatus {
   state: 'ready' | 'not-configured' | 'unreachable';
   detail: string;
   capabilities: ProviderCapabilities;
+  /** 只有 `chat` 有；其餘兩個角色是 `null` */
+  transport: ChatTransport | null;
+  /** 只有 `chat` 有；其餘兩個角色是 `null` */
+  jsonMode: JsonModeReport | null;
 }
 
 /**
@@ -282,8 +300,16 @@ export type ModelTask = 'find-sources' | ChatTask | 'embed';
 
 export interface ProvidersPayload {
   statuses: ProviderStatus[];
-  /** Ollama 上真的有的模型。**`null` 代表連不上**，不是「一個都沒有」 */
+  /**
+   * `chat` 端點上真的有的模型。**`null` 代表列不出來**，不是「一個都沒有」。
+   * 從哪裡列取決於傳輸：Ollama 問 `/api/tags`，OpenAI 相容端點問 `/models`。
+   */
   chatModels: string[] | null;
+  /**
+   * `embed` 端點（本機 Ollama）上的模型。**Stage 16 之前它跟 `chatModels` 是同一份**，
+   * 而 chat 一換成線上端點，嵌入的下拉選單就會列出線上模型。
+   */
+  embedModels: string[] | null;
   /** 每個 chat 任務**實際會跑在哪個模型上**，以及那個模型的狀態 */
   chatTasks: {
     task: ChatTask;
@@ -291,10 +317,13 @@ export interface ProvidersPayload {
     overridden: boolean;
     state: ProviderStatus['state'];
     capabilities: ProviderCapabilities;
+    /** **按模型而異**，所以每一列各自帶 */
+    jsonMode: JsonModeReport | null;
   }[];
   config: {
     version: 1;
     chat: {
+      transport: ChatTransport;
       baseUrl: string;
       model: string;
       apiKeyEnv: string | null;
@@ -346,6 +375,8 @@ export interface ProviderTest {
   code: string | null;
   costUsd: number | null;
   elapsedMs: number;
+  /** 線上端點按這顆按鈕會重量一次，所以這一格是剛量出來的結果 */
+  jsonMode: JsonModeReport | null;
 }
 
 // ── 圖 ──────────────────────────────────────────────────────

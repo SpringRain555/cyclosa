@@ -36,6 +36,13 @@
 > **Stage 13 沒有新端點** —— 它是規模驗收。`/subgraph/size` 的回應多一個
 > `capped` 欄位（ADR-0029），其餘不變。
 >
+> **Stage 16 也沒有新端點**（2026-09-11）。`GET /api/providers` 多回 `embedModels`
+> 與兩個 `jsonMode`，`POST /api/providers/test` 多回一個 `jsonMode`，
+> 設定檔的 `chat` 多一欄 `transport`。**新的四個錯誤碼**（`PROVIDER_AUTH_REJECTED`、
+> `PROVIDER_RATE_LIMITED`、`PROVIDER_JSON_UNSUPPORTED`、`PROVIDER_OUTPUT_SCHEMA_MISMATCH`）
+> 見 `error-codes.md`。前三個是 `error`（HTTP 409，跟既有的 `PROVIDER_*` 一致），
+> 最後一個是 `partial`（一項抽壞了不讓整批失敗）。
+>
 > **Stage 14 也沒有新端點** —— `GET /api/providers` 的回應把 `chatReadiness`
 > 換成涵蓋四個任務的 `taskReadiness`，`config.agent` 多一個 `model`。
 >
@@ -184,9 +191,9 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /healthz` | 回 `{"app":"cyclosa","version":"…"}`。**單一實例偵測靠它**（ADR-0020）—— 只看有沒有回 200 會把別人的服務誤認成自己 |
-| `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回 Ollama 上真的有的模型清單（`chatModels`，**`null` 代表連不上**，不是「一個都沒有」）|
-| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）|
-| `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs}` |
+| `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回兩份模型清單：`chatModels`（**照 `chat` 的傳輸去問**：Ollama 問 `/api/tags`、OpenAI 相容端點問 `/models`）與 `embedModels`（**永遠問嵌入自己那個本機位址**）—— **`null` 代表列不出來**，不是「一個都沒有」。`chat` 的狀態多帶 `transport` 與 `jsonMode`（「符合 schema」由誰保證、什麼時候量的，ADR-0030），`chatTasks` 每一列也各帶一個 `jsonMode`。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
+| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。`chat.transport` 是 `ollama`／`openai`，**缺或不認得就是 `ollama`**（Stage 16 之前唯一的選項）|
+| `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs, jsonMode}`。**`chat` 走 OpenAI 相容端點時，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（Stage 15，見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
 | `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**（Stage 15）|

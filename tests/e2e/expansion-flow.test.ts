@@ -692,6 +692,12 @@ describe('chat 的逐任務覆寫', () => {
     const used = JSON.parse(detail.data.run.providers ?? '{}') as Record<string, unknown>;
     expect(used['chat']).toBe('ollama:fake-model');
     expect(used['chatExtract']).toBe('ollama:fake-extract-model');
+    /**
+     * **格式保證也記下來，兩個任務各一個**（Stage 16）。抽取那一個是第二階段才確定的 ——
+     * 第一階段寫進去的時候它還是 `null`，這一條確認它被補寫了。
+     * 本機 Ollama 兩邊都是 `schema`（原生 `format` 是受限解碼）。
+     */
+    expect(used['json']).toEqual({ angles: 'schema', extract: 'schema' });
   });
 
   /**

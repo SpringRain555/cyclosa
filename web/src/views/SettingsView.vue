@@ -19,6 +19,8 @@ import {
   api,
   type ApiError,
   type ChatTask,
+  type ChatTransport,
+  type JsonModeReport,
   type ModelTask,
   type ProvidersPayload,
   type ProviderRole,
@@ -37,6 +39,9 @@ const savedAt = ref(0);
 
 const tab = ref<'models' | 'sources' | 'guide' | 'storage'>('models');
 
+/** `chat` 走哪一種協定（Stage 16）。**不自動偵測** —— 見 server 的 `ChatTransport`。 */
+const transport = ref<ChatTransport>('ollama');
+const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
 const baseUrl = ref('');
 const model = ref('');
 const command = ref('');
@@ -95,6 +100,7 @@ async function load(): Promise<void> {
     return;
   }
   payload.value = r.data;
+  transport.value = r.data.config.chat?.transport ?? 'ollama';
   baseUrl.value = r.data.config.chat?.baseUrl ?? '';
   model.value = r.data.config.chat?.model ?? '';
   command.value = r.data.config.agent?.command ?? '';
@@ -112,8 +118,46 @@ async function load(): Promise<void> {
 }
 onMounted(() => void load());
 
+/**
+ * 換連線方式的時候**只動那個還是預設值的位址**。
+ *
+ * 從本機 Ollama 換到線上端點時，`127.0.0.1:11434` 幾乎一定不是使用者要的 ——
+ * 清掉讓範例位址顯示出來；換回來時空著就填回 Ollama 的慣例位址。
+ * 使用者自己打過的位址一律不碰。
+ */
+function switchTransport(next: ChatTransport): void {
+  if (next === transport.value) return;
+  if (next === 'openai' && baseUrl.value.trim() === OLLAMA_DEFAULT_URL) baseUrl.value = '';
+  if (next === 'ollama' && baseUrl.value.trim().length === 0) baseUrl.value = OLLAMA_DEFAULT_URL;
+  transport.value = next;
+}
+
+/** 這個角色的下拉選單列哪一份。**嵌入永遠是本機那一份**，不跟著 chat 走。 */
+function modelsFor(role: ProviderRole): string[] | null {
+  if (role === 'embed') return payload.value?.embedModels ?? null;
+  return payload.value?.chatModels ?? null;
+}
+
+/**
+ * 「格式保證」那一行。**量的時間一定要跟著** —— 一句沒有日期的量測結果，
+ * 會在對方升版之後變成假話，而這個專案自己就寫過一句那樣的話。
+ */
+function jsonModeText(report: JsonModeReport | null): string {
+  if (report === null) return '';
+  if (report.mode === 'schema' && report.checkedAt === null) return t.settings.jsonModeNative;
+  const text = t.settings.jsonMode[report.mode];
+  if (report.checkedAt === null) return text;
+  const date = new Date(report.checkedAt).toLocaleString('zh-TW', { hour12: false });
+  return `${text}（${fill(t.settings.jsonCheckedAt, { date })}）`;
+}
+
 /** 四個任務那張表的資料來源。**順序由 server 決定**，畫面不自己排。 */
 const taskRows = computed(() => payload.value?.taskReadiness ?? []);
+
+/** chat 任務那一列實際會跑的模型的格式保證。其餘任務沒有這一件事。 */
+function chatTaskJson(task: ModelTask): JsonModeReport | null {
+  return payload.value?.chatTasks.find((row) => row.task === task)?.jsonMode ?? null;
+}
 
 function taskReadinessOf(task: ModelTask): { ok: boolean; missing: string[] } {
   return payload.value?.taskReadiness.find((r) => r.task === task) ?? { ok: false, missing: [] };
@@ -179,6 +223,7 @@ async function save(): Promise<void> {
       baseUrl.value.trim().length === 0
         ? null
         : {
+            transport: transport.value,
             baseUrl: baseUrl.value.trim(),
             model: model.value.trim(),
             apiKeyEnv: apiKeyEnv.value.trim().length === 0 ? null : apiKeyEnv.value.trim(),
@@ -214,12 +259,16 @@ async function test(role: ProviderRole): Promise<void> {
     testResult.value = { role, text: errorMessages[r.error.code] ?? r.error.code };
     return;
   }
-  testResult.value = {
-    role,
-    text: r.data.ok
-      ? fill(t.settings.testOk, { ms: r.data.elapsedMs })
-      : `${t.settings.testFailed}：${errorMessages[r.data.code ?? ''] ?? String(r.data.code)}`,
-  };
+  const outcome = r.data.ok
+    ? fill(t.settings.testOk, { ms: r.data.elapsedMs })
+    : `${t.settings.testFailed}：${errorMessages[r.data.code ?? ''] ?? String(r.data.code)}`;
+  // 線上端點按這顆會重量一次格式支援 —— 量到什麼要當場說出來，不是等重新整理。
+  const measured =
+    r.data.jsonMode !== null && r.data.jsonMode.checkedAt !== null
+      ? ` ${fill(t.settings.testJsonMode, { mode: jsonModeText(r.data.jsonMode) })}`
+      : '';
+  testResult.value = { role, text: `${outcome}${measured}` };
+  if (measured.length > 0) await load();
 }
 </script>
 
@@ -295,23 +344,59 @@ async function test(role: ProviderRole): Promise<void> {
             </dd>
           </dl>
 
-          <!-- chat：位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
+          <!-- chat：連線方式 ＋ 位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
           <div v-if="status.role === 'chat'" class="form">
+            <!--
+              **連線方式由人選，不自動偵測**（Stage 16）。兩種協定 Ollama 都答得出來，
+              猜錯的代價是「關掉思考」與「指定 context」那兩個量出來的設定安靜地消失。
+            -->
+            <div class="transport">
+              <span>{{ t.settings.transport }}</span>
+              <label v-for="kind in ['ollama', 'openai'] as const" :key="kind" class="choice">
+                <input
+                  type="radio"
+                  name="chat-transport"
+                  :checked="transport === kind"
+                  @change="switchTransport(kind)"
+                />
+                {{ t.settings.transportNames[kind] }}
+              </label>
+            </div>
+            <p class="hint">{{ t.settings.transportWhat[transport] }}</p>
             <label>
               <span>{{ t.settings.chatBaseUrl }}</span>
-              <input v-model="baseUrl" type="text" />
+              <input
+                v-model="baseUrl"
+                type="text"
+                :placeholder="
+                  transport === 'openai'
+                    ? t.settings.chatBaseUrlOpenaiPlaceholder
+                    : OLLAMA_DEFAULT_URL
+                "
+              />
             </label>
             <label>
               <span>{{ t.settings.chatModel }}</span>
-              <select v-if="payload?.chatModels?.length" v-model="model">
-                <option value="">{{ t.settings.chatModelPick }}</option>
-                <option v-for="name in payload.chatModels" :key="name" :value="name">
+              <select v-if="modelsFor('chat')?.length" v-model="model">
+                <option value="">
+                  {{
+                    transport === 'openai'
+                      ? t.settings.chatModelPickOnline
+                      : t.settings.chatModelPick
+                  }}
+                </option>
+                <option v-for="name in modelsFor('chat')" :key="name" :value="name">
                   {{ name }}
                 </option>
               </select>
               <input v-else v-model="model" type="text" />
             </label>
-            <p class="hint">
+            <!--
+              **建議值只對本機 Ollama 顯示。** 那個數字是在這台機器的 Ollama 上量的
+              （`docs/research/chat-choice.md`），拿去建議一個線上端點上的模型名，
+              是用一份沒有量過那個世界的結果替它背書。
+            -->
+            <p v-if="transport === 'ollama'" class="hint">
               <!-- 建議值是使用者按下去的，不是我們替他填的 -->
               <button
                 v-if="model !== RECOMMENDED_CHAT"
@@ -324,7 +409,34 @@ async function test(role: ProviderRole): Promise<void> {
               {{ t.settings.chatRecommendWhy }}
             </p>
             <p v-if="payload && payload.chatModels === null" class="hint">
-              {{ t.settings.chatModelsUnreachable }}
+              {{
+                transport === 'openai'
+                  ? t.settings.chatModelsUnreachableOnline
+                  : t.settings.chatModelsUnreachable
+              }}
+            </p>
+            <!-- **格式保證要看得到。** 事後檢查是一種降級，而它被允許的條件是說出來（ADR-0030）。 -->
+            <p
+              v-if="status.state === 'ready' && status.jsonMode"
+              :class="['hint', 'json-mode', status.jsonMode.mode]"
+            >
+              <span class="json-label">{{ t.settings.jsonModeLabel }}</span>
+              {{ jsonModeText(status.jsonMode) }}
+            </p>
+            <!--
+              **端點自己說的理由，原文照登。** 事後檢查與不支援的時候才有意義 ——
+              2026-09-11 在真的端點上觸發 `none` 的是一個嵌入模型，
+              而那個原因（does not support chat）只有對方說得出來。
+            -->
+            <p
+              v-if="
+                status.jsonMode &&
+                (status.jsonMode.mode === 'object' || status.jsonMode.mode === 'none') &&
+                status.jsonMode.detail
+              "
+              class="hint json-detail"
+            >
+              {{ status.jsonMode.detail }}
             </p>
 
             <!-- **逐任務覆寫搬到下面那一段了**（2026-09-10）。
@@ -390,9 +502,10 @@ async function test(role: ProviderRole): Promise<void> {
             </label>
             <label>
               <span>{{ t.settings.embedModel }}</span>
-              <select v-if="payload?.chatModels?.length" v-model="embedModel">
+              <!-- **嵌入的清單是它自己那個位址的**，不跟著 chat 走（Stage 16 之前是同一份）。 -->
+              <select v-if="modelsFor('embed')?.length" v-model="embedModel">
                 <option value="">{{ t.settings.embedModelPick }}</option>
-                <option v-for="name in payload.chatModels" :key="name" :value="name">
+                <option v-for="name in modelsFor('embed')" :key="name" :value="name">
                   {{ name }}
                 </option>
               </select>
@@ -438,7 +551,13 @@ async function test(role: ProviderRole): Promise<void> {
             </button>
             <!-- **會不會花錢要在按之前就說。** agent 是外部服務，chat 是本機 -->
             <span class="hint">
-              {{ status.role === 'agent' ? t.settings.testCostsMoney : t.settings.testFree }}
+              {{
+                status.role === 'agent'
+                  ? t.settings.testCostsMoney
+                  : status.role === 'chat' && status.transport === 'openai'
+                    ? t.settings.testCostsMoneyOnline
+                    : t.settings.testFree
+              }}
             </span>
             <span v-if="testResult?.role === status.role" class="test-result">
               {{ testResult.text }}
@@ -500,7 +619,7 @@ async function test(role: ProviderRole): Promise<void> {
                     @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
                   />
                   <select
-                    v-else-if="payload?.chatModels?.length"
+                    v-else-if="modelsFor(row.role)?.length"
                     :value="modelValueOf(row.task)"
                     @change="setModelOf(row.task, ($event.target as HTMLSelectElement).value)"
                   >
@@ -509,7 +628,7 @@ async function test(role: ProviderRole): Promise<void> {
                         row.role === 'chat' ? t.settings.chatTaskFollow : t.settings.embedModelPick
                       }}
                     </option>
-                    <option v-for="name in payload.chatModels" :key="name" :value="name">
+                    <option v-for="name in modelsFor(row.role)" :key="name" :value="name">
                       {{ name }}
                     </option>
                   </select>
@@ -520,10 +639,12 @@ async function test(role: ProviderRole): Promise<void> {
                     @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
                   />
                   <!-- 建議值是使用者按下去的，不是我們替他填的 -->
+                  <!-- chat 的建議是在本機 Ollama 上量的，線上端點不顯示（見上面那一段）。 -->
                   <button
                     v-if="
                       RECOMMENDED_TASK_ALL[row.task] &&
-                      modelValueOf(row.task) !== RECOMMENDED_TASK_ALL[row.task]
+                      modelValueOf(row.task) !== RECOMMENDED_TASK_ALL[row.task] &&
+                      (row.role !== 'chat' || transport === 'ollama')
                     "
                     class="link"
                     type="button"
@@ -541,6 +662,14 @@ async function test(role: ProviderRole): Promise<void> {
                   </span>
                   <span v-else class="runs muted">{{ t.settings.taskFollowsDefault }}</span>
                   <span v-if="row.overridden" class="badge">{{ t.settings.taskOverridden }}</span>
+                  <!-- 覆寫的模型各有各的格式保證；事後檢查的那幾列要標出來（ADR-0030）。 -->
+                  <span
+                    v-if="chatTaskJson(row.task)?.mode === 'object'"
+                    class="badge"
+                    :title="jsonModeText(chatTaskJson(row.task))"
+                  >
+                    {{ t.settings.taskJsonObject }}
+                  </span>
                   <span v-if="taskMissingText(row.task)" class="missing">
                     {{ taskMissingText(row.task) }}
                   </span>
@@ -697,7 +826,7 @@ h2 {
 .detail {
   font-size: 12px;
   color: var(--text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--mono);
 }
 .what {
   font-size: 13px;
@@ -887,7 +1016,7 @@ select {
 }
 .cap.ctx {
   border-style: none;
-  font-family: var(--font-mono);
+  font-family: var(--mono);
 }
 .missing {
   font-size: 13px;
@@ -964,7 +1093,42 @@ button:disabled {
   cursor: default;
 }
 button.primary {
-  border-color: var(--action-primary);
-  color: var(--action-primary);
+  border-color: var(--ui-action);
+  color: var(--ui-action);
+}
+/* 連線方式：兩個選項並排，標籤與選項同一條基線。 */
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.transport .choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+/**
+ * 格式保證。**事後檢查與不支援刻意不給顏色** —— 跟上面 `.warn` 同一個判斷：
+ * 琥珀已經是待查證、紅已經是真的壞掉了，而「這個端點的格式由 Cyclosa 事後檢查」
+ * 兩者都不是，它是按下去之前要知道的事。所以強調靠字重與一條左邊界。
+ * （不支援的時候，下面那一行「缺少：輸出符合格式」已經會出現。）
+ */
+.json-mode .json-label {
+  color: var(--text-secondary);
+  margin-right: 6px;
+}
+.json-detail {
+  font-family: var(--mono);
+  word-break: break-all;
+}
+.json-mode.object,
+.json-mode.none {
+  padding-left: 10px;
+  border-left: 3px solid var(--line-strong);
+  font-weight: 700;
+  color: var(--text);
 }
 </style>

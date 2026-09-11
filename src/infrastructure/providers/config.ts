@@ -25,8 +25,39 @@ import { dirname, join } from 'node:path';
 import { CHAT_TASKS, type ChatTask } from '../../domain/provider/index.js';
 import { pointerFilePath } from '../fs/paths.js';
 
+/**
+ * `chat` 走哪一種協定（Stage 16）。
+ *
+ * | 值 | 打哪裡 | 用在 |
+ * |---|---|---|
+ * | `ollama` | `/api/tags`、`/api/chat` | 本機 Ollama。**預設，而且舊的設定檔沒有這一欄時就是它** |
+ * | `openai` | `/models`、`/chat/completions` | 任何 OpenAI 相容端點（線上的、或別家本機伺服器）|
+ *
+ * ## 為什麼本機 Ollama 不改走 OpenAI 相容那條
+ *
+ * 它現在也支援 `json_schema` 了（2026-09-11 實測，推翻了原本的理由）。
+ * **留下原生那條的理由換成一個量得到的數字**：`/v1` 送不了 `think: false`，
+ * 同一題 `qwen3.5:4b` 走 `/v1` 是 4.1 秒、2,935 字的思考，
+ * 走原生並關掉思考是 **0.45 秒、0 字**（`docs/research/openai-compat-json-schema.md`）。
+ * 而 `num_ctx` 也只有原生那條送得出去 —— 少了它，正文會在小 context 的機器上被安靜截斷。
+ *
+ * **不自動偵測。** 兩種協定 Ollama 都答得出來，「它看起來像哪一種」
+ * 猜錯的代價是那兩個量出來的設定安靜地消失。這是使用者選的事實。
+ */
+export const CHAT_TRANSPORTS = ['ollama', 'openai'] as const;
+export type ChatTransport = (typeof CHAT_TRANSPORTS)[number];
+
+export function transportOf(value: unknown): ChatTransport {
+  return value === 'openai' ? 'openai' : 'ollama';
+}
+
 export interface ChatConfig {
-  /** OpenAI 相容端點的根位址，例如 `http://127.0.0.1:11434` */
+  readonly transport: ChatTransport;
+  /**
+   * 端點的根位址。**兩種協定的慣例不一樣**：
+   * Ollama 是 `http://127.0.0.1:11434`（不含 `/v1`），
+   * OpenAI 相容端點照各家文件的寫法**含 `/v1`**（`https://api.example.com/v1`）。
+   */
   readonly baseUrl: string;
   readonly model: string;
   /**
@@ -187,6 +218,7 @@ export interface ProvidersConfig {
 export const DEFAULT_CONFIG: ProvidersConfig = {
   version: 1,
   chat: {
+    transport: 'ollama',
     baseUrl: 'http://127.0.0.1:11434',
     model: '',
     apiKeyEnv: null,
@@ -245,6 +277,8 @@ export async function readProvidersConfig(
     const chat =
       typeof chatRaw === 'object' && chatRaw !== null
         ? {
+            // **舊的設定檔沒有這一欄** —— 缺就是本機 Ollama，那是 Stage 16 之前唯一的選項。
+            transport: transportOf((chatRaw as Record<string, unknown>)['transport']),
             baseUrl: str((chatRaw as Record<string, unknown>)['baseUrl']),
             model: str((chatRaw as Record<string, unknown>)['model']),
             apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),

@@ -140,6 +140,39 @@ export const ERROR_CODES = {
   PROVIDER_QUOTE_NOT_FOUND: 'partial',
   PROVIDER_SANDBOX_VIOLATION: 'error',
   PROVIDER_EMBED_MODEL_MISMATCH: 'error',
+  /**
+   * 端點收到了請求、**但拒絕了金鑰**（HTTP 401／403，Stage 16）。
+   *
+   * 不是 `PROVIDER_UNREACHABLE` —— 那一句叫人去檢查「它是不是沒開」，
+   * 而它明明開著、而且回了話。「連不上」與「連得上但不讓你進」的下一步完全不同。
+   */
+  PROVIDER_AUTH_REJECTED: 'error',
+  /**
+   * 端點說太多請求了（HTTP 429，Stage 16）。**立刻停，不重試** ——
+   * 那是這個專案對所有外部服務的同一條規矩，provider 沒有例外。
+   */
+  PROVIDER_RATE_LIMITED: 'error',
+  /**
+   * 這個模型在這個端點上**連「回一份 JSON」都不保證**（Stage 16）。
+   *
+   * 量測是按「端點＋模型」記的，而 2026-09-11 在真的端點上觸發這一條的
+   * 是一個**嵌入模型** —— OpenAI 相容端點的 `/models` 會把它一起列出來，
+   * 而它根本不能對話。所以訊息說「這個模型」，不說「這個端點」。
+   *
+   * `json_schema` 與 `json_object` 兩種模式都量過而且都不成立。需要結構化輸出的任務
+   * （角度、抽取）在它上面跑不了 —— **這一條是停手，不是降級**：
+   * 從散文裡撈 JSON 會在模型換一種寫法時安靜地少撈幾條。
+   */
+  PROVIDER_JSON_UNSUPPORTED: 'error',
+  /**
+   * 回了一份 JSON，**但形狀不符合這個任務的 schema**（Stage 16）。
+   *
+   * 不是 `PROVIDER_OUTPUT_UNPARSEABLE` —— 那一份解析得很成功。
+   * 這一條只會在端點不保證 schema、由這一側事後驗證的時候出現：
+   * 形狀不對的一律擋下來，**不交出一份沒有被限制過的輸出**
+   * （`expansion-prompts.ts` 檔頭三層防護的第二層）。
+   */
+  PROVIDER_OUTPUT_SCHEMA_MISMATCH: 'partial',
   PROVIDER_UNEXPECTED: 'error',
 
   // ── RUN_* 作業本身 ───────────────────────────────────────

@@ -289,3 +289,28 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 
 > **順序的教訓**：先問「這個站有沒有給一條正式的路」，沒有再問能不能爬。
 > 反過來就會先看到一份抓得動的 HTML，然後才想起要去看 robots。
+
+## 2026-09-11（晚）　OpenAI 相容端點的 JSON 格式支援（A 級）
+
+**為什麼查**：Stage 16 的第一條收尾條件 —— 動手前先量目標端點的 `json_schema` 支援程度。
+
+**先查了能不能量線上端點**：這台機器上的環境變數**沒有任何線上服務的金鑰**
+（只看名字，不讀值）。所以線上端點一個都沒有量；量的是本機唯一的 OpenAI 相容端點。
+
+| 查詢 | 對象 | 結果 |
+|---|---|---|
+| `GET /api/version` | 本機 Ollama | 0.33.2 |
+| `GET /v1/models` | 本機 Ollama | 列得出來 —— **而且嵌入模型也在裡面，沒有任何能力欄位** |
+| `json_schema` 探針 × 3 | `qwen3.5:4b`、`granite4.2:8b` | 3/3 符合；對照組 0/3 是 JSON |
+| `json_object` × 3 | 同上 | 3/3 是物件 |
+| 原生 `think:false`／`think:true`／`/v1` × 3 | `qwen3.5:4b` | 0.45 秒／4.1 秒／4.1 秒；`/v1` 的思考字數與 `think:true` 完全相同（2,935）|
+| `checkJson`（出貨的程式）× 3 | `qwen3.5:4b`、`granite4.2:8b`、`qwen3-embedding:4b` | `schema`／`schema`／**`none`**（"does not support chat"）|
+
+**級別**：全部是對著真的端點實測，腳本在 `tools/research/probe-json-mode.ts`。
+
+**結論**：`chat-ollama.ts` 檔頭那句「OpenAI 相容那條路只到 `json_object`」**在 Ollama 0.33.2 上不成立**。
+本機 Ollama 仍然走原生協定，理由換成「`/v1` 送不了 `think: false`，慢 9 倍」。
+完整寫在 `openai-compat-json-schema.md`。
+
+> **一句沒有日期的量測結果，會在對方升版之後變成假話。** 那句話寫的時候是對的。
+

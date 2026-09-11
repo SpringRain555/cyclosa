@@ -24,8 +24,13 @@
  *
  * 錯誤訊息裡的「」不全是按鈕 —— 「任職於」「收購」是關係型別的舉例。
  * 對全部的「」查的話，**7 個裡有 4 個是誤報**（2026-09-11 實測）。
- * 只看動詞後面接的那種（用／按／到／點／從「…」），**現況零誤報**。
+ * 只看動詞後面接的那種（用／按／到／點選／從「…」），**現況零誤報**。
  * `「設定 → 資料位置」` 這種路徑寫法會拆開逐段查。
+ *
+ * > **動詞清單原本有單字的「點」，而它在同一天就誤報了一次。**
+ * > Stage 16 新寫的 `PROVIDER_JSON_UNSUPPORTED` 是「這個模型在這個**端點**上連
+ * > 『回一份 JSON』都不保證」—— 「端點」的「點」被讀成了「點一下」。
+ * > 「點」在中文裡太常當名詞的一半（端點、重點、地點），所以改成只認「點選」。
  */
 import { describe, expect, it } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -38,7 +43,7 @@ const WEB_SRC = join(REPO_ROOT, 'web', 'src');
 const I18N_FILE = join(WEB_SRC, 'i18n', 'zh-TW.ts');
 
 /** 動詞後面接的「」—— 那才是在叫人去操作某個東西。 */
-const ACTION_REF = /(?:用|按|到|點|從)[^「」]{0,8}「([^」]{1,30})」/g;
+const ACTION_REF = /(?:用|按|到|點選|從)[^「」]{0,8}「([^」]{1,30})」/g;
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -113,6 +118,8 @@ describe('錯誤訊息引用的按鈕', () => {
 
     const refs = actionRefs('找不到這個專題 —— 用「開啟既有資料夾」重新指到它。');
     expect(refs).toEqual(['開啟既有資料夾']);
+    // 那一次誤報：「端點」的「點」不是動詞。
+    expect(actionRefs('這個模型在這個端點上連「回一份 JSON」都不保證')).toEqual([]);
     const rendered = refs.every((label) =>
       (withOrphan.get(label) ?? []).some((path) => componentSource.includes(`t.${path}`)),
     );

@@ -15,3 +15,4 @@ export * from './angles.js';
 export * from './quote.js';
 export * from './relations.js';
 export * from './sandbox.js';
+export * from './schema-check.js';

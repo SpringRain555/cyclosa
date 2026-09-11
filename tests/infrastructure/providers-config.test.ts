@@ -127,6 +127,7 @@ describe('chat 的逐任務覆寫', () => {
       {
         ...DEFAULT_CONFIG,
         chat: {
+          transport: 'ollama',
           baseUrl: 'http://127.0.0.1:11434',
           model: 'qwen3.5:4b',
           apiKeyEnv: null,
@@ -153,6 +154,7 @@ describe('chat 的逐任務覆寫', () => {
       JSON.stringify({
         version: 1,
         chat: {
+          transport: 'ollama',
           baseUrl: 'http://127.0.0.1:11434',
           model: 'qwen3.5:4b',
           taskModels: { angles: 'granite4.2:8b', anlges: '打錯的那個' },
@@ -167,6 +169,7 @@ describe('chat 的逐任務覆寫', () => {
 
   it('**沒有預設模型時，覆寫自己撐得起那個任務**', () => {
     const chat = {
+      transport: 'ollama' as const,
       baseUrl: 'http://127.0.0.1:11434',
       model: '',
       apiKeyEnv: null,

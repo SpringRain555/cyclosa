@@ -17,11 +17,17 @@ import {
   NO_CAPABILITIES,
   type ProviderCapabilities,
 } from '../../domain/provider/index.js';
-import { chatModelFor, readProvidersConfig, type ProvidersConfig } from './config.js';
+import {
+  chatModelFor,
+  readProvidersConfig,
+  type ChatTransport,
+  type ProvidersConfig,
+} from './config.js';
 import { createClaudeAgent } from './agent-claude.js';
 import { createOllamaChat, listOllamaModels } from './chat-ollama.js';
+import { createOpenAiChat, listOpenAiModels } from './chat-openai.js';
 import { createOllamaEmbed, type EmbedProvider } from './embed-ollama.js';
-import type { AgentProvider, ChatProvider, ProbeResult } from './types.js';
+import type { AgentProvider, ChatProvider, JsonModeReport, ProbeResult } from './types.js';
 
 export interface ProviderStatus {
   readonly role: ProviderRole;
@@ -38,6 +44,15 @@ export interface ProviderStatus {
    */
   readonly auth: 'none' | 'env-set' | 'env-missing';
   readonly capabilities: ProviderCapabilities;
+  /**
+   * `chat` 走哪一種協定（Stage 16）。其餘兩個角色是 `null` —— 它們只有一種。
+   *
+   * 畫面要用它決定兩件事：模型清單從哪來，以及「實際打一次」**會不會花錢**。
+   * 後者原本寫死「chat 是本機」，而接上線上端點之後那句話就不一定是真的。
+   */
+  readonly transport: ChatTransport | null;
+  /** 「符合 schema」由誰保證（Stage 16）。**只有 `chat` 有**，其餘是 `null` */
+  readonly jsonMode: JsonModeReport | null;
 }
 
 function authOf(apiKeyEnv: string | null, env: NodeJS.ProcessEnv): ProviderStatus['auth'] {
@@ -51,36 +66,33 @@ function statusOf(
   configured: string,
   probe: ProbeResult,
   auth: ProviderStatus['auth'] = 'none',
+  transport: ChatTransport | null = null,
+  jsonMode: JsonModeReport | null = null,
 ): ProviderStatus {
+  const common = { role, configured, auth, transport, jsonMode };
   if (probe.kind === 'ready') {
     return {
-      role,
-      configured,
+      ...common,
       state: 'ready',
       detail: probe.model,
       version: probe.version,
-      auth,
       capabilities: probe.capabilities,
     };
   }
   if (probe.kind === 'unreachable') {
     return {
-      role,
-      configured,
+      ...common,
       state: 'unreachable',
       detail: probe.detail,
       version: null,
-      auth,
       capabilities: NO_CAPABILITIES,
     };
   }
   return {
-    role,
-    configured,
+    ...common,
     state: 'not-configured',
     detail: '',
     version: null,
-    auth,
     capabilities: NO_CAPABILITIES,
   };
 }
@@ -128,7 +140,11 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
     if (config.chat === null || model.length === 0) return null;
     const existing = built.get(model);
     if (existing !== undefined) return existing;
-    const made = createOllamaChat(config.chat.baseUrl, model, config.chat.apiKeyEnv, env);
+    const { transport, baseUrl, apiKeyEnv } = config.chat;
+    const made =
+      transport === 'openai'
+        ? createOpenAiChat(baseUrl, model, apiKeyEnv, env)
+        : createOllamaChat(baseUrl, model, apiKeyEnv, env);
     built.set(model, made);
     return made;
   };
@@ -172,12 +188,26 @@ export interface ChatTaskStatus {
   readonly overridden: boolean;
   readonly state: ProviderStatus['state'];
   readonly capabilities: ProviderCapabilities;
+  /** 這個任務的模型「符合 schema」由誰保證。**按模型而異**，所以每一列各自帶 */
+  readonly jsonMode: JsonModeReport | null;
 }
 
 export interface ProvidersView {
   readonly statuses: readonly ProviderStatus[];
-  /** Ollama 上真的有的模型。**`null` 代表連不上**，不是「一個都沒有」 */
+  /**
+   * `chat` 端點上真的有的模型。**`null` 代表列不出來**，不是「一個都沒有」。
+   *
+   * 從哪裡列取決於傳輸：Ollama 問 `/api/tags`，OpenAI 相容端點問 `/models`。
+   */
   readonly chatModels: readonly string[] | null;
+  /**
+   * `embed` 端點上的模型（永遠是本機 Ollama 的 `/api/tags`）。
+   *
+   * **Stage 16 之前它跟 `chatModels` 是同一份** —— 兩個角色預設指同一個 Ollama，
+   * 所以一直沒有人發現那是兩個問題。`chat` 一換成線上端點，
+   * 嵌入的下拉選單就會列出線上模型，而嵌入的探測會去線上清單裡找本機模型。
+   */
+  readonly embedModels: readonly string[] | null;
   readonly chatTasks: readonly ChatTaskStatus[];
   readonly config: ProvidersConfig;
 }
@@ -215,22 +245,33 @@ export async function describeProviders(
     if (row.provider !== null && !toProbe.has(row.model)) toProbe.set(row.model, row.provider);
   }
 
-  const [probed, agentProbe, chatModels] = await Promise.all([
+  const chatConfig = providers.config.chat;
+  const [probed, agentProbe, chatModels, embedModels] = await Promise.all([
     Promise.all(
-      [...toProbe].map(async ([model, provider]) => [model, await provider.probe()] as const),
-    ).then((rows) => new Map<string, ProbeResult>(rows)),
+      [...toProbe].map(
+        async ([model, provider]) =>
+          [model, { probe: await provider.probe(), json: await provider.jsonMode() }] as const,
+      ),
+    ).then((rows) => new Map(rows)),
     agentConfigured.length === 0
       ? Promise.resolve<ProbeResult>({ kind: 'not-configured' })
       : (
           providers.agentFor({ schema: {}, systemPrompt: '', maxCostUsd: null }) as AgentProvider
         ).probe(),
-    providers.config.chat === null
+    chatConfig === null
       ? Promise.resolve<readonly string[] | null>(null)
-      : listOllamaModels(providers.config.chat.baseUrl),
+      : chatConfig.transport === 'openai'
+        ? listOpenAiModels(chatConfig.baseUrl, chatConfig.apiKeyEnv, env)
+        : listOllamaModels(chatConfig.baseUrl),
+    providers.config.embed === null
+      ? Promise.resolve<readonly string[] | null>(null)
+      : listOllamaModels(providers.config.embed.baseUrl),
   ]);
 
   const notConfigured: ProbeResult = { kind: 'not-configured' };
-  const chatProbe = probed.get(chatConfigured) ?? notConfigured;
+  const chatRow = probed.get(chatConfigured);
+  const chatProbe = chatRow?.probe ?? notConfigured;
+  const transport = chatConfig?.transport ?? null;
 
   return {
     statuses: [
@@ -239,19 +280,24 @@ export async function describeProviders(
         'chat',
         chatConfigured,
         chatProbe,
-        authOf(providers.config.chat?.apiKeyEnv ?? null, env),
+        authOf(chatConfig?.apiKeyEnv ?? null, env),
+        transport,
+        chatRow?.json ?? null,
       ),
-      statusOf('embed', embedConfigured, embedProbe(embedConfigured, chatModels)),
+      statusOf('embed', embedConfigured, embedProbe(embedConfigured, embedModels)),
     ],
     chatModels,
+    embedModels,
     chatTasks: plan.map((row) => {
-      const status = statusOf('chat', row.model, probed.get(row.model) ?? notConfigured);
+      const probedRow = probed.get(row.model);
+      const status = statusOf('chat', row.model, probedRow?.probe ?? notConfigured);
       return {
         task: row.task,
         model: row.model,
         overridden: row.overridden,
         state: status.state,
         capabilities: status.capabilities,
+        jsonMode: probedRow?.json ?? null,
       };
     }),
     config: providers.config,

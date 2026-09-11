@@ -147,6 +147,17 @@ export function updateRunBudget(
 }
 
 /** 總項目數在擴展裡是「勾了幾條角度」，而那要等使用者勾完才知道。 */
+/**
+ * 補寫這次作業用了哪些 provider（Stage 16）。
+ *
+ * 擴展分兩階段，而**抽取那一個模型的格式保證要到第二階段才確定**
+ * （沒量過的話，第二階段開始前才量）。第一階段寫下的那一份
+ * 在那時候還說不出來，所以這裡整份換掉，不是合併 —— 呼叫端持有完整的那一份。
+ */
+export function updateRunProviders(db: DatabaseSync, id: string, providers: string): void {
+  db.prepare('UPDATE run SET providers_json = ? WHERE id = ?').run(providers, id);
+}
+
 export function updateRunTotal(db: DatabaseSync, id: string, total: number): void {
   db.prepare('UPDATE run SET total = ? WHERE id = ?').run(total, id);
 }

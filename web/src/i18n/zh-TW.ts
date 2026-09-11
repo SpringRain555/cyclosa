@@ -102,6 +102,13 @@ export const errorMessages: Readonly<Record<string, string>> = {
     '偵測到模型在自己的工作目錄裡留下抓取產物，作業已經停下來。所有抓取都必須走同一條擷取管線。請把下面的識別碼交出來。',
   PROVIDER_EMBED_MODEL_MISMATCH:
     '要比對的向量是另一個嵌入模型產生的，所以停下來了。請換回原本的模型，或重新計算這個專題的向量 —— 硬比會得到一個看起來正常的錯答案。',
+  PROVIDER_AUTH_REJECTED:
+    '這個端點拒絕了金鑰。到設定頁看那個環境變數有沒有設、值對不對 —— 它不是連不上，它回了話但不讓你進。',
+  PROVIDER_RATE_LIMITED: '這個端點說請求太多了，作業已經停下來，不會自己重試。等一下再跑一次。',
+  PROVIDER_JSON_UNSUPPORTED:
+    '這個模型在這個端點上連「回一份 JSON」都不保證，所以需要結構化輸出的任務跑不了。請換一個模型或端點 —— 常見的原因是選到了不能對話的模型。',
+  PROVIDER_OUTPUT_SCHEMA_MISMATCH:
+    '模型回了 JSON，但形狀不對，這一項擋下來了，其餘照常。這個端點不保證格式，所以由工具檢查 —— 形狀不對的一律不收。',
   PROVIDER_UNEXPECTED: '模型呼叫出了預期外的問題。請把下面的識別碼交出來。',
 
   // ── 圖與裁決 ──────────────────────────────────────────
@@ -1099,10 +1106,46 @@ export const t = {
     missing: '這個角色要跑的任務需要：{flags}，而目前設定的模型沒有。',
     /** 不自動降級是 ADR-0006 的決定，畫面上要說得出來 */
     noFallback: '配不上就停手，不會自動換一個能力較弱的來跑。',
-    chatBaseUrl: 'Ollama 位址',
+    /**
+     * 連線方式（Stage 16）。本機 Ollama 留在原生協定是量出來的：
+     * OpenAI 相容那條送不了「關掉思考」，同一題慢 9 倍。
+     */
+    transport: '連線方式',
+    transportNames: {
+      ollama: '本機 Ollama',
+      openai: 'OpenAI 相容端點',
+    },
+    transportWhat: {
+      ollama:
+        '走 Ollama 自己的協定。這樣才能關掉模型的思考、指定 context 大小 —— 兩件事都量過會影響結果。',
+      openai:
+        '線上的服務，或別家本機伺服器（vLLM、LM Studio 之類）。位址照那一家的文件寫，通常以 /v1 結尾。',
+    },
+    chatBaseUrl: '位址',
+    chatBaseUrlOpenaiPlaceholder: 'https://api.example.com/v1',
     chatModel: '模型',
     chatModelPick: '選一個本機有的模型',
+    chatModelPickOnline: '選一個這個端點有的模型',
     chatModelsUnreachable: '連不上這個位址，所以列不出有哪些模型。',
+    chatModelsUnreachableOnline:
+      '列不出這個端點的模型。檢查位址是不是以 /v1 結尾，以及金鑰那個環境變數有沒有設。',
+    /**
+     * 「符合格式」由誰保證（Stage 16）。事後檢查是一種降級，
+     * 而它被允許的條件是說出來 —— 所以這一行一定要在。
+     */
+    jsonModeLabel: '格式保證',
+    jsonMode: {
+      schema: '由端點保證（json_schema）',
+      object:
+        '由 Cyclosa 事後檢查。這個端點只保證回一份 JSON，形狀不對的回應一律擋下來、不會寫進專題。',
+      none: '這個模型在這個端點上連 JSON 都不保證，需要結構化輸出的任務（切入角度、抽取關聯）跑不了。常見的原因是選到了不能對話的模型（例如嵌入模型）—— 下面那行是端點自己說的理由。',
+      unchecked:
+        '還沒量過。第一次真的跑任務時會先量一次（一到兩個很小的請求），也可以按「實際打一次」現在量。',
+    },
+    jsonModeNative: '由協定保證（Ollama 的 format 是受限解碼）',
+    jsonCheckedAt: '{date} 量的',
+    /** 各任務那張表：覆寫的模型各有各的格式保證，事後檢查的那幾列要標出來 */
+    taskJsonObject: '事後檢查格式',
     /** 建議值是量出來的，而畫面上要說得出「量了什麼」 */
     chatRecommend: '建議 {model}',
     chatRecommendWhy:
@@ -1208,7 +1251,9 @@ export const t = {
     testFailed: '失敗',
     /** agent 那個按鈕真的會花錢，**按之前要先講** */
     testCostsMoney: '這會真的呼叫一次，可能產生費用。',
+    testCostsMoneyOnline: '這會真的呼叫線上端點，可能產生費用；也會重新量一次格式支援。',
     testFree: '本機模型，不會產生費用。',
+    testJsonMode: '格式保證：{mode}',
   },
 
   common: {

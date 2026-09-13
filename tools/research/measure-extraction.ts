@@ -108,7 +108,7 @@ async function main(): Promise<void> {
     n++;
     console.log(`[${n}/${targets.length}] ${url}`);
 
-    const { outcome, backOff } = await crawler.fetch(url);
+    const { outcome, rateLimited } = await crawler.fetch(url);
     if (outcome.kind === 'error') {
       console.log(`  失敗 ${outcome.code} ${JSON.stringify(outcome.detail)}`);
       const row: Row = {
@@ -130,9 +130,11 @@ async function main(): Promise<void> {
         sample: null,
       };
       await appendFile(out, `${JSON.stringify(row)}\n`, 'utf8');
-      if (backOff) {
-        console.log('  **對方回 429／503，整批停止且不重試。**');
-        break;
+      if (rateLimited) {
+        // 退避重試過了還是被限流：這個 host 這一輪放棄，**其他 host 照量**。
+        console.log(
+          '  **對方回 429／503，退避重試後仍被限流；這個 host 這一輪不再碰，其餘照跑。**',
+        );
       }
       continue;
     }

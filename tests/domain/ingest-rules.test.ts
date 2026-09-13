@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
+  backOffDelayMs,
   clampInterval,
+  DEFAULT_BACKOFF_MS,
+  DEFAULT_INTERVAL_MS,
   effectiveIntervalMs,
   isBackOffSignal,
+  MAX_RATE_LIMIT_RETRIES,
+  MAX_RETRY_AFTER_MS,
   MIN_INTERVAL_MS,
+  parseRetryAfter,
   waitMs,
 } from '../../src/domain/ingest/throttle.js';
 import { displayHost, normalizeUrl } from '../../src/domain/ingest/url.js';
@@ -15,11 +21,18 @@ import {
 } from '../../src/domain/ingest/media-type.js';
 
 describe('節流政策', () => {
-  it('**下限 3 秒是規則不是偏好** —— 小於下限的一律夾住，而不是回錯誤', () => {
+  /**
+   * 數字是設定值，不是規則（CONVENTIONS §17，2026-09-13）—— 但**夾住**這個行為是規則：
+   * 設定成 0 不會變成 0。這一條 2026-09-13 之前寫著「下限 3 秒是規則不是偏好」，
+   * 而那時下限與預設是同一個數字，所以「不是數字就用預設」與「夾到下限」測不出差別。
+   */
+  it('小於下限的一律夾住，而不是回錯誤；不是數字就用預設', () => {
+    expect(MIN_INTERVAL_MS).toBeLessThan(DEFAULT_INTERVAL_MS);
     expect(clampInterval(0)).toBe(MIN_INTERVAL_MS);
     expect(clampInterval(-1)).toBe(MIN_INTERVAL_MS);
-    expect(clampInterval(500)).toBe(MIN_INTERVAL_MS);
-    expect(clampInterval(Number.NaN)).toBe(MIN_INTERVAL_MS);
+    expect(clampInterval(MIN_INTERVAL_MS - 1)).toBe(MIN_INTERVAL_MS);
+    expect(clampInterval(Number.NaN)).toBe(DEFAULT_INTERVAL_MS);
+    expect(clampInterval(Number.POSITIVE_INFINITY)).toBe(DEFAULT_INTERVAL_MS);
   });
 
   it('只能調長', () => {
@@ -38,11 +51,54 @@ describe('節流政策', () => {
     expect(waitMs(1_000, 9_000, 3_000)).toBe(0);
   });
 
-  it('**429 與 503 是唯二的「立即停」**，404 不是', () => {
+  it('**429 與 503 是唯二的退避訊號**，404 與 500 不是', () => {
     expect(isBackOffSignal(429)).toBe(true);
     expect(isBackOffSignal(503)).toBe(true);
     expect(isBackOffSignal(404)).toBe(false);
     expect(isBackOffSignal(500)).toBe(false);
+  });
+});
+
+describe('被限流之後等多久（Retry-After 與預設退避）', () => {
+  const NOW = Date.parse('2026-09-13T08:00:00Z');
+
+  it('Retry-After 的兩種形狀都讀得懂：秒數與 HTTP-date', () => {
+    expect(parseRetryAfter('120', NOW)).toBe(120_000);
+    expect(parseRetryAfter(' 0 ', NOW)).toBe(0);
+    expect(parseRetryAfter('Sun, 13 Sep 2026 08:00:30 GMT', NOW)).toBe(30_000);
+  });
+
+  it('過去的日期是 0（現在就可以），不是負數', () => {
+    expect(parseRetryAfter('Sun, 13 Sep 2026 07:59:00 GMT', NOW)).toBe(0);
+  });
+
+  it('**讀不出來就當沒有** —— 一個寫壞的標頭不該讓我們比沒有標頭時更急', () => {
+    expect(parseRetryAfter(null, NOW)).toBeNull();
+    expect(parseRetryAfter('', NOW)).toBeNull();
+    expect(parseRetryAfter('soon', NOW)).toBeNull();
+    expect(parseRetryAfter('-5', NOW)).toBeNull();
+  });
+
+  it('沒有 Retry-After → 照預設退避，次數用完就放棄', () => {
+    expect(DEFAULT_BACKOFF_MS.length).toBe(MAX_RATE_LIMIT_RETRIES);
+    for (let attempt = 0; attempt < MAX_RATE_LIMIT_RETRIES; attempt++) {
+      expect(backOffDelayMs(null, attempt)).toBe(DEFAULT_BACKOFF_MS[attempt]);
+    }
+    expect(backOffDelayMs(null, MAX_RATE_LIMIT_RETRIES)).toBe('give-up');
+  });
+
+  it('**對方有說就聽對方的，不打折** —— 比預設短也照它的', () => {
+    expect(backOffDelayMs(0, 0)).toBe(0);
+    expect(backOffDelayMs(2_000, 0)).toBe(2_000);
+    expect(backOffDelayMs(MAX_RETRY_AFTER_MS, 1)).toBe(MAX_RETRY_AFTER_MS);
+  });
+
+  it('對方要我們等超過上限 → 不等，這一輪放棄', () => {
+    expect(backOffDelayMs(MAX_RETRY_AFTER_MS + 1, 0)).toBe('give-up');
+  });
+
+  it('次數用完了，對方說 0 秒也不再試', () => {
+    expect(backOffDelayMs(0, MAX_RATE_LIMIT_RETRIES)).toBe('give-up');
   });
 });
 

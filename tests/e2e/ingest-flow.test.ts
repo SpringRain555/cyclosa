@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createCase } from '../../src/application/case-service.js';
+import { configuredIntervalMs } from '../../src/application/fetch-policy.js';
 import { isActive, startUrlImport } from '../../src/application/ingest-service.js';
 import { getRun } from '../../src/application/run-service.js';
 import { getItemContent, listItems } from '../../src/application/item-service.js';
@@ -141,13 +142,15 @@ describe('匯入一批 URL', () => {
     expect(hits.some((h) => h.path === '/robots.txt')).toBe(true);
   });
 
-  it('**同網域的請求間隔 ≥ 3 秒，而且是從伺服器端量的**', () => {
-    // 2900 而不是 3000：計時器的解析度與 `Date.now()` 的粒度會差幾毫秒。
+  it('**同網域的請求間隔照設定值走，而且是從伺服器端量的**', () => {
+    // 少 100 毫秒：計時器的解析度與 `Date.now()` 的粒度會差幾毫秒。
     // 精確的界線由 `waitMs` 的單元測試守著；這裡要證明的是「節流真的存在」——
-    // 沒有節流的話這些間隔會是個位數毫秒。
+    // 沒有節流的話這些間隔會是個位數毫秒。數字從程式讀，不在這裡寫第二份（ADR-0031）；
+    // `vitest.config.ts` 把 `CYCLOSA_FETCH_INTERVAL_MS` 清空，所以這裡量的是預設值。
+    const interval = configuredIntervalMs();
     for (let i = 1; i < hits.length; i++) {
       const gap = (hits[i]?.at ?? 0) - (hits[i - 1]?.at ?? 0);
-      expect(gap).toBeGreaterThanOrEqual(2_900);
+      expect(gap).toBeGreaterThanOrEqual(interval - 100);
     }
     expect(hits.length).toBeGreaterThanOrEqual(4);
   });

@@ -11,13 +11,17 @@ import {
   parseRobots,
   type RobotsPolicy,
 } from '../../domain/ingest/robots.js';
-import { isBackOffSignal } from '../../domain/ingest/throttle.js';
+import { isBackOffSignal, parseRetryAfter } from '../../domain/ingest/throttle.js';
 import { USER_AGENT } from './fetcher.js';
 
 export interface RobotsResult {
   readonly policy: RobotsPolicy;
-  /** 對方回 429／503 —— 整批要立即停。 */
-  readonly backOff: boolean;
+  /**
+   * 對方對 `robots.txt` 本身回 429／503 —— 這個 host 要退避，跟頁面被限流走同一條路。
+   * **這種結果不進快取**：快取的話這個 origin 在這一台 Crawler 的餘生都是「全部不准」，
+   * 退避重試就變成假的 —— 它連 robots 都不會再問一次。
+   */
+  readonly backOff: { readonly status: number; readonly retryAfterMs: number | null } | null;
   /** 這一份是怎麼來的，寫進日誌用。 */
   readonly source: 'fetched' | 'absent' | 'unreachable' | 'cached';
 }
@@ -49,23 +53,28 @@ export class RobotsCache {
       });
 
       if (isBackOffSignal(res.status)) {
+        const retryAfterMs = parseRetryAfter(res.headers.get('retry-after'), Date.now());
         await res.body?.cancel().catch(() => undefined);
-        result = { policy: DISALLOW_ALL, backOff: true, source: 'unreachable' };
+        return {
+          policy: DISALLOW_ALL,
+          backOff: { status: res.status, retryAfterMs },
+          source: 'unreachable',
+        };
       } else if (res.status >= 400 && res.status < 500) {
         // **4xx ＝ 沒有規則 ＝ 可以抓**（RFC 9309 §2.3.1.3）
         await res.body?.cancel().catch(() => undefined);
-        result = { policy: ALLOW_ALL, backOff: false, source: 'absent' };
+        result = { policy: ALLOW_ALL, backOff: null, source: 'absent' };
       } else if (!res.ok) {
         // **5xx ＝ 拿不到 ＝ 當成全部不准**（§2.3.1.4）。
         // 這與上面那條**方向相反**，而它們很容易被寫成同一條。
         await res.body?.cancel().catch(() => undefined);
-        result = { policy: DISALLOW_ALL, backOff: false, source: 'unreachable' };
+        result = { policy: DISALLOW_ALL, backOff: null, source: 'unreachable' };
       } else {
         const text = (await res.text()).slice(0, MAX_ROBOTS_BYTES);
-        result = { policy: parseRobots(text), backOff: false, source: 'fetched' };
+        result = { policy: parseRobots(text), backOff: null, source: 'fetched' };
       }
     } catch {
-      result = { policy: DISALLOW_ALL, backOff: false, source: 'unreachable' };
+      result = { policy: DISALLOW_ALL, backOff: null, source: 'unreachable' };
     }
 
     this.cache.set(origin, result);

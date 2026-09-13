@@ -117,7 +117,7 @@ export interface SourceCandidate {
   readonly why: string;
 }
 
-/** 一條角度最多帶幾個網址回來。**同網域間隔 3 秒**，所以這個數字就是等待時間。 */
+/** 一條角度最多帶幾個網址回來。**同網域之間有間隔**（預設 3 秒），所以這個數字就是等待時間。 */
 export const MAX_URLS_PER_ANGLE = 6;
 
 /** 候選 URL 與它的理由各自的長度上限。**同樣要進 schema。** */

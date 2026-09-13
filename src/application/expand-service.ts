@@ -40,7 +40,7 @@ import {
   type AngleOutcome,
   type RunStatus,
 } from '../domain/ingest/state.js';
-import { DEFAULT_INTERVAL_MS } from '../domain/ingest/throttle.js';
+import { configuredIntervalMs } from './fetch-policy.js';
 import { displayHost } from '../domain/ingest/url.js';
 import {
   DEFAULT_BUDGET,
@@ -522,8 +522,10 @@ async function processExpansion(
     const startedAt = Date.now();
     const abort = new AbortController();
     const crawler = new Crawler({
-      intervalMs: DEFAULT_INTERVAL_MS,
+      intervalMs: configuredIntervalMs(),
       onEvent: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.waitedMs }),
+      onBackOff: (e) =>
+        state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.delayMs }),
     });
     // **取消 ＝ 殺子程序 ＋ 停爬蟲。已寫入的保留。**
     state.cancellable = {

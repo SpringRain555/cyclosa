@@ -10,7 +10,15 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { api, type Angle, type ApiError, type RebuildReport, type Run, type RunItem } from '../api';
+import {
+  api,
+  type Angle,
+  type ApiError,
+  type FetchPolicy,
+  type RebuildReport,
+  type Run,
+  type RunItem,
+} from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 
@@ -45,6 +53,11 @@ const urls = ref('');
 const busy = ref(false);
 const dragging = ref(false);
 const throttleNow = ref<{ host: string; ms: number } | null>(null);
+/** 那一列的數字從程式讀（`/api/system/fetch-policy`），不寫死在 i18n 裡。 */
+const policy = ref<FetchPolicy | null>(null);
+void api.fetchPolicy().then((r) => {
+  if (r.ok) policy.value = r.data;
+});
 
 let stream: EventSource | null = null;
 
@@ -444,8 +457,12 @@ async function rebuild(): Promise<void> {
     <!-- **這一列一直在畫面上。** 它是這個工具對外的行為承諾。 -->
     <section class="throttle">
       <span class="label">{{ t.runs.throttleTitle }}</span>
-      <span class="rule">{{ t.runs.throttleInterval }}</span>
-      <span class="rule">{{ t.runs.throttleBackoff }}</span>
+      <span v-if="policy" class="rule">
+        {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
+      </span>
+      <span v-if="policy" class="rule">
+        {{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}
+      </span>
       <span class="rule">{{ t.runs.throttleRobots }}</span>
       <span v-if="throttleNow" class="now">
         {{ fill(t.runs.throttleNow, { host: throttleNow.host, ms: throttleNow.ms }) }}

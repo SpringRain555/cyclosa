@@ -90,6 +90,16 @@ export interface DataRootInfo {
   pointerPath: string;
 }
 
+/** 對外抓取的規矩。**數字從程式讀**，畫面不自己寫一份。 */
+export interface FetchPolicy {
+  intervalMs: number;
+  minIntervalMs: number;
+  intervalSource: 'default' | 'env';
+  maxRetries: number;
+  backOffMs: number[];
+  maxRetryAfterMs: number;
+}
+
 /**
  * 刪除之前要先看見的東西。**`done` 是 false 的那一次一個檔都沒動** ——
  * 那一次回的是「你按下去會失去什麼」。
@@ -714,6 +724,7 @@ export interface ExportSummary {
 
 export const api = {
   dataRoot: () => request<DataRootInfo>('/api/system/data-root'),
+  fetchPolicy: () => request<FetchPolicy>('/api/system/fetch-policy'),
   setDataRoot: (dataRoot: string) =>
     request<DataRootInfo>('/api/system/data-root', {
       method: 'POST',

@@ -23,6 +23,8 @@ export default defineConfig({
       // 而 **PowerShell 5.1 把原生指令的 stderr 當成錯誤**，
       // 所以那些日誌還會讓 Verify.ps1 誤判成失敗。
       CYCLOSA_LOG_LEVEL: 'silent',
+      // 節流間隔一律用預設值：開發機上設了這個變數的話，e2e 的間隔量測與整包的時間都會跟著變。
+      CYCLOSA_FETCH_INTERVAL_MS: '',
       // `os.tmpdir()` 在 Windows 上讀這兩個。沙箱一律進 repo 的 tmp/vitest/。
       TMP: SANDBOX_ROOT,
       TEMP: SANDBOX_ROOT,

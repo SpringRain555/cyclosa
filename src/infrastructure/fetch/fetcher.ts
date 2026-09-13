@@ -6,7 +6,7 @@
  */
 import { USER_AGENT_TOKEN } from '../../domain/ingest/robots.js';
 import { normalizeUrl } from '../../domain/ingest/url.js';
-import { isBackOffSignal } from '../../domain/ingest/throttle.js';
+import { isBackOffSignal, parseRetryAfter } from '../../domain/ingest/throttle.js';
 import type { ErrorCode } from '../../domain/errors/codes.js';
 
 /** 單一資源的大小上限。超過就是 `FETCH_TOO_LARGE`，不是把記憶體吃光。 */
@@ -39,7 +39,10 @@ export type FetchOutcome =
       readonly kind: 'error';
       readonly code: ErrorCode;
       readonly detail: Record<string, unknown>;
-      /** **對方在說慢一點**（429／503）。整批立即停止且不重試。 */
+      /**
+       * **對方在說慢一點**（429／503）。這一層只回報，**退避與重試由 `Crawler` 決定**
+       * （`domain/ingest/throttle.ts` 的 `backOffDelayMs`）；`detail.retryAfterMs` 是對方說的。
+       */
       readonly backOff: boolean;
     };
 
@@ -162,13 +165,15 @@ export async function fetchOnce(startUrl: string, gate: HopGate): Promise<FetchO
     }
 
     if (isBackOffSignal(res.status)) {
+      // `Retry-After` 是對方的意願，讀出來交給 Crawler 決定等多久（RFC 9110 §10.2.3）。
+      // 2026-09-13 之前這裡刻意不看它 ——「看了就會想等一下再試」——
+      // 而「等一下再試」正是對方在要求的事，不是要擋的行為。
+      const retryAfterMs = parseRetryAfter(res.headers.get('retry-after'), Date.now());
       await res.body?.cancel().catch(() => undefined);
-      // **立即停，不重試。** `Retry-After` 我們不看 —— 看了就會想「等一下再試」，
-      // 而那正是這條規則要擋住的行為。
       return {
         kind: 'error',
         code: 'FETCH_RATE_LIMITED',
-        detail: { status: res.status, host: parsed.host },
+        detail: { status: res.status, host: parsed.host, retryAfterMs },
         backOff: true,
       };
     }

@@ -37,7 +37,7 @@ import {
 } from '../domain/sources/status.js';
 import { openCaseDatabase } from '../infrastructure/db/database.js';
 import { Crawler } from '../infrastructure/fetch/crawler.js';
-import { DEFAULT_INTERVAL_MS } from '../domain/ingest/throttle.js';
+import { configuredIntervalMs } from './fetch-policy.js';
 import {
   CATALOG,
   normaliseHost,
@@ -362,7 +362,7 @@ export interface ProbeOutcome {
 }
 
 /**
- * 探一個網域。**走的是同一條擷取管線**（robots、同網域間隔、429／503 立刻停）。
+ * 探一個網域。**走的是同一條擷取管線**（robots、同網域間隔、429／503 退避）。
  *
  * 不走那條路的話，這個功能就變成第二條抓取路徑 ——
  * 而 ADR-0006 第 5 條寫的是「開第二條路等於那一層不存在」。
@@ -378,14 +378,14 @@ export interface ProbeOutcome {
  * 每一個目標都是不同的伺服器 —— 一台停掉別台，那條規則就從
  * 「不要打擾對方」變成了「懲罰自己」。
  *
- * 匯入那邊維持整批停，因為**一批 URL 很常是同一個網域**，
- * 而那時候全停才是保守的做法。
- * 兩邊的差別來自輸入的形狀，不是規則不同。
+ * 2026-09-13 起 `Crawler` 自己就是「哪個 host 被限流就放棄哪個，其他照跑」
+ * （`docs/architecture/fetch-policy.md`），所以這裡一台或多台都對。
+ * 維持一個網域一台是為了探測彼此完全獨立 —— 一個探針不該分到別的探針的退避等待。
  */
 async function probeOne(host: string, url: string | null): Promise<ProbeOutcome> {
   if (url === null || url.length === 0) return { host, record: null, skipped: true };
 
-  const crawler = new Crawler({ intervalMs: DEFAULT_INTERVAL_MS });
+  const crawler = new Crawler({ intervalMs: configuredIntervalMs() });
   const result = await crawler.fetch(url);
   const code = result.outcome.kind === 'error' ? result.outcome.code : null;
   const access: SiteAccess = accessFromCode(code);
@@ -394,7 +394,7 @@ async function probeOne(host: string, url: string | null): Promise<ProbeOutcome>
 
 /**
  * 探一批。**同時最多三個網域** —— 併發只跨網域，
- * 而每個網域自己那條「間隔 ≥ 3 秒」的規矩由它自己那台 `Crawler` 守著。
+ * 而每個網域自己那條同網域間隔由它自己那台 `Crawler` 守著。
  */
 const PROBE_CONCURRENCY = 3;
 

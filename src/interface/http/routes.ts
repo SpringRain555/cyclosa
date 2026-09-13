@@ -32,6 +32,7 @@ import {
 } from '../../application/ingest-service.js';
 import { undoRun } from '../../application/undo-service.js';
 import { activeCount } from '../../application/run-registry.js';
+import { describeFetchPolicy } from '../../application/fetch-policy.js';
 import { shutdownSequence, targetOf } from './shutdown.js';
 import { logger } from '../../shared/log.js';
 import {
@@ -143,6 +144,14 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     if (r.ok) ctx.dataRoot = r.data.dataRoot;
     return send(reply, r);
   });
+
+  /**
+   * 對外抓取的規矩，給畫面上那一列用。**數字從程式讀，不寫死在 i18n 裡** ——
+   * 2026-09-13 之前畫面寫著「同網域間隔 3 秒」，與程式的真值只是碰巧相同。
+   */
+  app.get('/api/system/fetch-policy', async (_req, reply) =>
+    reply.code(200).send({ ok: true, data: describeFetchPolicy(), correlationId: 'fetch-policy' }),
+  );
 
   app.post<{ Body: { dataRoot?: unknown } }>('/api/system/data-root', async (req, reply) => {
     const value = req.body?.dataRoot;
@@ -920,7 +929,7 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     send(reply, await removeSource(req.params.host)),
   );
 
-  /** 檢查。**走的是同一條擷取管線** —— robots、同網域間隔、429／503 立刻停。 */
+  /** 檢查。**走的是同一條擷取管線** —— robots、同網域間隔、429／503 退避重試。 */
   app.post<{ Body: { hosts?: unknown } }>('/api/sources/check', async (req, reply) => {
     const raw = req.body?.hosts;
     const hosts = Array.isArray(raw) ? raw.map((h) => String(h)) : null;

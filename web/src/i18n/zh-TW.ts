@@ -61,7 +61,7 @@ export const errorMessages: Readonly<Record<string, string>> = {
   FETCH_ROBOTS_DISALLOWED:
     '這個網站的 robots.txt 不允許抓取這一頁，所以跳過了。需要的話請自己開瀏覽器讀，再把內容貼進來。',
   FETCH_RATE_LIMITED:
-    '對方限流了，已經立刻停止而且不會重試。過一段時間再試 —— 同一個網域的其他項目也一起停了。',
+    '對方限流了。已經照它說的等過、再試過，還是不行 —— 這個網域這一輪先不碰，其他網域照常。過一段時間再重跑這幾項。',
   FETCH_TIMEOUT: '連線逾時。可以重試這一項；反覆逾時通常是對方的問題。',
   FETCH_DNS: '找不到這個網域。檢查網址有沒有打錯，或網路是不是斷了。',
   FETCH_TLS: '這個網站的憑證驗證不通過，所以沒有抓。這個工具不提供忽略憑證的選項。',
@@ -477,7 +477,7 @@ export const t = {
     checking: '檢查中…',
     /** 檢查要說清楚它會送出真的請求，因為這個工具對外的行為是有承諾的。 */
     checkNote:
-      '檢查會對有探針的來源各送一個請求，走的是同一條擷取管線（遵守 robots、同網域間隔 3 秒、收到 429／503 立刻停）。',
+      '檢查會對有探針的來源各送一個請求，走的是同一條擷取管線（遵守 robots、同網域間隔、收到 429／503 退避重試）。',
     noProbe: '沒有探針',
     noProbeWhy:
       '出版社的首頁一律回 200 而文章回 403，所以探首頁沒有意義。這一列的判斷完全來自你自己抓過的結果。',
@@ -636,8 +636,9 @@ export const t = {
     openItem: '開啟',
     /** **這一列一直在畫面上**，因為它是這個工具對外的行為承諾。 */
     throttleTitle: '對外抓取的規矩',
-    throttleInterval: '同網域間隔 3 秒',
-    throttleBackoff: '收到 429／503 立即停不重試',
+    /** 數字由畫面從 `/api/system/fetch-policy` 填進來 —— 這裡不寫死。 */
+    throttleInterval: '同網域間隔 {seconds} 秒',
+    throttleBackoff: '收到 429／503 照 Retry-After 退避，最多再試 {n} 次',
     throttleRobots: '遵守 robots.txt',
     throttleNow: '正在等 {host}（{ms} 毫秒）',
   },

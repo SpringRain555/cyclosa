@@ -17,7 +17,7 @@ import {
   type IngestKind,
 } from '../domain/ingest/media-type.js';
 import { settleRun, type RunStatus } from '../domain/ingest/state.js';
-import { DEFAULT_INTERVAL_MS } from '../domain/ingest/throttle.js';
+import { configuredIntervalMs } from './fetch-policy.js';
 import { displayHost, normalizeUrl } from '../domain/ingest/url.js';
 import { isEmptyContent } from '../domain/ingest/extract-confidence.js';
 import type { ErrorCode } from '../domain/errors/codes.js';
@@ -78,7 +78,7 @@ export interface StartedRun {
 
 /**
  * 貼一批 URL。**立刻回一個 runId，抓取在背景進行** ——
- * 40 個 URL 至少要等 120 秒（同網域 3 秒），而一個等兩分鐘的 HTTP 請求
+ * 40 個 URL 至少要等 120 秒（同網域預設 3 秒），而一個等兩分鐘的 HTTP 請求
  * 會在每一層 proxy 與瀏覽器上遇到不同的逾時。
  */
 export async function startUrlImport(
@@ -126,8 +126,10 @@ export async function startUrlImport(
 
   const state = registry.register(runId);
   const crawler = new Crawler({
-    intervalMs: DEFAULT_INTERVAL_MS,
+    intervalMs: configuredIntervalMs(),
     onEvent: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.waitedMs }),
+    // 被限流而退避也是「正在等這個 host」—— 畫面上同一列。
+    onBackOff: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.delayMs }),
   });
   // 取消匯入 ＝ 停爬蟲。**已寫入的保留。**
   state.cancellable = { stop: () => crawler.stop() };
@@ -186,7 +188,7 @@ async function processUrls(
       if (state.cancelled) break;
 
       // **向量在匯入時就寫**（`ingestBytes` 裡），不是等 Stage 12 回頭補。
-      // 那一步是本機的、大約 0.2 秒，而**下一次抓取本來就要等 ≥3 秒的節流** ——
+      // 那一步是本機的、大約 0.2 秒，而**下一次抓取本來就要等同網域間隔（預設 3 秒）** ——
       // 所以它在牆上時間裡幾乎是免費的。
       const outcome = await processOneUrl(db, folder, crawler, state.runId, entry, providers);
       done++;
@@ -205,20 +207,21 @@ async function processUrls(
       });
       state.channel.emit({ type: 'progress', done, total: queue.length });
 
-      // **429／503 之後整批停下來。** 已經寫入的保留，其餘標成已取消。
+      // 使用者取消 → 停。已經寫入的保留，其餘標成已取消。
+      // **被限流不再整批停**（2026-09-13）：那個 host 這一輪放棄，項目記成 FETCH_RATE_LIMITED
+      // （可重排），其他 host 照跑 —— 見 `crawler.ts` 檔頭。
       if (crawler.isStopped) break;
     }
 
     const now = Date.now();
-    const remaining = runs.cancelPendingItems(db, state.runId, now);
+    // 只有取消會留下 pending 的項目；正常跑完這裡是 0。
+    runs.cancelPendingItems(db, state.runId, now);
 
     let status: RunStatus;
     if (state.cancelled) {
       status = 'cancelled';
-    } else if (crawler.isStopped && remaining > 0) {
-      // 被對方限流而停 —— **有東西寫進去了就是部分失敗**，不是整批失敗
-      status = succeeded > 0 ? 'partial' : 'failed';
     } else {
+      // 被限流的項目算在 failed 裡 —— **有東西寫進去了就是部分失敗**，不是整批失敗
       const action = settleRun(succeeded, failed);
       status =
         action === 'complete' ? 'done' : action === 'complete-partial' ? 'partial' : 'failed';

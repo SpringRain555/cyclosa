@@ -38,6 +38,8 @@ interface Behaviour {
   finish: string;
   /** 錯誤內文要不要把請求標頭回顯出來 —— 有的伺服器真的會 */
   echoHeaders: boolean;
+  /** 前幾次 chat 請求先回 429（帶 `Retry-After: 0`），之後照常 —— 演「排隊一下就好」 */
+  rateLimitFirst: number;
 }
 
 let server: Server;
@@ -72,6 +74,7 @@ beforeEach(async () => {
     answer: JSON.stringify({ ok: true }),
     finish: 'stop',
     echoHeaders: false,
+    rateLimitFirst: 0,
   };
 
   server = createServer((req, res) => {
@@ -79,10 +82,12 @@ beforeEach(async () => {
       const path = (req.url ?? '').replace(/^\/v1/, '');
       const body = await bodyOf(req);
       seen.push({ path, auth: req.headers.authorization, body });
-      const send = (status: number, text: string): void => {
-        res.writeHead(status, { 'content-type': 'application/json' });
+      const send = (status: number, text: string, extra: Record<string, string> = {}): void => {
+        res.writeHead(status, { 'content-type': 'application/json', ...extra });
         res.end(text);
       };
+      // 429 一律帶 `Retry-After: 0`：測的是退避的**次數與順序**，不是等多久。
+      const rateLimited = (): void => send(429, '{"error":"slow down"}', { 'retry-after': '0' });
 
       if (path === '/models') {
         if (behaviour.models === 'auth') return send(401, '{"error":"bad key"}');
@@ -94,6 +99,10 @@ beforeEach(async () => {
       }
 
       if (path === '/chat/completions') {
+        if (behaviour.rateLimitFirst > 0) {
+          behaviour.rateLimitFirst -= 1;
+          return rateLimited();
+        }
         const fmt = body['response_format'] as { type?: string } | undefined;
         const messages = (body['messages'] as { content: string }[]) ?? [];
         const isProbe = messages.some((m) => m.content.includes('介紹你自己'));
@@ -101,7 +110,7 @@ beforeEach(async () => {
 
         if (fmt?.type === 'json_schema') {
           if (behaviour.schema === 'auth') return send(401, '{"error":"bad key"}');
-          if (behaviour.schema === 'rate-limited') return send(429, '{"error":"slow down"}');
+          if (behaviour.schema === 'rate-limited') return rateLimited();
           if (behaviour.schema === 'rejected') {
             // 回顯在最前面：落在截斷的範圍之內，測得到的才是遮蔽本身，不是截斷剛好藏掉它。
             const echo = behaviour.echoHeaders ? ` auth=${req.headers.authorization ?? ''}` : '';
@@ -252,10 +261,23 @@ describe('格式量測（checkJson）', () => {
     expect((await readJsonChecks(env)).size).toBe(0);
   });
 
-  it('429 只打一次 —— 立刻停、不重試', async () => {
+  /**
+   * **429 照官方 SDK 的做法退避重試**（`domain/provider/rate-limit.ts`）：
+   * 一直 429 就是 1 次 ＋ 2 次重試 ＝ 3 個請求，然後才是 `PROVIDER_RATE_LIMITED`。
+   * 2026-09-13 之前這一條寫著「只打一次 —— 立刻停、不重試」。
+   */
+  it('一直 429 → 打三次（退避兩次）才放棄', async () => {
     behaviour.schema = 'rate-limited';
-    await chat().checkJson!();
-    expect(completions()).toBe(1);
+    const r = await chat().checkJson!();
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_RATE_LIMITED');
+    expect(completions()).toBe(3);
+  });
+
+  it('429 一次之後就好了 → 量測成功，總共兩個請求', async () => {
+    behaviour.rateLimitFirst = 1;
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('schema');
+    expect(completions()).toBe(2);
   });
 });
 

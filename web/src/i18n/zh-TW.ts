@@ -104,7 +104,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
     '要比對的向量是另一個嵌入模型產生的，所以停下來了。請換回原本的模型，或重新計算這個專題的向量 —— 硬比會得到一個看起來正常的錯答案。',
   PROVIDER_AUTH_REJECTED:
     '這個端點拒絕了金鑰。到設定頁看那個環境變數有沒有設、值對不對 —— 它不是連不上，它回了話但不讓你進。',
-  PROVIDER_RATE_LIMITED: '這個端點說請求太多了，作業已經停下來，不會自己重試。等一下再跑一次。',
+  PROVIDER_RATE_LIMITED:
+    '這個端點說請求太多了。已經照它說的等過、再試了兩次還是一樣，作業停下來了。等一下再跑一次。',
   PROVIDER_JSON_UNSUPPORTED:
     '這個模型在這個端點上連「回一份 JSON」都不保證，所以需要結構化輸出的任務跑不了。請換一個模型或端點 —— 常見的原因是選到了不能對話的模型。',
   PROVIDER_OUTPUT_SCHEMA_MISMATCH:

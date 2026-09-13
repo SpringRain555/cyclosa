@@ -16,3 +16,4 @@ export * from './quote.js';
 export * from './relations.js';
 export * from './sandbox.js';
 export * from './schema-check.js';
+export * from './rate-limit.js';

@@ -148,8 +148,8 @@ export const ERROR_CODES = {
    */
   PROVIDER_AUTH_REJECTED: 'error',
   /**
-   * 端點說太多請求了（HTTP 429，Stage 16）。**立刻停，不重試** ——
-   * 那是這個專案對所有外部服務的同一條規矩，provider 沒有例外。
+   * 端點說太多請求了（HTTP 429，Stage 16），**而且照它說的等過、再試了兩次還是 429**
+   * （`domain/provider/rate-limit.ts`，SDK 式退避）。2026-09-13 之前是「立刻停不重試」。
    */
   PROVIDER_RATE_LIMITED: 'error',
   /**

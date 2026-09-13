@@ -37,12 +37,19 @@
  * - **沒有 `think`、沒有 `num_ctx`**：OpenAI 協定裡沒有這兩個欄位，
  *   送不認得的欄位有的端點會直接 400。context 由對方伺服器管 ——
  *   而那正是本機 Ollama 要留在原生協定的理由（`config.ts` 的 `ChatTransport`）
- * - **沒有重試**：429 立刻停（`PROVIDER_RATE_LIMITED`），跟擷取管線同一條規矩；
- *   形狀不對也不重問一次 —— 那會讓結果來自一組跟畫面上顯示的不同的條件
+ * - **429 照 OpenAI 官方 SDK 的做法退避重試**（`domain/provider/rate-limit.ts`：遵守 `Retry-After`，
+ *   沒有就 0.5 秒 × 2ⁿ，最多兩次），還是 429 才回 `PROVIDER_RATE_LIMITED`。
+ *   2026-09-13 之前是「立刻停不重試」—— 那是 agent 做調查時的姿態，對 LLM 端點是錯的。
+ *   **形狀不對不重問** —— 那會讓結果來自一組跟畫面上顯示的不同的條件
  * - **沒有成本上限**：這個協定不回報金額（`usage` 只有 token 數），
  *   所以 `costUsd` 是 `null` —— 不知道，不是 0
  */
-import { conformsTo, type ProviderCapabilities } from '../../domain/provider/index.js';
+import {
+  conformsTo,
+  parseRetryAfter,
+  providerRetryDelayMs,
+  type ProviderCapabilities,
+} from '../../domain/provider/index.js';
 import type { ErrorCode } from '../../domain/errors/codes.js';
 import { CHAT_TIMEOUT_MS, PROBE_TIMEOUT_MS, authHeader, withTimeout } from './http.js';
 import {
@@ -149,6 +156,22 @@ interface Completion {
   readonly errorText: string;
 }
 
+/** 退避時也要聽得到取消：被 abort 就丟出去，讓外面走「連不上／逾時」那條。 */
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(signal.reason ?? new Error('aborted'));
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new Error('aborted'));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 async function complete(
   root: string,
   headers: Readonly<Record<string, string>>,
@@ -156,26 +179,40 @@ async function complete(
   timeoutMs: number,
   signal: AbortSignal | undefined,
 ): Promise<Completion | { readonly thrown: string; readonly timedOut: boolean }> {
+  // **逾時是整次呼叫的預算，含退避的等待** —— 不是每一次重試各自一份。
   const t = withTimeout(timeoutMs, signal);
   try {
-    const res = await fetch(`${root}/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
-      body: JSON.stringify({ stream: false, temperature: 0, ...body }),
-      signal: t.signal,
-    });
-    const text = await res.text();
-    if (!res.ok) return { status: res.status, content: '', finish: null, errorText: text };
-    const json = JSON.parse(text) as {
-      choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
-    };
-    const choice = json.choices?.[0];
-    return {
-      status: res.status,
-      content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
-      finish: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
-      errorText: '',
-    };
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(`${root}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ stream: false, temperature: 0, ...body }),
+        signal: t.signal,
+      });
+      const text = await res.text();
+      if (res.status === 429) {
+        // 端點說排隊。照它說的等（`Retry-After`），沒說就 0.5 秒 × 2ⁿ；最多兩次。
+        const delay = providerRetryDelayMs(
+          parseRetryAfter(res.headers.get('retry-after'), Date.now()),
+          attempt,
+        );
+        if (delay !== 'give-up') {
+          await sleepUnlessAborted(delay, t.signal);
+          continue;
+        }
+      }
+      if (!res.ok) return { status: res.status, content: '', finish: null, errorText: text };
+      const json = JSON.parse(text) as {
+        choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
+      };
+      const choice = json.choices?.[0];
+      return {
+        status: res.status,
+        content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
+        finish: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
+        errorText: '',
+      };
+    }
   } catch (e) {
     return { thrown: String((e as Error).message), timedOut: t.timedOut };
   } finally {

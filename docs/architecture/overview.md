@@ -33,7 +33,7 @@ flowchart TB
   I1 --> LOCAL[本機檔案登記]
 
   subgraph PIPE[擷取管線 · 唯一出口]
-    FQ[排程佇列<br/>同網域 3-5s · robots · 429 立即停]
+    FQ[排程佇列<br/>同網域間隔 · robots · 429 退避重試]
     FQ --> SNAP[["snapshot<br/>原始位元組 + SHA-256 + 抓取時間<br/>不可變"]]
     SNAP --> EXT[extract<br/>正文 · 語言偵測 · 抽取信心值]
     EXT --> RND[render<br/>重構排版]
@@ -93,7 +93,7 @@ src/
 │  ├─ case/               專題生命週期與狀態機
 │  ├─ graph/              node／edge 型別、四層、可信度、邊的狀態機、
 │  │                      墓碑比對鍵、出處規則、投影三段 ←【零依賴】
-│  ├─ ingest/             擷取階段的狀態機與規則
+│  ├─ ingest/             擷取階段的狀態機與規則；節流與退避的數字（唯一宣告處）
 │  ├─ annotation/         W3C 選擇器模型（TextQuote／TextPosition／Fragment）與錨點解析
 │  ├─ text/               空白等價的比對與原文座標 ←【引文與點註共用同一支】
 │  ├─ entity/             實體識別鍵、別名比對、合併建議
@@ -105,7 +105,7 @@ src/
 ├─ application/           用例編排，一律回 Result{ok,code,correlationId}
 ├─ infrastructure/
 │  ├─ db/                 node:sqlite、migrations/、repositories/
-│  ├─ fetch/              節流器、robots、快照寫入、manifest.jsonl
+│  ├─ fetch/              節流器、限流時的退避重試、robots、快照寫入、manifest.jsonl
 │  ├─ extract/            readability＋linkedom、pdfjs、語言偵測、抽取信心
 │  ├─ index/              bigram 表寫入、FTS5、title_rank、向量 BLOB
 │  ├─ providers/          agent/ chat/ embed/

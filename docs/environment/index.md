@@ -83,6 +83,7 @@ npm run build      # server（dist/）＋ 前端（web/dist/）
 | 變數 | 誰讀 | 做什麼 |
 |---|---|---|
 | `CYCLOSA_NODE` | `tools\Launch.ps1` | 指定 `node.exe`，優先於 PATH。PATH 上不是 24.x 時設一次：`setx CYCLOSA_NODE "X:\path\to\node24\node.exe"` |
+| `CYCLOSA_FETCH_INTERVAL_MS` | `src/application/fetch-policy.ts` | 同網域請求間隔（毫秒）。沒設用預設；**小於下限會被夾到下限**，不是照做；不是數字當成沒設。數字與理由在 [`fetch-policy.md`](../architecture/fetch-policy.md)。測試裡由 `vitest.config.ts` 清成預設 |
 | `CYCLOSA_LOG_LEVEL` | `src/shared/log.ts` | 日誌門檻；`silent` 完全不寫（測試用它，因為 e2e 刻意製造失敗） |
 | `CYCLOSA_LOG_FILE` | `src/shared/log.ts` | 同時寫一份日誌到這個檔。`tools\Launch.ps1` 把它設成 `%LOCALAPPDATA%\Cyclosa\logs\server.log` —— 隱藏視窗跑的行程沒有 stderr |
 | `LOCALAPPDATA` | `src/infrastructure/fs/paths.ts` | 指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 與預設資料根的位置；非 Windows 退回 `XDG_DATA_HOME` |

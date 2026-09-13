@@ -66,6 +66,7 @@ LLM 擴展 → 全文／語意檢索 → 證據包匯出**。擴展用的 `chat`
 | `ui-workflows.md` | ✅ | 每一頁做什麼、**不在這裡做什麼** | 元件怎麼實作 |
 | `graph-view.md` | ✅ | 3D 圖的資料來源、佈局、畫法、效能界線、2D 切換 | 關聯的 schema（在 data-model）|
 | `api-contract.md` | ✅ | 端點、請求／回應形狀、錯誤對映（子圖、裁決、匯入…）| 業務規則（在 domain）|
+| `fetch-policy.md` | ✅ | **對外抓取的節奏**：同網域間隔、被限流時怎麼退避、LLM 端點的 429 —— 理由與數字表（數字的正本在 `domain/ingest/throttle.ts`，守門測試逼兩邊一致）| 三條不可談的線（在 agent 檔）、robots 的解析（在 `domain/ingest/robots.ts`）|
 | `storage-layout.md` | ✅ | 資料根目錄版面、指標檔、snapshot 與衍生物的關係 | 資料庫 schema |
 | `error-codes.md` | ✅ | 每個錯誤碼的成因與「使用者該做什麼」 | 錯誤在哪一行被丟出來 |
 | `glossary.md` | ✅ | 中文詞 ↔ 識別字，以及**不可以叫什麼** | 概念的完整定義 |
@@ -140,7 +141,7 @@ LLM 擴展 → 全文／語意檢索 → 證據包匯出**。擴展用的 `chat`
 
 | 文件 | 現況 | 它是什麼的權威 | **不要**寫在這裡 |
 |---|:--:|---|---|
-| `decisions/ADR-0001…0030` | ✅ | 一個決定當時的處境、選項與理由 | 現況（現況會變，ADR 不改）|
+| `decisions/ADR-0001…0031` | ✅ | 一個決定當時的處境、選項與理由 | 現況（現況會變，ADR 不改）|
 | `requirements/REQ-0001…0008` | ✅ | 一項需求的範圍與**邊界（不做什麼）** | 實作方式 |
 | `operations/release-checklist.md` | ✅ | 發布前**只有人才判斷得了**的驗收步驟 | 自動測試涵蓋的東西 |
 | `operations/maintainer-notes.md` | ✅ | **症狀 → 哪個檔 ＋ 哪條測試守著**的查找表 | 任何獨立規則 |

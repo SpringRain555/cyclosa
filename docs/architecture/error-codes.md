@@ -74,7 +74,7 @@
 | `FETCH_BAD_URL` | partial | 貼進來的不是一個 http／https 網址 | 檢查有沒有少了 `https://`、或貼到的是一段文字而不是網址。**`file:`／`javascript:` 不支援，而且是刻意的** |
 | `FETCH_DUPLICATE` | notice | 這份內容已經在專題裡了（SHA-256 相同）| **什麼都沒有失敗。** 同一份東西不會建第二個節點 —— 這一列就是那條規則在運作的證據 |
 | `FETCH_ROBOTS_DISALLOWED` | partial | 該網站的 `robots.txt` 不允許抓這個路徑 | **這一項不會被抓，而且不提供繞過。** 需要的話自己開瀏覽器讀，再用「貼上文字」匯入 |
-| `FETCH_RATE_LIMITED` | partial | 對方回 429 或 503 | **已經立即停止且不重試。** 過一段時間再試；同一個網域的其餘項目也一起停了 |
+| `FETCH_RATE_LIMITED` | partial | 對方回 429 或 503，**照 `Retry-After` 等過、再試兩次還是一樣**；或這個網域在這一輪已經被放棄（`detail.why` 是 `host-limited`，沒有送請求）| 過一段時間再重跑這幾項。**同一個網域排在後面的項目也記成這個碼，其他網域照常**（ADR-0031）|
 | `FETCH_TIMEOUT` | partial | 連線或讀取逾時 | 重試那一項。反覆逾時通常是對方的問題 |
 | `FETCH_DNS` | partial | 網域解析不到 | 檢查網址有沒有打錯、或網路是不是斷了 |
 | `FETCH_TLS` | partial | 憑證驗證失敗 | **不提供忽略憑證的選項。** 那個網站的憑證有問題 |
@@ -112,7 +112,7 @@
 | `PROVIDER_SANDBOX_VIOLATION` | error | **`agent` 的沙箱目錄裡出現了抓取產物** | 這違反「agent 找到的東西不能自己抓」。run 會停下來。把 `correlation_id` 交出來 |
 | `PROVIDER_EMBED_MODEL_MISMATCH` | error | **要比對的向量是另一個嵌入模型產的** | 換回原本的模型，或重算整個專題的向量。**工具不會拿兩個模型的向量硬比** —— 那會回一個看起來正常的錯答案 |
 | `PROVIDER_AUTH_REJECTED` | error | **端點回了話，但拒絕了金鑰**（HTTP 401／403，Stage 16）| 看設定頁那個環境變數是不是設了、值對不對。**不是「連不上」** —— 它明明開著、而且回了話 |
-| `PROVIDER_RATE_LIMITED` | error | 端點說請求太多（HTTP 429，Stage 16）| 等一下再跑。**工具立刻停、不重試** —— 對所有外部服務都是同一條規矩 |
+| `PROVIDER_RATE_LIMITED` | error | 端點說請求太多（HTTP 429，Stage 16），**照 `Retry-After` 等過、再試兩次還是 429** | 等一下再跑。退避照官方 SDK 的慣例（0.5 秒起跳、最多兩次），不是這個工具自己發明的規矩（ADR-0031）|
 | `PROVIDER_JSON_UNSUPPORTED` | error | **這個模型在這個端點上連「回一份 JSON」都不保證**：`json_schema` 與 `json_object` 兩種都量過而且都不成立（Stage 16）。**最常見的原因是選到了不能對話的模型** —— OpenAI 相容端點的 `/models` 會把嵌入模型一起列出來 | 換一個端點或模型。**這一條是停手不是降級** —— 從散文裡撈 JSON 會在模型換一種寫法時安靜地少撈幾條 |
 | `PROVIDER_OUTPUT_SCHEMA_MISMATCH` | partial | 回了一份 JSON，**但形狀不符合這個任務的 schema**。只在端點不保證 schema、由工具事後驗證時出現（Stage 16）| 那一項略過，其餘照常。**形狀不對的一律擋下來** —— 那是抽取時防提示詞注入的第二層，端點不做的時候由工具做 |
 | `PROVIDER_UNEXPECTED` | error | provider 的未預期例外 | 把 `correlation_id` 交出來 |

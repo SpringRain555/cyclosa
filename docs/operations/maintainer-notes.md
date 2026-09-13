@@ -57,9 +57,9 @@
 
 | 症狀 | 看哪裡 | 誰守著 |
 |---|---|---|
-| 匯入很慢（每一項要等三秒）| **那是對的。** 同網域間隔 3 秒是不可違反的規則，不是設定 | `tests/domain/ingest-rules.test.ts`、`tests/e2e/ingest-flow.test.ts`（從伺服器端量）|
+| 匯入很慢（同一個網域每一項要等幾秒）| **那是對的。** 同網域間隔是設定值（預設 3 秒），用 `CYCLOSA_FETCH_INTERVAL_MS` 調，**小於下限會被夾住** —— 數字在 `domain/ingest/throttle.ts`，理由在 `fetch-policy.md` | `tests/domain/ingest-rules.test.ts`、`tests/application/fetch-policy.test.ts`、`tests/e2e/ingest-flow.test.ts`（從伺服器端量）|
 | 某一個網址被跳過，說 robots 不准 | `domain/ingest/robots.ts`。**命中哪一條規則會記在 `run_item.code` 與細節裡** | `tests/domain/robots.test.ts` |
-| 整批突然停了 | 對方回 429／503 → **立即停且不重試**。已寫入的保留，其餘標「已取消」 | `throttle.ts` 的 `isBackOffSignal` |
+| 某一個網域的項目全部記成「對方限流」| 對方回 429／503，照 `Retry-After` 等過、再試兩次還是一樣 → **這一輪不再碰那個網域**，其他網域照跑。過一段時間重跑那幾項。**整批停下來只會是有人按了取消** | `tests/infrastructure/crawler-backoff.test.ts`、`throttle.ts` 的 `backOffDelayMs` |
 | 抓了一個網域卻沒去問 robots | 不該發生。`Crawler` 的 gate **先問 robots 再排節流**，而且**轉址每一跳都重問** | `fetcher.ts` 的 `MAX_REDIRECTS` 那一段 |
 | 同一個網址匯入兩次長出兩個節點 | `item.requested_url` 的唯一索引；內容層另外看 `sha256` | `tests/e2e/ingest-flow.test.ts` |
 | 作業紀錄裡有一列沒有對應的節點 | **正常。** 重複、robots、取消都不會有 `item` —— 這正是 `run_item` 存在的理由 | `data-model.md` |

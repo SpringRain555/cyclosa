@@ -194,6 +194,7 @@
 | `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回兩份模型清單：`chatModels`（**照 `chat` 的傳輸去問**：Ollama 問 `/api/tags`、OpenAI 相容端點問 `/models`）與 `embedModels`（**永遠問嵌入自己那個本機位址**）—— **`null` 代表列不出來**，不是「一個都沒有」。`chat` 的狀態多帶 `transport` 與 `jsonMode`（「符合 schema」由誰保證、什麼時候量的，ADR-0030），`chatTasks` 每一列也各帶一個 `jsonMode`。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
 | `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。`chat.transport` 是 `ollama`／`openai`，**缺或不認得就是 `ollama`**（Stage 16 之前唯一的選項）|
 | `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs, jsonMode}`。**`chat` 走 OpenAI 相容端點時，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
+| `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**作業紀錄頁那一列從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）|
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（Stage 15，見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
 | `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**（Stage 15）|

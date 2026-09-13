@@ -1,0 +1,21 @@
+{
+  // 這一份進版控，所以裡面沒有機器路徑。Node 專案沒有直譯器要指，只把 lint／格式化
+  // 接上專案自己的設定（eslint.config.js、.prettierrc.json），編輯器不要另有一套規則。
+  "eslint.validate": ["javascript", "typescript", "vue"],
+  "prettier.requireConfig": true,
+  "[typescript]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[vue]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[json]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+  "[css]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+
+  // .prettierrc.json 的 endOfLine 是 lf，.gitattributes 對原始碼也宣告 eol=lf ——
+  // 編輯器新開的檔案要跟著，不然 prettier --check 會對它報格式錯。
+  "files.eol": "\n",
+
+  // CONVENTIONS §8：.md／.json 無 BOM；.ps1／.psm1 必須有 BOM（PS 5.1 否則當 Big5 讀）。
+  "files.encoding": "utf8",
+  "[powershell]": {
+    "files.encoding": "utf8bom",
+    "files.eol": "\r\n"
+  }
+}

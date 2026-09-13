@@ -39,6 +39,10 @@ coverage/
 # package-lock.json 要進版控 —— 它是環境定義的一部分（§12）
 
 # ══ Cyclosa 自己的 ═════════════════════════════════════════
+# VS Code 的專案設定進版控（只接 eslint／prettier 與編碼規則，裡面沒有機器路徑）；
+# 基底把 .vscode/* 全忽略，這裡只放行這一個檔。
+!.vscode/settings.json
+
 # 專題資料一律在 repo 外的資料根目錄（見 AGENTS.md）。這幾條是保險 ——
 # 萬一有人把資料夾指錯地方，至少不會直接進版控。
 *.sqlite

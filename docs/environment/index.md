@@ -48,8 +48,8 @@ npm ci             # 照 lock 檔裝（不是 npm install）
 
 | 指令 | 現況 | 做什麼 |
 |---|:--:|---|
-| `.\Verify.ps1` | ✅ | lint ＋ prettier ＋ 型別（server／web 兩套）＋ 134 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
-| `.\Verify.ps1 -Report` | ✅ | 另外產出去識別化的環境快照到 `snapshots/` |
+| `.\tools\Verify.ps1` | ✅ | lint ＋ prettier ＋ 型別（server／web 兩套）＋ 134 個測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
+| `.\tools\Verify.ps1 -Report` | ✅ | 另外產出去識別化的環境快照到 `snapshots/` |
 | `npm test` | ✅ | 只跑測試 |
 | `npm run typecheck` | ✅ | `tsc` ＋ `vue-tsc` |
 | `npm run lint` | ✅ | `eslint` ＋ `prettier --check` |
@@ -64,7 +64,7 @@ npm ci             # 照 lock 檔裝（不是 npm install）
 
 ## 環境快照
 
-`snapshots/` 由 `.\Verify.ps1 -Report` 產生，**是產生物，不要手改**。
+`snapshots/` 由 `.\tools\Verify.ps1 -Report` 產生，**是產生物，不要手改**。
 
 快照**必須去識別化**：使用者名、機器名與絕對路徑一律不寫，
 只留 Node／npm 版本、OS 版本、SQLite 版本這類與人無關的事實 ——

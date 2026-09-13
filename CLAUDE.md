@@ -154,7 +154,7 @@
 |---|---|
 | **執行環境** | 系統 Node **24.x**（`engines` 與 `.node-version` 都宣告）。沒有 conda、沒有 Python、沒有原生模組 —— 資料庫用內建的 `node:sqlite`。**下界 24 只有一個理由：`node:sqlite`**（「Vite 8 要 Node 24」是假的，見 `docs/lessons.md`）|
 | **資料邊界** | 見下一節。**這是這份文件裡最重要的一節** |
-| **產生物，不可手改** | `dist/`、`web/dist/`（跑 `npm run build`）｜`docs/architecture/diagrams/*.svg` ＋ `manifest.json`（跑 `tools\diagrams\Render-Diagrams.ps1`）｜`AGENTS.md`（跑 `tools\Sync-AgentDocs.ps1`，本文取自 `CLAUDE.md`）｜`docs/environment/snapshots/`（跑 `.\Verify.ps1 -Report`）|
+| **產生物，不可手改** | `dist/`、`web/dist/`（跑 `npm run build`）｜`docs/architecture/diagrams/*.svg` ＋ `manifest.json`（跑 `tools\diagrams\Render-Diagrams.ps1`）｜`AGENTS.md`（跑 `tools\Sync-AgentDocs.ps1`，本文取自 `CLAUDE.md`）｜`docs/environment/snapshots/`（跑 `.\tools\Verify.ps1 -Report`）|
 | **單一真實來源** | schema → `docs/architecture/data-model.md`（migration 在 `src/infrastructure/db/migrations/`）｜錯誤碼 → `src/domain/errors/codes.ts`｜UI 字串 → `web/src/i18n/zh-TW.ts`｜顏色 → `web/src/styles/tokens.css`。**前三者由 `tests/guards/` 守著**（三邊對照、任一邊多一個少一個就紅）|
 | **命名** | 動手前讀 `docs/architecture/glossary.md` 的「**不可以叫什麼**」那一節。`document`／`node`／`link`／`score`／`report`／`user` 都是有具體壞法的名字 |
 
@@ -262,14 +262,14 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 **改完跑這一支，全綠才算收尾**：
 
 ```powershell
-.\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
-.\Verify.ps1 -Report  # 另外產出去識別化的環境快照
+.\tools\Verify.ps1          # lint ＋ prettier ＋ 型別 ＋ 測試 ＋ 兩份 agent 檔比對 ＋ 圖表是否過期
+.\tools\Verify.ps1 -Report  # 另外產出去識別化的環境快照
 ```
 
 | | 現況 |
 |---|:--:|
-| `.\Verify.ps1` | ✅ 2026-09-11 實跑全綠 |
-| `Start Cyclosa.cmd`／`.\Launch.ps1` | ✅ 起 server、開瀏覽器 |
+| `.\tools\Verify.ps1` | ✅ 2026-09-13 實跑全綠 |
+| `start_cyclosa.cmd`／`.\tools\Launch.ps1` | ✅ 起 server、開瀏覽器（2026-09-13 之前叫 `Start Cyclosa.cmd`，邏輯在根目錄）|
 | `npm test` | ✅ **數量不寫在這裡** —— 寫死的數字每一版都會漂 |
 | `npm run build` | ✅ |
 

@@ -16,9 +16,9 @@
 
 | 路徑 | 埠被佔用時 | 版本比對 | 寫 `server.log` | 開瀏覽器 |
 |---|---|:--:|:--:|:--:|
-| 雙擊 `Start Cyclosa.cmd` | 開既有的 | ✅ | ✅ | ✅ |
-| `.\Launch.ps1`（終端機） | 開既有的 | ✅ | ✅ | ✅ |
-| `.\Launch.ps1 -Foreground` | 開既有的 | ✅ | ❌（直接印在視窗裡） | ❌（刻意） |
+| 雙擊 `start_cyclosa.cmd` | 開既有的 | ✅ | ✅ | ✅ |
+| `.\tools\Launch.ps1`（終端機） | 開既有的 | ✅ | ✅ | ✅ |
+| `.\tools\Launch.ps1 -Foreground` | 開既有的 | ✅ | ❌（直接印在視窗裡） | ❌（刻意） |
 | `npm start` | **印一句話並 exit 0** | ❌ | ❌ | ❌ |
 | `npm run dev:server` ＋ `npm run dev` | **印一句話並 exit 0** | ❌ | ❌ | ❌ |
 
@@ -34,8 +34,8 @@
 
 ```mermaid
 flowchart TD
-  S1["雙擊 Start Cyclosa.cmd"] --> L["Launch.ps1"]
-  S2["Launch.ps1（從終端機）"] --> L
+  S1["雙擊 start_cyclosa.cmd"] --> L["tools/Launch.ps1"]
+  S2["tools/Launch.ps1（從終端機）"] --> L
   L --> P{"打 healthz：7433 上是誰"}
   P -->|"沒有人"| N1["檢查 Node 24 → node_modules → 產物是否比原始碼舊"]
   P -->|"是 Cyclosa，版本相同"| O1["不起第二個，直接開瀏覽器 → exit 0"]

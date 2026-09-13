@@ -1,7 +1,7 @@
 ﻿# ┌────────────────────────────────────────────────────────────────┐
 # │  如果你是「雙擊這個檔、結果跳出記事本」才看到這一行 ——          │
 # │  那不是壞掉。Windows 對 .ps1 的預設動作是「編輯」，不是「執行」。│
-# │  要啟動請雙擊同一個資料夾裡的  Start Cyclosa.cmd                │
+# │  要啟動請雙擊專案根目錄的  start_cyclosa.cmd                    │
 # └────────────────────────────────────────────────────────────────┘
 
 <#
@@ -9,7 +9,8 @@
     一鍵啟動：檢查 Node、需要時裝相依與建置、起 server、開瀏覽器。
 
 .DESCRIPTION
-    **雙擊 `Start Cyclosa.cmd` 就是跑這一支。**
+    **雙擊根目錄的 `start_cyclosa.cmd` 就是跑這一支。** 這支住在 tools\ 底下
+    （CONVENTIONS §12：我們自己的腳本全部在 tools\，根目錄只留工具規定位置的檔案）。
 
     走的是 build 過的產物而不是 dev server —— 驗收要驗的是使用者拿到的那個東西
     （`npm run dev` 另外存在，給開發時的熱重載用）。
@@ -36,8 +37,8 @@
     **「它開不起來」的時候用這個看完整錯誤。**
 
 .EXAMPLE
-    .\Launch.ps1
-    .\Launch.ps1 -Foreground
+    .\tools\Launch.ps1
+    .\tools\Launch.ps1 -Foreground
 #>
 [CmdletBinding()]
 param(
@@ -46,7 +47,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
+# 這支住在 tools\，專案根目錄是它的上一層。
+$root = Split-Path -Parent $PSScriptRoot
 $port = 7433
 $url = "http://127.0.0.1:$port/"
 
@@ -296,14 +298,14 @@ for ($i = 0; $i -lt 60; $i++) {
         Stop-WithLog 'server 啟動後隨即結束' @(
             '看完整錯誤：'
             "    cd $root"
-            '    .\Launch.ps1 -Foreground'
+            '    .\tools\Launch.ps1 -Foreground'
         )
     }
     if ((Get-PortOwner) -eq 'cyclosa') { $ready = $true; break }
 }
 if (-not $ready) {
     if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-    Stop-WithLog '等不到 server 回應' @("預期位置：$url", '看完整錯誤：.\Launch.ps1 -Foreground')
+    Stop-WithLog '等不到 server 回應' @("預期位置：$url", '看完整錯誤：.\tools\Launch.ps1 -Foreground')
 }
 
 Write-Ok "已啟動：$url"

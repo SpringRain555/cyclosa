@@ -5,7 +5,7 @@
 .DESCRIPTION
     **每個 Stage 收尾都要跑這一支，而且要全綠才算收尾。**
 
-    它刻意**不建置** —— 建置是 Launch.ps1 的事。
+    它刻意**不建置** —— 建置是 tools\Launch.ps1 的事。這支住在 tools\，專案根目錄是它的上一層。
     這一支只回答「現在的原始碼有沒有問題」。
 
 .PARAMETER Report
@@ -14,8 +14,8 @@
     使用者名、機器名、絕對路徑一律換成佔位符（REQ-0008）。
 
 .EXAMPLE
-    .\Verify.ps1
-    .\Verify.ps1 -Report
+    .\tools\Verify.ps1
+    .\tools\Verify.ps1 -Report
 #>
 [CmdletBinding()]
 param(
@@ -23,7 +23,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$root = $PSScriptRoot
+$root = Split-Path -Parent $PSScriptRoot
 $failures = @()
 
 function Invoke-Check {
@@ -91,7 +91,7 @@ if ($Report) {
     $lines = @(
         '# 環境快照'
         ''
-        '**產生物。** `Verify.ps1 -Report` 產生，**已去識別化** ——'
+        '**產生物。** `tools\Verify.ps1 -Report` 產生，**已去識別化** ——'
         '沒有使用者名、機器名或絕對路徑，只留與人無關的事實。'
         ''
         "| | |"

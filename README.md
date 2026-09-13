@@ -117,25 +117,25 @@
 
 ## 怎麼跑起來
 
-**雙擊 `Start Cyclosa.cmd`。** 它會檢查 Node 版本 → 需要時 `npm ci` 與建置 →
+**雙擊 `start_cyclosa.cmd`。**（2026-09-13 之前叫 `Start Cyclosa.cmd`；舊的桌面捷徑要重建。）它會檢查 Node 版本 → 需要時 `npm ci` 與建置 →
 起 server → 開瀏覽器 → **然後自己關掉**。
 **第一次啟動不問任何問題** —— 資料根自己建（v0.16.0 起），要換位置在設定頁。
 
 > **那個視窗不是 Cyclosa 的開關**（ADR-0025）：它是一張檢查清單，
 > 做完就退場，server 在背景繼續跑。**要結束用畫面右上角的「結束 Cyclosa」。**
 > 開不起來的時候，紀錄在 `%LOCALAPPDATA%<<B>>Cyclosa<<B>>logs<<B>>server.log`，
-> 或用 `.<<B>>Launch.ps1 -Foreground` 看它印了什麼。
+> 或用 `.\tools\Launch.ps1 -Foreground` 看它印了什麼。
 
-> **不要雙擊 `Launch.ps1`。** Windows 對 `.ps1` 的預設動作是「編輯」——
+> **不要雙擊 `tools\Launch.ps1`。** Windows 對 `.ps1` 的預設動作是「編輯」——
 > 雙擊它會打開記事本，而且看起來就像什麼都沒發生。
-> `Start Cyclosa.cmd` 存在的唯一理由就是這個。
+> `start_cyclosa.cmd` 存在的唯一理由就是這個。
 
 | 指令 | 現況 | 做什麼 |
 |---|:--:|---|
-| `Start Cyclosa.cmd`（雙擊）| ✅ | 一鍵啟動。等同 `.\Launch.ps1` |
-| `.\Launch.ps1` | ✅ | 同上，**但要從終端機跑**。`-SkipBuild` 跳過建置檢查、`-Foreground` 讓 server 留在這個視窗裡 |
-| `.\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含 `tests/guards/` 那一區）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
-| `.\Verify.ps1 -Report` | ✅ | 另外產出**去識別化**的環境快照 |
+| `start_cyclosa.cmd`（雙擊）| ✅ | 一鍵啟動。等同 `.\tools\Launch.ps1` |
+| `.\tools\Launch.ps1` | ✅ | 同上，**但要從終端機跑**。`-SkipBuild` 跳過建置檢查、`-Foreground` 讓 server 留在這個視窗裡 |
+| `.\tools\Verify.ps1` | ✅ | lint ＋ 型別 ＋ 測試（含 `tests/guards/` 那一區）＋ 兩份 agent 檔比對 ＋ 圖表是否過期 |
+| `.\tools\Verify.ps1 -Report` | ✅ | 另外產出**去識別化**的環境快照 |
 | `npm run dev` ＋ `npm run dev:server` | ✅ | 開發用，有熱重載 |
 | `npm test` | ✅ | 跑全部測試（**數量不寫在這裡** —— 寫死的數字每一版都會漂）|
 

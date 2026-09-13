@@ -34,7 +34,7 @@
 
 ## 〇 · 啟動
 
-雙擊 `Start Cyclosa.cmd` → `Launch.ps1` → `node dist/main.js` → `127.0.0.1:7433`。
+雙擊 `start_cyclosa.cmd` → `tools\Launch.ps1` → `node dist/main.js` → `127.0.0.1:7433`。
 指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 說資料在哪。
 **埠被佔用時開既有的那一個，不報錯**（ADR-0020）。
 

@@ -3,9 +3,60 @@
 **記「那一版改了什麼、為什麼」。** 未來的計畫在 `roadmap.md`，
 踩到什麼坑在 `lessons.md`。
 
-目前是 **v0.18.0**（2026-09-11：Stage 16，線上 chat 端點）。
+目前是 **v0.19.0**（2026-09-13：被限流時退避重試；治理骨架對齊）。
 
 ---
+
+## v0.19.0 —— 2026-09-13　被限流時退避重試，不再整批停；骨架對齊 D:\Projects
+
+**不是新的 Stage。** `D:\Projects` 的治理整頓（Phase 3）對齊四個專案的共同慣例，
+而這個專案有一件不只是搬檔案的事：**擷取紀律裡的數字，從規則搬回設定值**（CONVENTIONS §17、ADR-0031）。
+
+### 被限流之後：這個網站退避，其他網站照跑
+
+以前對方回 429／503 就**整批**停、不重試、不看 `Retry-After`。那段話是 agent 替人做調查時的姿態，
+被抄成了產品的正確性條件 —— 而一批網址常常跨很多網站，一個網站限流就讓整批作廢
+（2026-09-08「檢查全部」實際踩過：Semantic Scholar 回 429，後面三個來源一個都沒被檢查）。
+
+現在：讀 `Retry-After`（秒數或 HTTP-date，讀不出來當沒有）→ 照它等，沒有就 5 秒、15 秒 →
+同一個網址最多再試兩次 → 還是不行就記 `FETCH_RATE_LIMITED`（可重排），**那個網站這一輪不再碰**
+（之後排到它的項目不送請求；**轉址的每一跳都查**，短網址繞不過去）→ **其他網站照跑**。
+`Crawler.stop()` 從此只代表使用者取消，退避中按取消每 250 毫秒就聽得到。
+`robots.txt` 本身被限流也走同一條路，而且那個結果**不進快取**（進了的話退避重試就是假的）。
+
+LLM 端點（OpenAI 相容）的 429 改成 SDK 式退避：照 OpenAI 官方 Node SDK 的形狀
+（2026-09-13 對照原始碼：預設重試兩次、0.5 秒 × 2ⁿ），`Retry-After` 太長時放棄而不是改用自己的退避。
+逾時是整次呼叫的預算，含退避的等待。
+
+### 數字只有一個家
+
+- `src/domain/ingest/throttle.ts` 與 `src/domain/provider/rate-limit.ts` 是唯一的宣告處；
+  新文件 `docs/architecture/fetch-policy.md` 寫理由與一張數字表，**新守門** `tests/guards/fetch-policy.test.ts`
+  逼兩邊一致、`src/` 的每一台 `Crawler` 都用 `configuredIntervalMs()`、現行文件不再寫舊規則的說法
+  —— 四件事各注入一次違規驗過會紅。
+- 同網域間隔：預設 3 秒不變，**下限從 3 秒降到 1 秒**，可以用 `CYCLOSA_FETCH_INTERVAL_MS` 調；
+  小於下限一律夾住（設成 0 不會變成 0）。
+- 作業紀錄頁「對外抓取的規矩」那一列的數字從新的 `GET /api/system/fetch-policy` 讀 ——
+  以前寫死在 i18n 裡的「3 秒」與程式的真值只是碰巧相同。
+- 舊規則的說法從現行文件拿掉：agent 檔、README、REQ-0003、架構區六份（error-codes、overview 連圖、
+  ui-workflows、walkthrough、app-lifecycle、data-model）、performance、維運筆記、公開前檢查表、調查區。
+
+**測試 933 → 962**：`crawler-backoff`（七條，真的 HTTP 走 `Crawler`：退避成功、重試用完放棄、
+放棄之後同網站不送請求而別的網站照跑、轉址進被放棄的網站、`Retry-After` 太長、退避中取消、
+robots 被限流不進快取）、`Retry-After` 的解析（`Date.parse` 會把 `-5` 讀成 2001 年，所以先看開頭是不是星期幾）、
+provider 退避、環境變數夾住、守門七條。兩個關鍵檢查（放棄名單在每一跳查、日期開頭檢查）各拔掉一次驗過會紅。
+
+### 骨架對齊（行為零改變）
+
+- `Launch.ps1`／`Verify.ps1` 搬進 `tools\`，**雙擊目標改名 `start_cyclosa.cmd`**（§12／§16）。
+  沙箱 `LOCALAPPDATA` 實跑：10 秒就緒（含第一次建置），第二次啟動開既有的，`shutdown` 帶 `force` 之後埠真的關了。
+- `.gitattributes` 對原始碼宣告 `eol=lf` —— 2026-09-12 工作樹還原之後 prettier 對 238 個沒動過的檔報錯。
+- **測試沙箱搬進 repo 的 `tmp/vitest/`**：程式一個字沒改，整包卻紅了 90 條（e2e 的 `beforeEach` 逾時）——
+  沙箱在使用者的 Temp 上慢三倍（C: 的即時掃描）。lessons 一條。
+- `tools\diagrams\Render-Diagrams.ps1` 與 `tools\Sync-AgentDocs.ps1` 對齊範本 v2；`.vscode\settings.json`；
+  `docs\environment\index.md` 改成 §12 的六段。
+- 修掉過期陳述：啟動器還說「第一次啟動會請你選位置」、agent 檔說指標檔「還不存在」、
+  `docs/index.md` 同時寫 29 項與 26 項、錯誤碼文件說守門「還不存在」、README 的字面 `<<B>>`。
 
 ## v0.18.0 —— 2026-09-11　Stage 16：線上 chat 端點
 

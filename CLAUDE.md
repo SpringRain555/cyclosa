@@ -38,7 +38,10 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：Stage 16「線上 chat 端點」（v0.18.0）
+## 現況：Stage 16 之後的一次對齊（v0.19.0）
+
+**v0.19.0 不是新的 Stage**：被限流時改成退避重試、不再整批停（ADR-0031），
+腳本搬進 `tools\`、雙擊目標改名 `start_cyclosa.cmd`，測試沙箱搬進 repo 的 `tmp/vitest/`。
 
 **roadmap 上的 Stage 表全部是 ✅。** Stage 16 的第一條收尾條件是 🟡：
 線上端點一個都沒量過（這台機器上沒有金鑰），量到的是本機 Ollama 的 `/v1`。

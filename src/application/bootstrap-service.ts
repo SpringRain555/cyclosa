@@ -194,13 +194,14 @@ export async function moveDataRoot(
     await rename(src, to);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
-    // **跨磁碟區搬不能用 `rename`** —— 這是唯一一種要退回「複製再刪」的情形，
-    // 而它也是唯一一種中途失敗會同時留下兩份的情形，所以清乾淨再回報。
+    // **跨磁碟區搬不能用 `rename`** —— 這是唯一一種要退回「複製再刪」的情形。
+    // 複製與刪舊**分開接失敗**，因為兩者失敗時該清的是不同的那一邊。
     if (code === 'EXDEV') {
       try {
         await cp(src, to, { recursive: true });
-        await rm(src, { recursive: true, force: true });
       } catch (e2) {
+        // 複製到一半：舊的原封不動，清掉新位置那半份（上面驗過 `to` 是空的或不存在，
+        // 所以裡面只有這一次放進去的東西）。
         await rm(to, { recursive: true, force: true }).catch(() => undefined);
         const c2 = (e2 as NodeJS.ErrnoException).code;
         logger.error('跨磁碟區搬資料根失敗', {
@@ -210,6 +211,15 @@ export async function moveDataRoot(
         if (c2 === 'ENOSPC') return err('IO_DISK_FULL', cid, { dataRoot: to });
         return err('IO_DATA_ROOT_MOVE_BLOCKED', cid, { from: src, to });
       }
+      // 複製完成之後，**新位置是唯一確定完整的一份**。刪舊的途中失敗（某個檔被別的程式開著）
+      // 時舊的已經少了一部分 —— 這時候回頭刪新的，就是兩邊都不完整（2026-09-13 之前就是這樣寫的）。
+      // 所以照常改指標檔，殘骸留在舊位置：失敗方向是「多一份垃圾」，不是「少一份資料」。
+      await rm(src, { recursive: true, force: true }).catch((e3: unknown) => {
+        logger.warn('資料根已搬到新位置，但舊位置沒刪乾淨', {
+          correlationId: cid,
+          reason: String((e3 as Error).message),
+        });
+      });
     } else {
       logger.warn('資料根搬不動', { correlationId: cid, reason: String((e as Error).message) });
       return err('IO_DATA_ROOT_MOVE_BLOCKED', cid, { from: src, to });

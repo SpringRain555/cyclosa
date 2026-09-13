@@ -312,7 +312,8 @@ Write-Ok "已啟動：$url"
 Start-Process $url
 
 Write-Host ''
-Write-Host '  資料存在專案外的資料根目錄 —— 第一次啟動會請你選一個位置。' -ForegroundColor DarkGray
+Write-Host '  資料存在專案外的資料根目錄 —— 第一次啟動不問任何問題，自動建在 %LOCALAPPDATA%\Cyclosa\data；' -ForegroundColor DarkGray
+Write-Host '  要換位置用設定頁的「資料位置」（會複製、驗證、寫指標，最後才刪舊的）。' -ForegroundColor DarkGray
 # **要結束的路只有一條，而且不在這裡。** 這個視窗等一下就不見了，
 # 所以它不能是關掉 Cyclosa 的方法 —— 那件事在畫面右上角。
 Write-Host '  要結束 Cyclosa，用畫面右上角的「結束 Cyclosa」。' -ForegroundColor DarkYellow

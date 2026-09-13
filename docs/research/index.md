@@ -47,7 +47,7 @@
 | `query-log.md` | ✅ **有了** —— 2026-09-06 起 |
 | `extraction-confidence.md` | ✅ 有內容（2026-09-06 的量測，推翻兩條憑感覺寫的規則）|
 | `embedding-choice.md` | 🟡 **桌面調查完成，實測還沒做**（2026-09-09）|
-| `sources/manifest.jsonl` | ✅ **有了** —— 109 列，108 列有 SHA-256 |
+| `sources/manifest.jsonl` | ✅ **有了** —— 筆數看檔案本身（2026-09-13 是 168 列；這裡曾寫 109、`market-scan.md` 寫 55，三個數字三個時點，沒有一個標日期）|
 
 > ### ⚠️ 那次調查沒有留下查詢紀錄
 >

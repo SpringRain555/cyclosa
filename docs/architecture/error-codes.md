@@ -5,7 +5,7 @@
 
 > **`src/domain/errors/` 才是碼本身的單一真實來源，這份是它的說明。**
 > 一條 AST 測試比對兩邊 —— **任一邊多一個或少一個就紅**（REQ-0008）。
-> **現況：那個目錄與那條測試都還不存在。**
+> 現況：`src/domain/errors/codes.ts` 與 `tests/guards/error-codes.test.ts` 都在，三邊對照（碼 ↔ 這一份 ↔ `i18n/zh-TW.ts`）。
 
 ---
 

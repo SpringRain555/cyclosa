@@ -9,6 +9,13 @@
 
 ## 未發布
 
+### 補上：註解說有、實際沒有的守門 —— schema 只用 `conformsTo` 認得的關鍵字
+
+`domain/provider/schema-check.ts` 的註解一直寫著「`tests/guards/schema-keywords.test.ts` 釘住三份 schema 只用得到這些」，
+而那個檔案不存在（`D:\Projects` 全面檢查文件引用時發現）。現在補上：`ANGLES`／`SOURCES`／`EXTRACT` 三份擴展 schema
+與格式探針的 `PROBE_SCHEMA`，用到的每個關鍵字都要在 `SUPPORTED_KEYWORDS` 裡；在 `ANGLES_SCHEMA` 加一個 `pattern` 時紅過。
+同一次檢查修掉幾處錯的引用與停在九月初的「現況」（設定頁、檢索介面、匯出證據包都已經有了）。
+
 ### 修正：測試會把真的指標檔改成指著測試的沙箱
 
 2026-09-13 一條逾時的 e2e 測試把 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 寫成指著它自己在 Temp 裡的沙箱 ——
@@ -33,7 +40,7 @@ e2e 各自換掉 `LOCALAPPDATA` 再換回真的值，而還沒回應的請求在
 
 ## v0.19.0 —— 2026-09-13　被限流時退避重試，不再整批停；骨架對齊 D:\Projects
 
-**不是新的 Stage。** `D:\Projects` 的治理整頓（Phase 3）對齊四個專案的共同慣例，
+**不是新的 Stage。** 這一版對齊 `D:\Projects` 的共同慣例（四個專案同一天做），
 而這個專案有一件不只是搬檔案的事：**擷取紀律裡的數字，從規則搬回設定值**（CONVENTIONS §17、ADR-0031）。
 
 ### 被限流之後：這個網站退避，其他網站照跑

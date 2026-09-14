@@ -38,5 +38,5 @@
 
 - ADR-0004（資料與程式分離 —— 診斷匯出為什麼要去識別化）
 - ADR-0006（`PROVIDER_CAPABILITY_MISSING`：配不上就停手）
-- `docs/architecture/error-codes.md`（尚未撰寫）
+- `docs/architecture/error-codes.md`
 - `docs/architecture/state-machines.md` —— 擴展作業 Run 的 `部分失敗`

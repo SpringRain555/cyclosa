@@ -275,7 +275,7 @@ if ($Foreground) {
 #
 # 走 ShellExecute 的那兩個不繼承這個主控台，所以這個視窗可以先走 ——
 # 而共用主控台的那一個，會讓視窗一直開到 server 結束為止。
-# （webscouts 的 `_scripts\Start-WebScouts.ps1` 是同一個結論，理由也一樣。）
+# （webscouts 的 `tools\Launch.ps1` 是同一個結論，理由也一樣。）
 $proc = Start-Process -FilePath $node -ArgumentList @($serverEntry) `
     -WorkingDirectory $root -PassThru -WindowStyle Hidden
 

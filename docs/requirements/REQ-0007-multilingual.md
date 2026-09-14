@@ -38,5 +38,5 @@
 ## 相關
 
 - ADR-0009（CJK bigram、`node:sqlite` 的限制）
-- `docs/architecture/multilingual.md`（尚未撰寫）
+- `docs/architecture/multilingual.md`
 - `docs/research/open-questions.md` **Q4**（3D 圖上標籤空間很小，兩個標題塞不下）

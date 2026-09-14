@@ -8,6 +8,20 @@ import { defineConfig } from 'vitest/config';
 export const SANDBOX_ROOT = fileURLToPath(new URL('./tmp/vitest/', import.meta.url));
 
 /**
+ * 測試行程看到的 `%LOCALAPPDATA%`。**整個測試行程都不給真的那一個** ——
+ * 指標檔（`%LOCALAPPDATA%\Cyclosa\system_paths.json`）是從它推導的。
+ *
+ * e2e 測試各自把 `LOCALAPPDATA` 換成自己的沙箱、`afterEach` 再換回來，但「換回來」
+ * 換回的原本是真的值。2026-09-13 一條 e2e 測試逾時，`afterEach` 照跑，而還沒回應的
+ * 「設定資料根」請求在那之後才寫指標檔 —— 寫的是**真的**指標檔，指著那條測試的沙箱。
+ * 現在換回來的是這個資料夾，晚到的寫入也落在 `tmp/vitest/` 裡
+ * （`tests/guards/test-isolation.test.ts` 守著）。
+ */
+export const SANDBOX_LOCALAPPDATA = fileURLToPath(
+  new URL('./tmp/vitest/LocalAppData/', import.meta.url),
+);
+
+/**
  * 測試。**與 vite 同一套 pipeline**，所以版本要跟著走
  * （`docs/environment/versions.md` 的「三組要一起升」第一組）。
  */
@@ -28,6 +42,8 @@ export default defineConfig({
       // `os.tmpdir()` 在 Windows 上讀這兩個。沙箱一律進 repo 的 tmp/vitest/。
       TMP: SANDBOX_ROOT,
       TEMP: SANDBOX_ROOT,
+      // 指標檔從這個推導 —— 理由在上面的 SANDBOX_LOCALAPPDATA。
+      LOCALAPPDATA: SANDBOX_LOCALAPPDATA,
     },
   },
 });

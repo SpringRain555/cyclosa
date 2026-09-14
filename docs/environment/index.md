@@ -90,6 +90,7 @@ npm run build      # server（dist/）＋ 前端（web/dist/）
 | `<設定頁填的環境變數名>` | `src/infrastructure/providers/http.ts` | 線上 chat 端點的金鑰。**存的是變數名不是值**，值只在送出請求那一刻讀一次 |
 | `OLLAMA_HOST` | `tools/research/eval-*.ts` | 只有量測腳本讀；App 本身用設定頁的端點位址 |
 | `TMP`／`TEMP` | vitest | 測試沙箱的位置，由 `vitest.config.ts` 釘在 `tmp/vitest/`（§3） |
+| `LOCALAPPDATA` | 指標檔的位置；測試時 vitest | App 從它推導 `Cyclosa\system_paths.json`。**測試行程裡由 `vitest.config.ts` 釘在 `tmp/vitest/LocalAppData/`** —— 否則逾時的測試會把真的指標檔寫成指著沙箱（[`lessons.md`](../lessons.md) 2026-09-14） |
 
 ## 6. 已知的坑
 

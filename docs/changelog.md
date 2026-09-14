@@ -9,6 +9,14 @@
 
 ## 未發布
 
+### 修正：測試會把真的指標檔改成指著測試的沙箱
+
+2026-09-13 一條逾時的 e2e 測試把 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 寫成指著它自己在 Temp 裡的沙箱 ——
+e2e 各自換掉 `LOCALAPPDATA` 再換回真的值，而還沒回應的請求在換回來之後才寫指標檔。
+現在 `vitest.config.ts` 讓整個測試行程的 `LOCALAPPDATA` 都在 `tmp/vitest/LocalAppData/`；
+新守門 `tests/guards/test-isolation.test.ts`（三條，拿掉設定那一行時兩條紅過）。
+這台機器上的指標檔已改回宣告的資料根。細節在 `lessons.md`。
+
 ### 修正：跨磁碟區搬資料根，刪舊的途中失敗會連新的那份一起刪掉
 
 `moveDataRoot` 跨磁碟區時退回「複製再刪」，而複製與刪舊共用一個 `catch`：

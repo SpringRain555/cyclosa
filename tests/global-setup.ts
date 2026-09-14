@@ -18,8 +18,9 @@
  */
 import { mkdir } from 'node:fs/promises';
 
-import { SANDBOX_ROOT } from '../vitest.config.js';
+import { SANDBOX_LOCALAPPDATA, SANDBOX_ROOT } from '../vitest.config.js';
 
 export default async function setup(): Promise<void> {
   await mkdir(SANDBOX_ROOT, { recursive: true });
+  await mkdir(SANDBOX_LOCALAPPDATA, { recursive: true });
 }

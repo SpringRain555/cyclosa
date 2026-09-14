@@ -2128,3 +2128,31 @@ Windows 上某個檔被別的程式開著就會發生）來到這裡時，舊位
 
 **影響範圍**：全域（任何「複製再刪」的搬移都一樣。tagcor-ledger 的「搬移資料路徑」有同一個形狀，同日一起修；
 rubricator 的搬移資料根留在 v0.2，動手時照這條）
+
+---
+
+## 測試把真的指標檔改成指著自己的沙箱 —— 第二次
+
+**日期**：2026-09-14
+
+**症狀**：`D:\Projects` 檢查資料根時發現，`%LOCALAPPDATA%\Cyclosa\system_paths.json` 指著
+`%LOCALAPPDATA%\Temp\cyclosa-e2e-…\DataRoot` —— 一條 e2e 測試的沙箱，寫入時間 2026-09-13 11:58:19。
+宣告的資料根一直是空的。**下一次正式啟動，專題會建在一個會被清掉的暫存資料夾裡**，而畫面上什麼都不會說。
+2026-09-08 已經發生過一次同樣的事（當時是驗收沙箱，`D:\Projects` CONVENTIONS §11 記著）。
+
+**原因**：e2e 測試各自在 `beforeEach` 把 `process.env.LOCALAPPDATA` 換成沙箱、`afterEach` 換回原值，
+而**原值是真的那一個**。指標檔的位置在寫入那一刻才從 `process.env` 推導。那天沙箱還在使用者的 Temp、
+測試慢到逾時（上一條），`afterEach` 照跑、環境變數換回來了，還沒回應的「設定資料根」請求在那之後才寫指標檔 ——
+寫進真的位置。沙箱留下的 `DataRoot\exports` 與指標檔是同一秒建的；`afterEach` 的 `rm` 已經跑過，所以沙箱沒被清掉。
+
+**怎麼修的**：隔離不靠每一條測試記得換回來。`vitest.config.ts` 讓整個測試行程的 `LOCALAPPDATA` 本來就在
+`tmp/vitest/LocalAppData/`，各測試「換回來」換回的也是沙箱，晚到的寫入落在 repo 的 `tmp/` 裡。
+`tests/guards/test-isolation.test.ts` 守著（把那一行拿掉時兩條紅過）。真的指標檔改回宣告的資料根，
+被換掉的那一份放進 `D:\Claude_Workspace\_temp-trash-can\2026-09-14_cyclosa-pointer-to-e2e-sandbox`。
+
+> **通則**：「測試換掉環境、結束時換回來」只保護得了**同步**的程式。只要受測的東西有一個比測試活得久的
+> 非同步動作（逾時、fire-and-forget、關閉途中的寫入），它就會在換回來之後動手。**測試行程從頭到尾不該拿得到
+> 真的位置** —— 換回來的也必須是假的。
+
+**影響範圍**：全域（有指標檔的專案：webscouts、pokerag-pro、verbatim 在 conftest 一開始就換掉整個行程的狀態目錄，
+rubricator 把 env 物件注入 server 而不改 `process.env`，都不是這個形狀）

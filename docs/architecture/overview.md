@@ -3,16 +3,16 @@
 **這份是分層規則、擷取流程與檔案地圖的權威。** 欄位細節在 `data-model.md`，
 狀態轉移在 `state-machines.md`，兩者都不要在這裡重複。
 
-> **現況（2026-09-08，Stage 11）**：下面的檔案地圖**每一格都存在了**
-> —— 除了 `domain/note/`，它實際上叫 `domain/annotation/`（Stage 10 改的名，
+> **現況（2026-09-08）**：下面的檔案地圖**每一格都存在了**
+> —— 除了 `domain/note/`，它實際上叫 `domain/annotation/`（v0.6.0 改的名，
 > 因為它裝的是選擇器與錨點解析，不是「筆記」這個概念）。
-> Stage 11 另外加了 `domain/export/`。
+> v0.8.0 另外加了 `domain/export/`。
 >
 > **一次完整流程的順序**（從匯入到匯出，以及每一步用不用模型）在
 > `walkthrough.md`，不在這一份。
 >
-> 守門測試從 Stage 5 起有四條，Stage 7 加第五條（沒有整圖端點），
-> Stage 10.5 再加三條（版本號、schema 版本、i18n 純文字）—— **現在八條**。
+> 守門測試從 v0.1.0 起有四條，v0.3.0 加第五條（沒有整圖端點），
+> v0.7.0 再加三條（版本號、schema 版本、i18n 純文字）—— **現在八條**。
 > **每一條都注入過真實違規驗證它會紅。**
 
 ---
@@ -118,7 +118,7 @@ web/src/
 ├─ components/graph/      GraphView.vue（包住 3d-force-graph）、圖例、篩選器、2D 切換
 │                         objects.ts —— three.js 的幾何與材質工廠（顏色仍然只從 tokens.css 讀）
 ├─ components/reader/ notes/ common/
-│                         graph/ExportPanel.vue —— 證據包匯出（Stage 11）
+│                         graph/ExportPanel.vue —— 證據包匯出
 ├─ workers/layout.worker.ts
 ├─ stores/
 ├─ i18n/zh-TW.ts          **所有 UI 字串的唯一來源**

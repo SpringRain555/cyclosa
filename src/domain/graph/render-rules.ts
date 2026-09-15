@@ -97,7 +97,7 @@ export function edgeDrawingOf(edge: {
  *
  * 資料庫那一欄仍然有值（`status` 是 NOT NULL），
  * **但對非 `named` 的層來說那個值沒有意義** —— 它該長什麼樣子是
- * Stage 8 寫入路徑的問題，記在 `open-questions.md` 的 Q6。
+ * v0.4.0 寫入路徑的問題，記在 `open-questions.md` 的 Q6。
  */
 export function edgeLineFor(layer: EdgeLayer, status: EdgeStatus): EdgeLine {
   const drawing = edgeDrawingFor(layer);

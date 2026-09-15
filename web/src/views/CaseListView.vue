@@ -202,7 +202,7 @@ async function clearAllRead(): Promise<void> {
 }
 
 /**
- * 封存與重新開啟。**這一支 API 從 Stage 5 就在，而在這之前零個呼叫點** ——
+ * 封存與重新開啟。**這一支 API 從 v0.1.0 就在，而在這之前零個呼叫點** ——
  * 一個沒有按鈕的狀態轉移，使用者永遠到不了那個狀態。
  */
 const statusBusy = ref(false);
@@ -406,8 +406,8 @@ onMounted(load);
             {{ t.caseList.unreadAll }}
           </button>
           <!--
-            **封存／重新開啟。** 這一支 API 從 Stage 5 就在，
-            而在 Stage 15 之前**零個呼叫點** —— 一個沒有按鈕的狀態轉移，
+            **封存／重新開啟。** 這一支 API 從 v0.1.0 就在，
+            而在 v0.17.0 之前**零個呼叫點** —— 一個沒有按鈕的狀態轉移，
             使用者永遠到不了那個狀態。
           -->
           <button type="button" :disabled="selected === null || statusBusy" @click="toggleArchive">

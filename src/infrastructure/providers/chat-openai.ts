@@ -1,5 +1,5 @@
 /**
- * OpenAI 相容端點當 `chat`（Stage 16）。
+ * OpenAI 相容端點當 `chat`。
  *
  * 線上的（各家 API）與別家本機伺服器（vLLM、LM Studio、llama.cpp 的 server）
  * 都說這一種協定：`GET {baseUrl}/models`、`POST {baseUrl}/chat/completions`。
@@ -234,7 +234,7 @@ function parseJson(content: string): unknown {
  * 對方的錯誤頁可能很長，而且**可能夾著我們送出去的東西** —— 有的伺服器
  * 會把請求標頭回顯在錯誤內文裡。這一段會進 `detail`，而 `detail` 會進日誌、
  * 進 `provider-checks.json`、會在求助時被整份貼出來。金鑰只存名字的那條規矩
- * （Stage 10.5）在這裡如果漏一格，就等於沒有那條規矩。
+ *在這裡如果漏一格，就等於沒有那條規矩。
  *
  * 先遮再截：反過來的話，一把剛好跨在第 160 字上的金鑰會留下前半段。
  */

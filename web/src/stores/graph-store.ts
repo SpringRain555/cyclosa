@@ -48,7 +48,7 @@ export const useGraphStore = defineStore('graph', () => {
   /** 專題是空的 —— **這不是錯誤**，是還沒有東西 */
   const empty = ref(false);
 
-  // ── 裁決（Stage 8）────────────────────────────────────────
+  // ── 裁決────────────────────────────────────────
 
   /** 選取的那一條關聯。**節點與關聯不會同時被選取** —— 右側欄只有一個 */
   const selectedEdgeId = ref<string | null>(null);
@@ -279,11 +279,11 @@ export const useGraphStore = defineStore('graph', () => {
     setFocus,
     setHops,
     select,
-    // 匯出要送出跟這一次查詢**一模一樣**的參數（Stage 11）——
+    // 匯出要送出跟這一次查詢**一模一樣**的參數——
     // 換一組就等於換了一塊，而那時匯出的東西跟畫面上的對不起來。
     query,
 
-    // 裁決（Stage 8）
+    // 裁決
     selectedEdgeId,
     edgeDetail,
     edgeLoading,

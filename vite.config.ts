@@ -18,7 +18,7 @@ export default defineConfig({
       // **前端也要用的純規則從 `domain/` 直接引，不複製一份。**
       // 只有零 I/O 的純函式可以走這條路（`domain/graph` 連 npm 套件都不 import）——
       // 一份規則兩個實作，遲早會分岔，而分岔的那一份會安靜地給出錯的答案。
-      // 這兩個別名在 `tsconfig.web.json` 裡從 Stage 5 就宣告好了。
+      // 這兩個別名在 `tsconfig.web.json` 裡從 v0.1.0 就宣告好了。
       '@domain': fileURLToPath(new URL('./src/domain', import.meta.url)),
       '@shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
     },

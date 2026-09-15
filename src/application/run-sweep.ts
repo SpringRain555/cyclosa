@@ -91,7 +91,7 @@ export function sweepStaleRuns(db: DatabaseSync, slug: string): number {
 }
 
 /**
- * 把卡在「蒐集中」的專題放回「就緒」（Stage 15）。
+ * 把卡在「蒐集中」的專題放回「就緒」。
  *
  * ## 這是一個第二個症狀，而它躲過了 v0.14.0
  *
@@ -103,9 +103,9 @@ export function sweepStaleRuns(db: DatabaseSync, slug: string): number {
  * 正常關閉會把作業寫成 `已取消`（所以孤兒掃描找不到東西可掃、直接早退），
  * 而專題仍然停在 `collecting`。也就是說**那條修好的路反而繞過了這個修復**。
  *
- * ## 為什麼它到 Stage 15 才被看見
+ * ## 為什麼它到 v0.17.0 才被看見
  *
- * 因為在這之前**沒有任何按鈕會讀這個欄位** —— 封存的 API 從 Stage 5
+ * 因為在這之前**沒有任何按鈕會讀這個欄位** —— 封存的 API 從 v0.1.0
  * 就在，而它零個呼叫點。`collecting` 不能封存，
  * 於是一個卡住的專題就是一個**永遠封存不了也說不出為什麼**的專題。
  *

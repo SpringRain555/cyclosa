@@ -81,7 +81,7 @@ OpenAI 相容端點回 429 → 讀 `Retry-After`；沒有就 `PROVIDER_BACKOFF_M
 |---|---|
 | **比所有人都嚴，而且嚴的理由沒有量過** | Scrapy 預設 `DOWNLOAD_DELAY=0`（要禮貌就開 AutoThrottle）、`RETRY_TIMES=2` 且重試碼含 429／503；RFC 6585／9110 為這兩個碼定義了 `Retry-After`，意思就是「等這麼久再來」 |
 | **一個網站限流讓整批停，保護的對象錯了** | 2026-09-08 第一次按「檢查全部」：Semantic Scholar 回 429，排在後面的 Europe PMC、PubMed、Unpaywall 一個都沒被檢查，畫面上顯示「還沒有依據」，看起來像沒事（`source-service.ts`） |
-| **LLM 端點一次 429 讓整個任務作廢** | **這一條是推論，不是事件** —— 線上端點在這台機器上一個都還沒量過（Stage 16 的第一條收尾條件是 🟡）。但擴展的預算是十分鐘、十幾次呼叫，而線上服務的 429 是日常的流量整形 |
+| **LLM 端點一次 429 讓整個任務作廢** | **這一條是推論，不是事件** —— 線上端點在這台機器上一個都還沒量過（v0.18.0 的第一條收尾條件是 🟡）。但擴展的預算是十分鐘、十幾次呼叫，而線上服務的 429 是日常的流量整形 |
 
 **沒有變的**：預設間隔（3 秒）、robots 的判讀、快照與 manifest、「擷取管線是唯一出口」、
 401／403 不繞過。變的只有「被限流之後」與「數字住在哪」。
@@ -95,7 +95,7 @@ OpenAI 相容端點回 429 → 讀 `Retry-After`；沒有就 `PROVIDER_BACKOFF_M
 | 被限流 | 退避重試兩次，仍失敗記碼可重排，那個 host 這一輪放棄，其他照跑 | 記 `ERR_RATE_LIMIT`，可重排 |
 | 數字住在哪 | `domain/ingest/throttle.ts` | `infrastructure/network/bandwidth.py` |
 
-**車道單位是一個已知的差別，這一輪沒有動它**：cyclosa 用 hostname 分車道，
+**車道單位是一個已知的差別，2026-09-13 改成退避重試時沒有動它**：cyclosa 用 hostname 分車道，
 所以同一個站的 `www.` 與 `static.` 會各拿一條、收到兩倍請求。webscouts 的
 `docs/architecture/download-pacing.md` 講過這件事並用 registrable domain 分車道。
 要跟上的時候，改的是 `Crawler` 交給 `HostThrottle` 與放棄名單的那個鍵（現在就是 hostname）——

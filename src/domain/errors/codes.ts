@@ -29,7 +29,7 @@ export const ERROR_CODES = {
   CASE_FOLDER_EXISTS: 'error',
   CASE_ARCHIVED: 'error',
   /**
-   * 改名時資料夾搬不動（Stage 11.5）。
+   * 改名時資料夾搬不動。
    *
    * **不是 `IO_UNEXPECTED`** —— 那個碼的意思是「不知道發生什麼事」，
    * 而這個知道：**有東西正開著那個資料夾。** 最常見的是這個工具自己
@@ -39,21 +39,21 @@ export const ERROR_CODES = {
    */
   CASE_RENAME_BLOCKED: 'error',
   /**
-   * 刪除時打的名字跟專題名對不起來（Stage 15）。
+   * 刪除時打的名字跟專題名對不起來。
    *
    * **這不是驗證失敗，這是那道門本身。** 刪除的守門就是「逐字打對」，
    * 而那個比對**在伺服器端** —— 只在畫面上比的話，那是一個繞得過的提醒。
    */
   CASE_NAME_MISMATCH: 'error',
   /**
-   * 現在這個狀態做不了這個動作（Stage 15）。
+   * 現在這個狀態做不了這個動作。
    *
    * **與 `CASE_ARCHIVED` 分開，因為那個碼會說謊**：作業還在跑的時候按封存，
    * 舊的實作回的是「這個專題已封存」—— 而它明明沒有。
    */
   CASE_STATUS_INVALID: 'error',
   /**
-   * 刪除時資料夾搬不進 `backups\`（Stage 15）。
+   * 刪除時資料夾搬不進 `backups\`。
    *
    * 與 `CASE_RENAME_BLOCKED` 同一個成因（有東西開著那個資料夾），
    * **而使用者要做的事不同**：改名失敗是「關掉再試」，
@@ -70,14 +70,14 @@ export const ERROR_CODES = {
   IO_DATA_ROOT_MISSING: 'error',
   IO_DATA_ROOT_NOT_WRITABLE: 'error',
   /**
-   * 有作業在跑，資料根不准搬（Stage 15）。
+   * 有作業在跑，資料根不准搬。
    *
    * 搬家會把 `case.sqlite` 從一個正在寫它的行程底下抽走。
    * **這個碼帶著「幾個作業」** —— 因為使用者的下一步是去看那幾個作業。
    */
   IO_DATA_ROOT_BUSY: 'error',
   /**
-   * 要搬過去的那個位置不能用（Stage 15）。`detail.reason` 分三種：
+   * 要搬過去的那個位置不能用。`detail.reason` 分三種：
    * `same`（跟現在同一個）、`nested`（在現在這個底下，搬進去會變成搬進自己）、
    * `not-empty`（那裡已經有東西，蓋過去會毀掉別人的資料）。
    */
@@ -129,7 +129,7 @@ export const ERROR_CODES = {
   PROVIDER_BUDGET_EXCEEDED: 'partial',
   PROVIDER_OUTPUT_UNPARSEABLE: 'partial',
   /**
-   * 模型給的引文**在原文裡找不到**（Stage 9）。
+   * 模型給的引文**在原文裡找不到**。
    *
    * 不是 `PROVIDER_OUTPUT_UNPARSEABLE` —— 那份輸出解析得很成功，
    * 它只是**在講一句原文沒有講過的話**。而那正是這個工具唯一不能容忍的錯：
@@ -141,19 +141,19 @@ export const ERROR_CODES = {
   PROVIDER_SANDBOX_VIOLATION: 'error',
   PROVIDER_EMBED_MODEL_MISMATCH: 'error',
   /**
-   * 端點收到了請求、**但拒絕了金鑰**（HTTP 401／403，Stage 16）。
+   * 端點收到了請求、**但拒絕了金鑰**（HTTP 401／403）。
    *
    * 不是 `PROVIDER_UNREACHABLE` —— 那一句叫人去檢查「它是不是沒開」，
    * 而它明明開著、而且回了話。「連不上」與「連得上但不讓你進」的下一步完全不同。
    */
   PROVIDER_AUTH_REJECTED: 'error',
   /**
-   * 端點說太多請求了（HTTP 429，Stage 16），**而且照它說的等過、再試了兩次還是 429**
+   * 端點說太多請求了（HTTP 429），**而且照它說的等過、再試了兩次還是 429**
    * （`domain/provider/rate-limit.ts`，SDK 式退避）。2026-09-13 之前是「立刻停不重試」。
    */
   PROVIDER_RATE_LIMITED: 'error',
   /**
-   * 這個模型在這個端點上**連「回一份 JSON」都不保證**（Stage 16）。
+   * 這個模型在這個端點上**連「回一份 JSON」都不保證**。
    *
    * 量測是按「端點＋模型」記的，而 2026-09-11 在真的端點上觸發這一條的
    * 是一個**嵌入模型** —— OpenAI 相容端點的 `/models` 會把它一起列出來，
@@ -165,7 +165,7 @@ export const ERROR_CODES = {
    */
   PROVIDER_JSON_UNSUPPORTED: 'error',
   /**
-   * 回了一份 JSON，**但形狀不符合這個任務的 schema**（Stage 16）。
+   * 回了一份 JSON，**但形狀不符合這個任務的 schema**。
    *
    * 不是 `PROVIDER_OUTPUT_UNPARSEABLE` —— 那一份解析得很成功。
    * 這一條只會在端點不保證 schema、由這一側事後驗證的時候出現：

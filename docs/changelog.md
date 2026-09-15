@@ -9,6 +9,15 @@
 
 ## 未發布
 
+### 文件、註解與畫面不再帶 Stage 編號
+
+使用者 2026-09-15 決定：Stage 編號只留在 `roadmap.md` 的 Stage 表與歷史紀錄（changelog、lessons、ADR），
+其他地方改成版本號或日期，純標籤直接拿掉。對照是 roadmap 的 Stage 表 × 這一份的版本標題
+（Stage 5 = v0.1.0 … Stage 12 前半 = v0.10.0、收尾 = v0.11.0 … Stage 16 = v0.18.0）。
+141 個檔、370 行逐行替換；指向 roadmap 小節名稱的四處（「Stage 13 的效能預算」「roadmap 的 Stage 16 那一節」）照舊，
+不然就對不到那一節。順帶修掉一句錯的：`ui-workflows.md` 寫「翻譯是 Stage 9」，翻譯其實到現在都還沒做。
+另外六處指「這一輪開發」的說法寫成版本號；`fetch-policy.md` 定義的「這一輪」（一台 `Crawler` 的壽命）與研究文件的評測回合是用詞本身，沒動。
+
 ### 補上：註解說有、實際沒有的守門 —— schema 只用 `conformsTo` 認得的關鍵字
 
 `domain/provider/schema-check.ts` 的註解一直寫著「`tests/guards/schema-keywords.test.ts` 釘住三份 schema 只用得到這些」，

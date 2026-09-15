@@ -64,7 +64,7 @@ export async function resolveDataRootOrExplain(
 }
 
 /**
- * 開箱即用（Stage 15）：**第一次啟動不問任何問題。**
+ * 開箱即用：**第一次啟動不問任何問題。**
  *
  * ## 只有「指標檔不存在」走自動建立
  *
@@ -143,7 +143,7 @@ async function isEmptyOrAbsent(p: string): Promise<boolean> {
 }
 
 /**
- * 換一個資料根，**而且既有的東西跟著過去**（Stage 15）。
+ * 換一個資料根，**而且既有的東西跟著過去**。
  *
  * ## 為什麼不是「只改指標檔」
  *

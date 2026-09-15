@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 模型設定（ui-workflows §5，Stage 9）。
+ * 模型設定（ui-workflows §5）。
  *
  * ## 三個角色都列出來，即使其中一個還沒做
  *
@@ -39,7 +39,7 @@ const savedAt = ref(0);
 
 const tab = ref<'models' | 'sources' | 'guide' | 'storage'>('models');
 
-/** `chat` 走哪一種協定（Stage 16）。**不自動偵測** —— 見 server 的 `ChatTransport`。 */
+/** `chat` 走哪一種協定。**不自動偵測** —— 見 server 的 `ChatTransport`。 */
 const transport = ref<ChatTransport>('ollama');
 const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
 const baseUrl = ref('');
@@ -306,7 +306,7 @@ async function test(role: ProviderRole): Promise<void> {
           {{ t.settings.tabs.guide }}
         </button>
         <!--
-          **資料位置。** 第一次啟動不再問「資料要放哪」（Stage 15），
+          **資料位置。** 第一次啟動不再問「資料要放哪」，
           所以這一頁存在的第一個理由是**告訴使用者它在哪** ——
           方便的代價不該是「我不知道我的東西在哪個資料夾」。
         -->
@@ -347,7 +347,7 @@ async function test(role: ProviderRole): Promise<void> {
           <!-- chat：連線方式 ＋ 位址 ＋ 模型。模型從偵測到的清單挑，**不要讓人猜怎麼拼** -->
           <div v-if="status.role === 'chat'" class="form">
             <!--
-              **連線方式由人選，不自動偵測**（Stage 16）。兩種協定 Ollama 都答得出來，
+              **連線方式由人選，不自動偵測**。兩種協定 Ollama 都答得出來，
               猜錯的代價是「關掉思考」與「指定 context」那兩個量出來的設定安靜地消失。
             -->
             <div class="transport">
@@ -502,7 +502,7 @@ async function test(role: ProviderRole): Promise<void> {
             </label>
             <label>
               <span>{{ t.settings.embedModel }}</span>
-              <!-- **嵌入的清單是它自己那個位址的**，不跟著 chat 走（Stage 16 之前是同一份）。 -->
+              <!-- **嵌入的清單是它自己那個位址的**，不跟著 chat 走（v0.18.0 之前是同一份）。 -->
               <select v-if="modelsFor('embed')?.length" v-model="embedModel">
                 <option value="">{{ t.settings.embedModelPick }}</option>
                 <option v-for="name in modelsFor('embed')" :key="name" :value="name">

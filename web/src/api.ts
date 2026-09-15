@@ -209,7 +209,7 @@ export interface Run {
   live: boolean;
   /** 暫停中。**執行時的事實，資料庫裡沒有它。** */
   paused: boolean;
-  // ── 擴展才有的（Stage 9）───────────────────────────────
+  // ── 擴展才有的───────────────────────────────
   /** 匯入沒有主題，所以是 `null` */
   topic: string | null;
   /** `{"chat":"…","agent":"…"}` 的 JSON 字串 */
@@ -219,7 +219,7 @@ export interface Run {
   costUsd: number | null;
 }
 
-// ── 擴展（Stage 9）──────────────────────────────────────────
+// ── 擴展──────────────────────────────────────────
 
 export interface AngleSeed {
   id: string;
@@ -253,7 +253,7 @@ export interface ExpansionStart {
   seededFrom: number;
 }
 
-// ── provider（Stage 9）──────────────────────────────────────
+// ── provider──────────────────────────────────────
 
 export type ProviderRole = 'agent' | 'chat' | 'embed';
 
@@ -265,11 +265,11 @@ export interface ProviderCapabilities {
   context_tokens: number;
 }
 
-/** `chat` 走哪一種協定（Stage 16）。**server 的 `ChatTransport` 也有一份**（兩份建置）。 */
+/** `chat` 走哪一種協定。**server 的 `ChatTransport` 也有一份**（兩份建置）。 */
 export type ChatTransport = 'ollama' | 'openai';
 
 /**
- * 「符合 schema」由誰保證（Stage 16）。**server 的 `JsonMode` 也有一份**（兩份建置）。
+ * 「符合 schema」由誰保證。**server 的 `JsonMode` 也有一份**（兩份建置）。
  *
  * `checkedAt` 是 `null` 的時候不是量出來的 —— 協定本身保證（本機 Ollama），或還沒量。
  */
@@ -316,7 +316,7 @@ export interface ProvidersPayload {
    */
   chatModels: string[] | null;
   /**
-   * `embed` 端點（本機 Ollama）上的模型。**Stage 16 之前它跟 `chatModels` 是同一份**，
+   * `embed` 端點（本機 Ollama）上的模型。**v0.18.0 之前它跟 `chatModels` 是同一份**，
    * 而 chat 一換成線上端點，嵌入的下拉選單就會列出線上模型。
    */
   embedModels: string[] | null;
@@ -499,7 +499,7 @@ export interface HopCounts {
   capped: string[];
 }
 
-// ── 關聯與裁決（Stage 8）────────────────────────────────────
+// ── 關聯與裁決────────────────────────────────────
 
 /** 六條轉移的動作名稱。**改判是雙向的，所以只有五個動詞。** */
 export type EdgeAction = 'confirm' | 'reject' | 'withdraw' | 'reclassify' | 'restore';
@@ -806,7 +806,7 @@ export const api = {
   runEventsUrl: (slug: string, runId: string) =>
     `/api/cases/${enc(slug)}/runs/${enc(runId)}/events`,
 
-  // ── 擴展（Stage 9）──────────────────────────────────────
+  // ── 擴展──────────────────────────────────────
   //
   // **兩支端點，中間有一個人。** `startExpansion` 回的是子問題清單，
   // 而它**不會開始抓** —— 那一步是 REQ-0004 的驗收條件，不是 UI 糖。
@@ -908,7 +908,7 @@ export const api = {
 
   // ── 關聯與裁決 ──────────────────────────────────────────
   //
-  // **沒有「機器提出一條邊」的函式。** 那條路只有擴展作業走得到（Stage 9），
+  // **沒有「機器提出一條邊」的函式。** 那條路只有擴展作業走得到，
   // 而它在伺服器端 —— 前端能呼叫的話，墓碑與出處要求就有一條繞道。
 
   edge: (slug: string, edgeId: string) =>
@@ -967,7 +967,7 @@ export const api = {
   rebuild: (slug: string) =>
     request<RebuildReport>(`/api/cases/${enc(slug)}/rebuild`, { method: 'POST' }),
 
-  // ── 來源網站與實體對齊（Stage 10.5）─────────────────────
+  // ── 來源網站與實體對齊─────────────────────
 
   sources: () => request<SourceRow[]>('/api/sources'),
   saveSource: (input: Partial<SourceRow> & { host: string }) =>
@@ -1014,7 +1014,7 @@ export const api = {
       body: JSON.stringify({ force }),
     }),
 
-  // ── 證據包匯出（Stage 11）───────────────────────────────
+  // ── 證據包匯出───────────────────────────────
 
   /**
    * **參數跟 `subgraph` 那一支一模一樣** —— 匯出的就是你現在看到的那一塊。

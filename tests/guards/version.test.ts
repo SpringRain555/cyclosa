@@ -3,7 +3,7 @@
  *
  * ## 它為什麼存在
  *
- * Stage 8 的 commit 訊息、`changelog.md`、`README.md`、兩份 agent 檔
+ * v0.4.0 的 commit 訊息、`changelog.md`、`README.md`、兩份 agent 檔
  * 全部寫著 **v0.4.0**，而 `package.json` 停在 **0.3.0**。
  * 沒有任何東西在比對它們，所以那個落差活了一整個階段。
  *
@@ -74,7 +74,7 @@ describe('版本號四邊一致', () => {
   /**
    * **兩份 agent 檔與 `docs/index.md` 的現況標題也對得上。**
    *
-   * `docs/index.md` 是同一天加的：它的「現況」停在 **Stage 11**，
+   * `docs/index.md` 是同一天加的：它的「現況」停在 **v0.8.0**，
    * 寫著「還沒有的只有語意檢索」—— 而那時已經到 v0.17 了。
    *
    * 這一條守的是一個活了 12 個版本的落差（見檔頭）。兩份都查而不是只查

@@ -1,4 +1,4 @@
--- Cyclosa schema v3 —— 關聯與出處（Stage 8）
+-- Cyclosa schema v3 —— 關聯與出處
 --
 -- 欄位與值域的權威是 docs/architecture/data-model.md。**改這裡就要改那一份。**
 --

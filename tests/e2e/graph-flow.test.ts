@@ -3,7 +3,7 @@
  *
  * **完全隔離**：`LOCALAPPDATA` 與資料根都指到臨時目錄。
  *
- * 用的是 `tools/dev/graph-fixture.ts` 的合成圖 —— **Stage 6 的匯入不產生關聯**，
+ * 用的是 `tools/dev/graph-fixture.ts` 的合成圖 —— **v0.2.0 的匯入不產生關聯**，
  * 所以真實資料在這一階段畫不出任何一條線，四種畫法一種都驗不到。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -57,7 +57,7 @@ beforeEach(async () => {
   });
   slug = (created.json() as { data: { slug: string } }).data.slug;
 
-  // 直接開專題資料庫塞合成資料 —— API 還沒有寫入關聯的路徑（那是 Stage 8）
+  // 直接開專題資料庫塞合成資料 —— API 還沒有寫入關聯的路徑（那是 v0.4.0）
   const opened = await openCaseDatabase(join(dataRoot, 'cases', slug, 'case.sqlite'));
   if (opened.kind !== 'ok') throw new Error(`開不了合成專題的資料庫：${opened.kind}`);
   try {

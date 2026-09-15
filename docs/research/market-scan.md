@@ -77,7 +77,7 @@ Aleph Pro，開源版**維護到 2025-12-31 為止**。授權還是 MIT、程式
 **借的是概念。**
 
 > **「約 500 節點」是 C 級，不要拿它當數字用。** 這次沒有回到原始出處。
-> 我們自己的節點預算是 Stage 13 用合成資料量出來的，不是從這句話推導的。
+> 我們自己的節點預算是 v0.12.0 用合成資料量出來的，不是從這句話推導的。
 
 ### ② 3D 在 HCI 研究裡不是免費的升級　`B · 09-04`
 
@@ -136,7 +136,7 @@ Co-STORM 的「人注入發言」對應我們的「勾選要展開哪幾條」�
 | **Episodes（provenance）** —— raw data as ingested；every derived fact traces back here | `edge_evidence` → `item` → 不可變的 `sources/` 快照 |
 | **Facts with temporal validity windows** —— 資訊改變時舊事實**被作廢而不是刪除** | 已否決是**墓碑**（設計稿的差異 2），不是把列刪掉 |
 | Custom types via Pydantic models | `entity.type` ／ `edge.rel` 可自訂型別 |
-| Hybrid retrieval（semantic ＋ keyword ＋ graph traversal） | Stage 12 的 bigram ＋ 向量 ＋ 子圖遍歷，**三條併用** |
+| Hybrid retrieval（semantic ＋ keyword ＋ graph traversal） | v0.11.0 的 bigram ＋ 向量 ＋ 子圖遍歷，**三條併用** |
 
 **這是收斂，不是抄襲** —— 兩邊各自從「LLM 抽出來的關係不可信」這個前提出發，
 走到同一個結構。**但差別要講清楚**：Graphiti 的事實作廢是**自動**的（新資訊進來就蓋掉舊的），

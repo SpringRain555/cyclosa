@@ -85,7 +85,7 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
     }
   });
 
-  // **第一次啟動自動建，不問**（Stage 15）。故障的那三種仍然照原樣往上回 ——
+  // **第一次啟動自動建，不問**。故障的那三種仍然照原樣往上回 ——
   // 理由在 `resolveOrCreateDataRoot` 的註解裡。
   const resolved = await resolveOrCreateDataRoot();
   if (resolved.ok) {

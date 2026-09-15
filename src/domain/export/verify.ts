@@ -1,5 +1,5 @@
 /**
- * 匯出時**重新驗一次**每一條引文（Stage 11）。
+ * 匯出時**重新驗一次**每一條引文。
  *
  * ## 為什麼不是直接把 `edge_evidence` 抄出來
  *
@@ -13,7 +13,7 @@
  * 而證據包正是拿去給別人驗的東西 —— 它是這個工具裡最不能靠運氣的一份輸出。
  *
  * 同一個判準在這個專案裡出現第三次：
- * Stage 9 不採信模型給的位置、Stage 10 不採信前端送來的引文，
+ * v0.5.0 不採信模型給的位置、v0.6.0 不採信前端送來的引文，
  * 而這裡不採信自己資料庫裡存的位置。
  * **三次的理由相同：一個指錯位置的引用比沒有引用更糟，因為它看起來已經驗過了。**
  *
@@ -71,7 +71,7 @@ export function checkQuote(
   }
 
   // 位置對不上，但那一段字可能只是搬家了。
-  // **比對本身用的是跟 Stage 9／10 同一支** —— 空白視為等價，回原文座標。
+  // **比對本身用的是跟 v0.5.0／v0.6.0 同一支** —— 空白視為等價，回原文座標。
   const span = findFirst(text, quote);
   if (span === null) return { status: 'missing', start: recordedStart, end: recordedEnd };
   return { status: 'shifted', start: span.start, end: span.end };

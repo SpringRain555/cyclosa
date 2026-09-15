@@ -37,7 +37,7 @@ const runItems = ref<RunItem[]>([]);
 const runAngles = ref<Angle[]>([]);
 const error = ref<ApiError | null>(null);
 
-// ── 擴展（Stage 9）────────────────────────────────────────
+// ── 擴展────────────────────────────────────────
 //
 // **兩階段之間有一個人。** `startExpansion` 回的是子問題清單而不會開始抓，
 // 使用者勾選之後 `chooseAngles` 才真的開始（REQ-0004 的驗收條件）。
@@ -324,7 +324,7 @@ function openItem(id: string | null): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(id)}`);
 }
 
-// ── `derived/` 整批重算（Stage 10）────────────────────────
+// ── `derived/` 整批重算────────────────────────
 
 const rebuilding = ref(false);
 const rebuildReport = ref<RebuildReport | null>(null);

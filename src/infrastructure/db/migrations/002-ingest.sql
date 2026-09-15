@@ -1,4 +1,4 @@
--- Cyclosa schema v2 —— 匯入與閱讀器（Stage 6）
+-- Cyclosa schema v2 —— 匯入與閱讀器
 --
 -- 欄位與值域的權威是 docs/architecture/data-model.md。**改這裡就要改那一份。**
 

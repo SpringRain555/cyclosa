@@ -145,7 +145,7 @@ function splitParagraphs(text: string): readonly Para[] {
 
 const paragraphs = computed<readonly Para[]>(() => splitParagraphs(sourceText.value));
 
-// ── 點註（Stage 10）────────────────────────────────────────
+// ── 點註────────────────────────────────────────
 
 const notes = ref<ResolvedNote[]>([]);
 /** 剛選好、還沒存的那一段。**存了才是點註。** */

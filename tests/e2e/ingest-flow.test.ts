@@ -193,7 +193,7 @@ describe('匯入一批 URL', () => {
       expect(content.data.derived?.kind).toBe('web');
     }
 
-    // **索引在匯入時就寫了**，不是等 Stage 12
+    // **索引在匯入時就寫了**，不是等 v0.11.0
     const opened = await openCaseDatabase(join(folder, 'case.sqlite'));
     expect(opened.kind).toBe('ok');
     if (opened.kind !== 'ok') return;

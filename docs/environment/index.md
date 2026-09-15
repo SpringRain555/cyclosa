@@ -58,7 +58,7 @@ npm run build      # server（dist/）＋ 前端（web/dist/）
 ```
 
 全綠長這樣：每一段 `OK`，最後一行「全部通過。」，exit 0。**測試的數量不寫在這裡** ——
-寫死的數字每一版都會漂（這一份曾寫著「134 個測試」，而那個數字停在 Stage 5）。
+寫死的數字每一版都會漂（這一份曾寫著「134 個測試」，而那個數字停在 v0.1.0）。
 要單獨跑某一段：`npm test`、`npm run typecheck`（`tsc` ＋ `vue-tsc`）、`npm run lint`
 （`eslint` ＋ `prettier --check`）、`npm run build`。
 

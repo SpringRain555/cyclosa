@@ -191,7 +191,7 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
   const chat =
     typeof chatRaw === 'object' && chatRaw !== null
       ? {
-          // 缺或不認得 ＝ 本機 Ollama（Stage 16 之前唯一的選項）。**不猜** —— 見 `ChatTransport`。
+          // 缺或不認得 ＝ 本機 Ollama（v0.18.0 之前唯一的選項）。**不猜** —— 見 `ChatTransport`。
           transport: transportOf((chatRaw as Record<string, unknown>)['transport']),
           baseUrl: String((chatRaw as Record<string, unknown>)['baseUrl'] ?? '').trim(),
           model: String((chatRaw as Record<string, unknown>)['model'] ?? '').trim(),
@@ -258,7 +258,7 @@ export interface ProviderTest {
   readonly costUsd: number | null;
   readonly elapsedMs: number;
   /**
-   * `chat` 的「符合 schema」由誰保證（Stage 16）。線上端點按這顆按鈕**會重量一次**，
+   * `chat` 的「符合 schema」由誰保證。線上端點按這顆按鈕**會重量一次**，
    * 所以這一格是剛量出來的結果；其餘角色是 `null`。
    */
   readonly jsonMode: JsonModeReport | null;

@@ -1,5 +1,5 @@
 /**
- * 端對端：**線上 chat 端點**（Stage 16）。
+ * 端對端：**線上 chat 端點**。
  *
  * 走的是設定頁實際會走的整條路：`POST /api/providers` 存設定 →
  * `GET /api/providers` 讀狀態 → `POST /api/providers/test` 實際打一次。
@@ -9,13 +9,13 @@
  * 2026-09-10 server 把 `chatReadiness` 改名成 `taskReadiness`，
  * **762 個測試全過、`tsc` 與 `vue-tsc` 也全過**，而設定頁在執行時拿到 `undefined` ——
  * `web/` 是另一份型別宣告，沒有任何測試讀過那個欄位。
- * 這一輪加了四個新欄位（`transport`、`jsonMode`、`embedModels`、`chatTasks[].jsonMode`），
+ * v0.18.0 加了四個新欄位（`transport`、`jsonMode`、`embedModels`、`chatTasks[].jsonMode`），
  * **只有一條真的打過端點的測試能證明它們真的在回應裡。**
  *
  * ## 兩個假端點
  *
  * 一個假的 OpenAI 相容端點（chat），一個假的本機 Ollama（embed）——
- * 那是 Stage 16 拆開的那個耦合：chat 換成線上端點之後，嵌入的清單與探測
+ * 那是 v0.18.0 拆開的那個耦合：chat 換成線上端點之後，嵌入的清單與探測
  * **必須還是問本機那一個**。
  */
 import { createServer, type IncomingMessage, type Server } from 'node:http';
@@ -176,7 +176,7 @@ describe('線上 chat 端點', () => {
   });
 
   /**
-   * **Stage 16 拆開的那個耦合。** 在那之前嵌入的清單就是 chat 的清單 ——
+   * **v0.18.0 拆開的那個耦合。** 在那之前嵌入的清單就是 chat 的清單 ——
    * chat 換成線上端點，嵌入的下拉就會列出 `online-large`，
    * 而嵌入的探測會去線上清單裡找一個本機模型。
    */

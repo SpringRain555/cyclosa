@@ -106,7 +106,7 @@ export function machineMayUpdateStatus(current: EdgeStatus, everAdjudicated: boo
 }
 
 /**
- * 這條邊裁決得動嗎 —— **open-questions Q6 的答案**（2026-09-08，Stage 8）。
+ * 這條邊裁決得動嗎 —— **open-questions Q6 的答案**（2026-09-08）。
  *
  * ## 判準不是層別，是「它會不會被重算蓋掉」
  *

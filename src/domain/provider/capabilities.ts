@@ -37,7 +37,7 @@ export interface ProviderCapabilities {
   /**
    * 輸出保證符合給定的 JSON schema。**不是「會不會輸出 JSON」**。
    *
-   * Stage 16 起「保證」有兩種來源，而這一欄對兩者都是 `true`：
+   * v0.18.0 起「保證」有兩種來源，而這一欄對兩者都是 `true`：
    * 端點自己保證（受限解碼），或 provider 這一層事後驗證 —— 形狀不對就回錯誤，
    * **不交出一份沒被限制過的輸出**。對任務來說兩者的約定一樣：
    * 拿到的要嘛符合 schema、要嘛是一個錯誤。
@@ -88,7 +88,7 @@ export function missingFor(task: TaskRequirement, have: ProviderCapabilities): M
 }
 
 /**
- * 「輸出符合 schema」這件事**由誰保證**（Stage 16）。
+ * 「輸出符合 schema」這件事**由誰保證**。
  *
  * | 值 | 意思 |
  * |---|---|

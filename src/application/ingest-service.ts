@@ -5,7 +5,7 @@
  *
  * 1. **部分失敗是一等公民。** 40 個 URL 有 3 個 404，其餘 37 個照常寫入。
  *    這條規則的實作點是下面那個 `for` 迴圈 —— **每一項的失敗只影響那一項**。
- * 2. **索引在這裡就寫入**，不是等 Stage 12。否則要回頭替 5 萬筆重建。
+ * 2. **索引在這裡就寫入**，不是等 v0.11.0。否則要回頭替 5 萬筆重建。
  * 3. **取消時已寫入的保留。** 取消不是回滾。
  */
 import { join } from 'node:path';
@@ -187,7 +187,7 @@ async function processUrls(
       await state.gate();
       if (state.cancelled) break;
 
-      // **向量在匯入時就寫**（`ingestBytes` 裡），不是等 Stage 12 回頭補。
+      // **向量在匯入時就寫**（`ingestBytes` 裡），不是等 v0.11.0 回頭補。
       // 那一步是本機的、大約 0.2 秒，而**下一次抓取本來就要等同網域間隔（預設 3 秒）** ——
       // 所以它在牆上時間裡幾乎是免費的。
       const outcome = await processOneUrl(db, folder, crawler, state.runId, entry, providers);
@@ -371,7 +371,7 @@ export async function processOneUrl(
 /**
  * 一份位元組走完整條管線：寫快照 → 抽正文 → 寫索引（→ 視設定寫向量）。
  *
- * **`export` 是給範例專案用的**（`sample-service.ts`，Stage 15）。
+ * **`export` 是給範例專案用的**（`sample-service.ts`）。
  * 那一支不能走 `importFile`，因為 `importFile` 把 `requestedUrl` 寫成 `null` ——
  * 而範例專案要示範的正是「每一份東西都指得回它的來源」。
  * 它也不該在第一次啟動時去載入 provider（那會打網路）。

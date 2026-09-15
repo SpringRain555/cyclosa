@@ -1,4 +1,4 @@
--- schema v7 —— 向量掃描的索引（Stage 13 的規模量測找出來的）
+-- schema v7 —— 向量掃描的索引（v0.12.0 的規模量測找出來的）
 --
 -- 欄位與值域的權威是 docs/architecture/data-model.md。**改這裡就要改那一份。**
 

@@ -1,5 +1,5 @@
 /**
- * 證據包的純函式（Stage 11）。
+ * 證據包的純函式。
  *
  * **這一份要證明的是一件事：那份檔案不會比它背後的資料乾淨。**
  *
@@ -60,7 +60,7 @@ describe('checkQuote：不採信自己資料庫裡存的位置', () => {
     expect(checkQuote('短', quote, 0, 9999).status).toBe('missing');
   });
 
-  it('空白不同視為同一段（跟 Stage 9／10 同一支比對）', () => {
+  it('空白不同視為同一段（跟 v0.5.0／v0.6.0 同一支比對）', () => {
     const reflowed = text.replace(/\n\n/g, '\n');
     const check = checkQuote(reflowed, quote, start, end);
     expect(['verified', 'shifted']).toContain(check.status);

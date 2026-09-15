@@ -24,10 +24,10 @@ const TRANSITIONS: readonly {
   { from: 'collecting', action: 'finish-collecting', to: 'ready' },
   { from: 'ready', action: 'start-collecting', to: 'collecting' },
   /**
-   * **一個還沒放東西進去的專題也要封存得掉**（Stage 15 補）。
+   * **一個還沒放東西進去的專題也要封存得掉**（v0.17.0 補）。
    *
    * 原本只有 `ready → archived`，而那讓「建了一個、發現不需要」變成
-   * 一個到不了的狀態 —— 使用者只剩下刪除。這條線在 Stage 15
+   * 一個到不了的狀態 —— 使用者只剩下刪除。這條線在 v0.17.0
    * 把封存接上按鈕的那一天才第一次被走到：**沒有人呼叫過的轉移表沒有事實。**
    */
   { from: 'new', action: 'archive', to: 'archived' },

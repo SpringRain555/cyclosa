@@ -164,7 +164,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /**
-   * 重建範例專案（Stage 15）。
+   * 重建範例專案。
    *
    * 第一次啟動會自動放一份；刪掉之後**不會自己回來**，
    * 而這一支是那個「我想要回來」的明確動作。
@@ -176,7 +176,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /**
-   * 換一個資料根，**既有的東西跟著搬過去**（Stage 15）。
+   * 換一個資料根，**既有的東西跟著搬過去**。
    *
    * 與上面那一支 `POST` 的差別是「已經有一個」與「還沒有」——
    * 所以這一支要求 `ctx.dataRoot` 不是 `null`，而且它會搬檔案。
@@ -325,7 +325,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 }
 
 /**
- * provider（Stage 9）。
+ * provider。
  *
  * **這一組不需要資料根**（除了 agent 的實測，它要一個工作目錄）——
  * provider 設定是這台機器的事實，跟資料放哪無關。
@@ -347,7 +347,7 @@ function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
 }
 
 /**
- * 擴展（Stage 9）。**兩支端點，中間有一個人。**
+ * 擴展。**兩支端點，中間有一個人。**
  *
  * `POST …/runs` 回的是子問題清單而**不會開始抓** —— 那一步是
  * REQ-0004 的驗收條件（「不是黑箱一次跑完」），不是可以省略的 UI 糖。
@@ -570,7 +570,7 @@ function registerGraphRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   /**
    * **只數不拉資料。** 工具列的跳數格在使用者按下去之前就顯示代價，
-   * 所以它的效能預算是 50 ms（Stage 13 量測）。
+   * 所以它的效能預算是 50 ms（v0.12.0 量測）。
    *
    * 這一條要放在 `/subgraph` 前面登記嗎？不用 —— Fastify 的路由樹
    * 對靜態片段（`size`）與參數的優先順序是確定的，而這兩條路徑不重疊。
@@ -598,10 +598,10 @@ function registerGraphRoutes(app: FastifyInstance, ctx: AppContext): void {
 }
 
 /**
- * 關聯與裁決（Stage 8）。
+ * 關聯與裁決。
  *
  * **沒有「機器提出一條邊」的端點。** 那條路只有擴展作業走得到，
- * 而擴展是從 `POST …/runs` 進來的（Stage 9）——
+ * 而擴展是從 `POST …/runs` 進來的——
  * 開一個公開的寫入端點等於給了一條繞過墓碑與出處要求的路。
  */
 function registerEdgeRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -800,7 +800,7 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  // ── 筆記與點註（Stage 10）────────────────────────────────
+  // ── 筆記與點註────────────────────────────────
 
   /**
    * 建立一則點註。
@@ -883,7 +883,7 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
   /**
    * `derived/` 整批重算。
    *
-   * **這是 Stage 10 的驗收條件做成的一顆按鈕**：回的三個數字
+   * **這是 v0.6.0 的驗收條件做成的一顆按鈕**：回的三個數字
    * （對得上／位移／對不上）就是「重算前後差異必須為 0」在畫面上的樣子。
    */
   app.post<{ Params: { slug: string } }>('/api/cases/:slug/rebuild', async (req, reply) => {
@@ -905,7 +905,7 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     return send(reply, await backfillVectors(dataRoot, req.params.slug));
   });
 
-  // ── 來源網站（Stage 10.5）───────────────────────────────
+  // ── 來源網站───────────────────────────────
 
   /**
    * 來源網站清單。
@@ -936,7 +936,7 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     return send(reply, await probeSources(ctx.dataRoot, hosts));
   });
 
-  // ── 實體對齊（Stage 10.5）───────────────────────────────
+  // ── 實體對齊───────────────────────────────
 
   app.get<{ Params: { slug: string } }>('/api/cases/:slug/entities/merges', async (req, reply) => {
     const dataRoot = await requireDataRoot(ctx, reply);
@@ -967,7 +967,7 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
 }
 
 /**
- * 證據包匯出（Stage 11）。
+ * 證據包匯出。
  *
  * **參數跟子圖那兩支一模一樣**，因為「選一塊子圖」的意思就是
  * 「你現在看到的那一塊」—— 換一組參數就等於換了一塊，

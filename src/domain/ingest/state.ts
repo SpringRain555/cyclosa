@@ -143,7 +143,7 @@ export function settleRun(succeeded: number, failed: number): RunAction {
 }
 
 /**
- * 一條切入角度的結局（Stage 9）。
+ * 一條切入角度的結局。
  *
  * **匯入的「一項」只有成功或失敗兩種，擴展的「一條角度」有三種**：
  * 它可能**做出了東西，同時有一部分沒做成**

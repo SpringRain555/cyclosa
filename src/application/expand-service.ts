@@ -1,5 +1,5 @@
 /**
- * LLM 擴展的用例編排 —— **Stage 9。**
+ * LLM 擴展的用例編排。
  *
  * ## 兩階段，中間有一個人
  *
@@ -17,7 +17,7 @@
  *
  * | 規則 | 在哪裡執行 |
  * |---|---|
- * | 機器永遠不得覆寫人工判定 | `applyProposal`（Stage 8 就寫好了，這裡是第一個呼叫端）|
+ * | 機器永遠不得覆寫人工判定 | `applyProposal`（v0.4.0 就寫好了，這裡是第一個呼叫端）|
  * | 已否決是墓碑 | 同上 —— `blocked-by-tombstone` 什麼都不寫 |
  * | 每條關聯都帶出處 | `locateQuote`：**引文在正文裡找不到就沒有這條邊** |
  * | agent 找到的東西不能自己抓 | `--tools WebSearch` ＋ 事後掃沙箱 |
@@ -105,7 +105,7 @@ const MENTION_CONFIDENCE = 0.9;
 
 /**
  * 第一階段寫下的 `providers_json`。**讀不回來就是空的**，不是錯誤 ——
- * 舊版寫的作業沒有 `json` 那一欄（Stage 16 之前），補寫時從空的開始。
+ * 舊版寫的作業沒有 `json` 那一欄（v0.18.0 之前），補寫時從空的開始。
  */
 function parseProviders(raw: string | null): Record<string, unknown> & {
   json: Record<string, unknown>;
@@ -325,7 +325,7 @@ export async function startExpansion(
             : (providers.chatFor('extract')?.name ?? null),
         agent: providers.config.agent?.command ?? null,
         /**
-         * **這一次的格式保證是哪一種**（Stage 16）。在呼叫**之後**讀，
+         * **這一次的格式保證是哪一種**。在呼叫**之後**讀，
          * 因為沒量過的端點會在那一次呼叫裡先量 —— 呼叫前讀的會是「還沒量」。
          * 抽取那一個到第二階段才確定，那時候補寫（`updateRunProviders`）。
          */
@@ -452,7 +452,7 @@ export async function chooseAngles(
       return capabilityError(cid, 'chat', extractMatch.flags, extractMatch.context);
 
     /**
-     * **格式保證也在開始之前確定**（Stage 16）—— 跟上面那一段同一個理由：
+     * **格式保證也在開始之前確定**—— 跟上面那一段同一個理由：
      * 不要抓完 30 個網址才發現這個端點連 JSON 都不回。
      *
      * 線上端點沒量過的話，這裡量一次（一到兩個很小的請求）；
@@ -860,7 +860,7 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
   let quoteMisses = 0;
   const newEdges = withTransaction(db, () => {
     const now = Date.now();
-    // **本名、別名、括號裡的都算**（Stage 10.5）。
+    // **本名、別名、括號裡的都算**。
     //
     // 之前這裡只認一模一樣的寫法，於是「TSMC」與「台灣積體電路製造（TSMC）」
     // 是兩個實體 —— 而投影門檻是「被 ≥3 份提到才畫」，

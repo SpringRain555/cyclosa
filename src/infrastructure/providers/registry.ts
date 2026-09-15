@@ -45,13 +45,13 @@ export interface ProviderStatus {
   readonly auth: 'none' | 'env-set' | 'env-missing';
   readonly capabilities: ProviderCapabilities;
   /**
-   * `chat` 走哪一種協定（Stage 16）。其餘兩個角色是 `null` —— 它們只有一種。
+   * `chat` 走哪一種協定。其餘兩個角色是 `null` —— 它們只有一種。
    *
    * 畫面要用它決定兩件事：模型清單從哪來，以及「實際打一次」**會不會花錢**。
    * 後者原本寫死「chat 是本機」，而接上線上端點之後那句話就不一定是真的。
    */
   readonly transport: ChatTransport | null;
-  /** 「符合 schema」由誰保證（Stage 16）。**只有 `chat` 有**，其餘是 `null` */
+  /** 「符合 schema」由誰保證。**只有 `chat` 有**，其餘是 `null` */
   readonly jsonMode: JsonModeReport | null;
 }
 
@@ -203,7 +203,7 @@ export interface ProvidersView {
   /**
    * `embed` 端點上的模型（永遠是本機 Ollama 的 `/api/tags`）。
    *
-   * **Stage 16 之前它跟 `chatModels` 是同一份** —— 兩個角色預設指同一個 Ollama，
+   * **v0.18.0 之前它跟 `chatModels` 是同一份** —— 兩個角色預設指同一個 Ollama，
    * 所以一直沒有人發現那是兩個問題。`chat` 一換成線上端點，
    * 嵌入的下拉選單就會列出線上模型，而嵌入的探測會去線上清單裡找本機模型。
    */
@@ -215,7 +215,7 @@ export interface ProvidersView {
 /**
  * 設定頁要的東西。
  *
- * `embed` 也列出來，而且**永遠是「沒設定」** —— 它是 Stage 12 的事。
+ * `embed` 也列出來，而且**永遠是「沒設定」** —— 它是 v0.11.0 的事。
  * 列出來的理由是 ui-workflows 寫的「三個角色各自設定」：
  * **少列一個角色，使用者會以為這個工具只有兩種模型。**
  */

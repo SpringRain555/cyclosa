@@ -19,7 +19,7 @@ export type RunEvent =
       readonly itemId: string | null;
     }
   /**
-   * 一條切入角度做完了（Stage 9）。
+   * 一條切入角度做完了。
    *
    * **跟 `item` 是兩個層級**：一條角度會產生好幾個 `item` 事件。
    * 併成一種的話，作業紀錄那一頁就分不出「這幾個網址是哪一條角度找來的」——

@@ -9,7 +9,7 @@
  *
  * **但兩邊讀的是同一份宣告**（`graph/legend-items.ts`）與同一份樣式
  * （`styles/legend-marks.css`）—— 手寫兩份的話它們一定會漂，
- * 而這個專案已經為那件事付過錢：Stage 7 的圖例上寫著「已否決（打叉）」，
+ * 而這個專案已經為那件事付過錢：v0.3.0 的圖例上寫著「已否決（打叉）」，
  * 而那個叉根本沒實作。
  */
 import { LEGEND_SECTIONS } from './graph/legend-items';

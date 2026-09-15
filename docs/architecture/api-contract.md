@@ -3,7 +3,7 @@
 **這份是端點、請求／回應形狀與錯誤對映的權威。**
 業務規則在 `domain/`（見 `overview.md` 的分層），錯誤碼的意義在 `error-codes.md`。
 
-> **現況（2026-09-07，Stage 7）：一部分實作了。**
+> **現況（2026-09-07）：一部分實作了。**
 >
 > **已經存在**：系統（`/healthz`、資料根）、專題（清單／建立／封存）、
 > **匯入**（`/import/urls`、`/import/file`）、**作業紀錄**（`/runs`、`/runs/:id`、
@@ -11,39 +11,39 @@
 > （`/items`、`/items/:id`、`/content`、`/snapshot`、`/read`、`/exclude`、
 > `/restore`、`/retry`）。
 >
-> **Stage 7 新增**：`/subgraph`、`/subgraph/size`、**`/subgraph/focus`**。
+> **v0.3.0 新增**：`/subgraph`、`/subgraph/size`、**`/subgraph/focus`**。
 >
-> **Stage 8 新增**：`/edges/:edgeId`、`POST /edges`、`/edges/:edgeId/transition`、`/queue`。
+> **v0.4.0 新增**：`/edges/:edgeId`、`POST /edges`、`/edges/:edgeId/transition`、`/queue`。
 >
-> **Stage 9 新增**：`GET`／`POST /api/providers`、`/api/providers/test`、
+> **v0.5.0 新增**：`GET`／`POST /api/providers`、`/api/providers/test`、
 > **`POST …/runs`** 與 **`POST …/runs/:runId/angles`**（擴展的兩階段）。
 >
-> **Stage 10 新增**：`POST`／`GET …/items/:itemId/notes`、`GET …/notes`、
+> **v0.6.0 新增**：`POST`／`GET …/items/:itemId/notes`、`GET …/notes`、
 > `PATCH`／`DELETE …/notes/:noteId`、**`POST …/rebuild`**（`derived/` 整批重算）。
 >
-> **Stage 10.5 新增**：`GET`／`POST /api/sources`、`DELETE /api/sources/:host`、
+> **v0.7.0 新增**：`GET`／`POST /api/sources`、`DELETE /api/sources/:host`、
 > `POST /api/sources/check`；`GET …/entities/merges`、`POST …/entities/merge`、
 > `POST …/entities/:entityId/unmerge`。
 >
-> **Stage 11 新增**：**`POST …/export/evidence`**（證據包匯出）。
+> **v0.8.0 新增**：**`POST …/export/evidence`**（證據包匯出）。
 >
 > **2026-09-08 補**：`POST …/cases/:id/rename`、
 > **`POST …/runs/:runId/pause`／`/resume`／`/undo`**、**`POST /api/system/shutdown`**。
 >
-> **Stage 12 新增**：**`GET …/search`**（全文／語意／兩者）與
+> **v0.11.0 新增**：**`GET …/search`**（全文／語意／兩者）與
 > **`POST …/embed`**（補一批向量）。
 >
-> **Stage 13 沒有新端點** —— 它是規模驗收。`/subgraph/size` 的回應多一個
+> **v0.12.0 沒有新端點** —— 它是規模驗收。`/subgraph/size` 的回應多一個
 > `capped` 欄位（ADR-0029），其餘不變。
 >
-> **Stage 16 也沒有新端點**（2026-09-11）。`GET /api/providers` 多回 `embedModels`
+> **v0.18.0 也沒有新端點**（2026-09-11）。`GET /api/providers` 多回 `embedModels`
 > 與兩個 `jsonMode`，`POST /api/providers/test` 多回一個 `jsonMode`，
 > 設定檔的 `chat` 多一欄 `transport`。**新的四個錯誤碼**（`PROVIDER_AUTH_REJECTED`、
 > `PROVIDER_RATE_LIMITED`、`PROVIDER_JSON_UNSUPPORTED`、`PROVIDER_OUTPUT_SCHEMA_MISMATCH`）
 > 見 `error-codes.md`。前三個是 `error`（HTTP 409，跟既有的 `PROVIDER_*` 一致），
 > 最後一個是 `partial`（一項抽壞了不讓整批失敗）。
 >
-> **Stage 14 也沒有新端點** —— `GET /api/providers` 的回應把 `chatReadiness`
+> **v0.13.0 也沒有新端點** —— `GET /api/providers` 的回應把 `chatReadiness`
 > 換成涵蓋四個任務的 `taskReadiness`，`config.agent` 多一個 `model`。
 >
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
@@ -134,7 +134,7 @@
 ```
 
 回的是**連得最多的那一個節點**，不是最近匯入的那一個。
-那是 Stage 7 第一次人工驗收改掉的：最後匯入的那一份剛好一條關聯都沒有，
+那是 v0.3.0 第一次人工驗收改掉的：最後匯入的那一份剛好一條關聯都沒有，
 於是打開專題看到的是畫面正中央一個孤零零的點 —— 技術上完全正確，
 **但它讓人以為圖壞了**。專題是空的就回 `focus: null`，畫面顯示空狀態。
 
@@ -192,15 +192,15 @@
 |---|---|
 | `GET /healthz` | 回 `{"app":"cyclosa","version":"…"}`。**單一實例偵測靠它**（ADR-0020）—— 只看有沒有回 200 會把別人的服務誤認成自己 |
 | `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回兩份模型清單：`chatModels`（**照 `chat` 的傳輸去問**：Ollama 問 `/api/tags`、OpenAI 相容端點問 `/models`）與 `embedModels`（**永遠問嵌入自己那個本機位址**）—— **`null` 代表列不出來**，不是「一個都沒有」。`chat` 的狀態多帶 `transport` 與 `jsonMode`（「符合 schema」由誰保證、什麼時候量的，ADR-0030），`chatTasks` 每一列也各帶一個 `jsonMode`。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
-| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。`chat.transport` 是 `ollama`／`openai`，**缺或不認得就是 `ollama`**（Stage 16 之前唯一的選項）|
+| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。`chat.transport` 是 `ollama`／`openai`，**缺或不認得就是 `ollama`**（v0.18.0 之前唯一的選項）|
 | `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs, jsonMode}`。**`chat` 走 OpenAI 相容端點時，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
 | `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**作業紀錄頁那一列從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）|
-| `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（Stage 15，見下）|
+| `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
-| `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**（Stage 15）|
+| `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**|
 | `POST /api/system/sample` | 重建範例專案。已經有一份時回 `CASE_NAME_DUPLICATE` —— **重建不該悄悄產生第二份** |
 
-> ### 第一次啟動不問任何問題（Stage 15）
+> ### 第一次啟動不問任何問題
 >
 > `GET /api/system/data-root` 在**指標檔不存在**時自動建
 > `%LOCALAPPDATA%\Cyclosa\data` 並寫指標檔 —— 前端每次進清單頁第一個打的就是它。
@@ -212,7 +212,7 @@
 > 使用者會看到一個乾淨的空清單、一個字都沒說。
 > 那正是 REQ-0001 花四個錯誤碼在擋的事。
 >
-> **自動建立的同時會放一份範例專案**（Stage 15）。它只發生在這一條路上，
+> **自動建立的同時會放一份範例專案**。它只發生在這一條路上，
 > 所以「使用者刪過了」不需要另外記旗標 ——
 > **「資料根存不存在」已經是那個旗標**。做法與理由在 `sample-service.ts`。
 >
@@ -315,7 +315,7 @@
 >
 > 前者是形狀漂了，後者是**一份用權威語氣描述了不存在世界的文件**，
 > 而那正是 ADR-0001 寫下來要防的東西。
-> 兩個都是 Stage 15 把封存接上按鈕時才撞到的。
+> 兩個都是 v0.17.0 把封存接上按鈕時才撞到的。
 >
 > 「開啟既有資料夾」目前唯一的做法是**把資料夾放進資料根的 `cases\` 底下**，
 > 下一次列清單就會看到它（`listCases` 掃的就是那一層）。
@@ -351,7 +351,7 @@
 > **一張自己跟自己矛盾的表**，2026-09-08 動手接端點時才發現。
 
 > **沒有「機器提出一條邊」的端點，而那是刻意的。**
-> 那條路只有擴展作業走得到（Stage 9），而擴展是從 `POST …/runs` 進來的。
+> 那條路只有擴展作業走得到，而擴展是從 `POST …/runs` 進來的。
 > 開一個公開的寫入端點，等於給了一條**繞過墓碑檢查與出處要求**的路。
 
 **`GET …/edges/:edgeId` 回的東西裡有一個 `fields`**，說明這條邊的面板上
@@ -553,7 +553,7 @@
   "notices": [], "tookMs": 8 }
 ```
 
-**`check` 是三種狀態，不是一個布林值** —— 跟 Stage 11 的引文同一個形狀：
+**`check` 是三種狀態，不是一個布林值** —— 跟 v0.8.0 的引文同一個形狀：
 
 | | 意思 | 畫面上 |
 |---|---|---|

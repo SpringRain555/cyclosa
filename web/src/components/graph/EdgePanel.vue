@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 右側欄：**選取的那一條關聯**（Stage 8）。
+ * 右側欄：**選取的那一條關聯**。
  *
  * ui-workflows 的「選取一條關聯時」那一節就是這一份的規格。
  *
@@ -112,7 +112,7 @@ function when(ms: number): string {
           它不帶資訊，顯示它只會誤導：沒有人在等你查證那條線。
 
           這就是 open-questions Q6「那個值沒有意義」在顯示層的另一半 ——
-          Stage 7 處理過圖上的線，而這個面板是 Stage 8 才有的新地方。
+          v0.3.0 處理過圖上的線，而這個面板是 v0.4.0 才有的新地方。
         -->
         <span v-if="detail.fields.status" class="badge">
           {{ t.graph.edgeStatus[detail.status] }}

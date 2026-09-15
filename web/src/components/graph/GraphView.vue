@@ -284,7 +284,7 @@ function onLayoutMessage(event: MessageEvent<LayoutMessage>): void {
  *
  * 它存在的理由是 ADR-0007：換渲染器的觸發條件是
  * 〈**8k 節點時互動 fps 掉到 30 以下**〉—— 而一個沒有人量得到的
- * 觸發條件等於沒有觸發條件。Stage 13 那兩項 fps 預算是六項裡
+ * 觸發條件等於沒有觸發條件。v0.12.0 那兩項 fps 預算是六項裡
  * **唯一兩項伺服器量不到的**（它們在瀏覽器裡，而且跟 GPU 有關）。
  *
  * 數的是 `onEngineTick`，不是另開一個 `requestAnimationFrame` 迴圈 ——

@@ -26,7 +26,7 @@ import { CHAT_TASKS, type ChatTask } from '../../domain/provider/index.js';
 import { pointerFilePath } from '../fs/paths.js';
 
 /**
- * `chat` 走哪一種協定（Stage 16）。
+ * `chat` 走哪一種協定。
  *
  * | 值 | 打哪裡 | 用在 |
  * |---|---|---|
@@ -134,7 +134,7 @@ export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
  *
  * 八個本機模型、兩個任務、每個任務三次而且每次換一份文件。
  * `qwen3.5:4b` 抽取六次全過、引文命中 **98%**、平均 **5 秒**（第二名 17 秒），
- * 而它只有 3.4 GB —— **比三個 30B 與上一輪的最佳都好。**
+ * 而它只有 3.4 GB —— **比三個 30B 與第一輪評測（v0.10.3）的最佳都好。**
  *
  * **這個建議有一半在別的地方**：`chat-ollama.ts` 必須送 `think: false`。
  * 沒有那一欄的話同一個模型是 4/6、63 秒。
@@ -277,7 +277,7 @@ export async function readProvidersConfig(
     const chat =
       typeof chatRaw === 'object' && chatRaw !== null
         ? {
-            // **舊的設定檔沒有這一欄** —— 缺就是本機 Ollama，那是 Stage 16 之前唯一的選項。
+            // **舊的設定檔沒有這一欄** —— 缺就是本機 Ollama，那是 v0.18.0 之前唯一的選項。
             transport: transportOf((chatRaw as Record<string, unknown>)['transport']),
             baseUrl: str((chatRaw as Record<string, unknown>)['baseUrl']),
             model: str((chatRaw as Record<string, unknown>)['model']),

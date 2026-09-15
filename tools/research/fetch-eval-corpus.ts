@@ -142,7 +142,7 @@ async function fetchPage(host: string, prefix: string, title: string): Promise<P
 /**
  * 切段。**用出貨的那一支**（`domain/search/chunk.ts`）。
  *
- * 這裡曾經有一份自己的實作，而那是這一輪要修掉的東西：
+ * 這裡曾經有一份自己的實作，v0.11.0 把它拿掉了：
  * **量測用一支、出貨用另一支的話，量出來的分數對出貨的東西不成立** ——
  * 而兩份程式碼長得很像的時候，沒有任何地方會報錯。
  *

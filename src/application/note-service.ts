@@ -1,5 +1,5 @@
 /**
- * 筆記與點註的用例（Stage 10）。
+ * 筆記與點註的用例。
  *
  * ## 選擇器是伺服器建的，不是前端送過來的
  *
@@ -11,7 +11,7 @@
  * 一個改過的 JS，都能存進一則「引文與位置對不上」的點註，
  * 而那種點註在畫面上跟正確的一模一樣。
  *
- * 同一個形狀在 Stage 9 已經出現過一次（模型給的字元位置一律丟掉，自己找）。
+ * 同一個形狀在 v0.5.0 已經出現過一次（模型給的字元位置一律丟掉，自己找）。
  * **兩次的判準相同：一個指錯位置的引用比沒有引用更糟，因為它看起來已經驗過了。**
  *
  * ## 一則點註寫三個地方
@@ -67,12 +67,12 @@ const TITLE_CHARS = 40;
  *
  * ## 為什麼是 `named` ＋ `origin='human'` ＋ `已確認`
  *
- * Stage 8 定過這條規則：**手動建立的邊一建立就是已確認、`origin='human'`**。
+ * v0.4.0 定過這條規則：**手動建立的邊一建立就是已確認、`origin='human'`**。
  * 而這條線正是使用者手動建立的 —— 他在那一份文件裡選了一段字，
  * 那個動作本身就是主張「這則筆記是關於這一份的」。
  *
  * 它不會進裁決佇列（佇列只收 `pending`），也不會被算進校準比例
- * （那只採計 `origin='machine'`）—— 兩件事 Stage 8 都已經擋好了。
+ * （那只採計 `origin='machine'`）—— 兩件事 v0.4.0 都已經擋好了。
  *
  * **這條線可以刪。** 刪掉它不影響錨點：閱讀器照樣標得出來，
  * 因為錨點在 `note` 那張表上，而這條線是它在圖上的說法。
@@ -140,7 +140,7 @@ function targetOf(item: items.ItemRow, derived: DerivedPayload | null) {
 const NOT_FOUND: AnchorHit = { kind: 'not-found' };
 
 /**
- * **匯出也用這一支**（Stage 11）—— 一則點註「現在解到哪裡」只能有一個答案，
+ * **匯出也用這一支**—— 一則點註「現在解到哪裡」只能有一個答案，
  * 而閱讀器與證據包如果各算各的，兩邊遲早會對同一則給出不同的位置。
  */
 export async function resolveNotes(
@@ -224,7 +224,7 @@ function sortByPlace(rows: readonly ResolvedNote[]): readonly ResolvedNote[] {
  * 重解一個專題全部的點註並把 `anchor_ok` 寫回去。
  *
  * **這支就是 `derived/` 整批重算之後要跑的那一步**，
- * 而它回的那三個數字就是 Stage 10 的驗收條件本身。
+ * 而它回的那三個數字就是 v0.6.0 的驗收條件本身。
  */
 export async function reresolveAll(
   db: DatabaseSync,

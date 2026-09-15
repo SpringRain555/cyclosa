@@ -32,7 +32,7 @@
  *    原生 `think: false` **0.45 秒、0 字**。見下面 `think` 那一段為什麼這一欄重要
  * 2. **`num_ctx` 只有原生這條送得出去。** 少了它，正文會在小 context 的機器上被安靜截斷
  *
- * 線上的 OpenAI 相容端點走 `chat-openai.ts`（Stage 16）。
+ * 線上的 OpenAI 相容端點走 `chat-openai.ts`。
  * 完整量測在 `docs/research/openai-compat-json-schema.md`。
  */
 import { REQUIRED_CONTEXT_TOKENS, type ProviderCapabilities } from '../../domain/provider/index.js';

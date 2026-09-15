@@ -1,7 +1,7 @@
 /**
  * provider 的介面 —— **三個角色三種形狀，刻意不統一。**
  *
- * `agent` 是子程序、`chat` 是 HTTP、`embed` 是本地優先（Stage 12）。
+ * `agent` 是子程序、`chat` 是 HTTP、`embed` 是本地優先。
  * 硬塞進同一個介面的話，最後會得到一個只剩最小交集的抽象：
  * `agent` 的取消（殺子程序）與 `chat` 的取消（abort 一個 fetch）
  * 差別大到不該用同一個型別假裝一樣。
@@ -64,7 +64,7 @@ export interface ChatProvider {
     signal?: AbortSignal,
   ): Promise<CallOutcome<unknown>>;
   /**
-   * 「符合 schema」由誰保證（Stage 16）。**不打網路** —— 只讀已經知道的事實，
+   * 「符合 schema」由誰保證。**不打網路** —— 只讀已經知道的事實，
    * 所以設定頁一打開就可以問，不會產生費用。
    */
   jsonMode(): Promise<JsonModeReport>;

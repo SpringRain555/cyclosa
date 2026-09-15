@@ -1,5 +1,5 @@
 /**
- * 端對端：全文檢索（Stage 12 的前半）。
+ * 端對端：全文檢索。
  *
  * **這一份要證明的第一件事是那個實測反例**：中文兩個字查得到。
  * FTS5 的 `trigram` 對兩個字的中文查詢命中 0 列（2026-09-05 實測），
@@ -10,7 +10,7 @@
  * 而一份寫著「來台積極…累積電力」的文件**兩個 gram 都有** ——
  * 索引層沒有位置，分不出來。所以候選拿到之後要回去讀正文。
  *
- * 這跟 Stage 11 匯出時重新驗引文是同一個判斷，第四次出現。
+ * 這跟 v0.8.0 匯出時重新驗引文是同一個判斷，第四次出現。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';

@@ -1,5 +1,5 @@
 /**
- * 關聯與出處的用例 —— **人工裁決**（Stage 8）。
+ * 關聯與出處的用例 —— **人工裁決**。
  *
  * `graph-service.ts` 回的是「一屏長什麼樣」，這一份回的是
  * 「**這一條到底憑什麼**，而我可以對它做什麼」。
@@ -405,7 +405,7 @@ export async function listQueue(dataRoot: string, slug: string): Promise<Result<
   });
 }
 
-// ── 機器提出（Stage 9 的擴展會呼叫這一支）────────────────────
+// ── 機器提出（v0.5.0 的擴展會呼叫這一支）────────────────────
 
 export interface ProposalSummary {
   readonly created: number;
@@ -418,7 +418,7 @@ export interface ProposalSummary {
 /**
  * 機器提出一批邊。
  *
- * **沒有 HTTP 端點** —— 這條路只有擴展作業走得到（Stage 9），
+ * **沒有 HTTP 端點** —— 這條路只有擴展作業走得到，
  * 而擴展是從 `POST …/runs` 進來的。開一個「請幫我寫一條機器邊」的端點
  * 等於給了一條繞過墓碑與出處要求的路。
  *

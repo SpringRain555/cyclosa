@@ -11,7 +11,7 @@
  * 不是 bug。要精確就要換成「用 collation 排序」，而那條路在 `node:sqlite` 上不存在。
  */
 
-/** 名次的字串寬度。8 位數擋得住 5 萬筆（Stage 13 的規模預算）再乘上千倍。 */
+/** 名次的字串寬度。8 位數擋得住 5 萬筆（v0.12.0 的規模預算）再乘上千倍。 */
 const WIDTH = 8;
 
 export function rankKey(position: number): string {

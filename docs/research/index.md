@@ -92,6 +92,8 @@
 | `embedding-choice.md` | **嵌入模型：桌面調查 ＋ 實測** | 2026-09-09 |
 | `chat-choice.md` | **`chat` 角色：`json_schema: true` 這個宣告量起來是什麼樣子** | 2026-09-09 |
 | `embedding-eval-queries.jsonl` | 上面那份實測的**查詢集**（跑模型之前就寫死並提交）| 2026-09-09 |
+| `security-sources.md` | **資安領域的來源**：17 列怎麼進內建清單、探針實查、會議與期刊住在哪個網域 | 2026-09-16 |
+| `model-tasks-review.md` | **模型任務的盤點**：切換、劃分、模組化、評估依據、缺的任務、下一輪的量法 | 2026-09-16 |
 | `open-questions.md` | 還沒答的設計問題 | 持續 |
 | `query-log.md` | 查過什麼、何時、查到什麼、級別 | 持續 |
 | `sources/manifest.jsonl` | 每一次擷取的 URL、時間、狀態、SHA-256 | 持續 |

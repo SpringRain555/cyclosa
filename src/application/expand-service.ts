@@ -836,17 +836,11 @@ interface ExtractResult {
 /**
  * 從一份剛抓回來的內容抽實體與關係，寫進圖裡。
  *
- * ## 引文的位置是我們自己找的
- *
- * 模型回的是引文字串，**不是位置** —— 就算它回了位置我們也不用
- * （`locateQuote` 的檔頭寫了為什麼）。找不到就沒有這條邊：
- * **一個指不到原文的出處，比沒有出處更糟。**
- *
- * ## 寫入包在一個交易裡
- *
- * 一份文件抽出來的東西是一組：實體、共同提及邊、具名關係與它們的出處。
- * 中途斷掉會留下**有實體、沒有邊**或**有邊、沒有出處**的半套狀態，
- * 而後者正好是「一條看起來可以被確認、但沒有東西支撐它」的邊。
+ * 兩半：**問模型**（`callExtract`）與**寫進去**（`applyExtraction`）。
+ * 拆開的理由是後者要能單獨被呼叫 —— 一份不是模型產生的抽取結果
+ * （`tools/dev/apply-extraction.ts`，人在對話裡抽的）要走**一模一樣**的路：
+ * 實體對齊、共同提及、`locateQuote`、`applyProposal`、待查證。
+ * 拆開之後這一支只剩接線，規則一個字都沒搬。
  */
 async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<ExtractResult> {
   const derived = await readDerived(ctx.folder, ctx.itemId);
@@ -854,22 +848,69 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
     return { newEdges: 0, costUsd: null, code: 'PARSE_EMPTY_CONTENT' };
   }
 
-  const call = await ctx.chat.json(
+  const called = await callExtract(ctx.chat, derived, ctx.abort);
+  if (called.kind === 'error') {
+    return { newEdges: 0, costUsd: called.costUsd, code: called.code };
+  }
+
+  const applied = applyExtraction(db, ctx.itemId, ctx.runId, derived.text, called.extraction);
+  return { newEdges: applied.newEdges, costUsd: called.costUsd, code: applied.code };
+}
+
+type CallExtractOutcome =
+  | { readonly kind: 'ok'; readonly extraction: Extraction; readonly costUsd: number | null }
+  | { readonly kind: 'error'; readonly code: ErrorCode; readonly costUsd: number | null };
+
+/** 問模型那一半。**模型回的東西是外部輸入**，一律先過 `normalizeExtraction`。 */
+async function callExtract(
+  chat: ChatProvider,
+  derived: { readonly title: string; readonly text: string },
+  abort: AbortController,
+): Promise<CallExtractOutcome> {
+  const call = await chat.json(
     {
       system: EXTRACT_SYSTEM,
       user: extractUser(derived.title, derived.text),
       schema: EXTRACT_SCHEMA,
     },
-    ctx.abort.signal,
+    abort.signal,
   );
-  if (call.kind === 'error') {
-    return { newEdges: 0, costUsd: call.cost.costUsd, code: call.code };
-  }
+  if (call.kind === 'error') return { kind: 'error', code: call.code, costUsd: call.cost.costUsd };
+  return { kind: 'ok', extraction: normalizeExtraction(call.value), costUsd: call.cost.costUsd };
+}
 
-  const extraction = normalizeExtraction(call.value);
-  if (extraction.entities.length === 0) {
-    return { newEdges: 0, costUsd: call.cost.costUsd, code: null };
-  }
+export interface AppliedExtraction {
+  readonly newEdges: number;
+  /** 引文找不到要說出來，不是安靜地少幾條邊。 */
+  readonly code: ErrorCode | null;
+}
+
+/**
+ * 寫進去那一半：把一份抽取結果變成實體、共同提及邊、具名關係與出處。
+ *
+ * ## 引文的位置是我們自己找的
+ *
+ * 模型回的是引文字串，**不是位置** —— 就算它回了位置我們也不用
+ * （`locateQuote` 的檔頭寫了為什麼）。找不到就沒有這條邊：
+ * **一個指不到原文的出處，比沒有出處更糟。** 這條對人在對話裡抽的也一樣 ——
+ * 這一支不知道也不在乎 `extraction` 是誰產生的。
+ *
+ * ## 寫入包在一個交易裡
+ *
+ * 一份文件抽出來的東西是一組：實體、共同提及邊、具名關係與它們的出處。
+ * 中途斷掉會留下**有實體、沒有邊**或**有邊、沒有出處**的半套狀態，
+ * 而後者正好是「一條看起來可以被確認、但沒有東西支撐它」的邊。
+ *
+ * `text` 是這一份 `derived/` 的正文 —— 呼叫端讀好傳進來，引文在它裡面找。
+ */
+export function applyExtraction(
+  db: DatabaseSync,
+  itemId: string,
+  runId: string,
+  text: string,
+  extraction: Extraction,
+): AppliedExtraction {
+  if (extraction.entities.length === 0) return { newEdges: 0, code: null };
 
   let quoteMisses = 0;
   const newEdges = withTransaction(db, () => {
@@ -907,7 +948,7 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
       const result = applyProposal(
         db,
         {
-          source: ctx.itemId,
+          source: itemId,
           target: entityId,
           rel: MENTION_REL,
           layer: 'comention',
@@ -915,7 +956,7 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
           targetKind: 'entity',
           confidence: MENTION_CONFIDENCE,
           evidence: [],
-          runId: ctx.runId,
+          runId,
         },
         now,
       );
@@ -928,7 +969,7 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
       const target = idOf.get(relation.object);
       if (source === undefined || target === undefined) continue;
 
-      const at = locateQuote(derived.text, relation.quote);
+      const at = locateQuote(text, relation.quote);
       if (at.kind !== 'found') {
         quoteMisses++;
         continue;
@@ -948,13 +989,13 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
           confidence: scoreFor({ independentSourceCount: 1, hasDirectQuote: true }),
           evidence: [
             {
-              itemId: ctx.itemId,
-              quote: derived.text.slice(at.start, at.end),
+              itemId,
+              quote: text.slice(at.start, at.end),
               charStart: at.start,
               charEnd: at.end,
             },
           ],
-          runId: ctx.runId,
+          runId,
         },
         now,
       );
@@ -965,7 +1006,6 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
 
   return {
     newEdges,
-    costUsd: call.cost.costUsd,
     // **引文找不到要說出來**，不是安靜地少幾條邊。
     code: quoteMisses > 0 ? 'PROVIDER_QUOTE_NOT_FOUND' : null,
   };

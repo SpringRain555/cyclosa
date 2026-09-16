@@ -164,7 +164,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /**
-   * 重建範例專案。
+   * 重建範例專題。
    *
    * 第一次啟動會自動放一份；刪掉之後**不會自己回來**，
    * 而這一支是那個「我想要回來」的明確動作。

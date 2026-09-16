@@ -19,9 +19,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /**
  * [來源, 目的]，兩者都相對於 repo 根。
  *
- * `src/assets` 是範例專案的語料—— 它跟 migration 一樣是
+ * `src/assets` 是範例專題的語料—— 它跟 migration 一樣是
  * **執行期要讀得到的非 TypeScript 檔案**，漏了這一行的症狀是
- * 「第一次啟動沒有範例專案，而且沒有人說為什麼」。
+ * 「第一次啟動沒有範例專題，而且沒有人說為什麼」。
  */
 const ASSETS = [
   ['src/infrastructure/db/migrations', 'dist/infrastructure/db/migrations'],

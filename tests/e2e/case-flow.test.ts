@@ -71,7 +71,7 @@ describe('指標檔的失敗各自說得出原因', () => {
     const res = await app.inject({ method: 'GET', url: '/api/cases' });
     const body = res.json();
     expect(body.ok, JSON.stringify(body)).toBe(true);
-    // **不是空的** —— 裡面有一份範例專案。
+    // **不是空的** —— 裡面有一份範例專題。
     expect(body.data.map((c: { name: string }) => c.name)).toEqual([
       expect.stringContaining('範例'),
     ]);
@@ -97,16 +97,16 @@ describe('指標檔的失敗各自說得出原因', () => {
   });
 
   /**
-   * **範例專案刪掉之後不會自己回來**（v0.17.0 的收尾條件之一）。
+   * **範例專題刪掉之後不會自己回來**（v0.17.0 的收尾條件之一）。
    *
    * 這件事沒有靠一個「使用者刪過了」的旗標，靠的是**資料根本身**：
    * 放範例只發生在資料根是這一次才建出來的時候。
    * 一個少一份狀態的設計不會有「旗標與現實對不上」這種狀態。
    *
-   * > 一個會自己長回來的範例專案，使用者第二次刪它的時候
+   * > 一個會自己長回來的範例專題，使用者第二次刪它的時候
    * > 就不會再相信這個程式的任何一顆刪除鍵。
    */
-  it('範例專案刪掉之後，重新啟動不會自己回來', async () => {
+  it('範例專題刪掉之後，重新啟動不會自己回來', async () => {
     await boot();
     const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json().data as {
       slug: string;
@@ -128,7 +128,7 @@ describe('指標檔的失敗各自說得出原因', () => {
     expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().data).toEqual([]);
   });
 
-  it('但按下「重建範例專案」就會回來', async () => {
+  it('但按下「重建範例專題」就會回來', async () => {
     await boot();
     const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json().data as {
       slug: string;

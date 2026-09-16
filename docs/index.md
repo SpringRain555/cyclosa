@@ -126,7 +126,7 @@ LLM 擴展 → 全文／語意檢索 → 證據包匯出**。擴展用的 `chat`
 | `embedding-choice.md` | ✅ | **嵌入模型的量測**（七個候選、1955 段真實網頁）與選定的理由 | 語意檢索怎麼接（那是 roadmap）|
 | `embedding-eval-queries.jsonl` | ✅ | （**先登記後量測**）50 條查詢與它們的關聯判定 | 量測結果 |
 | `chat-choice.md` | ✅ | **`chat` 角色的量測**：`json_schema: true` 這個宣告實際上是什麼樣子 | 該選哪個模型（結論在文件裡，設定值由使用者填）|
-| `sample-corpus-licence.md` | ✅ | **範例專案語料的授權查證**（兩個獨立依據、官方下載管道、robots 那一條） | 範例專案怎麼產生（那是 `sample-service.ts`）|
+| `sample-corpus-licence.md` | ✅ | **範例專題語料的授權查證**（兩個獨立依據、官方下載管道、robots 那一條） | 範例專題怎麼產生（那是 `sample-service.ts`）|
 | `openai-compat-json-schema.md` | ✅ | **OpenAI 相容端點對 `response_format` 的支援度**（v0.18.0 的第一條收尾條件）：量測設計、Ollama `/v1` 的結果、以及**為什麼本機 Ollama 仍然走原生協定** | 支援度的表 —— **刻意沒有**，每個端點＋模型各自量（ADR-0030）|
 | `sources/manifest.jsonl` | ✅ | （產生物）來源的 URL、時間、SHA-256 | —— |
 

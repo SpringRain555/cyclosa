@@ -1,10 +1,10 @@
 # `src/assets/` —— 執行期要讀得到的非程式檔
 
 `tsc` 只處理 `.ts`，所以這一層的東西由 `tools/build/copy-assets.mjs`
-複製到 `dist/assets/`。**漏了那一步的症狀是「第一次啟動沒有範例專案，
+複製到 `dist/assets/`。**漏了那一步的症狀是「第一次啟動沒有範例專題，
 而且沒有人說為什麼」。**
 
-## `sample-corpus.json` —— 範例專案的語料
+## `sample-corpus.json` —— 範例專題的語料
 
 八條中華民國法律的**條文原文**，外加手寫的圖形狀（六個實體、十二條關聯）。
 `src/application/sample-service.ts` 讀它。

@@ -1,11 +1,11 @@
 /**
- * 範例專案。
+ * 範例專題。
  *
  * ## 它為什麼存在
  *
  * 第一次啟動之後畫面上是一個空清單，而這個工具做的事
  * （帶出處的關聯網、待查證的裁決佇列、投影三段）**沒有一項在空清單上看得見**。
- * 範例專案是那些東西的第一個實例。
+ * 範例專題是那些東西的第一個實例。
  *
  * ## 語料是真的，出處也是真的
  *
@@ -152,10 +152,10 @@ export interface SampleResult {
 }
 
 /**
- * 建立範例專案。
+ * 建立範例專題。
  *
  * 已經有同名專題就**什麼都不做**（回 `CASE_NAME_DUPLICATE`）——
- * 這一支會被「重建範例專案」那顆按鈕呼叫，而重建不該悄悄產生第二份。
+ * 這一支會被「重建範例專題」那顆按鈕呼叫，而重建不該悄悄產生第二份。
  */
 export async function createSampleCase(dataRoot: string): Promise<Result<SampleResult>> {
   const cid = correlationId();
@@ -174,7 +174,7 @@ export async function createSampleCase(dataRoot: string): Promise<Result<SampleR
 
   try {
     const filled = await fill(opened.db, folder, corpus);
-    logger.info('範例專案已建立', { slug: summary.slug, ...filled });
+    logger.info('範例專題已建立', { slug: summary.slug, ...filled });
     return ok({ slug: summary.slug, ...filled }, cid);
   } finally {
     opened.db.close();
@@ -372,9 +372,9 @@ export async function seedSampleIfEmpty(dataRoot: string): Promise<void> {
     if (existing.length > 0) return;
 
     const r = await createSampleCase(dataRoot);
-    if (!r.ok) logger.warn('範例專案沒有建起來', { code: r.code });
+    if (!r.ok) logger.warn('範例專題沒有建起來', { code: r.code });
   } catch (e) {
-    // **這不是啟動失敗。** 沒有範例專案的 Cyclosa 仍然完全可用。
-    logger.warn('建立範例專案時出了例外', { reason: String((e as Error).message) });
+    // **這不是啟動失敗。** 沒有範例專題的 Cyclosa 仍然完全可用。
+    logger.warn('建立範例專題時出了例外', { reason: String((e as Error).message) });
   }
 }

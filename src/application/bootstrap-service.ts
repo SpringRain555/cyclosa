@@ -88,7 +88,7 @@ export async function resolveOrCreateDataRoot(
   if (first.ok || first.code !== 'IO_POINTER_MISSING') return first;
 
   const made = await initDataRoot(defaultDataRoot(env), env);
-  // **只有這一條路會放範例專案** —— 資料根是這一次才建出來的，
+  // **只有這一條路會放範例專題** —— 資料根是這一次才建出來的，
   // 所以「使用者刪過了」不需要另外記一個旗標。理由在 `seedSampleIfEmpty`。
   if (made.ok) await seedSampleIfEmpty(made.data.dataRoot);
   return made;

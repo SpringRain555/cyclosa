@@ -748,7 +748,7 @@ export const api = {
       body: JSON.stringify({ dataRoot }),
     }),
   /**
-   * 重建範例專案。已經有一份的時候回 `CASE_NAME_DUPLICATE` ——
+   * 重建範例專題。已經有一份的時候回 `CASE_NAME_DUPLICATE` ——
    * **重建不該悄悄產生第二份。**
    */
   rebuildSample: () =>

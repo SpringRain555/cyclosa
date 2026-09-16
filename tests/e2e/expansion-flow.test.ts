@@ -38,6 +38,7 @@ import { createEdge } from '../../src/application/edge-service.js';
 import { transitionEdge } from '../../src/application/edge-service.js';
 import { isActive } from '../../src/application/run-registry.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
+import { CATALOG } from '../../src/infrastructure/sources/catalog.js';
 
 // ══ 合成的來源網頁 ═════════════════════════════════════════
 
@@ -123,6 +124,10 @@ if (argv.includes('--version')) {
 
 const mode = process.env['CYCLOSA_FAKE_AGENT_MODE'] ?? 'ok';
 const urls = (process.env['CYCLOSA_FAKE_AGENT_URLS'] ?? '').split(',').filter((u) => u.length > 0);
+
+// 把收到的提示詞留下來給測試看。**寫到沙箱外面** —— 沙箱裡多一個檔就是違規。
+const promptFile = process.env['CYCLOSA_FAKE_AGENT_PROMPT_FILE'];
+if (promptFile) await writeFile(promptFile, argv[argv.indexOf('-p') + 1] ?? '', 'utf8');
 
 // **這是違規的那一種**：agent 自己把一份網頁存進沙箱。
 if (mode === 'sandbox') await writeFile('grabbed.html', '<html>不該在這裡</html>', 'utf8');
@@ -279,6 +284,7 @@ beforeEach(async () => {
   chatCalls.length = 0;
   process.env['CYCLOSA_FAKE_AGENT_MODE'] = 'ok';
   process.env['CYCLOSA_FAKE_AGENT_URLS'] = `${sourcesBase}/article`;
+  process.env['CYCLOSA_FAKE_AGENT_PROMPT_FILE'] = join(sandbox, 'agent-prompt.txt');
   extraction = { entities: [], relations: [] };
   angles = {
     angles: [
@@ -298,6 +304,7 @@ afterEach(async () => {
   else process.env['LOCALAPPDATA'] = savedLocalAppData;
   delete process.env['CYCLOSA_FAKE_AGENT_MODE'];
   delete process.env['CYCLOSA_FAKE_AGENT_URLS'];
+  delete process.env['CYCLOSA_FAKE_AGENT_PROMPT_FILE'];
   await rm(sandbox, { recursive: true, force: true });
 });
 
@@ -788,6 +795,107 @@ describe('agent 的沙箱', () => {
     expect(detail.data.run.status).toBe('failed');
     // **一個網址都沒抓** —— 停下來就是停下來
     expect(detail.data.items).toHaveLength(0);
+  });
+});
+
+// ══ 來源清單進 agent 的提示詞（v0.20.0）═══════════════════════
+
+/**
+ * `source-service.ts` 的檔頭從 v0.7.0 就寫著「清單影響給 agent 的建議」，
+ * 而 `preferredHosts()` 在 v0.20.0 之前**零個呼叫點** —— 清單只給設定頁看。
+ * 這條測試看的是**子程序真的收到的提示詞**，不是某個函式的回傳值：
+ * 接線少一段的症狀是 agent 照常跑、照常找到東西，只是沒有聽到使用者說的話。
+ */
+describe('使用者的來源清單會進 agent 的提示詞', () => {
+  it('讀得到的、要登入的、還沒抓過的三段都在；關掉的不在', async () => {
+    const now = Date.now();
+    await writeFile(
+      join(sandbox, 'LocalAppData', 'Cyclosa', 'sources.json'),
+      JSON.stringify({
+        version: 1,
+        sources: {
+          // 使用者自己加的、還沒有任何紀錄 → 「還沒抓過」那一段
+          'user-added.example': {
+            host: 'user-added.example',
+            nameZh: '合成的來源',
+            kind: 'site',
+            category: 'reference',
+            fields: ['合成'],
+            probe: null,
+            noteZh: '',
+            enabled: true,
+          },
+          // 關掉的 → 三段都不該有它
+          'disabled.example': {
+            host: 'disabled.example',
+            nameZh: '關掉的來源',
+            kind: 'site',
+            category: 'reference',
+            fields: [],
+            probe: null,
+            noteZh: '',
+            enabled: false,
+          },
+        },
+        probes: {
+          // 探測過讀得到 → 「讀得到」那一段
+          'api.openalex.org': {
+            access: 'open',
+            code: null,
+            at: now,
+            url: 'https://api.openalex.org/',
+          },
+          // 探測過要登入 → 「多半要登入」那一段，**仍然要在**
+          'sciencedirect.com': {
+            access: 'login',
+            code: 'FETCH_LOGIN_REQUIRED',
+            at: now,
+            url: 'https://sciencedirect.com/x',
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) throw new Error(started.code);
+    await chooseAngles(dataRoot, slug, started.data.runId, [started.data.angles[0]?.id as string]);
+    await waitForRun(started.data.runId);
+
+    const prompt = await readFile(join(sandbox, 'agent-prompt.txt'), 'utf8');
+    expect(prompt).toContain('一樁合成的收購案');
+    expect(prompt).toContain('- api.openalex.org');
+    expect(prompt).toContain('- sciencedirect.com');
+    expect(prompt).toContain('- user-added.example');
+    expect(prompt).not.toContain('disabled.example');
+    // 三段各自有標題，而且「要登入」那一段要說出要標明
+    expect(prompt.indexOf('依紀錄讀得到')).toBeLessThan(prompt.indexOf('- api.openalex.org'));
+    expect(prompt.indexOf('多半要登入')).toBeLessThan(prompt.indexOf('- sciencedirect.com'));
+    expect(prompt.indexOf('還沒抓過')).toBeLessThan(prompt.indexOf('- user-added.example'));
+  });
+
+  it('清單是空的 → 提示詞裡沒有任何一段來源標題', async () => {
+    // 內建清單沒有紀錄也沒有探測時，每一列都是「還沒抓過」—— 那一段會列出內建的網域。
+    // 所以這裡把內建的全部關掉，讓三段都空，確認**一個標題都不加**。
+    const sources = Object.fromEntries(
+      CATALOG.map((e) => [
+        e.host,
+        { host: e.host, nameZh: e.nameZh, kind: e.kind, category: e.category, enabled: false },
+      ]),
+    );
+    await writeFile(
+      join(sandbox, 'LocalAppData', 'Cyclosa', 'sources.json'),
+      JSON.stringify({ version: 1, sources, probes: {} }),
+      'utf8',
+    );
+
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) throw new Error(started.code);
+    await chooseAngles(dataRoot, slug, started.data.runId, [started.data.angles[0]?.id as string]);
+    await waitForRun(started.data.runId);
+
+    const prompt = await readFile(join(sandbox, 'agent-prompt.txt'), 'utf8');
+    expect(prompt).not.toContain('來源');
   });
 });
 

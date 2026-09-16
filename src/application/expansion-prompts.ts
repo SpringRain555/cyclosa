@@ -35,6 +35,7 @@ import {
   MAX_RELATIONS,
   MAX_URLS_PER_ANGLE,
   MIN_QUOTE_CHARS,
+  type SourceHints,
 } from '../domain/provider/index.js';
 
 /** 送進模型的正文上限。超過的截斷 —— **引文仍然在完整正文裡定位**。 */
@@ -143,8 +144,31 @@ export const SOURCES_SYSTEM = [
   '4. 只回 JSON，不要解釋。',
 ].join('\n');
 
-export function sourcesUser(topic: string, question: string): string {
-  return [`專題主題：${topic}`, `這一次要查的子問題：${question}`].join('\n');
+/**
+ * 使用者的來源清單進提示詞（`sourceHints`）。
+ *
+ * **三段，而且「多半要登入」那一段也給。** 只給讀得到的話，agent 找到一篇 IEEE 的論文
+ * 照樣會列、我們照樣抓不到 —— 差別只在它有沒有被提醒要標明。而「標明」正是
+ * 使用者接下來要自己去拿那一篇的依據（Stage 18 的候選清單就靠這一句）。
+ *
+ * 三段都空的時候**一個字都不加**：一個空的「優先來源：（無）」會讓模型以為
+ * 使用者刻意說了「沒有偏好」。
+ */
+export function sourcesUser(topic: string, question: string, hints: SourceHints): string {
+  const lines = [`專題主題：${topic}`, `這一次要查的子問題：${question}`];
+  const groups: readonly (readonly [string, readonly string[]])[] = [
+    ['使用者常用、依紀錄讀得到的來源（優先從這些找）', hints.readable],
+    ['使用者列出但還沒抓過的來源（也去看看）', hints.untried],
+    [
+      '依紀錄多半要登入或訂閱的來源（找到照樣列出，但在 why 裡標明「可能要登入」）',
+      hints.loginWalled,
+    ],
+  ];
+  for (const [title, hosts] of groups) {
+    if (hosts.length === 0) continue;
+    lines.push('', `${title}：`, ...hosts.map((h) => `- ${h}`));
+  }
+  return lines.join('\n');
 }
 
 // ── 三 · 從一份內容抽實體與關係（chat）────────────────────

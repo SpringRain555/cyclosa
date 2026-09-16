@@ -46,6 +46,11 @@
 > **v0.13.0 也沒有新端點** —— `GET /api/providers` 的回應把 `chatReadiness`
 > 換成涵蓋四個任務的 `taskReadiness`，`config.agent` 多一個 `model`。
 >
+> **v0.20.0 也沒有新端點**（2026-09-16）。`/api/sources` 的每一列多一欄 **`fields`**（領域標籤，字串陣列），
+> `POST /api/sources` 收得下它；`category` 多三個值（`security-news`、`vulnerability-db`、`community`）。
+> **`POST`／`DELETE` 回的清單現在帶著抓取紀錄**（之前回 `listSources(null)`，
+> 每存一次從紀錄長出來的那幾列就從畫面上消失，重新整理才回來）。
+>
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
 ---

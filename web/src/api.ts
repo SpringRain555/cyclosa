@@ -650,6 +650,8 @@ export interface SourceRow {
   readonly nameZh: string;
   readonly kind: 'api' | 'site';
   readonly category: string;
+  /** 領域標籤，多值。內建的列一定有；使用者加的可以是空的。 */
+  readonly fields: readonly string[];
   readonly probe: string | null;
   readonly noteZh: string;
   readonly enabled: boolean;

@@ -7,6 +7,7 @@
  * 2. 名字不像就回 `null`，不回一個很低的分數 —— 一份塞滿雜訊的
  *    待合併清單等於沒有清單，而一次錯的合併看不出來。
  */
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -24,7 +25,26 @@ import {
   suggestMerges,
   surfaceFormsOf,
 } from '../../src/domain/entity/identity.js';
-import { CATALOG, normaliseHost } from '../../src/infrastructure/sources/catalog.js';
+import {
+  CATALOG,
+  SOURCE_CATEGORIES,
+  SOURCE_FIELD_SUGGESTIONS,
+  SOURCE_KINDS,
+  normaliseFields,
+  normaliseHost,
+} from '../../src/infrastructure/sources/catalog.js';
+
+const i18n = await readFile(new URL('../../web/src/i18n/zh-TW.ts', import.meta.url), 'utf8');
+
+/** `sources.category: { … }` 這種區塊裡的鍵。跟 `tests/guards/chat-tasks.test.ts` 同一種掃法。 */
+function i18nKeysOf(blockName: string): string[] {
+  const anchor = `    ${blockName}: {`;
+  const start = i18n.indexOf(anchor, i18n.indexOf('  sources: {'));
+  if (start < 0) return [];
+  const end = i18n.indexOf('\n    },', start);
+  const block = i18n.slice(start, end < 0 ? undefined : end);
+  return [...block.matchAll(/^\s{6}'?([a-z-]+)'?:/gm)].map((m) => m[1] as string).sort();
+}
 
 describe('擷取的碼 → 這個網站讀不讀得到', () => {
   it.each([
@@ -118,6 +138,45 @@ describe('內建清單', () => {
     const publishers = CATALOG.filter((e) => e.category === 'publisher');
     expect(publishers.length).toBeGreaterThan(0);
     expect(publishers.every((e) => e.probe === null)).toBe(true);
+  });
+
+  /**
+   * **類型與型別的清單只有一份定義，而 i18n 的那張表要跟它一字不差。**
+   *
+   * 2026-09-16 之前 `config.ts` 自己抄了一份類型清單；加三個資安分類時如果只改
+   * `catalog.ts`，使用者存的「資安新聞」會在下一次讀設定檔時被安靜地退回「參考」——
+   * 沒有錯誤、沒有紅字。而 i18n 少一個鍵的症狀是畫面上印出英文識別字。
+   */
+  it('類型與型別在 i18n 裡各有一個中文名，而且不多不少', () => {
+    expect(i18nKeysOf('category')).toEqual([...SOURCE_CATEGORIES].sort());
+    expect(i18nKeysOf('kind')).toEqual([...SOURCE_KINDS].sort());
+    expect(new Set(SOURCE_CATEGORIES).size).toBe(SOURCE_CATEGORIES.length);
+  });
+
+  /**
+   * 內建的每一列都要有領域，而且用的是建議詞彙裡的詞 ——
+   * chips 上的詞是從清單長出來的，一列寫成「資訊安全」就會多一顆跟「資安」並排的 chip。
+   */
+  it('內建每列的領域非空，而且都在建議詞彙裡', () => {
+    const vocabulary = new Set<string>(SOURCE_FIELD_SUGGESTIONS);
+    for (const entry of CATALOG) {
+      expect(entry.fields.length, entry.host).toBeGreaterThan(0);
+      for (const field of entry.fields)
+        expect(vocabulary.has(field), `${entry.host}: ${field}`).toBe(true);
+    }
+    // 建議詞彙裡每一個詞至少被一列用到 —— 沒人用的詞是第二份清單的開始。
+    for (const word of SOURCE_FIELD_SUGGESTIONS) {
+      expect(
+        CATALOG.some((e) => e.fields.includes(word)),
+        word,
+      ).toBe(true);
+    }
+  });
+
+  it('領域標籤正規化：去空白、去重、丟掉不是字串的', () => {
+    expect(normaliseFields([' 資安 ', '資安', '', 3, null, '生醫'])).toEqual(['資安', '生醫']);
+    expect(normaliseFields('資安')).toEqual([]);
+    expect(normaliseFields(undefined)).toEqual([]);
   });
 });
 

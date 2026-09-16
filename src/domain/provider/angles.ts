@@ -125,6 +125,31 @@ export const MAX_URL_CHARS = 2048;
 export const MAX_WHY_CHARS = 200;
 
 /**
+ * 給 agent 的來源提示：三段各最多列幾個網域（讀得到／多半要登入／使用者列了但沒抓過）。
+ *
+ * 來源清單會一直長（2026-09-16 是 39 列，之後跨領域還會加），
+ * 而提示詞不是清單的鏡子 —— 它只要夠讓 agent 知道「這個人平常在哪裡找」。
+ * 上限住在這裡，跟 `MAX_URLS_PER_ANGLE` 同一個地方，理由相同：**這是給模型的東西的形狀**。
+ */
+export const MAX_SOURCE_HINTS_PER_GROUP = 12;
+
+/**
+ * 三段來源提示。**只影響建議，不擋任何網址**（`source-service.ts` 檔頭）——
+ * 所以「多半要登入」那一段仍然要給：一篇讀不到的重要論文仍然值得被列出來，
+ * 差別只是 agent 知道要標明它。
+ */
+export interface SourceHints {
+  /** 依紀錄或探測讀得到的。 */
+  readonly readable: readonly string[];
+  /** 依紀錄多半要登入或訂閱的。 */
+  readonly loginWalled: readonly string[];
+  /** 使用者列在清單上、但還沒有任何紀錄的。 */
+  readonly untried: readonly string[];
+}
+
+export const EMPTY_SOURCE_HINTS: SourceHints = { readable: [], loginWalled: [], untried: [] };
+
+/**
  * 整理模型回的候選 URL。
  *
  * **只留 http／https，而且不在這裡抓** —— 這裡連 URL 合不合法都只做最粗的判斷，

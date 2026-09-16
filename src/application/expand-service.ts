@@ -59,6 +59,8 @@ import {
   TASK_FIND_SOURCES,
   type BudgetState,
   type CapabilityFlag,
+  type Extraction,
+  type SourceHints,
 } from '../domain/provider/index.js';
 import {
   openCaseDatabase,
@@ -92,6 +94,7 @@ import {
 } from './expansion-prompts.js';
 import { processOneUrl, type OneOutcome } from './ingest-service.js';
 import * as registry from './run-registry.js';
+import { sourceHints } from './source-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
 
@@ -474,6 +477,13 @@ export async function chooseAngles(
       JSON.stringify({ ...recorded, json: { ...recorded.json, extract: extractJson.mode } }),
     );
 
+    /**
+     * 使用者的來源清單 —— **一次作業讀一次**，不是每條角度讀一次：
+     * `historyByHost` 會逐一開每個專題的資料庫。
+     * 在勾選之後才讀，因為它是這一次作業的輸入，跟角度一樣要在開始前定下來。
+     */
+    const hints = await sourceHints(dataRoot);
+
     runs.selectAngles(db, runId, chosen);
     runs.updateRunTotal(db, runId, chosen.length);
     if (readCase(db)?.status === 'ready') updateCaseStatus(db, 'collecting', Date.now());
@@ -485,7 +495,7 @@ export async function chooseAngles(
     // **不 await，也不在這裡收拾。** `processExpansion` 自己有一個
     // 涵蓋整個函式的 `finally`（登記解除 ＋ 關資料庫）——
     // 在這裡再關一次會是第二次 `close()`，而那會丟例外。
-    void processExpansion(db, dataRoot, slug, state, run.topic ?? '', providers).catch(
+    void processExpansion(db, dataRoot, slug, state, run.topic ?? '', providers, hints).catch(
       (e: unknown) => {
         logger.error('擴展作業意外中止', { correlationId: cid, runId, reason: String(e) });
       },
@@ -513,6 +523,7 @@ async function processExpansion(
   state: registry.ActiveRun,
   topic: string,
   providers: Providers,
+  hints: SourceHints,
 ): Promise<void> {
   // **整個函式包在 try 裡。** 這一支是背景執行的，沒有人在 await 它 ——
   // 前置那幾行任何一行丟例外，資料庫連線就會一直開著，
@@ -583,6 +594,7 @@ async function processExpansion(
         state,
         topic,
         providers,
+        hints,
         angle,
         crawler,
         abort,
@@ -670,6 +682,8 @@ interface AngleContext {
   readonly state: registry.ActiveRun;
   readonly topic: string;
   readonly providers: Providers;
+  /** 使用者的來源清單，三段（`sourceHints`）。整次作業共用一份。 */
+  readonly hints: SourceHints;
   readonly angle: runs.RunAngleRow;
   readonly crawler: Crawler;
   readonly abort: AbortController;
@@ -702,7 +716,7 @@ async function runAngle(
 
   const call = await agent.run(
     {
-      prompt: sourcesUser(ctx.topic, angle.question),
+      prompt: sourcesUser(ctx.topic, angle.question, ctx.hints),
       cwd: sandbox,
       // 子程序的逾時 ＝ 這次作業還剩多久。**不是一個獨立的數字** ——
       // 兩個各自的逾時加起來會超過牆鐘上限。

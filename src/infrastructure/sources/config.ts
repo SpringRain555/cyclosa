@@ -21,7 +21,14 @@ import { dirname, join } from 'node:path';
 
 import type { SiteAccess } from '../../domain/sources/status.js';
 import { pointerFilePath } from '../fs/paths.js';
-import { normaliseHost, type SourceCategory, type SourceKind } from './catalog.js';
+import {
+  SOURCE_CATEGORIES,
+  SOURCE_KINDS,
+  normaliseFields,
+  normaliseHost,
+  type SourceCategory,
+  type SourceKind,
+} from './catalog.js';
 
 /** 使用者自己加的一列，或對內建那一列的覆寫。 */
 export interface UserSource {
@@ -29,6 +36,8 @@ export interface UserSource {
   readonly nameZh: string;
   readonly kind: SourceKind;
   readonly category: SourceCategory;
+  /** 領域標籤（`catalog.ts` 檔頭）。**舊的設定檔沒有這一欄** —— 缺就是空的，不是壞掉。 */
+  readonly fields: readonly string[];
   readonly probe: string | null;
   readonly noteZh: string;
   /** 關掉的不會進 agent 的建議清單。**仍然看得到，也仍然可以檢查。** */
@@ -57,15 +66,10 @@ export function sourcesFilePath(env: NodeJS.ProcessEnv = process.env): string {
   return join(dirname(pointerFilePath(env)), 'sources.json');
 }
 
-const KINDS: readonly SourceKind[] = ['api', 'site'];
-const CATEGORIES: readonly SourceCategory[] = [
-  'scholarly-api',
-  'preprint',
-  'open-repository',
-  'publisher',
-  'official',
-  'reference',
-];
+// **型別與類型的清單只有 `catalog.ts` 那一份。** 這裡 2026-09-16 之前自己抄了一份，
+// 加一個類型要改兩處 —— 漏掉的症狀是使用者存的分類被安靜地退回「參考」。
+const KINDS: readonly SourceKind[] = SOURCE_KINDS;
+const CATEGORIES: readonly SourceCategory[] = SOURCE_CATEGORIES;
 const ACCESSES: readonly SiteAccess[] = [
   'open',
   'login',
@@ -91,6 +95,7 @@ function readSource(host: string, raw: unknown): UserSource | null {
     nameZh: str(v['nameZh'], host),
     kind: KINDS.includes(kind) ? kind : 'site',
     category: CATEGORIES.includes(category) ? category : 'reference',
+    fields: normaliseFields(v['fields']),
     probe: probe.length > 0 ? probe : null,
     noteZh: str(v['noteZh']),
     // **沒寫就是開著。** 少一個欄位不該讓一個來源安靜地消失。

@@ -921,12 +921,12 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     async (req, reply) => {
       const raw = req.body ?? {};
       if (typeof raw.host !== 'string') return send(reply, await listSources(ctx.dataRoot));
-      return send(reply, await saveSource({ ...raw, host: raw.host } as SourceInput));
+      return send(reply, await saveSource({ ...raw, host: raw.host } as SourceInput, ctx.dataRoot));
     },
   );
 
   app.delete<{ Params: { host: string } }>('/api/sources/:host', async (req, reply) =>
-    send(reply, await removeSource(req.params.host)),
+    send(reply, await removeSource(req.params.host, ctx.dataRoot)),
   );
 
   /** 檢查。**走的是同一條擷取管線** —— robots、同網域間隔、429／503 退避重試。 */

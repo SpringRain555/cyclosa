@@ -20,13 +20,22 @@
  *
  * ## 這一頁不擋任何東西
  *
- * 清單影響的是**排序與給 agent 的建議**，不影響任何一條 URL 能不能被送進管線。
+ * 清單影響的是**排序與給 agent 的建議**（`sourceHints`，`chooseAngles` 每次作業讀一次
+ * 放進提示詞），不影響任何一條 URL 能不能被送進管線。
  * 一篇讀不到的重要論文仍然值得出現在待取得的清單上 ——
  * **擋掉它等於假裝那篇論文不存在。**
+ *
+ * > 「給 agent 的建議」這句話從 v0.7.0 就寫在這裡，而 `preferredHosts()` 在 v0.20.0 之前
+ * > **零個呼叫點** —— 清單算出來的偏好只給設定頁看。跟 v0.17.4 的 `sampleExists()` 同一種洞。
  */
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import {
+  EMPTY_SOURCE_HINTS,
+  MAX_SOURCE_HINTS_PER_GROUP,
+  type SourceHints,
+} from '../domain/provider/index.js';
 import {
   accessFromCode,
   preferenceOf,
@@ -40,6 +49,9 @@ import { Crawler } from '../infrastructure/fetch/crawler.js';
 import { configuredIntervalMs } from './fetch-policy.js';
 import {
   CATALOG,
+  SOURCE_CATEGORIES,
+  SOURCE_KINDS,
+  normaliseFields,
   normaliseHost,
   type CatalogEntry,
   type SourceCategory,
@@ -64,6 +76,8 @@ export interface SourceRow {
   readonly nameZh: string;
   readonly kind: SourceKind;
   readonly category: SourceCategory;
+  /** 領域標籤，多值（`catalog.ts` 檔頭「兩條正交的軸」）。 */
+  readonly fields: readonly string[];
   readonly probe: string | null;
   readonly noteZh: string;
   readonly enabled: boolean;
@@ -185,6 +199,7 @@ function mergeRows(
       nameZh: string;
       kind: SourceKind;
       category: SourceCategory;
+      fields: readonly string[];
       probe: string | null;
       noteZh: string;
       enabled: boolean;
@@ -213,6 +228,7 @@ function mergeRows(
       nameZh: entry.nameZh,
       kind: entry.kind,
       category: entry.category,
+      fields: entry.fields,
       probe: entry.probe,
       noteZh: entry.noteZh,
       enabled: true,
@@ -229,6 +245,7 @@ function mergeRows(
       nameZh: user.nameZh,
       kind: user.kind,
       category: user.category,
+      fields: user.fields,
       probe: user.probe,
       noteZh: user.noteZh,
       enabled: user.enabled,
@@ -247,6 +264,7 @@ function mergeRows(
       nameZh: host,
       kind: 'site',
       category: 'reference',
+      fields: [],
       probe: null,
       noteZh: '',
       enabled: true,
@@ -274,14 +292,36 @@ export async function listSources(dataRoot: string | null): Promise<Result<reado
   return ok(mergeRows(config, history), cid);
 }
 
-/** agent 該優先看哪些網域。擴展的提示詞會拿它。 */
-export async function preferredHosts(dataRoot: string | null): Promise<readonly string[]> {
+/**
+ * 給 agent 的來源提示（`chooseAngles` 每次作業讀一次，放進 `sourcesUser`）。
+ *
+ * 三段而不是一段：「讀得到」是優先看的；「多半要登入」**仍然要給**，agent 找到時標明就好 ——
+ * 不給的話它會照樣找到、而我們照樣抓不到，只是少了一句提醒；
+ * 「還沒抓過」是使用者自己列上去而清單還沒有依據的，那是他說的話，要讓 agent 聽見。
+ *
+ * **只看 `enabled`，而且不列從紀錄長出來的那幾列**（`discovered`）——
+ * 它們是「你抓過哪裡」的事實，不是「你想往哪裡找」的偏好。
+ *
+ * **使用者自己加的排在內建的前面。** 每段有上限，而內建清單一長（39 列），
+ * 「還沒抓過」那一段光是內建的就塞滿了 —— 使用者自己加的那一列反而擠不進去，
+ * 而那一列正是他最明確說過的話。
+ */
+export async function sourceHints(dataRoot: string | null): Promise<SourceHints> {
   const listed = await listSources(dataRoot);
-  if (!listed.ok) return [];
-  return listed.data
-    .filter((r) => r.enabled && r.preference === 'prefer')
-    .slice(0, 12)
-    .map((r) => r.host);
+  if (!listed.ok) return EMPTY_SOURCE_HINTS;
+  const rows = listed.data
+    .filter((r) => r.enabled && !r.discovered)
+    .sort((a, b) => Number(a.builtIn) - Number(b.builtIn));
+  const hosts = (pick: (r: SourceRow) => boolean): readonly string[] =>
+    rows
+      .filter(pick)
+      .slice(0, MAX_SOURCE_HINTS_PER_GROUP)
+      .map((r) => r.host);
+  return {
+    readable: hosts((r) => r.preference === 'prefer'),
+    loginWalled: hosts((r) => r.preference === 'deprioritise'),
+    untried: hosts((r) => r.preference === 'neutral' && r.verdict.basis === 'none'),
+  };
 }
 
 // ── 編輯 ──────────────────────────────────────────────────
@@ -291,12 +331,24 @@ export interface SourceInput {
   readonly nameZh?: string;
   readonly kind?: SourceKind;
   readonly category?: SourceCategory;
+  readonly fields?: readonly string[];
   readonly probe?: string | null;
   readonly noteZh?: string;
   readonly enabled?: boolean;
 }
 
-export async function saveSource(input: SourceInput): Promise<Result<readonly SourceRow[]>> {
+/**
+ * 存一列（新增或覆寫）。
+ *
+ * **回的清單要帶 `dataRoot`。** 2026-09-16 之前這裡回 `listSources(null)`：
+ * 沒有資料根就沒有紀錄可以聚合，於是每存一次，從紀錄長出來的那幾列就從畫面上消失，
+ * 重新整理才回來 —— 而畫面上「顯示 40／40 列」正是那種安靜的錯。
+ * 呼叫端不知道資料根的時候（測試）給 `null`，那是刻意的降級不是預設。
+ */
+export async function saveSource(
+  input: SourceInput,
+  dataRoot: string | null = null,
+): Promise<Result<readonly SourceRow[]>> {
   const cid = correlationId();
   const host = normaliseHost(input.host);
   if (host.length === 0 || !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) {
@@ -307,18 +359,27 @@ export async function saveSource(input: SourceInput): Promise<Result<readonly So
   const builtIn = CATALOG.find((e) => normaliseHost(e.host) === host) ?? null;
   const existing: UserSource | CatalogEntry | null = config.sources[host] ?? builtIn;
 
+  // **不認得的型別與類型退回預設，不是原樣存**：這一支同時收設定檔與 HTTP 請求，
+  // 一個打錯的類型存進去之後，讀回來會再被 `readSource` 退回「參考」—— 寫的時候就退，畫面上才看得到。
+  const kind =
+    input.kind !== undefined && SOURCE_KINDS.includes(input.kind) ? input.kind : undefined;
+  const category =
+    input.category !== undefined && SOURCE_CATEGORIES.includes(input.category)
+      ? input.category
+      : undefined;
   const next: UserSource = {
     host,
     nameZh: input.nameZh ?? existing?.nameZh ?? host,
-    kind: input.kind ?? existing?.kind ?? 'site',
-    category: input.category ?? existing?.category ?? 'reference',
+    kind: kind ?? existing?.kind ?? 'site',
+    category: category ?? existing?.category ?? 'reference',
+    fields: input.fields === undefined ? (existing?.fields ?? []) : normaliseFields(input.fields),
     probe: input.probe === undefined ? (existing?.probe ?? null) : input.probe,
     noteZh: input.noteZh ?? existing?.noteZh ?? '',
     enabled: input.enabled ?? config.sources[host]?.enabled ?? true,
   };
 
   await writeSourcesConfig({ ...config, sources: { ...config.sources, [host]: next } });
-  return listSources(null);
+  return listSources(dataRoot);
 }
 
 /**
@@ -327,7 +388,10 @@ export async function saveSource(input: SourceInput): Promise<Result<readonly So
  * **內建那幾列拿不掉，只會被關掉** —— 刪了它下次升級又會回來，
  * 而一個「刪了又自己出現」的清單比一個關得掉的清單難用得多。
  */
-export async function removeSource(rawHost: string): Promise<Result<readonly SourceRow[]>> {
+export async function removeSource(
+  rawHost: string,
+  dataRoot: string | null = null,
+): Promise<Result<readonly SourceRow[]>> {
   const host = normaliseHost(rawHost);
   const config = await readSourcesConfig();
   const builtIn = CATALOG.some((e) => normaliseHost(e.host) === host);
@@ -339,17 +403,18 @@ export async function removeSource(rawHost: string): Promise<Result<readonly Sou
       nameZh: current?.nameZh ?? host,
       kind: current?.kind ?? 'site',
       category: current?.category ?? 'reference',
+      fields: current?.fields ?? [],
       probe: current?.probe ?? null,
       noteZh: current?.noteZh ?? '',
       enabled: false,
     };
     await writeSourcesConfig({ ...config, sources: { ...config.sources, [host]: disabled } });
-    return listSources(null);
+    return listSources(dataRoot);
   }
 
   const { [host]: _removed, ...rest } = config.sources;
   await writeSourcesConfig({ ...config, sources: rest });
-  return listSources(null);
+  return listSources(dataRoot);
 }
 
 // ── 探測 ──────────────────────────────────────────────────

@@ -439,6 +439,12 @@ export const t = {
     title: '來源網站',
     intro:
       '這一頁決定 agent 優先往哪裡找。它不擋任何東西 —— 讀不到的來源仍然會出現在清單上，只是不優先。',
+    /**
+     * 兩件常見的維護要說做法，因為直覺的做法（改網域）沒有提供：
+     * 網域是鍵，抓過的紀錄跟著它，改了鍵紀錄就斷了。
+     */
+    maintain:
+      '網站換了網址：加一列新的、把舊的關掉，舊的備註寫「已改到哪裡」—— 抓過的紀錄跟著網域走，所以不提供改網域。網站結束營運：關掉並寫備註。',
     /** 判斷的依據要說出來，因為「探測」與「你自己抓過」的可信度差很多。 */
     basisHistory: '依你抓過的 {n} 次',
     basisProbe: '依一次檢查',
@@ -457,7 +463,16 @@ export const t = {
       login: '一般要訂閱',
       mixed: '看單篇',
     },
-    kind: { api: 'API', site: '網站' },
+    /** 一列一個鍵 —— `tests/domain/sources-and-identity.test.ts` 逐行掃這一塊。 */
+    kind: {
+      api: 'API',
+      site: '網站',
+    },
+    /**
+     * 「類型」是固定的一組（`SOURCE_CATEGORIES`），因為它驅動行為 —— 出版社沒探針、API 才有探針。
+     * 「領域」（資安、生醫…）是另一條軸，自由多值，**不在這裡**：它跟名稱一樣是資料，存中文字串。
+     * `tests/domain/sources-and-identity.test.ts` 守著這一組跟程式那一組一致。
+     */
     category: {
       'scholarly-api': '書目 API',
       preprint: '預印本',
@@ -465,6 +480,9 @@ export const t = {
       publisher: '出版社',
       official: '官方',
       reference: '參考',
+      'security-news': '資安新聞',
+      'vulnerability-db': '漏洞資料庫',
+      community: '社群論壇',
     },
     columns: {
       site: '來源',
@@ -473,6 +491,30 @@ export const t = {
       checked: '檢查時間',
       actions: '',
     },
+    /** 分組表頭：類型名稱 ＋ 這一組有幾列。 */
+    groupCount: '{n} 個',
+    /** 從抓取紀錄長出來的那幾列自成一組 —— 它們的類型是填的不是知道的，不該混進任何一組。 */
+    groupDiscovered: '從你的抓取紀錄長出來的',
+    countLine: '顯示 {visible}／{total} 列，其中 {enabled} 列打開',
+    search: '搜尋名稱、網域或備註',
+    fieldsAll: '全部領域',
+    /** 篩選 chips 上方那一句。「領域」一詞要跟編輯表單的欄位名一致。 */
+    fieldsLabel: '領域',
+    onlyEnabled: '只看打開的',
+    noMatch: '沒有符合的來源。',
+    edit: '編輯',
+    save: '儲存',
+    cancel: '取消',
+    remove: '刪除',
+    /** 內建的列按「刪除」只會關掉 —— 畫面上要說同一句話，不然使用者會以為它壞了。 */
+    removeBuiltIn: '內建的列刪不掉，只會關掉；下次升級它還會在清單上。',
+    removeConfirm: '要把「{name}」從清單上拿掉嗎？抓過的紀錄還在，只是這一列不再顯示。',
+    fieldName: '顯示名稱',
+    fieldKind: '型別',
+    fieldCategory: '類型',
+    fieldFields: '領域（逗號分隔，例如「資安, 資訊科學」）',
+    fieldProbe: '探針網址（選填；只有文件寫明的 API 端點才填）',
+    fieldNote: '備註',
     check: '檢查全部',
     checkOne: '檢查',
     checking: '檢查中…',

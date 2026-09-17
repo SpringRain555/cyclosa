@@ -231,7 +231,8 @@ function mergeRows(
       fields: entry.fields,
       probe: entry.probe,
       noteZh: entry.noteZh,
-      enabled: true,
+      // 抓不到的入口預設關掉（`CatalogEntry.enabledByDefault`）；使用者的設定在下面蓋過它。
+      enabled: entry.enabledByDefault ?? true,
       builtIn: true,
       expected: entry.expected,
     });
@@ -292,35 +293,60 @@ export async function listSources(dataRoot: string | null): Promise<Result<reado
   return ok(mergeRows(config, history), cid);
 }
 
+/** 依紀錄「這個工具抓不到或常被擋」的那幾種。跟「要登入」分開 —— agent 對兩者該做的事不一樣。 */
+const UNFETCHABLE: readonly SiteAccess[] = ['disallowed', 'js-only', 'unreachable', 'throttled'];
+
 /**
  * 給 agent 的來源提示（`chooseAngles` 每次作業讀一次，放進 `sourcesUser`）。
  *
- * 三段而不是一段：「讀得到」是優先看的；「多半要登入」**仍然要給**，agent 找到時標明就好 ——
- * 不給的話它會照樣找到、而我們照樣抓不到，只是少了一句提醒；
- * 「還沒抓過」是使用者自己列上去而清單還沒有依據的，那是他說的話，要讓 agent 聽見。
+ * 四段，**每一段的標題都要是真話**：
+ *
+ * | 段 | 放什麼 | 依據 |
+ * |---|---|---|
+ * | 讀得到 | 紀錄或探測是 `open` | 紀錄 |
+ * | 還沒有紀錄 | 沒有任何紀錄，而且一般而言不是要登入的 | 沒有 |
+ * | 多半要登入 | 紀錄是 `login`；**或**沒有紀錄而 `expected` 是要登入／看單篇 | 紀錄或「一般而言」|
+ * | 抓不到 | 紀錄是 robots 不准、要跑 JS、連不到、常被限流 | 紀錄 |
+ *
+ * 「多半要登入」**仍然要給**，agent 找到時標明就好 —— 不給的話它會照樣找到、
+ * 而我們照樣抓不到，只是少了一句提醒；那一句正是使用者之後自己去拿的依據。
+ *
+ * > **v0.20.0 第一版只有三段，而且照 `preferenceOf` 分**：「降權」包含 robots 不准、
+ * > 要跑 JS、連不到，全部被放在標題寫著「多半要登入」的那一段；
+ * > 「還沒抓過」的標題寫「使用者列出的」，而裡面大半是內建的列。
+ * > 兩句都是送給模型的話，**說錯的話模型會照著做**。2026-09-18 改成照實分。
  *
  * **只看 `enabled`，而且不列從紀錄長出來的那幾列**（`discovered`）——
  * 它們是「你抓過哪裡」的事實，不是「你想往哪裡找」的偏好。
+ * 抓不到的內建入口（Google Scholar、dblp）預設關掉，所以也不在這裡。
  *
- * **使用者自己加的排在內建的前面。** 每段有上限，而內建清單一長（39 列），
- * 「還沒抓過」那一段光是內建的就塞滿了 —— 使用者自己加的那一列反而擠不進去，
- * 而那一列正是他最明確說過的話。
+ * **排序：使用者自己加的在前，同一類裡有紀錄的在前。** 每段有上限，而內建清單一長，
+ * 光是內建的就塞得滿 —— 使用者自己加的那一列是他最明確說過的話，
+ * 而有紀錄的比「一般而言」是更強的依據。
  */
 export async function sourceHints(dataRoot: string | null): Promise<SourceHints> {
   const listed = await listSources(dataRoot);
   if (!listed.ok) return EMPTY_SOURCE_HINTS;
+  const noRecord = (r: SourceRow): boolean => r.verdict.basis === 'none';
+  /** 沒有紀錄的時候，唯一的起點是 `expected`。 */
+  const usuallyWalled = (r: SourceRow): boolean => r.expected === 'login' || r.expected === 'mixed';
   const rows = listed.data
     .filter((r) => r.enabled && !r.discovered)
-    .sort((a, b) => Number(a.builtIn) - Number(b.builtIn));
+    .sort(
+      (a, b) => Number(a.builtIn) - Number(b.builtIn) || Number(noRecord(a)) - Number(noRecord(b)),
+    );
   const hosts = (pick: (r: SourceRow) => boolean): readonly string[] =>
     rows
       .filter(pick)
       .slice(0, MAX_SOURCE_HINTS_PER_GROUP)
       .map((r) => r.host);
   return {
-    readable: hosts((r) => r.preference === 'prefer'),
-    loginWalled: hosts((r) => r.preference === 'deprioritise'),
-    untried: hosts((r) => r.preference === 'neutral' && r.verdict.basis === 'none'),
+    readable: hosts((r) => !noRecord(r) && r.verdict.access === 'open'),
+    untried: hosts((r) => noRecord(r) && !usuallyWalled(r)),
+    loginWalled: hosts(
+      (r) => (!noRecord(r) && r.verdict.access === 'login') || (noRecord(r) && usuallyWalled(r)),
+    ),
+    unfetchable: hosts((r) => !noRecord(r) && UNFETCHABLE.includes(r.verdict.access)),
   };
 }
 
@@ -375,7 +401,10 @@ export async function saveSource(
     fields: input.fields === undefined ? (existing?.fields ?? []) : normaliseFields(input.fields),
     probe: input.probe === undefined ? (existing?.probe ?? null) : input.probe,
     noteZh: input.noteZh ?? existing?.noteZh ?? '',
-    enabled: input.enabled ?? config.sources[host]?.enabled ?? true,
+    // **沒帶 `enabled` 就是沒要改它** —— 編輯表單不送這一欄。
+    // 2026-09-18 之前最後一段是無條件的 `true`：編輯一列預設關掉的內建入口（改個備註），
+    // 它就安靜地被打開，然後進了 agent 的提示詞。
+    enabled: input.enabled ?? config.sources[host]?.enabled ?? builtIn?.enabledByDefault ?? true,
   };
 
   await writeSourcesConfig({ ...config, sources: { ...config.sources, [host]: next } });

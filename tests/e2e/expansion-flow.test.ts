@@ -807,14 +807,49 @@ describe('agent 的沙箱', () => {
  * 接線少一段的症狀是 agent 照常跑、照常找到東西，只是沒有聽到使用者說的話。
  */
 describe('使用者的來源清單會進 agent 的提示詞', () => {
-  it('讀得到的、要登入的、還沒抓過的三段都在；關掉的不在', async () => {
+  /** 提示詞裡以某個標題開頭的那一段（段與段之間是空行）。 */
+  function sectionOf(prompt: string, title: string): string {
+    return prompt.split('\n\n').find((block) => block.includes(title)) ?? '';
+  }
+
+  it('四段各放該放的；關掉的、預設關掉的都不在', async () => {
     const now = Date.now();
+    /**
+     * **內建的列除了三個全部關掉** —— 否則每一段都會被內建的塞滿（上限 12），
+     * 而這條測試要斷言的是「哪一列落在哪一段」，不是「字母順序排前面的是誰」。
+     * Google Scholar 與 dblp 刻意**不寫**覆寫：它們要靠預設值（`enabledByDefault`）關著。
+     */
+    const keep = new Set([
+      'api.openalex.org',
+      'sciencedirect.com',
+      'ieeexplore.ieee.org',
+      'scholar.google.com',
+      'dblp.org',
+    ]);
+    const builtInsOff = Object.fromEntries(
+      CATALOG.filter((e) => !keep.has(e.host)).map((e) => [
+        e.host,
+        { host: e.host, nameZh: e.nameZh, kind: e.kind, category: e.category, enabled: false },
+      ]),
+    );
     await writeFile(
       join(sandbox, 'LocalAppData', 'Cyclosa', 'sources.json'),
       JSON.stringify({
         version: 1,
         sources: {
-          // 使用者自己加的、還沒有任何紀錄 → 「還沒抓過」那一段
+          ...builtInsOff,
+          // 使用者自己加的、依紀錄 robots 不准 → 「抓不到」那一段
+          'blocked.example': {
+            host: 'blocked.example',
+            nameZh: '合成的擋爬站',
+            kind: 'site',
+            category: 'reference',
+            fields: [],
+            probe: 'https://blocked.example/x',
+            noteZh: '',
+            enabled: true,
+          },
+          // 使用者自己加的、還沒有任何紀錄 → 「還沒有紀錄」那一段
           'user-added.example': {
             host: 'user-added.example',
             nameZh: '合成的來源',
@@ -825,7 +860,7 @@ describe('使用者的來源清單會進 agent 的提示詞', () => {
             noteZh: '',
             enabled: true,
           },
-          // 關掉的 → 三段都不該有它
+          // 關掉的 → 哪一段都不該有它
           'disabled.example': {
             host: 'disabled.example',
             nameZh: '關掉的來源',
@@ -852,6 +887,13 @@ describe('使用者的來源清單會進 agent 的提示詞', () => {
             at: now,
             url: 'https://sciencedirect.com/x',
           },
+          // robots 不准 → 「抓不到」那一段，**不是**「多半要登入」（v0.20.0 第一版放錯段）
+          'blocked.example': {
+            access: 'disallowed',
+            code: 'FETCH_ROBOTS_DISALLOWED',
+            at: now,
+            url: 'https://blocked.example/x',
+          },
         },
       }),
       'utf8',
@@ -864,19 +906,32 @@ describe('使用者的來源清單會進 agent 的提示詞', () => {
 
     const prompt = await readFile(join(sandbox, 'agent-prompt.txt'), 'utf8');
     expect(prompt).toContain('一樁合成的收購案');
-    expect(prompt).toContain('- api.openalex.org');
-    expect(prompt).toContain('- sciencedirect.com');
-    expect(prompt).toContain('- user-added.example');
+
+    const readable = sectionOf(prompt, '讀得到的來源');
+    const untried = sectionOf(prompt, '還沒有紀錄的來源');
+    const walled = sectionOf(prompt, '多半要登入');
+    const unfetchable = sectionOf(prompt, '抓不到的來源');
+
+    expect(readable).toContain('- api.openalex.org');
+    expect(untried).toContain('- user-added.example');
+    // 「多半要登入」兩種來由都在：紀錄說要登入的，與沒有紀錄而一般要登入的 ——
+    // **有紀錄的排在前面**（證據比「一般而言」強）
+    expect(walled).toContain('- sciencedirect.com');
+    expect(walled).toContain('- ieeexplore.ieee.org');
+    expect(walled.indexOf('sciencedirect.com')).toBeLessThan(walled.indexOf('ieeexplore.ieee.org'));
+    expect(walled).toContain('可能要登入');
+    expect(unfetchable).toContain('- blocked.example');
+    expect(walled).not.toContain('blocked.example');
+
+    // 關掉的、預設關掉的（這個工具抓不到的入口）都不在
     expect(prompt).not.toContain('disabled.example');
-    // 三段各自有標題，而且「要登入」那一段要說出要標明
-    expect(prompt.indexOf('依紀錄讀得到')).toBeLessThan(prompt.indexOf('- api.openalex.org'));
-    expect(prompt.indexOf('多半要登入')).toBeLessThan(prompt.indexOf('- sciencedirect.com'));
-    expect(prompt.indexOf('還沒抓過')).toBeLessThan(prompt.indexOf('- user-added.example'));
+    expect(prompt).not.toContain('scholar.google.com');
+    expect(prompt).not.toContain('dblp.org');
   });
 
   it('清單是空的 → 提示詞裡沒有任何一段來源標題', async () => {
-    // 內建清單沒有紀錄也沒有探測時，每一列都是「還沒抓過」—— 那一段會列出內建的網域。
-    // 所以這裡把內建的全部關掉，讓三段都空，確認**一個標題都不加**。
+    // 內建清單沒有紀錄也沒有探測時，每一列都落在「還沒有紀錄」或「多半要登入」——
+    // 那兩段會列出內建的網域。所以這裡把內建的全部關掉，讓每一段都空，確認**一個標題都不加**。
     const sources = Object.fromEntries(
       CATALOG.map((e) => [
         e.host,

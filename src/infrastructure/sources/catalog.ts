@@ -103,6 +103,17 @@ export interface CatalogEntry {
   readonly probe: string | null;
   /** 一句話說它是什麼、什麼時候有用。 */
   readonly noteZh: string;
+  /**
+   * 預設關掉。**只給這個工具抓不到的入口用**（robots 不准、反爬蟲驗證頁）。
+   *
+   * 那幾列留在清單上，是為了讓人看得到「為什麼這個工具不會自己去查它」；
+   * 而清單從 v0.20.0 起會進 agent 的提示詞（`sourceHints`，只看打開的），
+   * 打開著的話 agent 會把那裡的網址交回來，擷取管線要嘛被 robots 擋下、
+   * 要嘛抓回一頁 HTTP 200 的驗證頁 —— 而判 JS-only 的條件量不到那種小頁面，
+   * **它很可能被當成內容存成一個資料節點**（沒有量過，`research/open-questions.md` Q7）。
+   * 使用者自己打開它是他的決定，存在 `sources.json` 裡，這一欄不會蓋掉。
+   */
+  readonly enabledByDefault?: boolean;
 }
 
 /**
@@ -175,16 +186,6 @@ export const CATALOG: readonly CatalogEntry[] = [
     expected: 'open',
     probe: 'https://api.semanticscholar.org/graph/v1/paper/search?query=spider&limit=1',
     noteZh: '引用關係與 TLDR 摘要。沒有金鑰時限流較緊，撞到就會停。',
-  },
-  {
-    host: 'dblp.org',
-    nameZh: 'dblp',
-    kind: 'api',
-    category: 'scholarly-api',
-    fields: ['資訊科學', '資安'],
-    expected: 'open',
-    probe: 'https://dblp.org/search/publ/api?q=security&format=json&h=1',
-    noteZh: '資訊科學的書目。查一篇論文發表在哪個會議、DOI 是什麼、同一位作者還寫了什麼。',
   },
   {
     host: 'export.arxiv.org',
@@ -304,7 +305,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     fields: ['通用', '資訊科學'],
     expected: 'mixed',
     probe: null,
-    noteZh: '開放取用的比例比其他幾家高，但仍然要看單篇。ACNS、DIMVA、RAID 的論文集多半在這裡。',
+    noteZh: '開放取用的比例比其他幾家高，但仍然要看單篇。ACNS、DIMVA 的論文集多半在這裡。',
   },
   {
     host: 'ieeexplore.ieee.org',
@@ -315,7 +316,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     expected: 'login',
     probe: null,
     noteZh:
-      '多半要機構授權。IEEE S&P、Euro S&P、CSF 的論文，以及 TIFS、TDSC、IEEE Security & Privacy 三份期刊多半在這裡。',
+      '多半要機構授權。IEEE S&P、Euro S&P、CSF、ACSAC（2024 起）的論文，以及 TIFS、TDSC、IEEE Security & Privacy 三份期刊多半在這裡。',
   },
   {
     host: 'dl.acm.org',
@@ -323,9 +324,12 @@ export const CATALOG: readonly CatalogEntry[] = [
     kind: 'site',
     category: 'publisher',
     fields: ['資安', '資訊科學'],
-    expected: 'login',
+    // 2026-01-01 起 ACM 全部出版品開放取用（2026-09-18 查到；ACM 的頁面對自動化存取回 403，
+    // 依據是 B 級，見 `docs/research/security-sources.md`）。v0.20.0 寫成 `login` 是錯的。
+    expected: 'open',
     probe: null,
-    noteZh: '多半要機構授權。CCS、AsiaCCS、WiSec、ACSAC 的論文與 TOPS 期刊多半在這裡。',
+    noteZh:
+      '2026 年起全部開放取用。CCS、AsiaCCS、WiSec、RAID（2021 起）的論文與 TOPS 期刊在這裡。2026-09-18 查證時它對自動化存取回 403，而這個工具會把 403 記成「要登入」—— 實際讀不讀得到看你自己的紀錄。',
   },
   {
     host: 'jstor.org',
@@ -497,6 +501,7 @@ export const CATALOG: readonly CatalogEntry[] = [
     probe: null,
     noteZh: '實體的權威識別碼（QID）。跨語言對齊靠它，不靠自建對照表。',
   },
+  // ── 這個工具抓不到的兩個入口：預設關掉（`enabledByDefault`）───────────
   {
     host: 'scholar.google.com',
     nameZh: 'Google Scholar',
@@ -505,7 +510,21 @@ export const CATALOG: readonly CatalogEntry[] = [
     fields: ['通用'],
     expected: 'login',
     probe: null,
-    noteZh: 'robots.txt 不准抓，所以這個工具抓不到它。只當人手查的入口 —— 找到的連結自己貼進來。',
+    noteZh:
+      'robots.txt 不准抓它的搜尋頁，所以這個工具抓不到它 —— 預設關掉，免得 agent 把那裡的網址交回來。當人手查的入口：找到的論文連結自己貼進來。',
+    enabledByDefault: false,
+  },
+  {
+    host: 'dblp.org',
+    nameZh: 'dblp',
+    kind: 'site',
+    category: 'reference',
+    fields: ['資訊科學', '資安'],
+    expected: 'open',
+    probe: null,
+    noteZh:
+      '資訊科學的書目。網頁與 API 都在反爬蟲的驗證頁後面（2026-09-18 實查：回 200，內容是驗證頁），這個工具抓不到 —— 預設關掉。當人手查的入口：一篇論文發表在哪個會議、DOI 是什麼。',
+    enabledByDefault: false,
   },
 ];
 

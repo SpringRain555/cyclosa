@@ -218,15 +218,19 @@ async function saveEdit(): Promise<void> {
 }
 
 /**
- * 刪除。**內建的列不會被刪，只會被關掉** —— 那是後端的行為，畫面要先說。
+ * 刪除。**內建的列不會被刪，只會被關掉** —— 那是後端的行為（`removeSource`），畫面要先說。
  * 使用者自己加的列才真的從清單上消失；抓過的紀錄還在（它會以「從紀錄長出來的」身分回來）。
+ *
+ * > v0.20.0 第一版對內建的列只跳一句「只會關掉」就結束，**什麼都沒關** ——
+ * > 那句話說的事沒有發生。現在是問過之後真的關掉；已經關著的就直說。
  */
 async function remove(row: SourceRow): Promise<void> {
-  if (row.builtIn) {
-    window.alert(t.sources.removeBuiltIn);
+  if (row.builtIn && !row.enabled) {
+    window.alert(fill(t.sources.removeBuiltInOff, { name: row.nameZh }));
     return;
   }
-  if (!window.confirm(fill(t.sources.removeConfirm, { name: row.nameZh }))) return;
+  const question = row.builtIn ? t.sources.removeBuiltIn : t.sources.removeConfirm;
+  if (!window.confirm(fill(question, { name: row.nameZh }))) return;
   busyHost.value = row.host;
   const r = await api.removeSource(row.host);
   busyHost.value = null;
@@ -414,7 +418,7 @@ function when(ms: number | null): string {
               >
                 {{ t.sources.edit }}
               </button>
-              <!-- 內建的列也有這顆，按下去說「只會關掉」—— 不給的話使用者會去找它。 -->
+              <!-- 內建的列也有這顆：先說「刪不掉、只會關掉」，確認之後真的關掉 —— 不給的話使用者會去找它。 -->
               <button v-if="!row.discovered" :disabled="busyHost !== null" @click="remove(row)">
                 {{ t.sources.remove }}
               </button>

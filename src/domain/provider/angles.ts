@@ -125,7 +125,7 @@ export const MAX_URL_CHARS = 2048;
 export const MAX_WHY_CHARS = 200;
 
 /**
- * 給 agent 的來源提示：三段各最多列幾個網域（讀得到／多半要登入／使用者列了但沒抓過）。
+ * 給 agent 的來源提示：每一段最多列幾個網域。
  *
  * 來源清單會一直長（2026-09-16 是 39 列，之後跨領域還會加），
  * 而提示詞不是清單的鏡子 —— 它只要夠讓 agent 知道「這個人平常在哪裡找」。
@@ -134,20 +134,27 @@ export const MAX_WHY_CHARS = 200;
 export const MAX_SOURCE_HINTS_PER_GROUP = 12;
 
 /**
- * 三段來源提示。**只影響建議，不擋任何網址**（`source-service.ts` 檔頭）——
+ * 四段來源提示。**只影響建議，不擋任何網址**（`source-service.ts` 檔頭）——
  * 所以「多半要登入」那一段仍然要給：一篇讀不到的重要論文仍然值得被列出來，
- * 差別只是 agent 知道要標明它。
+ * 差別只是 agent 知道要標明它。每一段放什麼，見 `sourceHints` 的表。
  */
 export interface SourceHints {
   /** 依紀錄或探測讀得到的。 */
   readonly readable: readonly string[];
-  /** 依紀錄多半要登入或訂閱的。 */
-  readonly loginWalled: readonly string[];
-  /** 使用者列在清單上、但還沒有任何紀錄的。 */
+  /** 清單上還沒有任何紀錄、一般而言也不是要登入的（內建的或使用者自己加的）。 */
   readonly untried: readonly string[];
+  /** 依紀錄要登入的；或還沒有紀錄、而一般而言要登入或要看單篇的。 */
+  readonly loginWalled: readonly string[];
+  /** 依紀錄這個工具抓不到或常被擋的：robots 不准、要跑 JS、連不到、常被限流。 */
+  readonly unfetchable: readonly string[];
 }
 
-export const EMPTY_SOURCE_HINTS: SourceHints = { readable: [], loginWalled: [], untried: [] };
+export const EMPTY_SOURCE_HINTS: SourceHints = {
+  readable: [],
+  untried: [],
+  loginWalled: [],
+  unfetchable: [],
+};
 
 /**
  * 整理模型回的候選 URL。

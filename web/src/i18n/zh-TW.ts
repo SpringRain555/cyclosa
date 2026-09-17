@@ -507,7 +507,8 @@ export const t = {
     cancel: '取消',
     remove: '刪除',
     /** 內建的列按「刪除」只會關掉 —— 畫面上要說同一句話，不然使用者會以為它壞了。 */
-    removeBuiltIn: '內建的列刪不掉，只會關掉；下次升級它還會在清單上。',
+    removeBuiltIn: '「{name}」是內建的，刪不掉 —— 只會關掉，下次升級它還會在清單上。要關掉它嗎？',
+    removeBuiltInOff: '「{name}」是內建的，刪不掉；它現在已經是關掉的。',
     removeConfirm: '要把「{name}」從清單上拿掉嗎？抓過的紀錄還在，只是這一列不再顯示。',
     fieldName: '顯示名稱',
     fieldKind: '型別',

@@ -147,21 +147,29 @@ export const SOURCES_SYSTEM = [
 /**
  * 使用者的來源清單進提示詞（`sourceHints`）。
  *
- * **三段，而且「多半要登入」那一段也給。** 只給讀得到的話，agent 找到一篇 IEEE 的論文
+ * **「多半要登入」那一段也給。** 只給讀得到的話，agent 找到一篇 IEEE 的論文
  * 照樣會列、我們照樣抓不到 —— 差別只在它有沒有被提醒要標明。而「標明」正是
  * 使用者接下來要自己去拿那一篇的依據（Stage 18 的候選清單就靠這一句）。
  *
- * 三段都空的時候**一個字都不加**：一個空的「優先來源：（無）」會讓模型以為
+ * **每一段的標題都是送給模型的話，所以要跟裡面放的東西一致**（`sourceHints` 的表）。
+ * v0.20.0 第一版寫「使用者列出的」而裡面大半是內建的列、寫「多半要登入」而裡面混著
+ * robots 不准的站 —— 模型會照著標題做。
+ *
+ * 全部都空的時候**一個字都不加**：一個空的「優先來源：（無）」會讓模型以為
  * 使用者刻意說了「沒有偏好」。
  */
 export function sourcesUser(topic: string, question: string, hints: SourceHints): string {
   const lines = [`專題主題：${topic}`, `這一次要查的子問題：${question}`];
   const groups: readonly (readonly [string, readonly string[]])[] = [
-    ['使用者常用、依紀錄讀得到的來源（優先從這些找）', hints.readable],
-    ['使用者列出但還沒抓過的來源（也去看看）', hints.untried],
+    ['依使用者的紀錄讀得到的來源（優先從這些找）', hints.readable],
+    ['清單上還沒有紀錄的來源（也可以去看看）', hints.untried],
     [
-      '依紀錄多半要登入或訂閱的來源（找到照樣列出，但在 why 裡標明「可能要登入」）',
+      '多半要登入或訂閱的來源 —— 依使用者的紀錄，或這個網站一般的情況（找到照樣列出，但在 why 裡標明「可能要登入」）',
       hints.loginWalled,
+    ],
+    [
+      '依使用者的紀錄，主程式抓不到的來源 —— robots 不准、要跑 JavaScript、連不到或常被限流（盡量不要從這些找）',
+      hints.unfetchable,
     ],
   ];
   for (const [title, hosts] of groups) {

@@ -314,3 +314,31 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 
 > **一句沒有日期的量測結果，會在對方升版之後變成假話。** 那句話寫的時候是對的。
 
+## 2026-09-16／09-17（UTC）　資安來源與候選模型（A／B 級；**沒有保存原始回應**）
+
+**為什麼查**：v0.20.0 把使用者給的資安清單放進內建來源（`security-sources.md`），
+並為下一輪的模型比較拉五個模型（`model-tasks-review.md` §6）。
+09-17 那一批（本機是 09-18 凌晨）是回答「這一輪還剩什麼」之前的重新核對 —— **它推翻了 09-16 的一條**。
+
+| 查詢 | 日期（UTC）| 結果 | 級別 |
+|---|---|---|---|
+| ISC SANS `/api/infocon?json` | 09-16、09-17 | 200；09-17 看了內容：JSON | A |
+| NVD `/rest/json/cves/2.0?resultsPerPage=1` | 09-16、09-17 | 200；09-17 看了內容：JSON | A |
+| dblp `/search/publ/api?q=security&format=json&h=1` | 09-16、09-17 | 200、`text/html`；**09-17 才看內容：反爬蟲驗證頁**（09-16 只看了狀態碼，卻寫了「內容是 JSON」）| A |
+| WebFetch `dblp.org/db/conf/{acsac,raid}/` | 09-17 | 同一種驗證頁（Anubis）| A |
+| `https://cve.mitre.org/` | 09-16 | 301 → `www.cve.org/Resources/Media/Archives/OldWebsite/index.html` | A |
+| `scholar.google.com/robots.txt` | 09-16 | `Disallow: /scholar`、`Disallow: /search` | A |
+| `ollama.com/library/{qwen3.5,gemma4,granite4.2,translategemma,olmo-3}/tags` | 09-16 | 各 tag 與大小（WebFetch 的摘要）；五個 `ollama pull` 都成功 | B（清單）／A（拉得到）|
+| HF `api/models/…` 的 license 欄（五個候選模型）| 09-16 | 四個 `apache-2.0`；`translategemma-4b-it` 是 `gemma`（gated: manual）| A |
+| NVD 的限流（搜尋；說明頁是 JS 殼，原始 HTML 2,453 位元組、沒有數字）| 09-17 | 沒帶金鑰的請求在 30 秒滾動視窗內的額度較小；**數字取不到** | B |
+| `acsac.org/2024/proceedings/` | 09-17 | 302 → `doi.org/10.1109/ACSAC63791.2024`（IEEE 的 DOI 前綴）| A |
+| RAID 論文集（搜尋）| 09-17 | 24、25、27 屆在 ACM DL（DOI 前綴 `10.1145`）| B |
+| ACM 開放取用（搜尋；`acm.org`、`dl.acm.org` 對 WebFetch 回 403）| 09-17 | 2026-01-01 起全部出版品開放取用（ACM 公告標題 ＋ 另一篇報導）| B |
+
+**沒有做到的**：這些都是一次性的 `Invoke-WebRequest`／WebFetch／搜尋，**沒有保存原始回應、沒有進 `sources/manifest.jsonl`**
+—— 可以重跑，不能逐位元組回溯。這一節記下查了什麼，好讓重跑的人知道要比對哪些數字。
+
+> **09-16 的 dblp 那一列是這一段裡唯一的錯誤結論，而它錯的方式這個專案記過**：
+> 出版社首頁一律回 200、文章回 403，所以出版社不設探針（v0.7.0，`catalog.ts` 檔頭）。
+> 加新探針的時候讀過那段話，**照樣只看了狀態碼**。教訓在 `lessons.md`，「驗證頁怎麼認」是 `open-questions.md` Q7。
+

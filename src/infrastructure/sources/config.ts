@@ -73,6 +73,7 @@ const CATEGORIES: readonly SourceCategory[] = SOURCE_CATEGORIES;
 const ACCESSES: readonly SiteAccess[] = [
   'open',
   'login',
+  'challenged',
   'throttled',
   'unreachable',
   'disallowed',

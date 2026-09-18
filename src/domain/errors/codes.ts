@@ -109,6 +109,16 @@ export const ERROR_CODES = {
   FETCH_TOO_LARGE: 'partial',
   FETCH_UNSUPPORTED_TYPE: 'partial',
   FETCH_LOGIN_REQUIRED: 'partial',
+  /**
+   * 對方回的是一張**反爬蟲的驗證頁**，不是內容。
+   *
+   * **不是 `FETCH_LOGIN_REQUIRED`** —— 那一句叫人去登入或訂閱，
+   * 而這一種登入了也一樣：它擋的是「你是程式」，不是「你沒有權限」。
+   * 給使用者的下一步也不同：自己用瀏覽器打開、把那一頁存下來再匯入。
+   *
+   * **也不是 `FETCH_HTTP_4XX`** —— 這種頁多半回 200（`domain/ingest/challenge.ts`）。
+   */
+  FETCH_BOT_CHALLENGE: 'partial',
   FETCH_UNEXPECTED: 'partial',
 
   // ── PARSE_* 抽取 ─────────────────────────────────────────

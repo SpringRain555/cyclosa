@@ -71,6 +71,9 @@ export const errorMessages: Readonly<Record<string, string>> = {
   FETCH_UNSUPPORTED_TYPE: '不支援這種檔案型別。目前支援網頁、Markdown、純文字、PDF 與圖片。',
   FETCH_LOGIN_REQUIRED:
     '這一頁需要登入或訂閱才能看。這個工具不會繞過登入與付費牆 —— 請自己登入後另存再匯入。',
+  /** **不要寫成「被擋下來」** —— 使用者要知道的是「登入沒有用，得自己用瀏覽器拿」。 */
+  FETCH_BOT_CHALLENGE:
+    '對方回的是一張「證明你不是機器人」的驗證頁，不是內容，所以沒有存進來。登入也沒有用 —— 請自己用瀏覽器打開那一頁，存成檔案後再匯入。',
   FETCH_UNEXPECTED: '擷取時出了預期外的問題。請把下面的識別碼交出來。',
 
   // ── 抽取 ──────────────────────────────────────────────
@@ -452,6 +455,7 @@ export const t = {
     access: {
       open: '讀得到',
       login: '要登入或訂閱',
+      challenged: '對方出驗證頁',
       throttled: '對方限流中',
       unreachable: '連不到',
       disallowed: 'robots 不准',

@@ -21,7 +21,7 @@ import { isAllowed, robotsPathOf } from '../../domain/ingest/robots.js';
 import { backOffDelayMs, effectiveIntervalMs } from '../../domain/ingest/throttle.js';
 import { normalizeUrl } from '../../domain/ingest/url.js';
 import type { ErrorCode } from '../../domain/errors/codes.js';
-import { fetchOnce, type FetchOutcome } from './fetcher.js';
+import { fetchOnce, type FetchOptions, type FetchOutcome } from './fetcher.js';
 import { HostThrottle } from './host-throttle.js';
 import { RobotsCache, originOf } from './robots-cache.js';
 
@@ -90,7 +90,7 @@ export class Crawler {
     this.stopped = true;
   }
 
-  async fetch(url: string): Promise<CrawlResult> {
+  async fetch(url: string, options: FetchOptions = {}): Promise<CrawlResult> {
     if (this.stopped) {
       return {
         outcome: {
@@ -106,9 +106,13 @@ export class Crawler {
 
     let waitedMs = 0;
     for (let attempt = 0; ; attempt++) {
-      const outcome = await this.fetchGated(url, (waited) => {
-        waitedMs += waited;
-      });
+      const outcome = await this.fetchGated(
+        url,
+        (waited) => {
+          waitedMs += waited;
+        },
+        options,
+      );
       if (outcome.kind === 'error' && outcome.detail['why'] === 'host-limited') {
         // 這一跳（可能是轉址的中途）要去的 host 在這一輪已經放棄了 —— **沒有送請求**。
         return { outcome: { ...outcome, backOff: true }, rateLimited: true, waitedMs };
@@ -137,56 +141,69 @@ export class Crawler {
   }
 
   /** 一次 `fetchOnce`，每一跳之前先過 robots 與節流。 */
-  private fetchGated(url: string, onWaited: (ms: number) => void): Promise<FetchOutcome> {
-    return fetchOnce(url, async (hopUrl, host) => {
-      // 0. **這一輪已經放棄的 host 一個請求都不送** —— 連 robots 都不問。
-      //    放在 gate 而不是 fetch() 開頭：一個短網址轉址到被放棄的 host，也要在這一跳擋下。
-      if (this.limited.has(host)) {
-        return {
-          code: 'FETCH_RATE_LIMITED' as ErrorCode,
-          detail: { why: 'host-limited', host, status: this.limited.get(host) },
-        };
-      }
+  private fetchGated(
+    url: string,
+    onWaited: (ms: number) => void,
+    options: FetchOptions,
+  ): Promise<FetchOutcome> {
+    return fetchOnce(
+      url,
+      async (hopUrl, host) => {
+        // 0. **這一輪已經放棄的 host 一個請求都不送** —— 連 robots 都不問。
+        //    放在 gate 而不是 fetch() 開頭：一個短網址轉址到被放棄的 host，也要在這一跳擋下。
+        if (this.limited.has(host)) {
+          return {
+            code: 'FETCH_RATE_LIMITED' as ErrorCode,
+            detail: { why: 'host-limited', host, status: this.limited.get(host) },
+          };
+        }
 
-      const origin = originOf(hopUrl);
+        const origin = originOf(hopUrl);
 
-      // 1. **先問 robots，而問它本身也要排隊** —— 「先問過再抓」如果可以插隊，
-      //    那條規則就只是一個註解。
-      const robots = await this.robots.policyFor(origin, async () => {
-        await this.throttle.acquire(host, this.options.intervalMs);
-      });
-      if (robots.backOff !== null) {
-        // robots.txt 本身被限流：跟頁面被限流走同一條退避路，由上面的迴圈處理。
-        return {
-          code: 'FETCH_RATE_LIMITED' as ErrorCode,
-          detail: {
-            at: 'robots',
-            host,
-            status: robots.backOff.status,
-            retryAfterMs: robots.backOff.retryAfterMs,
-          },
-        };
-      }
+        // 1. **先問 robots，而問它本身也要排隊** —— 「先問過再抓」如果可以插隊，
+        //    那條規則就只是一個註解。
+        const robots = await this.robots.policyFor(origin, async () => {
+          await this.throttle.acquire(host, this.options.intervalMs);
+        });
+        if (robots.backOff !== null) {
+          // robots.txt 本身被限流：跟頁面被限流走同一條退避路，由上面的迴圈處理。
+          return {
+            code: 'FETCH_RATE_LIMITED' as ErrorCode,
+            detail: {
+              at: 'robots',
+              host,
+              status: robots.backOff.status,
+              retryAfterMs: robots.backOff.retryAfterMs,
+            },
+          };
+        }
 
-      const decision = isAllowed(robots.policy, robotsPathOf(hopUrl));
-      if (!decision.allowed) {
-        // **記錄原因，不是靜默跳過**（REQ-0003）。
-        return {
-          code: 'FETCH_ROBOTS_DISALLOWED' as ErrorCode,
-          detail: { host, rule: decision.rule, source: robots.source },
-        };
-      }
+        const decision = isAllowed(robots.policy, robotsPathOf(hopUrl));
+        if (!decision.allowed) {
+          // **記錄原因，不是靜默跳過**（REQ-0003）。
+          return {
+            code: 'FETCH_ROBOTS_DISALLOWED' as ErrorCode,
+            detail: { host, rule: decision.rule, source: robots.source },
+          };
+        }
 
-      // 2. 排這個 host 的下一個位置
-      const interval = effectiveIntervalMs(
-        this.options.intervalMs,
-        robots.policy.crawlDelaySeconds,
-      );
-      const waited = await this.throttle.acquire(host, interval);
-      onWaited(waited);
-      this.options.onEvent?.({ url: hopUrl, host, waitedMs: waited, robotsSource: robots.source });
-      return null;
-    }).then((outcome) => {
+        // 2. 排這個 host 的下一個位置
+        const interval = effectiveIntervalMs(
+          this.options.intervalMs,
+          robots.policy.crawlDelaySeconds,
+        );
+        const waited = await this.throttle.acquire(host, interval);
+        onWaited(waited);
+        this.options.onEvent?.({
+          url: hopUrl,
+          host,
+          waitedMs: waited,
+          robotsSource: robots.source,
+        });
+        return null;
+      },
+      options,
+    ).then((outcome) => {
       // gate 擋下來的限流（robots 那一條）沒有 `backOff` 旗標 —— 補上，讓外面的迴圈認得。
       if (
         outcome.kind === 'error' &&

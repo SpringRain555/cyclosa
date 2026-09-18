@@ -31,6 +31,13 @@ export type SiteAccess =
   | 'open'
   /** 需要登入或訂閱（401／403）—— **不繞過，交給人工取得** */
   | 'login'
+  /**
+   * 對方出反爬蟲驗證頁 —— **登入也沒有用**，它擋的是「你是程式」。
+   *
+   * 跟 `login` 分開是因為給使用者的建議不同：那一種是去訂閱，
+   * 這一種是自己用瀏覽器打開再匯入。2026-09-18 加（open-questions Q7）。
+   */
+  | 'challenged'
   /** 對方限流中（429／503）—— 退避重試過仍不行，這一輪先不碰它；**可重排** */
   | 'throttled'
   /** 連不到（DNS／TLS／逾時）或對方回錯 */
@@ -53,6 +60,8 @@ export function accessFromCode(code: string | null): SiteAccess {
   switch (code) {
     case 'FETCH_LOGIN_REQUIRED':
       return 'login';
+    case 'FETCH_BOT_CHALLENGE':
+      return 'challenged';
     case 'FETCH_RATE_LIMITED':
       return 'throttled';
     case 'FETCH_ROBOTS_DISALLOWED':
@@ -125,6 +134,9 @@ export interface SiteVerdict {
  */
 const TIE_BREAK: readonly SiteAccess[] = [
   'login',
+  // **排在 `disallowed` 之前**：驗證頁是對方主動擋工具，
+  // 而它跟 `login` 一樣「再試幾次也不會變」。
+  'challenged',
   'disallowed',
   'js-only',
   'throttled',

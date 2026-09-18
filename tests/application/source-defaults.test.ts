@@ -59,9 +59,21 @@ describe('抓不到的內建入口預設關著', () => {
     expect(off.sort()).toEqual(['dblp.org', 'scholar.google.com']);
   });
 
-  it('預設關著的都沒有探針 —— 探一個抓不到的站只會得到一個假的判斷', () => {
-    for (const entry of CATALOG.filter((e) => e.enabledByDefault === false)) {
-      expect(entry.probe, entry.host).toBeNull();
+  /**
+   * **v0.20.1 這一條寫的是「預設關著的都不准有探針」，而 v0.21.0 把它推翻了。**
+   *
+   * 當時的理由是「探一個抓不到的站只會得到一個假的判斷」—— 那是真的，
+   * 因為探測只看錯誤碼。現在它看得出驗證頁（`domain/ingest/challenge.ts`），
+   * 而 dblp 那一條實跑的結果是 `FETCH_ROBOTS_DISALLOWED`：**誠實而且有用**，
+   * 比「沒有探針」多告訴使用者一件事。
+   *
+   * 換成守真正的前提：**`probeOne` 一律用 `expect: 'data'`**，
+   * 所以有探針的列必須是 API —— 給一個網站列加探針的話，
+   * 它回的每一頁 HTML 都會被判成驗證頁，而**症狀是「這個站突然全部抓不到」**。
+   */
+  it('有探針的列都是 API —— 探測一律要求機器格式', () => {
+    for (const entry of CATALOG.filter((e) => e.probe !== null)) {
+      expect(entry.kind, `${entry.host} 有探針卻不是 API`).toBe('api');
     }
   });
 

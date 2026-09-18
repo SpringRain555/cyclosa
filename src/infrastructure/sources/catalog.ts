@@ -517,13 +517,24 @@ export const CATALOG: readonly CatalogEntry[] = [
   {
     host: 'dblp.org',
     nameZh: 'dblp',
-    kind: 'site',
-    category: 'reference',
+    kind: 'api',
+    category: 'scholarly-api',
     fields: ['資訊科學', '資安'],
     expected: 'open',
-    probe: null,
+    /**
+     * **這個探針會被 robots 擋下來，而那正是它該回報的事。**
+     *
+     * v0.20.0 寫進來時說它「回 200、內容是 JSON」（錯：那是 Anubis 的驗證頁），
+     * v0.20.1 拿掉。v0.21.0 放回來，而這一次是**走 `Crawler` 實跑出來的**
+     * （2026-09-18）：`dblp.org/robots.txt` 是 `User-agent: *` ＋ `Disallow: /`，
+     * **整站不准**，所以請求根本沒有送出去，那一列記成「robots 不准」。
+     *
+     * 這比驗證頁更早發生，也更清楚 —— 不留探針的話那一列永遠是「不知道」。
+     * 這一列預設關著，所以「檢查全部」不會碰它，除非使用者自己打開。
+     */
+    probe: 'https://dblp.org/search/publ/api?q=test&format=json&h=1',
     noteZh:
-      '資訊科學的書目。網頁與 API 都在反爬蟲的驗證頁後面（2026-09-18 實查：回 200，內容是驗證頁），這個工具抓不到 —— 預設關掉。當人手查的入口：一篇論文發表在哪個會議、DOI 是什麼。',
+      '資訊科學的書目。它的 robots.txt 整站不准（2026-09-18 實查），所以這個工具一個請求都不會送；而且網頁與 API 後面還有一張反爬蟲的驗證頁。預設關掉。當人手查的入口：一篇論文發表在哪個會議、DOI 是什麼。',
     enabledByDefault: false,
   },
 ];

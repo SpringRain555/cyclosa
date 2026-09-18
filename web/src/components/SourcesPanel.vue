@@ -669,6 +669,7 @@ tr.off {
 /* 只有「讀得到」是中性的；其餘一律琥珀，而且都帶記號。
    **綠色不用在這裡** —— 那個顏色在這個工具裡只有「確認」一個意思。 */
 .access.login,
+.access.challenged,
 .access.disallowed,
 .access.throttled,
 .access.unreachable,

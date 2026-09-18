@@ -294,7 +294,14 @@ export async function listSources(dataRoot: string | null): Promise<Result<reado
 }
 
 /** 依紀錄「這個工具抓不到或常被擋」的那幾種。跟「要登入」分開 —— agent 對兩者該做的事不一樣。 */
-const UNFETCHABLE: readonly SiteAccess[] = ['disallowed', 'js-only', 'unreachable', 'throttled'];
+const UNFETCHABLE: readonly SiteAccess[] = [
+  'disallowed',
+  'js-only',
+  'unreachable',
+  'throttled',
+  // 對方出驗證頁：登入也沒有用，所以它屬於「主程式抓不到」而不是「多半要登入」。
+  'challenged',
+];
 
 /**
  * 給 agent 的來源提示（`chooseAngles` 每次作業讀一次，放進 `sourcesUser`）。
@@ -480,7 +487,10 @@ async function probeOne(host: string, url: string | null): Promise<ProbeOutcome>
   if (url === null || url.length === 0) return { host, record: null, skipped: true };
 
   const crawler = new Crawler({ intervalMs: configuredIntervalMs() });
-  const result = await crawler.fetch(url);
+  // **探針要的是機器格式**（有探針的列全部是 `kind: 'api'`）。
+  // 回 HTML 就不是我們要的東西 —— 2026-09-16 dblp 那一次，
+  // 探針回 200 ＋ text/html 而它是一張反爬蟲驗證頁，清單上卻寫「讀得到」。
+  const result = await crawler.fetch(url, { expect: 'data' });
   const code = result.outcome.kind === 'error' ? result.outcome.code : null;
   const access: SiteAccess = accessFromCode(code);
   return { host, record: { access, code, at: Date.now(), url }, skipped: false };

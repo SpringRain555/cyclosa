@@ -344,6 +344,8 @@ export interface ProvidersPayload {
     agent: { command: string; args: string[]; model: string } | null;
     /** **沒有 apiKeyEnv** —— 嵌入只接本機端點，理由見 `providers/config.ts` */
     embed: { baseUrl: string; model: string } | null;
+    /** 診斷。**預設關著**；打開之後會花模型的三個任務把提示詞與回覆寫進專題資料夾 */
+    diagnostics: { logModelCalls: boolean };
   };
   readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
   /**

@@ -49,8 +49,28 @@ const command = ref('');
 const agentModel = ref('');
 /** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
 const apiKeyEnv = ref('');
+
+/**
+ * 伺服器收不收這個名字。**跟 `providers/config.ts` 的 `ENV_NAME` 是同一條**
+ * （`tests/guards/api-key-env-name.test.ts` 逼兩邊一致）。
+ *
+ * **在這裡檢查是因為不合格的名字會被安靜地丟掉**：`apiKeyEnvOf` 回 `null`，
+ * 存檔成功、畫面重新載入之後那一格變空的 —— 使用者看到的是「我打的字不見了」。
+ * 2026-09-18 真的踩到：一個叫 `OPENAI_API_KEY_v1` 的變數（結尾是小寫）。
+ */
+const apiKeyEnvBad = computed(() => {
+  const name = apiKeyEnv.value.trim();
+  return name.length > 0 && !/^[A-Z][A-Z0-9_]{1,63}$/.test(name);
+});
 const embedBaseUrl = ref('');
 const embedModel = ref('');
+/**
+ * 留下每一次模型呼叫的紀錄。**預設關著。**
+ *
+ * 開關在這裡而不是在設定檔裡，理由是時機：
+ * **遇到一個壞掉的抽取結果的當下，才是唯一能把它重現下來的時機。**
+ */
+const logModelCalls = ref(false);
 
 /**
  * 量測選出來的建議值（`docs/research/embedding-choice.md`，2026-09-09）。
@@ -112,6 +132,7 @@ async function load(): Promise<void> {
     angles: r.data.config.chat?.taskModels?.angles ?? '',
     extract: r.data.config.chat?.taskModels?.extract ?? '',
   };
+  logModelCalls.value = r.data.config.diagnostics?.logModelCalls === true;
   // **2026-09-10 起這一區不再收起來。** 原本它是一個 `<details>`，
   // 而「收起來的設定等於看不見的設定」—— 現在它是一張永遠攤開的表，
   // 所以那個「設過就自動打開」的補丁不再需要。
@@ -240,6 +261,7 @@ async function save(): Promise<void> {
       embedBaseUrl.value.trim().length === 0
         ? null
         : { baseUrl: embedBaseUrl.value.trim(), model: embedModel.value.trim() },
+    diagnostics: { logModelCalls: logModelCalls.value },
   });
   saving.value = false;
   if (!r.ok) {
@@ -449,6 +471,8 @@ async function test(role: ProviderRole): Promise<void> {
               <input v-model="apiKeyEnv" type="text" placeholder="OPENAI_API_KEY" />
             </label>
             <p class="hint">{{ t.settings.apiKeyEnvHint }}</p>
+            <!-- **不合格的名字會被丟掉，所以要在按下儲存之前就說。** -->
+            <p v-if="apiKeyEnvBad" class="hint warn">{{ t.settings.apiKeyEnvBad }}</p>
             <p v-if="status.auth && status.auth !== 'none'" :class="['hint', status.auth]">
               {{ t.settings.auth[status.auth] }}
             </p>
@@ -679,6 +703,24 @@ async function test(role: ProviderRole): Promise<void> {
           </table>
         </div>
 
+        <!--
+          ── 段落三：診斷 ───────────────────────────────────
+
+          **預設關著，而且那句說明要說出代價。** 打開之後每一次呼叫都會把
+          整份提示詞（抽取那一條裡是整篇正文）寫進專題資料夾 —— 它長得很快。
+          放在最後，因為它不是跑起來需要的東西。
+        -->
+        <section class="block diagnostics">
+          <h2>{{ t.settings.diagnosticsTitle }}</h2>
+          <label class="check">
+            <input v-model="logModelCalls" type="checkbox" />
+            <span>{{ t.settings.logModelCalls }}</span>
+          </label>
+          <p class="hint">{{ t.settings.logModelCallsWhat }}</p>
+          <p class="hint">{{ t.settings.logModelCallsWhere }}</p>
+          <p class="hint">{{ t.settings.logModelCallsCost }}</p>
+        </section>
+
         <div class="save">
           <button class="primary" :disabled="saving" @click="save">{{ t.settings.save }}</button>
           <span v-if="savedAt" class="hint">{{ t.settings.saved }}</span>
@@ -789,6 +831,30 @@ h2 {
   border-radius: var(--radius-lg);
   padding: 14px 16px;
   margin-bottom: 14px;
+}
+
+/* 診斷那一區跟角色那幾格同一個外框 —— 它不是一個特別的東西。 */
+.block {
+  border: 1px solid var(--line-subtle);
+  background: var(--bg-panel);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.block h2 {
+  margin-bottom: 10px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.diagnostics .hint {
+  margin-top: 6px;
+  line-height: 1.6;
 }
 .role header {
   display: flex;

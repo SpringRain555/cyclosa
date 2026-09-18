@@ -58,6 +58,22 @@ const activeModels = ref<string[]>([]);
  */
 const quitting = ref(false);
 const quitMessage = ref<string | null>(null);
+/** 關掉了 —— 整頁換成結束畫面。**這一頁上其餘的東西全部已經失效。** */
+const quitDone = ref(false);
+/** 按過「關閉這個分頁」了。關得成的話沒人看得到後續，關不成才需要那句解釋。 */
+const closeTried = ref(false);
+
+/**
+ * **瀏覽器只允許腳本關掉「腳本自己開的」分頁**，而這一個是啟動器用網址開的 ——
+ * 所以這一行在多數瀏覽器裡會被忽略（主控台留下一句警告，畫面什麼都不會發生）。
+ *
+ * 它仍然值得給一顆按鈕：關得成的時候使用者就少一個動作，
+ * 而關不成的時候旁邊那句話會說出為什麼 —— **不然看起來像這顆按鈕壞了**。
+ */
+function closeTab(): void {
+  closeTried.value = true;
+  window.close();
+}
 
 async function quit(): Promise<void> {
   quitting.value = true;
@@ -79,18 +95,18 @@ async function quit(): Promise<void> {
   }
 
   const done = await api.shutdown(true);
-  quitMessage.value = done.ok ? t.shutdown.done : t.shutdown.failed;
-  if (!done.ok) return;
+  if (!done.ok) {
+    quitting.value = false;
+    quitMessage.value = t.shutdown.failed;
+    return;
+  }
 
-  // **順手把分頁關掉，但不能假設關得成。**
-  //
-  // 瀏覽器只允許腳本關掉「腳本自己開的」分頁，而這一個是啟動器用網址開的 ——
-  // 所以這一行在多數瀏覽器裡會被忽略（主控台留下一句警告，畫面什麼都不會發生）。
-  // 它仍然值得呼叫：關得成的時候使用者就少一個動作。
-  //
-  // **關不成的時候畫面上那句話就是後路** —— 所以訊息要先設好再呼叫，
-  // 而且那句話要說出「為什麼要你自己關」，不然看起來像是這顆按鈕沒做完事。
-  window.close();
+  // **整頁換掉，不是加一句提示。**
+  // 伺服器沒了之後，這一頁上每一顆按鈕都還看起來能按 —— 按下去才發現連不上。
+  // 關分頁這件事**不自動做**：它多半會被瀏覽器忽略，而一個「有時有效」的
+  // 自動行為比沒有更難理解。給一顆按鈕，讓使用者按下去的時候知道自己在做什麼。
+  quitDone.value = true;
+  quitMessage.value = null;
 }
 
 onMounted(async () => {
@@ -112,7 +128,20 @@ watch(
 </script>
 
 <template>
-  <div class="shell">
+  <!--
+    關掉之後的整頁畫面。**取代原本的畫面，不是疊在上面** ——
+    伺服器沒了，那一頁上每一顆按鈕都還看起來能按。
+  -->
+  <div v-if="quitDone" class="shell farewell">
+    <div class="farewell-box">
+      <h1>{{ t.shutdown.doneTitle }}</h1>
+      <p>{{ t.shutdown.doneBody }}</p>
+      <button type="button" @click="closeTab">{{ t.shutdown.closeTab }}</button>
+      <p v-if="closeTried" class="hint">{{ t.shutdown.closeTabHint }}</p>
+    </div>
+  </div>
+
+  <div v-else class="shell">
     <header class="topbar">
       <span class="brand">{{ t.app.name }}</span>
       <span class="divider"></span>
@@ -288,6 +317,53 @@ watch(
   color: var(--text-secondary);
   background: var(--bg-panel);
   border-bottom: 1px solid var(--line-subtle);
+}
+
+/** 結束畫面：置中、不留任何可以按的東西，除了那顆關分頁。 */
+.farewell {
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.farewell-box {
+  max-width: 460px;
+  text-align: center;
+}
+
+.farewell-box h1 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.farewell-box p {
+  margin: 0 0 18px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.farewell-box button {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.farewell-box button:hover {
+  border-color: var(--line-strong);
+}
+
+.farewell-box .hint {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .settings-link {

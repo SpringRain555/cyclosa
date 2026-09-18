@@ -83,6 +83,7 @@
 | `FETCH_TOO_LARGE` | partial | 回應超過單檔上限 | 那一項略過。真的需要就自己下載後用檔案匯入 |
 | `FETCH_UNSUPPORTED_TYPE` | partial | content-type 不在支援清單裡 | 第一版支援網頁／Markdown／純文字／PDF／圖片。**不支援的會列出來，不是靜默略過** |
 | `FETCH_LOGIN_REQUIRED` | partial | 偵測到需要登入或付費牆 | **不繞過付費牆、登入或存取控制**（不可違反的規則之一）。自己登入後另存再匯入 |
+| `FETCH_BOT_CHALLENGE` | partial | 回來的是反爬蟲驗證頁，不是內容（`domain/ingest/challenge.ts` 三層，多半是 **HTTP 200**）| **不繞過**。跟上一條分開是因為建議不同 —— 登入沒有用，要自己用瀏覽器打開再匯入。`detail.certain` 分得開「認得這個產品」與「這一頁看起來不像內容」 |
 | `FETCH_UNEXPECTED` | partial | 擷取的未預期例外 | 把 `correlation_id` 交出來 |
 
 ## `PARSE_*` —— 抽取

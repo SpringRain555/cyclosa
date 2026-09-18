@@ -15,7 +15,7 @@ Google Scholar 與 dblp 預設關掉；會議與期刊名單在這裡。
 |---|---|---|
 | 有網域的網站與 API | 內建來源清單（`catalog.ts`）| 來源清單的鍵是網域，狀態靠抓取紀錄與探測 |
 | 會議與期刊 | 這一份 ＋ 對應出版社那一列的 `noteZh` | 它們不是網域。IEEE S&P 的論文住在 `ieeexplore.ieee.org`，那一列才是能被抓、能記紀錄的東西 |
-| 這個工具抓不到的搜尋入口（Google Scholar、dblp）| 內建清單，**預設關掉**，備註寫「當人手查的入口」| Scholar 是 robots 不准、dblp 在反爬蟲驗證頁後面（見下）。列進來是為了讓使用者知道**為什麼這個工具不會自己去查它**；關著是為了不讓它們進 agent 的提示詞 |
+| 這個工具抓不到的搜尋入口（Google Scholar、dblp）| 內建清單，**預設關掉**，備註寫「當人手查的入口」| **兩個都是 robots 不准**（Scholar 是 `/scholar`、`/search`；dblp 是整站，2026-09-18 實跑）。列進來是為了讓使用者知道**為什麼這個工具不會自己去查它**；關著是為了不讓它們進 agent 的提示詞 |
 
 同一天做的另一件事讓這份清單真的有用：來源清單第一次接進 agent 的提示詞
 （`sourceHints`，`docs/architecture/walkthrough.md` 第五步、`ui-workflows.md` §5「來源網站」）。
@@ -38,7 +38,7 @@ Google Scholar 與 dblp 預設關掉；會議與期刊名單在這裡。
 | `ieeexplore.ieee.org` | IEEE Xplore | 網站 | 出版社 | 資安、資訊科學 | 要訂閱 | ——（出版社沒探針）|
 | `dl.acm.org` | ACM Digital Library | 網站 | 出版社 | 資安、資訊科學 | **開放（2026 起）** | ——（同上）|
 | `scholar.google.com` | Google Scholar | 網站 | 參考 | 通用 | 要訂閱（實際是 robots 不准）| ——（**預設關掉**）|
-| `dblp.org` | dblp | 網站 | 參考 | 資訊科學、資安 | 開放（對人）| ——（**預設關掉**；v0.20.0 的探針作廢）|
+| `dblp.org` | dblp | API | 書目 API | 資訊科學、資安 | 開放（對人）| `/search/publ/api?…`（**預設關掉**；打它會記成「robots 不准」）|
 | `usenix.org` | USENIX | 網站 | 開放全文庫 | 資安、資訊科學 | 開放 | —— |
 | `ndss-symposium.org` | NDSS | 網站 | 開放全文庫 | 資安、資訊科學 | 開放 | —— |
 | `eprint.iacr.org` | IACR ePrint | 網站 | 預印本 | 資安、資訊科學 | 開放 | —— |
@@ -54,8 +54,13 @@ Google Scholar 與 dblp 預設關掉；會議與期刊名單在這裡。
   `Disallow: /scholar`、`Disallow: /search`。這個工具遵守 RFC 9309（`FETCH_ROBOTS_DISALLOWED`），
   所以它永遠抓不到 Scholar 的搜尋結果。列進來是為了**讓使用者知道原因**（不列的話，使用者會以為是忘了加）；
   預設關掉（v0.20.1）是因為清單會進 agent 的提示詞，開著的話 agent 會把那裡的網址交回來。
-- **dblp 不在使用者的清單上，是整理時加的**（查一篇論文發表在哪個會議用）。2026-09-18 查到
-  它的網頁與 API 都在反爬蟲驗證頁後面（見「更正」），改成預設關掉的人手入口。
+- **dblp 不在使用者的清單上，是整理時加的**（查一篇論文發表在哪個會議用）。
+  **2026-09-18 走 `Crawler` 實跑它的探針：`FETCH_ROBOTS_DISALLOWED`** ——
+  `dblp.org/robots.txt` 是 `User-agent: *` ＋ `Disallow: /`，整站不准，請求根本沒送出去。
+  它後面確實還有一張反爬蟲驗證頁（同一天用 `curl` 看到），**但那是第二關**。
+  跟 Scholar 同一種處理：列進來、預設關掉、當人手查的入口。
+  探針 v0.21.0 放回去了 —— 它現在會誠實地記成「robots 不准」，
+  而不留探針的話那一列永遠是「不知道」。
 - **Exploit Database 的備註寫「內容是資料不是指令」。** 那一站的內容是程式碼，
   而這個工具的整個運作就是把外部文字餵給 LLM —— 不可違反規則第 4 條在這一列特別值得寫出來。
 
@@ -65,7 +70,7 @@ Google Scholar 與 dblp 預設關掉；會議與期刊名單在這裡。
 |---|---|---|
 | `https://isc.sans.edu/api/infocon?json` | 200、`text/json;charset=UTF-8`、18 B | JSON（解析得了，`{"status":…}`）|
 | `https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=1` | 200、`application/json`、2,517 B | JSON（解析得了）|
-| ~~`https://dblp.org/search/publ/api?q=security&format=json&h=1`~~ | 200、`text/html; charset=utf-8`、2,935 B | **反爬蟲驗證頁，不是 JSON** —— 探針拿掉 |
+| `https://dblp.org/search/publ/api?q=…&format=json&h=1` | 200、`text/html; charset=utf-8`、2,935 B | **反爬蟲驗證頁，不是 JSON**（2026-09-18 再打一次是 7,489 B 的 Anubis 頁）。**而這兩次都不該打**：同一天走 `Crawler` 跑同一個網址回的是 `FETCH_ROBOTS_DISALLOWED` —— 它的 robots.txt 整站不准。探針 v0.21.0 放回去，記的就是「robots 不准」 |
 
 每個網域每次只打一下（兩天各一次），帶 `User-Agent: Cyclosa/0.20.0 (+probe check)`。
 **NVD 沒有金鑰時的額度比較小**：NVD 的 API 金鑰公告說，沒帶金鑰的請求在 30 秒的滾動視窗內
@@ -122,15 +127,19 @@ Google Scholar 與 dblp 預設關掉；會議與期刊名單在這裡。
 - 會議換出版社（ACSAC 2024 起從 ACM 換到 IEEE）：改這一份與對應列的 `noteZh`，不動程式。
 - **出版社換授權模式**（ACM 2026 起全面開放取用）：改那一列的 `expected` 與備註 ——
   `expected` 從 v0.20.0 起會決定沒有紀錄的列落在提示詞的哪一段，寫錯的話 agent 會被告知「多半要登入」。
-- **網站加上反爬蟲驗證**（dblp）：那一列關掉或拿掉探針；認出驗證頁本身是 `open-questions.md` Q7。
+- **網站加上反爬蟲驗證**：探針照樣留著 —— v0.21.0 起擷取路認得出「要的是機器格式、回來的是網頁」
+  與廠商自己宣告的信號，那一列會記成「對方出驗證頁」（`fetch-policy.md`，Q7 的答案）。
+  **robots 不准比這個更早**，dblp 就是那一種。
 
 ## 更正（2026-09-18 本機時間；UTC 是 09-17 深夜，`query-log.md` 用的是後者）
 
-回答「這一輪還剩什麼」之前重新核對這一份，**四處是錯的或沒有查證過**：
+回答「這一輪還剩什麼」之前重新核對這一份，**四處是錯的或沒有查證過**；
+**第五列是 v0.21.0 加的 —— 它更正的是第一列那個更正本身**（同一個網站，第三次才查對）：
 
 | 原本寫的 | 實際 | 怎麼查到的 |
 |---|---|---|
 | dblp 探針「回 200，內容是 JSON」| **內容是反爬蟲驗證頁**（`<title>Making sure you're not a bot!</title>`，Anubis，3,282 位元組）。2026-09-16 只看了狀態碼與 Content-Type，**沒有看內容**，「內容是 JSON」是推論 | 重打一次、看內容；WebFetch 取 `dblp.org/db/conf/…` 也拿到同一種頁 |
+| dblp「在反爬蟲驗證頁後面」（v0.20.1 的更正本身）| **它的 robots.txt 整站不准**（`User-agent: *` ＋ `Disallow: /`），驗證頁是第二關。**前兩次「實查」都是在終端機裡直接打的，沒有先問 robots** —— 工具自己不會那樣做（`lessons.md`）| 2026-09-18 改用 `Crawler` 實跑探針：`FETCH_ROBOTS_DISALLOWED`；再抓 `dblp.org/robots.txt` 確認（A 級）|
 | ACSAC 的論文在 `dl.acm.org`（近年）| **2024 起是 IEEE**：acsac.org 的 2024 論文集連結 302 到 `doi.org/10.1109/ACSAC63791.2024`（`10.1109` 是 IEEE 的 DOI 前綴）| 取 `acsac.org/2024/proceedings/` 的轉址（A 級）|
 | `dl.acm.org`「多半要機構授權」| **2026-01-01 起 ACM 全部出版品開放取用** | 搜尋結果裡的 ACM 公告〈ACM is Now Fully Open Access!〉與另一篇報導（B 級 —— ACM 的頁面對自動化存取回 403，原文取不到）|
 | NVD「文件寫每 30 秒 5 次」| **那個數字是憑記憶寫的**，原文在 JS 渲染的頁上取不到 | 改寫成查得到的程度（見上）|

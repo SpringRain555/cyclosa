@@ -342,3 +342,27 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 > 出版社首頁一律回 200、文章回 403，所以出版社不設探針（v0.7.0，`catalog.ts` 檔頭）。
 > 加新探針的時候讀過那段話，**照樣只看了狀態碼**。教訓在 `lessons.md`，「驗證頁怎麼認」是 `open-questions.md` Q7。
 
+
+## 2026-09-18（UTC）　反爬蟲驗證頁怎麼認（A／B 級；**沒有保存原始回應**）
+
+**為什麼查**：使用者說「這題我想不到解法，去參考別人的做法」。結論寫進
+`domain/ingest/challenge.ts` 與 `fetch-policy.md`，Q7 因此結案。
+
+| 查詢 | 結果 | 級別 |
+|---|---|---|
+| Cloudflare 官方〈Detect a Challenge Page response〉| 任何類型的挑戰頁都帶 `cf-mitigated: challenge`，而 `challenge` 是這個標頭**唯一**的合法值；挑戰頁的 content-type **一律 `text/html`**，不管原本要的是什麼 | A（官方文件原文）|
+| Anubis 的 Challenges 文件 | 挑戰頁內含挑戰參數 JSON ＋ 算 nonce 的 JavaScript；另有不需 JS 的 metarefresh 型 | B（文件沒有明寫狀態碼與標頭）|
+| `curl dblp.org/search/publ/api?...`（**這一次不該打，見下**）| 200、`text/html`、7,489 B、`cache-control: no-store`；`<title>Making sure you're not a bot!</title>`、`<meta name="robots" content="noindex,nofollow">`、`<script id="anubis_version">`、樣式表在 `/.within.website/x/xess/`；cookie 名是**從網域算出來的**（`dblp_org-auth-…`）—— 一份「知名反爬蟲 cookie 名稱」清單抓不到它 | A（實際回應）|
+| `curl dblp.org/robots.txt` | `User-agent: *` ＋ `Disallow: /`（4,125 B，前面列了上百個 AI bot 的 UA，最後兩段都是整站禁止）| A |
+| **走 `Crawler` 實跑 dblp 的探針** | `FETCH_ROBOTS_DISALLOWED`（`rule: Disallow: /`、`source: fetched`）—— **請求根本沒送出去** | A（走的是產品自己的路）|
+| wafw00f 的做法（搜尋）| 先看標頭／cookie／封鎖頁特徵比對簽章庫，不夠再送探測請求；**順序是標頭 → cookie → 內文** | B |
+| Zyte／Scrapy 生態的 soft block（搜尋）| 200 ＋ 驗證頁 ＝ 軟封鎖，跟成功的回應長得一樣；預設「非 200 就是壞」的啟發式抓不到，所以 ban detection 要是可替換的判斷點 | B |
+
+**兩件要記住的**：
+
+1. **`curl` 那兩列是在終端機裡直接打的，沒有先問 robots** —— 而工具自己不會那樣做。
+   教訓在 `lessons.md`（「工具守著 robots，而我在終端機裡直接打了那個網址」）。
+   之後要看外部網站回什麼，走 `Crawler`；真的要用 `curl`，**先抓 robots.txt**。
+2. Cloudflare 那一列是**唯一有官方文件背書**的標記，其餘都是觀察或二手整理 ——
+   所以判斷的第一層刻意**不依賴任何產品知識**（要的型別與拿到的型別矛盾），
+   第二層才是這份會過期的清單。

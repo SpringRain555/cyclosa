@@ -74,6 +74,8 @@ import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { reindexTitleRank } from '../infrastructure/index/writer.js';
 import { readDerived } from '../infrastructure/fs/case-files.js';
+import { appendModelCall } from '../infrastructure/fs/model-log.js';
+import { endpointOf, type ModelCallRecord } from '../domain/provider/call-record.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { Crawler } from '../infrastructure/fetch/crawler.js';
 import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
@@ -141,6 +143,58 @@ async function openCase(dataRoot: string, slug: string): Promise<DatabaseSync | 
 
 function caseFolderOf(dataRoot: string, slug: string): string {
   return join(casesDir(dataRoot), slug);
+}
+
+/**
+ * 記一次模型呼叫。**開關預設是關的**（`providers.json` 的 `diagnostics`）。
+ *
+ * 放在這一層而不是 provider 裡面，理由有兩個：
+ * provider 不知道自己正在做哪一個任務、也不知道這是哪一個專題；
+ * 而**該記哪些任務是一個判斷**（`domain/provider/call-record.ts` 那張表），
+ * 不是「凡呼叫必記」—— 探測與 `embed` 都會呼叫模型，而它們都不該進來。
+ *
+ * 寫失敗不會讓作業失敗（`appendModelCall` 自己吞）。
+ */
+async function recordModelCall(
+  providers: Providers,
+  folder: string,
+  call: {
+    readonly task: ModelCallRecord['task'];
+    readonly role: ModelCallRecord['role'];
+    readonly model: string;
+    readonly runId: string;
+    readonly correlationId: string;
+    readonly itemId?: string;
+    readonly system: string;
+    readonly user: string;
+    readonly text: string | null;
+    readonly errorDetail: string | null;
+    readonly ok: boolean;
+    readonly code: string | null;
+    readonly elapsedMs: number;
+    readonly costUsd: number | null;
+  },
+): Promise<void> {
+  if (!providers.config.diagnostics.logModelCalls) return;
+  await appendModelCall(folder, {
+    at: new Date().toISOString(),
+    runId: call.runId,
+    correlationId: call.correlationId,
+    task: call.task,
+    role: call.role,
+    model: call.model,
+    transport: call.role === 'agent' ? 'claude-cli' : (providers.config.chat?.transport ?? ''),
+    endpoint: call.role === 'agent' ? null : endpointOf(providers.config.chat?.baseUrl ?? null),
+    ...(call.itemId === undefined ? {} : { itemId: call.itemId }),
+    request: { system: call.system, user: call.user },
+    response: { text: call.text, errorDetail: call.errorDetail },
+    outcome: {
+      ok: call.ok,
+      code: call.code,
+      elapsedMs: call.elapsedMs,
+      costUsd: call.costUsd,
+    },
+  });
 }
 
 /** `<資料根>\cases\<專題>\agent\runs\<run-id>\<第幾條角度>\`（storage-layout）。 */
@@ -296,13 +350,33 @@ export async function startExpansion(
       excerpt: row.excerpt.slice(0, SEED_EXCERPT_CHARS),
     }));
 
+    const anglesUserText = anglesUser(trimmed, seeds);
     const call = await chat.json({
       system: ANGLES_SYSTEM,
-      user: anglesUser(trimmed, seeds),
+      user: anglesUserText,
       schema: ANGLES_SCHEMA,
     });
 
     const runId = newId();
+
+    // **這一次呼叫發生在作業列被建立之前** —— 它的結果才決定要不要建。
+    // 所以紀錄帶的是剛產生的 `runId`（下面那幾行才會用到它），
+    // 而不是等作業寫進資料庫之後才記：失敗的那幾次也要留下來。
+    await recordModelCall(providers, caseFolderOf(dataRoot, slug), {
+      task: 'angles',
+      role: 'chat',
+      model: chat.name,
+      runId,
+      correlationId: cid,
+      system: ANGLES_SYSTEM,
+      user: anglesUserText,
+      text: call.kind === 'ok' ? JSON.stringify(call.value) : null,
+      errorDetail: call.kind === 'error' ? call.detail : null,
+      ok: call.kind === 'ok',
+      code: call.kind === 'error' ? call.code : null,
+      elapsedMs: call.cost.elapsedMs,
+      costUsd: call.cost.costUsd,
+    });
     const now = Date.now();
     runs.insertRun(db, {
       id: runId,
@@ -714,9 +788,10 @@ async function runAngle(
     return { budget };
   }
 
+  const sourcesPrompt = sourcesUser(ctx.topic, angle.question, ctx.hints);
   const call = await agent.run(
     {
-      prompt: sourcesUser(ctx.topic, angle.question, ctx.hints),
+      prompt: sourcesPrompt,
       cwd: sandbox,
       // 子程序的逾時 ＝ 這次作業還剩多久。**不是一個獨立的數字** ——
       // 兩個各自的逾時加起來會超過牆鐘上限。
@@ -724,6 +799,24 @@ async function runAngle(
     },
     ctx.abort.signal,
   );
+
+  // agent 這一條記的是**原始文字** —— `CallOutcome<string>` 的 `value` 就是子程序吐出來的東西，
+  // 裡面有它自己的推理過程。chat 那兩條沒有這個（`json()` 只回解析後的值）。
+  await recordModelCall(ctx.providers, caseFolderOf(ctx.dataRoot, ctx.slug), {
+    task: 'find-sources',
+    role: 'agent',
+    model: agent.name,
+    runId: ctx.state.runId,
+    correlationId: ctx.state.runId,
+    system: SOURCES_SYSTEM,
+    user: sourcesPrompt,
+    text: call.kind === 'ok' ? call.value : null,
+    errorDetail: call.kind === 'error' ? call.detail : null,
+    ok: call.kind === 'ok',
+    code: call.kind === 'error' ? call.code : null,
+    elapsedMs: call.cost.elapsedMs,
+    costUsd: call.cost.costUsd,
+  });
   budget = charge(budget, call.cost.costUsd, Date.now() - ctx.startedAt);
 
   // **沙箱一定要掃，成功失敗都掃。**
@@ -799,6 +892,7 @@ async function runAngle(
       itemId: outcome.itemId,
       runId: ctx.state.runId,
       abort: ctx.abort,
+      providers: ctx.providers,
     });
     budget = charge(budget, extracted.costUsd, budget.elapsedMs);
     tally.newEdges += extracted.newEdges;
@@ -825,6 +919,8 @@ interface ExtractContext {
   readonly itemId: string;
   readonly runId: string;
   readonly abort: AbortController;
+  /** 只為了診斷紀錄：開關與端點都在它身上。**抽取本身不看它。** */
+  readonly providers: Providers;
 }
 
 interface ExtractResult {
@@ -849,6 +945,24 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
   }
 
   const called = await callExtract(ctx.chat, derived, ctx.abort);
+
+  await recordModelCall(ctx.providers, ctx.folder, {
+    task: 'extract',
+    role: 'chat',
+    model: ctx.chat.name,
+    runId: ctx.runId,
+    correlationId: ctx.runId,
+    itemId: ctx.itemId,
+    system: EXTRACT_SYSTEM,
+    user: extractUser(derived.title, derived.text),
+    text: called.kind === 'ok' ? JSON.stringify(called.extraction) : null,
+    errorDetail: null,
+    ok: called.kind === 'ok',
+    code: called.kind === 'error' ? called.code : null,
+    elapsedMs: called.elapsedMs,
+    costUsd: called.costUsd,
+  });
+
   if (called.kind === 'error') {
     return { newEdges: 0, costUsd: called.costUsd, code: called.code };
   }
@@ -858,8 +972,18 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
 }
 
 type CallExtractOutcome =
-  | { readonly kind: 'ok'; readonly extraction: Extraction; readonly costUsd: number | null }
-  | { readonly kind: 'error'; readonly code: ErrorCode; readonly costUsd: number | null };
+  | {
+      readonly kind: 'ok';
+      readonly extraction: Extraction;
+      readonly costUsd: number | null;
+      readonly elapsedMs: number;
+    }
+  | {
+      readonly kind: 'error';
+      readonly code: ErrorCode;
+      readonly costUsd: number | null;
+      readonly elapsedMs: number;
+    };
 
 /** 問模型那一半。**模型回的東西是外部輸入**，一律先過 `normalizeExtraction`。 */
 async function callExtract(
@@ -875,8 +999,20 @@ async function callExtract(
     },
     abort.signal,
   );
-  if (call.kind === 'error') return { kind: 'error', code: call.code, costUsd: call.cost.costUsd };
-  return { kind: 'ok', extraction: normalizeExtraction(call.value), costUsd: call.cost.costUsd };
+  if (call.kind === 'error') {
+    return {
+      kind: 'error',
+      code: call.code,
+      costUsd: call.cost.costUsd,
+      elapsedMs: call.cost.elapsedMs,
+    };
+  }
+  return {
+    kind: 'ok',
+    extraction: normalizeExtraction(call.value),
+    costUsd: call.cost.costUsd,
+    elapsedMs: call.cost.elapsedMs,
+  };
 }
 
 export interface AppliedExtraction {

@@ -240,6 +240,14 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
             ).trim(),
           },
     embed: embed === null || embed.baseUrl.length === 0 ? null : embed,
+    // **只有明確送 `true` 才算打開。** 缺欄位、送字串、送 1 都是關著 ——
+    // 一個「好像有打開」的診斷開關比沒有更糟：使用者以為留著紀錄，而其實沒有。
+    diagnostics: {
+      logModelCalls:
+        typeof raw['diagnostics'] === 'object' &&
+        raw['diagnostics'] !== null &&
+        (raw['diagnostics'] as Record<string, unknown>)['logModelCalls'] === true,
+    },
   };
 
   try {

@@ -239,6 +239,7 @@ describe('agent 的模型欄位', () => {
         chat: null,
         agent: { command: 'claude', args: [], model: 'sonnet' },
         embed: null,
+        diagnostics: { logModelCalls: false },
       },
       env,
     );
@@ -256,6 +257,7 @@ describe('agent 的模型欄位', () => {
         chat: null,
         agent: { command: 'npx', args: ['claude'], model: 'opus' },
         embed: null,
+        diagnostics: { logModelCalls: false },
       },
       env,
     );

@@ -197,11 +197,25 @@ export function taskModelsOf(raw: unknown): Record<ChatTask, string> {
   return out;
 }
 
+/**
+ * 診斷。**目前只有一個開關，而它預設是關的。**
+ *
+ * 打開之後，會花模型的那三個任務把「當時送出去什麼、回來什麼」寫進
+ * 那個專題的 `model-calls\` 資料夾（`domain/provider/call-record.ts`）。
+ *
+ * **為什麼它在 provider 設定裡**：它問的是「模型這一塊要不要留紀錄」，
+ * 而不是某個專題的屬性 —— 換了模型之後的比較要跨專題成立。
+ */
+export interface DiagnosticsConfig {
+  readonly logModelCalls: boolean;
+}
+
 export interface ProvidersConfig {
   readonly version: 1;
   readonly chat: ChatConfig | null;
   readonly agent: AgentConfig | null;
   readonly embed: EmbedConfig | null;
+  readonly diagnostics: DiagnosticsConfig;
 }
 
 /**
@@ -230,6 +244,8 @@ export const DEFAULT_CONFIG: ProvidersConfig = {
   // `embed` 跟 `chat` 同一個理由：位址猜得準，**模型名不猜**。
   // 空的就等於沒設定，設定頁把量測選出來的那一個標成「建議」讓人自己按。
   embed: { baseUrl: 'http://127.0.0.1:11434', model: '' },
+  // **預設關著。** 它長得快（抽取的提示詞裡是整份正文），而多數作業沒有人會回頭看。
+  diagnostics: { logModelCalls: false },
 };
 
 /**
@@ -304,10 +320,18 @@ export async function readProvidersConfig(
             model: str((embedRaw as Record<string, unknown>)['model']),
           }
         : null;
+    const diagRaw = parsed['diagnostics'];
     return {
       version: 1,
       chat: chat === null || chat.baseUrl.length === 0 ? DEFAULT_CONFIG.chat : chat,
       agent: agent === null || agent.command.length === 0 ? null : agent,
+      // **舊的設定檔沒有這一欄** —— 缺就是關著，而「關著」正是預設。
+      diagnostics: {
+        logModelCalls:
+          typeof diagRaw === 'object' &&
+          diagRaw !== null &&
+          (diagRaw as Record<string, unknown>)['logModelCalls'] === true,
+      },
       // **舊的設定檔沒有這一欄** —— 缺就退回預設（位址有、模型空），
       // 而不是變成 `null`：`null` 會讓設定頁上那一格連位址都是空的。
       embed: embed === null || embed.baseUrl.length === 0 ? DEFAULT_CONFIG.embed : embed,

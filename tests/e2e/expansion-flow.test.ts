@@ -24,7 +24,7 @@
  * 6. **否決過的組合重跑不再出現**（墓碑，ADR-0016）。
  */
 import { createServer, type Server } from 'node:http';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -160,6 +160,7 @@ process.stdout.write(
 async function writeProvidersFile(
   agent: boolean,
   taskModels?: Record<string, string>,
+  diagnostics?: { logModelCalls: boolean },
 ): Promise<void> {
   const dir = join(sandbox, 'LocalAppData', 'Cyclosa');
   await mkdir(dir, { recursive: true });
@@ -170,6 +171,7 @@ async function writeProvidersFile(
       chat: { baseUrl: ollamaBase, model: 'fake-model', ...(taskModels ? { taskModels } : {}) },
       // **用 node 跑一支假的 CLI** —— `args` 這個設定欄位存在的理由就是這種包裝。
       agent: agent ? { command: process.execPath, args: [agentScript] } : null,
+      ...(diagnostics ? { diagnostics } : {}),
     }),
     'utf8',
   );
@@ -1037,5 +1039,89 @@ describe('擴展前後，人的判斷一個都沒有變', () => {
     }));
     expect(after.status).toBe('rejected');
     expect(after.evidence).toBe(1);
+  });
+});
+
+// ══ 診斷：留下模型呼叫的紀錄（v0.22.0）═══════════════════
+
+describe('模型呼叫的紀錄', () => {
+  /** `<專題>\model-calls\*.jsonl` 的全部內容，逐行解析。 */
+  async function readModelCalls(): Promise<Record<string, unknown>[]> {
+    const dir = join(dataRoot, 'cases', slug, 'model-calls');
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return [];
+    }
+    const out: Record<string, unknown>[] = [];
+    for (const name of names) {
+      const text = await readFile(join(dir, name), 'utf8');
+      for (const line of text.split('\n').filter((l) => l.trim().length > 0)) {
+        out.push(JSON.parse(line) as Record<string, unknown>);
+      }
+    }
+    return out;
+  }
+
+  it('預設不記 —— 開關沒打開就一個檔都不該出現', async () => {
+    await writeProvidersFile(true);
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    expect(started.ok).toBe(true);
+    expect(await readModelCalls()).toHaveLength(0);
+  });
+
+  it('打開之後，歸納角度那一次的提示詞與回覆都在裡面', async () => {
+    await writeProvidersFile(true, undefined, { logModelCalls: true });
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) return;
+
+    const calls = await readModelCalls();
+    expect(calls).toHaveLength(1);
+    const call = calls[0] as {
+      task: string;
+      role: string;
+      model: string;
+      runId: string;
+      request: { system: string; user: string };
+      response: { text: string | null };
+      outcome: { ok: boolean; code: string | null };
+    };
+    expect(call.task).toBe('angles');
+    expect(call.role).toBe('chat');
+    // **實際跑的那一個模型**，不是「chat」這個角色名。
+    expect(call.model).toContain('fake-model');
+    expect(call.runId).toBe(started.data.runId);
+    // 提示詞是原樣的：主題在裡面，系統訊息也在。
+    expect(call.request.user).toContain('一樁合成的收購案');
+    expect(call.request.system.length).toBeGreaterThan(0);
+    expect(call.response.text).toContain('金額');
+    expect(call.outcome.ok).toBe(true);
+    expect(call.outcome.code).toBeNull();
+  });
+
+  /**
+   * **逐任務覆寫之後，每一列要記著自己是誰跑的。**
+   * 這一條就是這個功能存在的理由 —— 換了模型的比較只有在這一欄可信時才做得了。
+   */
+  it('任務覆寫到另一個模型，紀錄上的模型名就是那一個', async () => {
+    await writeProvidersFile(true, { angles: 'other-model' }, { logModelCalls: true });
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) return;
+
+    const calls = await readModelCalls();
+    expect(calls).toHaveLength(1);
+    expect((calls[0] as { model: string }).model).toContain('other-model');
+  });
+
+  it('金鑰不會進去 —— 記的只有端點的網域', async () => {
+    await writeProvidersFile(true, undefined, { logModelCalls: true });
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) return;
+
+    const calls = await readModelCalls();
+    const line = JSON.stringify(calls[0]);
+    expect(line).not.toContain('apiKeyEnv');
+    expect((calls[0] as { endpoint: string }).endpoint).toBe(new URL(ollamaBase).host);
   });
 });

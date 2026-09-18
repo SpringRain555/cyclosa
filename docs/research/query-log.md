@@ -366,3 +366,27 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 2. Cloudflare 那一列是**唯一有官方文件背書**的標記，其餘都是觀察或二手整理 ——
    所以判斷的第一層刻意**不依賴任何產品知識**（要的型別與拿到的型別矛盾），
    第二層才是這份會過期的清單。
+
+## 2026-09-18（UTC，第二輪）　第一個線上 chat 端點（A 級）
+
+**為什麼查**：使用者提供一把第三方代理（kano-proxy，非官方 OpenAI）的金鑰，
+要求測試。這是這台機器上**第一次**有線上 OpenAI 相容端點可以量
+（v0.18.0 的第一條收尾條件從 🟡 變成有答案）。
+
+| 查詢 | 結果 | 級別 |
+|---|---|---|
+| 第三方代理的 `/robots.txt`（網域不列） | `Disallow: /openai/ /anthropic/ /g/ /api/ /agent/`，文件路徑允許 | A |
+| 代理的 getting-started 文件 | OpenAI 相容的位址是 `https://<網域>/openai/v1`，`Authorization: Bearer`；另有 Anthropic 相容的 `/anthropic/v1` 用 `x-api-key` | A |
+| `GET /openai/v1/models` | 200，5 個模型（`codex/gpt-5.5`、`codex/gpt-5.6-{luna,sol,terra}`、`codex/gpt-6-astra`），與使用者畫面一致 | A |
+| `checkJson`（探針 schema） | `schema` —— `json_schema` 真的被套用 | A |
+| 「實際打一次」（修正前） | **失敗** `PROVIDER_JSON_UNSUPPORTED` | A |
+| 直接送兩種 schema 比對 | 沒有 `additionalProperties: false` → HTTP 400 `invalid_json_schema`；有 → 200 | A |
+| 三份真的 schema（strictify 之後） | 角度／抽取／找來源都 **HTTP 200** | A |
+| 「實際打一次」（修正後） | **通過**，5.1 秒；`provider-checks.json` 記下 `schema` | A |
+
+**先前的那一把金鑰（同一個變數）** 打 `api.openai.com` 回 401 `invalid_api_key`，
+而 OpenAI 自己遮過的訊息顯示它是 `sk-kano-` 開頭 —— **不是 OpenAI 的金鑰**。
+**沒有拿它去試任何沒被指名的端點。**
+
+**沒有做到的**：只量了 5 個模型裡的 1 個（`codex/gpt-5.5`）；
+端點不回報 context 長度與金額，所以那兩欄在畫面上分別是「不知道」與 `null`。

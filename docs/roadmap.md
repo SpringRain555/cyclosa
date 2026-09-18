@@ -445,7 +445,7 @@ REQ-0001 寫「刪除就是刪除。**備份是 `backups\` 的事**，不是狀�
 
 | | 條件 |
 |---|---|
-| 🟡 | **動手前先量**目標端點的 `json_schema` 支援程度，數字寫進 `research/` —— **量到的是本機 Ollama 的 `/v1`，線上端點一個都沒量**：這台機器上沒有任何線上服務的金鑰。所以程式不帶「哪家支援什麼」的表，**每個端點＋模型各自量**；有金鑰的那一天用 `tools/research/probe-json-mode.ts` 補量（`research/openai-compat-json-schema.md`）|
+| ✅ | **動手前先量**目標端點的 `json_schema` 支援程度，數字寫進 `research/`。2026-09-11 量本機 Ollama 的 `/v1`；**2026-09-18 量到第一個線上端點**（第三方代理 ＋ `codex/gpt-5.5`，結果 `schema`）—— **而那一次量出了一個我們自己的洞**：三份真的 schema 少了 `additionalProperties: false`，嚴格模式的端點一律回 400（v0.22.1 的 `strictify`，`research/openai-compat-json-schema.md` 結果三）|
 | ✅ | 設定頁的「可調用模型」列得出線上端點的模型（`/models`）|
 | ✅ | 金鑰**只存環境變數名**（Stage 10.5 已經定的規矩，這裡只是沿用）—— **另外補了一格**：對方的錯誤內文可能回顯請求標頭，那一段進 `detail` 之前先把金鑰遮掉 |
 | ✅ | 端點不支援 `json_schema` 時**說出來並降級**，不是安靜地送出去然後解析失敗 —— 降級成 `json_object` ＋ 事後驗證，設定頁與作業紀錄都寫得出是哪一種（ADR-0030）；**兩種都不支援就停手** |

@@ -13,7 +13,7 @@
  * （agent 那邊只跑 `--version`、chat 那邊只讀 `/api/tags`）。
  * 「實際打一次」是使用者按的按鈕，**而那個按鈕旁邊要先講它會不會花錢**。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 
 import {
   api,
@@ -61,6 +61,29 @@ const apiKeyEnv = ref('');
 const apiKeyEnvBad = computed(() => {
   const name = apiKeyEnv.value.trim();
   return name.length > 0 && !/^[A-Z][A-Z0-9_]{1,63}$/.test(name);
+});
+// 小寫直接轉大寫。Windows 的環境變數不分大小寫，所以 `OPENAI_API_KEY_v1` 與
+// `OPENAI_API_KEY_V1` 讀到的是同一個；與其擋下來叫使用者重打，不如替他轉。
+// 減號、空白之類的還是會被上面那條擋 —— 那才是「有人把金鑰貼進來」的訊號。
+watch(apiKeyEnv, (value) => {
+  const upper = value.toUpperCase();
+  if (upper !== value) apiKeyEnv.value = upper;
+});
+
+/**
+ * 表單上的連線跟存檔裡的不是同一條。
+ *
+ * 模型清單、格式保證、測試結果都是**對存檔那一條端點**量的 ——
+ * 一切到「OpenAI 相容端點」還把 Ollama 的 22 個模型列在下拉選單裡，
+ * 使用者會以為那些是這個端點的模型（2026-09-18 真的發生）。
+ * 不是同一條的時候：模型改成手打、格式保證不顯示、測試結果清掉，
+ * 並且說明「存檔後才會列出這個端點的模型」。
+ */
+const endpointChanged = computed(() => {
+  const saved = payload.value?.config.chat;
+  const savedTransport = saved?.transport ?? 'ollama';
+  const savedUrl = (saved?.baseUrl ?? '').trim();
+  return transport.value !== savedTransport || baseUrl.value.trim() !== savedUrl;
 });
 const embedBaseUrl = ref('');
 const embedModel = ref('');
@@ -151,6 +174,12 @@ function switchTransport(next: ChatTransport): void {
   if (next === 'openai' && baseUrl.value.trim() === OLLAMA_DEFAULT_URL) baseUrl.value = '';
   if (next === 'ollama' && baseUrl.value.trim().length === 0) baseUrl.value = OLLAMA_DEFAULT_URL;
   transport.value = next;
+  // 模型名跟著端點走：切回存檔那一條就填回存檔的模型，切到另一條就清空 ——
+  // 留著 Ollama 的模型名在 OpenAI 端點的欄位裡，存了就是一個不存在的模型。
+  const saved = payload.value?.config.chat;
+  model.value = saved && next === saved.transport ? saved.model : '';
+  // 上一次「實際打一次」打的是另一條連線，留著會被當成這一條的結果。
+  if (testResult.value?.role === 'chat') testResult.value = null;
 }
 
 /** 這個角色的下拉選單列哪一份。**嵌入永遠是本機那一份**，不跟著 chat 走。 */
@@ -359,7 +388,11 @@ async function test(role: ProviderRole): Promise<void> {
 
           <!-- 名稱、版本、用途 —— 三件事分開列。**版本問不到就說問不到**，
              不要編一個看起來像版本號的東西。 -->
-          <dl v-if="status.state === 'ready'" class="facts">
+          <!-- chat 的版本是對存檔那一條端點問的；連線換了就不是這一條的事。 -->
+          <dl
+            v-if="status.state === 'ready' && !(status.role === 'chat' && endpointChanged)"
+            class="facts"
+          >
             <dt>{{ t.settings.version }}</dt>
             <dd :class="{ muted: !status.version }">
               {{ status.version || t.settings.versionUnknown }}
@@ -399,7 +432,7 @@ async function test(role: ProviderRole): Promise<void> {
             </label>
             <label>
               <span>{{ t.settings.chatModel }}</span>
-              <select v-if="modelsFor('chat')?.length" v-model="model">
+              <select v-if="!endpointChanged && modelsFor('chat')?.length" v-model="model">
                 <option value="">
                   {{
                     transport === 'openai'
@@ -430,7 +463,9 @@ async function test(role: ProviderRole): Promise<void> {
               </button>
               {{ t.settings.chatRecommendWhy }}
             </p>
-            <p v-if="payload && payload.chatModels === null" class="hint">
+            <!-- 連線換了：清單、格式保證都是對存檔那一條量的，這裡先說清楚下一步是什麼。 -->
+            <p v-if="endpointChanged" class="hint">{{ t.settings.chatEndpointChanged }}</p>
+            <p v-else-if="payload && payload.chatModels === null" class="hint">
               {{
                 transport === 'openai'
                   ? t.settings.chatModelsUnreachableOnline
@@ -439,7 +474,7 @@ async function test(role: ProviderRole): Promise<void> {
             </p>
             <!-- **格式保證要看得到。** 事後檢查是一種降級，而它被允許的條件是說出來（ADR-0030）。 -->
             <p
-              v-if="status.state === 'ready' && status.jsonMode"
+              v-if="!endpointChanged && status.state === 'ready' && status.jsonMode"
               :class="['hint', 'json-mode', status.jsonMode.mode]"
             >
               <span class="json-label">{{ t.settings.jsonModeLabel }}</span>
@@ -452,6 +487,7 @@ async function test(role: ProviderRole): Promise<void> {
             -->
             <p
               v-if="
+                !endpointChanged &&
                 status.jsonMode &&
                 (status.jsonMode.mode === 'object' || status.jsonMode.mode === 'none') &&
                 status.jsonMode.detail
@@ -643,7 +679,9 @@ async function test(role: ProviderRole): Promise<void> {
                     @input="setModelOf(row.task, ($event.target as HTMLInputElement).value)"
                   />
                   <select
-                    v-else-if="modelsFor(row.role)?.length"
+                    v-else-if="
+                      (row.role !== 'chat' || !endpointChanged) && modelsFor(row.role)?.length
+                    "
                     :value="modelValueOf(row.task)"
                     @change="setModelOf(row.task, ($event.target as HTMLSelectElement).value)"
                   >
@@ -1141,6 +1179,11 @@ select {
   gap: 10px;
   margin-top: 6px;
 }
+/**
+ * **`.primary` 不在這裡重畫。** 2026-09-18 之前這裡把字塗成 `--ui-action`，
+ * 而全域 `tokens.css` 把底也塗成同一個藍 —— 「儲存」變成一個看不見字的藍方塊。
+ * 填色按鈕只在 `tokens.css` 定義一次。
+ */
 button {
   background: var(--bg-raised);
   border: 1px solid var(--line);
@@ -1157,10 +1200,6 @@ button:hover:not(:disabled) {
 button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-button.primary {
-  border-color: var(--ui-action);
-  color: var(--ui-action);
 }
 /* 連線方式：兩個選項並排，標籤與選項同一條基線。 */
 .transport {

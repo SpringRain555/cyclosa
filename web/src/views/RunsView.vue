@@ -162,6 +162,44 @@ async function submitFiles(files: FileList | null): Promise<void> {
   if (lastRun !== null) openRun(lastRun);
 }
 
+/** 產生了角度、還沒勾的擴展。`queued` 在匯入上是真的在排隊，在擴展上是「在等你勾」（state-machines.md）。 */
+function isDraft(r: Run): boolean {
+  return r.kind === 'expand' && r.status === 'queued' && !r.live;
+}
+
+async function discard(r: Run): Promise<void> {
+  if (!window.confirm(t.runControl.discardConfirm)) return;
+  busyControl.value = true;
+  const result = await api.discardRun(slug.value, r.id);
+  busyControl.value = false;
+  if (!result.ok) {
+    error.value = result.error;
+    return;
+  }
+  // 正在看的就是它 —— 回到清單，不留一個指著已經不存在的東西的網址。
+  if (runId.value === r.id) void router.replace(`/case/${encodeURIComponent(slug.value)}/runs`);
+  await loadRuns();
+}
+
+/** 這一次寫進去最多關聯的那一份資料 —— 「在關聯圖上看」的焦點。沒寫進任何東西就沒有這顆按鈕。 */
+const graphFocusId = computed<string | null>(() => {
+  let best: RunItem | null = null;
+  for (const row of runItems.value) {
+    if (row.itemId === null || row.newEdges <= 0) continue;
+    if (best === null || row.newEdges > best.newEdges) best = row;
+  }
+  return best?.itemId ?? null;
+});
+
+function showOnGraph(): void {
+  const focus = graphFocusId.value;
+  if (focus === null) return;
+  void router.push({
+    path: `/case/${encodeURIComponent(slug.value)}`,
+    query: { focus },
+  });
+}
+
 function onDrop(event: DragEvent): void {
   dragging.value = false;
   void submitFiles(event.dataTransfer?.files ?? null);
@@ -513,10 +551,15 @@ async function rebuild(): Promise<void> {
             <button class="row" :class="{ active: r.id === runId }" @click="openRun(r.id)">
               <span class="row-title">{{ r.label }}</span>
               <span class="row-meta">
-                <span :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
+                <!-- 沒勾就走掉的擴展停在 queued。**它不是在排隊，是在等一個不會來的人** —— 標成草稿。 -->
+                <span v-if="isDraft(r)" class="badge draft">{{ t.runControl.draft }}</span>
+                <span v-else :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
                 <span v-if="r.live" class="live">{{ t.runs.live }}</span>
                 <span>{{ when(r.createdAt) }}</span>
               </span>
+            </button>
+            <button v-if="isDraft(r)" class="discard" :disabled="busyControl" @click="discard(r)">
+              {{ t.runControl.discard }}
             </button>
           </li>
         </ul>
@@ -557,10 +600,24 @@ async function rebuild(): Promise<void> {
               <span v-if="run.paused" class="paused">{{ t.runControl.paused }}</span>
               <span v-else class="hint">{{ t.runControl.pauseHint }}</span>
             </template>
-            <!-- **跑完才給復原。** 一邊寫一邊刪會留下說不清楚的狀態。 -->
-            <button v-else :disabled="busyControl" @click="undo">
-              {{ t.runControl.undo }}
+            <!-- 草稿沒有東西可以復原，只有丟掉。 -->
+            <button v-else-if="isDraft(run)" :disabled="busyControl" @click="discard(run)">
+              {{ t.runControl.discard }}
             </button>
+            <!-- **跑完才給復原。** 一邊寫一邊刪會留下說不清楚的狀態。 -->
+            <template v-else>
+              <!--
+                回圖上看。**焦點放在這一次新增關聯最多的那一份** ——
+                2026-09-18 使用者跑完擴展回到圖上，看到的還是先前那一個點：
+                圖用的是舊焦點，而那份 PDF 一條邊都沒有。
+              -->
+              <button v-if="graphFocusId !== null" @click="showOnGraph">
+                {{ t.runs.showOnGraph }}
+              </button>
+              <button :disabled="busyControl" @click="undo">
+                {{ t.runControl.undo }}
+              </button>
+            </template>
           </div>
         </header>
 
@@ -843,6 +900,23 @@ textarea:focus,
   margin: 0;
   padding: 0;
 }
+/* 草稿那一列右邊多一顆「丟掉」。列本身是一顆按鈕，所以丟掉不能包在它裡面（按鈕裡不能有按鈕）。 */
+.rows li {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.rows li .row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.discard {
+  flex: none;
+  font-size: 11px;
+  padding: 3px 8px;
+  margin-top: 8px;
+  color: var(--text-tertiary);
+}
 .row {
   display: block;
   width: 100%;
@@ -984,6 +1058,11 @@ td.note {
 .badge.failed {
   border-color: var(--ui-danger);
   color: var(--ui-danger);
+}
+/* 草稿不是一個「狀態」，它是還沒發生 —— 不上色。 */
+.badge.draft {
+  border-color: var(--line-muted);
+  color: var(--text-tertiary);
 }
 .muted {
   color: var(--text-tertiary);

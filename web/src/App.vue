@@ -58,22 +58,16 @@ const activeModels = ref<string[]>([]);
  */
 const quitting = ref(false);
 const quitMessage = ref<string | null>(null);
-/** 關掉了 —— 整頁換成結束畫面。**這一頁上其餘的東西全部已經失效。** */
-const quitDone = ref(false);
-/** 按過「關閉這個分頁」了。關得成的話沒人看得到後續，關不成才需要那句解釋。 */
-const closeTried = ref(false);
-
 /**
- * **瀏覽器只允許腳本關掉「腳本自己開的」分頁**，而這一個是啟動器用網址開的 ——
- * 所以這一行在多數瀏覽器裡會被忽略（主控台留下一句警告，畫面什麼都不會發生）。
+ * 關掉了 —— 整頁換成結束畫面。**這一頁上其餘的東西全部已經失效。**
  *
- * 它仍然值得給一顆按鈕：關得成的時候使用者就少一個動作，
- * 而關不成的時候旁邊那句話會說出為什麼 —— **不然看起來像這顆按鈕壞了**。
+ * **這一頁上沒有「關閉這個分頁」的按鈕。** v0.22.0 給過一顆（試 `window.close()`，
+ * 關不成就解釋為什麼），而它在使用者的瀏覽器上就是關不成 —— 瀏覽器只讓腳本關掉
+ * 「腳本自己開的」分頁，這一個是啟動器用網址開的。一顆按了沒反應的按鈕，
+ * 再多一句「沒反應是正常的」也還是一顆壞掉的按鈕（2026-09-18 使用者回報）。
+ * 結束畫面現在只說一句話：可以關掉這個分頁了。
  */
-function closeTab(): void {
-  closeTried.value = true;
-  window.close();
-}
+const quitDone = ref(false);
 
 async function quit(): Promise<void> {
   quitting.value = true;
@@ -136,8 +130,6 @@ watch(
     <div class="farewell-box">
       <h1>{{ t.shutdown.doneTitle }}</h1>
       <p>{{ t.shutdown.doneBody }}</p>
-      <button type="button" @click="closeTab">{{ t.shutdown.closeTab }}</button>
-      <p v-if="closeTried" class="hint">{{ t.shutdown.closeTabHint }}</p>
     </div>
   </div>
 
@@ -284,6 +276,16 @@ watch(
 .models.none {
   font-family: inherit;
 }
+/**
+ * 窄畫面不顯示模型名。**它是狀態，不是目的地** —— 設定頁上看得到同一件事。
+ * 2026-09-18 量到：三個角色都設好之後這一串佔 32ch，在 768px 寬的專題頁面上
+ * 把「結束 Cyclosa」推出畫面（2026-09-11 那一輪量的時候模型還沒設）。
+ */
+@media (max-width: 1023px) {
+  .models {
+    display: none;
+  }
+}
 
 /* 設定靠最右 —— 它不屬於分頁列那一組（它跟專題無關）。 */
 /* 結束是一個**離開**的動作，所以它在最右邊、而且平常很輕。
@@ -339,31 +341,10 @@ watch(
 }
 
 .farewell-box p {
-  margin: 0 0 18px;
+  margin: 0;
   font-size: 14px;
   line-height: 1.7;
   color: var(--text-secondary);
-}
-
-.farewell-box button {
-  font: inherit;
-  font-size: 13px;
-  padding: 7px 16px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--bg-panel);
-  color: var(--text);
-  cursor: pointer;
-}
-
-.farewell-box button:hover {
-  border-color: var(--line-strong);
-}
-
-.farewell-box .hint {
-  margin: 16px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
 }
 
 .settings-link {

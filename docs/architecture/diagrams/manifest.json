@@ -12,7 +12,7 @@
                          "document":  "app-lifecycle.md",
                          "index":  2,
                          "svg":  "app-lifecycle-2.svg",
-                         "sha256":  "a8dc055e0830cf2e953377d04099e92536c5514794ca0f8c544d193a981a883f"
+                         "sha256":  "b2c93b3938a272311ce8911c0579b0eb3caba86846a92e8b16ba950073d168b2"
                      },
                      {
                          "document":  "data-model.md",
@@ -48,7 +48,7 @@
                          "document":  "state-machines.md",
                          "index":  3,
                          "svg":  "state-machines-3.svg",
-                         "sha256":  "dbfcf0336c56b5a70f2ba51e7a74b3be2ac49ed490cd6b2c3b0dee0688e78a05"
+                         "sha256":  "3a2bbffb3ee515cb4ffe6e676c08fccbd69e6cfbaf696c7d689bb1643eb59c2b"
                      },
                      {
                          "document":  "state-machines.md",

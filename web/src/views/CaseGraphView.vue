@@ -92,10 +92,18 @@ function hopTitle(hop: number): string {
   return '';
 }
 
+/** 網址上的 `?focus=`：作業紀錄那頁「在關聯圖上看這一次抓到的」帶過來的。 */
+const wantedFocus = computed(() => {
+  const raw = route.query['focus'];
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+});
+
+// 回到這一頁一律重查（store 不再靠快取）—— 跑完一次擴展回來，圖要是新的。
 watch(
-  slug,
-  (next) => {
-    if (next.length > 0) void store.open(next);
+  [slug, wantedFocus],
+  ([next, wanted]) => {
+    if (next.length > 0) void store.open(next, wanted);
   },
   { immediate: true },
 );

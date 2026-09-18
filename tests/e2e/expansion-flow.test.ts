@@ -33,7 +33,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { TASK_EXTRACT } from '../../src/domain/provider/capabilities.js';
 import { createCase } from '../../src/application/case-service.js';
 import { chooseAngles, startExpansion } from '../../src/application/expand-service.js';
-import { getRun } from '../../src/application/run-service.js';
+import { discardDraftRun, getRun, listRuns } from '../../src/application/run-service.js';
 import { createEdge } from '../../src/application/edge-service.js';
 import { transitionEdge } from '../../src/application/edge-service.js';
 import { isActive } from '../../src/application/run-registry.js';
@@ -651,6 +651,51 @@ describe('勾選之後才真的開始', () => {
     const r = await chooseAngles(dataRoot, slug, started.data.runId, []);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('EXPORT_EMPTY_SELECTION');
+  });
+});
+
+/**
+ * **產生了角度、沒勾就走掉的 run 是一筆草稿**，而它原本會永遠留在清單上
+ * （2026-09-18 使用者的清單裡有兩筆這樣的「排隊中」，沒有任何路可以拿掉）。
+ */
+describe('丟掉草稿', () => {
+  it('queued 的擴展刪得掉，角度跟著走，清單上不再有它', async () => {
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) throw new Error(started.code);
+    const gone = await discardDraftRun(dataRoot, slug, started.data.runId);
+    expect(gone.ok).toBe(true);
+
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    expect(detail.ok).toBe(false);
+    if (!detail.ok) expect(detail.code).toBe('RUN_NOT_FOUND');
+    const list = await listRuns(dataRoot, slug);
+    expect(list.ok && list.data.some((r) => r.id === started.data.runId)).toBe(false);
+    const angles = await inDb((db) =>
+      db.prepare('SELECT count(*) AS n FROM run_angle WHERE run_id = ?').get(started.data.runId),
+    );
+    expect(Number((angles as { n: number }).n)).toBe(0);
+  });
+
+  it('跑過的不能用這條路刪 —— 它寫進去的東西要留，那是「復原」的事', async () => {
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) throw new Error(started.code);
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    if (!chosen.ok) throw new Error(chosen.code);
+    await waitForRun(started.data.runId);
+
+    const r = await discardDraftRun(dataRoot, slug, started.data.runId);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('GRAPH_TRANSITION_INVALID');
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    expect(detail.ok).toBe(true);
+  });
+
+  it('不存在的 run 回 RUN_NOT_FOUND', async () => {
+    const r = await discardDraftRun(dataRoot, slug, 'no-such-run');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('RUN_NOT_FOUND');
   });
 });
 

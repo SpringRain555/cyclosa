@@ -548,11 +548,12 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
         </div>
 
         <template v-else-if="derived">
+          <!-- 翻頁鈕有自己的字。**借「上一份／下一份」的話，只有一份資料的人會以為只有第一頁。** -->
           <nav v-if="derived.kind === 'pdf' && derived.pages" class="pages">
-            <button :disabled="page <= 1" @click="page--">{{ t.reader.previous }}</button>
+            <button :disabled="page <= 1" @click="page--">{{ t.reader.prevPage }}</button>
             <span>{{ fill(t.reader.page, { n: page }) }}</span>
             <button :disabled="page >= derived.pages.length" @click="page++">
-              {{ t.reader.next }}
+              {{ t.reader.nextPage }}
             </button>
             <span class="muted">{{ fill(t.reader.pages, { n: derived.pages.length }) }}</span>
           </nav>

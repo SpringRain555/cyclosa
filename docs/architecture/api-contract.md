@@ -432,6 +432,7 @@
 | `POST …/runs/:runId/pause` ／ `/resume` | 執行中 | 停在**項與項之間**。正在做的那一項會做完 |
 | `POST …/runs/:runId/cancel` | 執行中 | 不再往下做。**已寫入的保留** |
 | `POST …/runs/:runId/undo` | **跑完之後** | 刪掉這次寫進去的資料與關聯 |
+| `DELETE …/runs/:runId` | **只有 `queued` 的擴展草稿** | 丟掉一筆「產生了角度、還沒勾」的草稿（v0.23.0）。跑過的回 `GRAPH_TRANSITION_INVALID`，正在跑的回 `RUN_STILL_ACTIVE` —— 它們寫的東西要留，那是 `undo` 的事 |
 
 暫停與取消的差別要在畫面上看得出來：**暫停會回來，取消不會。**
 而復原是第三件事 —— 它在跑完之後才出現（ADR-0023）。

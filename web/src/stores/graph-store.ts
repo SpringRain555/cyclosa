@@ -24,6 +24,15 @@ import {
 export const useGraphStore = defineStore('graph', () => {
   const slug = ref('');
   const focus = ref<string | null>(null);
+  /**
+   * 焦點是誰定的。**回到這一頁的時候，只有使用者自己選的焦點值得保留。**
+   *
+   * 2026-09-18 真的踩到：使用者先開圖（只有一份 PDF，焦點就是它），去跑了一次擴展，
+   * 回來 —— 圖還是那一個點。兩層原因疊在一起：這裡因為「同一個專題」就用快取不重查，
+   * 而焦點還停在那份 0 條邊的 PDF。所以現在 `open()` 一律重查；
+   * 預設算出來的焦點也重算，使用者選過的才留著。
+   */
+  const focusSource = ref<'default' | 'user'>('default');
   const hops = ref(2);
   const layers = ref<EdgeLayer[]>([]);
   const minTier = ref<ConfidenceTier | null>(null);
@@ -94,26 +103,53 @@ export const useGraphStore = defineStore('graph', () => {
     return out;
   }
 
-  async function open(next: string): Promise<void> {
-    if (slug.value === next && subgraph.value !== null) return;
+  /**
+   * 開（或回到）一個專題的圖。
+   *
+   * `wanted` 是網址帶來的焦點（作業紀錄那頁「在關聯圖上看這一次抓到的」）；
+   * 它算使用者選的。指到一個已經不存在的節點時退回預設焦點，不讓整頁卡在錯誤上。
+   */
+  async function open(next: string, wanted: string | null = null): Promise<void> {
+    const sameCase = slug.value === next;
     slug.value = next;
-    subgraph.value = null;
-    selectedId.value = null;
     error.value = null;
     empty.value = false;
+    if (!sameCase) {
+      subgraph.value = null;
+      selectedId.value = null;
+      focus.value = null;
+      focusSource.value = 'default';
+    }
 
-    const start = await api.subgraphFocus(next);
-    if (!start.ok) {
-      error.value = start.error;
-      return;
+    if (wanted !== null) {
+      focus.value = wanted;
+      focusSource.value = 'user';
+    } else if (!(sameCase && focusSource.value === 'user' && focus.value !== null)) {
+      const start = await api.subgraphFocus(next);
+      if (!start.ok) {
+        error.value = start.error;
+        return;
+      }
+      totalNodeCount.value = start.data.totalNodeCount;
+      if (start.data.focus === null) {
+        empty.value = true;
+        subgraph.value = null;
+        return;
+      }
+      focus.value = start.data.focus;
+      focusSource.value = 'default';
     }
-    totalNodeCount.value = start.data.totalNodeCount;
-    if (start.data.focus === null) {
-      empty.value = true;
-      return;
-    }
-    focus.value = start.data.focus;
     await Promise.all([reload(), loadQueue()]);
+
+    if (wanted !== null && lastErrorCode() === 'GRAPH_NODE_NOT_FOUND') {
+      focusSource.value = 'default';
+      await open(next, null);
+    }
+  }
+
+  /** `reload()` 會改 `error`，而 `open()` 裡那句 `error.value = null` 讓 TS 以為它還是 null —— 繞過去。 */
+  function lastErrorCode(): string | null {
+    return error.value?.code ?? null;
   }
 
   async function reload(): Promise<void> {
@@ -145,6 +181,7 @@ export const useGraphStore = defineStore('graph', () => {
   async function setFocus(id: string): Promise<void> {
     if (focus.value === id) return;
     focus.value = id;
+    focusSource.value = 'user';
     await reload();
   }
 
@@ -253,6 +290,7 @@ export const useGraphStore = defineStore('graph', () => {
   return {
     slug,
     focus,
+    focusSource,
     hops,
     layers,
     minTier,

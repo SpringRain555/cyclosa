@@ -1007,6 +1007,9 @@ export const api = {
   /** **跟取消是兩件事。** 取消是「別再做下去了」，復原是「當作沒發生」。 */
   undoRun: (slug: string, runId: string) =>
     request<UndoReport>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/undo`, { method: 'POST' }),
+  /** 丟掉一筆還沒開始的擴展草稿。**只有 `queued` 的刪得掉** —— 跑過的走 `undoRun`。 */
+  discardRun: (slug: string, runId: string) =>
+    request<{ runId: string }>(`/api/cases/${enc(slug)}/runs/${enc(runId)}`, { method: 'DELETE' }),
 
   /**
    * 結束 Cyclosa。**兩段式** —— 不帶 `force` 只回「有幾個作業在跑」，

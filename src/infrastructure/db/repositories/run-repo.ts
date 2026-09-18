@@ -488,3 +488,15 @@ export function deleteOrphanEntities(db: DatabaseSync): number {
   for (const row of rows) stmt.run(String(row['id']));
   return rows.length;
 }
+
+/**
+ * 丟掉一筆**還沒開始**的擴展草稿。
+ *
+ * 呼叫端要先確認 `status === 'queued'`：那種 run 只有 `run_angle`（跟著 CASCADE 走），
+ * `total` 是 0、沒有 `run_item`、沒有任何 item 或 edge 指著它 —— 所以刪它就是刪一列。
+ * 跑過的 run 不走這裡：它寫進去的東西要留（「復原」是另一顆按鈕，ADR-0023）。
+ */
+export function deleteDraftRun(db: DatabaseSync, id: string): boolean {
+  const result = db.prepare(`DELETE FROM run WHERE id = ? AND status = 'queued'`).run(id);
+  return Number(result.changes) === 1;
+}

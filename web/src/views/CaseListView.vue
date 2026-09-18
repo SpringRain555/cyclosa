@@ -567,7 +567,16 @@ onMounted(load);
 </template>
 
 <style scoped>
+/**
+ * **`width: 100%` 不是多餘的。** 這個 `<main>` 是 `App.vue` 那個
+ * `flex-direction: column` 容器的子項，而 `margin: 0 auto` 會把 flex 子項的
+ * `stretch` 取消掉 —— 寬度變成「由內容決定」。2026-09-18 真的踩到：
+ * 操作列的字從「點一列選取…」變成「選取：6G」，整頁就往中間縮一截、左右跳。
+ * 設定頁 2026-09-11 已經在同一個坑裡爬出來過（`SettingsView.vue` 的 `.settings`），
+ * 而這一頁沒跟著查。
+ */
 .page {
+  width: 100%;
   padding: 22px 26px;
   max-width: 1200px;
   margin: 0 auto;

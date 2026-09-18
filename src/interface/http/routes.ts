@@ -45,7 +45,7 @@ import {
   markRead,
   urlForRetry,
 } from '../../application/item-service.js';
-import { getRun, listRuns } from '../../application/run-service.js';
+import { discardDraftRun, getRun, listRuns } from '../../application/run-service.js';
 import { chooseAngles, startExpansion } from '../../application/expand-service.js';
 import { listProviders, saveProviders, testProvider } from '../../application/provider-service.js';
 import {
@@ -455,6 +455,19 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { slug: string; runId: string } }>(
     '/api/cases/:slug/runs/:runId/cancel',
     async (req, reply) => send(reply, cancelRun(req.params.runId)),
+  );
+
+  /**
+   * 丟掉一筆還沒開始的擴展草稿。**只有 `queued` 的 expand 刪得掉** ——
+   * 跑過的作業留著（要拿掉它寫的東西是「復原」，另一支端點）。
+   */
+  app.delete<{ Params: { slug: string; runId: string } }>(
+    '/api/cases/:slug/runs/:runId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await discardDraftRun(dataRoot, req.params.slug, req.params.runId));
+    },
   );
 
   /**

@@ -46,6 +46,7 @@
  */
 import {
   conformsTo,
+  strictify,
   parseRetryAfter,
   providerRetryDelayMs,
   type ProviderCapabilities,
@@ -434,7 +435,10 @@ export function createOpenAiChat(
               ],
               response_format: {
                 type: 'json_schema',
-                json_schema: { name: 'cyclosa', strict: true, schema: input.schema },
+                // **嚴格模式有它自己的形狀要求**（每個物件都要 `additionalProperties: false`、
+                // `required` 要列全），而那是端點的要求不是我們的規則 ——
+                // 所以在這裡補，不改那三份 schema（`strictify` 的檔頭寫了為什麼）。
+                json_schema: { name: 'cyclosa', strict: true, schema: strictify(input.schema) },
               },
             }
           : {

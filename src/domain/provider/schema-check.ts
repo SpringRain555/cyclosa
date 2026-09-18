@@ -162,3 +162,56 @@ function check(schema: Schema, value: unknown, path: string): SchemaVerdict {
 export function conformsTo(schema: Schema, value: unknown): SchemaVerdict {
   return check(schema, value, '$');
 }
+
+/**
+ * 把一份 schema 改成 **OpenAI 的 `strict: true` 收得下的形狀**。
+ *
+ * ## 為什麼需要它（2026-09-18 實測到的）
+ *
+ * OpenAI 的嚴格模式對每一個物件節點要求兩件事：
+ * **`additionalProperties` 必須明寫成 `false`**，而且 **`required` 必須列出全部的屬性**。
+ * 缺任何一項回的是 HTTP 400 `invalid_json_schema`，不是「盡量照做」。
+ *
+ * 這個工具的三份 schema 都沒有寫 `additionalProperties` —— 而**探針那一份有**，
+ * 所以格式量測會說「這個端點支援 json_schema」，接著每一次真的呼叫都 400。
+ * 症狀更糟的是那句錯誤訊息：它會說「量的時候還支援，去重新檢查」——
+ * **把我們自己的 schema 問題講成對方改了規格。**
+ *
+ * ## 為什麼改在這裡，不改那三份 schema
+ *
+ * 那是**某一個端點的要求，不是我們的規則**。把 `additionalProperties: false`
+ * 寫進三份 schema 會連帶改變 `conformsTo` 的行為（多一個欄位就整份判不過），
+ * 而那對本機 Ollama 那條路是一個沒有人要求過的收緊。
+ * **邊界上的差異在邊界上處理。**
+ *
+ * `required` 這一半目前是**恆等的**：三份 schema 的每一個物件本來就列了全部屬性
+ * （`tests/domain/schema-strict.test.ts` 釘著）。仍然寫在這裡，因為漏掉的那一天
+ * 失敗會發生在網路的另一端，而不是在測試裡。
+ */
+export function strictify(schema: Schema): Schema {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === 'properties' && typeof value === 'object' && value !== null) {
+      const props: Record<string, unknown> = {};
+      for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {
+        props[name] =
+          typeof sub === 'object' && sub !== null ? strictify(sub as Schema) : (sub as unknown);
+      }
+      out[key] = props;
+      continue;
+    }
+    if (key === 'items' && typeof value === 'object' && value !== null) {
+      out[key] = strictify(value as Schema);
+      continue;
+    }
+    out[key] = value;
+  }
+
+  if (out['type'] === 'object') {
+    out['additionalProperties'] = false;
+    const props =
+      typeof out['properties'] === 'object' && out['properties'] !== null ? out['properties'] : {};
+    out['required'] = Object.keys(props as Record<string, unknown>);
+  }
+  return out;
+}

@@ -38,7 +38,13 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：設定頁分「模型分工」與「模型服務」、OpenAI 相容 API 走 Responses API 而且會搜尋（v0.24.2）
+## 現況：設定頁分「模型分工」與「模型服務」、OpenAI 相容 API 走 Responses API 而且會搜尋、伺服器自己停的時候留得下紀錄（v0.24.3）
+
+**v0.24.3：伺服器自己停的時候留得下紀錄。** 使用者按「儲存並測試」之後伺服器消失、`server.log` 一個字都沒有；
+16 次沒重現。修的是「死得一個字都沒留下」：`shared/crash-trace.ts`（`main.ts` 最先裝）把沒接住的錯誤與結束碼寫進
+`server.log`、V8 fatal error 寫診斷報告（**`excludeEnv`** —— 金鑰在環境變數裡）；`Launch.ps1` 把 stderr 導進
+`server.err.log`、**stdout 導到 NUL**（只導 stderr 的話 node 的 stdout 會指著啟動器那個主控台）；前端連不到伺服器是
+`IO_SERVER_UNREACHABLE`，不再借用叫人交識別碼的 `IO_UNEXPECTED`。
 
 **v0.24.2 回應使用者看過 v0.24.1 的設定頁之後的六點（ADR-0034）。** 設定頁分「**模型分工**」（右上角「儲存並測試」：
 先存、再逐任務真的打一次）與「**模型服務**」（Claude Code、Ollama、OpenAI 相容 API 三塊各自框起來，各有「儲存並檢查」）。

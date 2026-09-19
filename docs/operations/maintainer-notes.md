@@ -17,7 +17,8 @@
 | 「連接埠 7433 被別的程式佔用」 | `tools\Launch.ps1` 的 `Get-PortOwner`。**它會分辨是不是 Cyclosa 自己**（打 `/healthz` 看 `app` 欄）| ADR-0020 |
 | 按了「結束 Cyclosa」之後 7433 還在被佔用 | `Launch.ps1` 是**直接跑 `node dist\main.js`**，不透過 `npm.cmd` —— 有人改回去的話，砍到的是 npm 那一層 | `docs/lessons.md`（`rubricator` 踩過）|
 | 啟動器視窗關掉了，server 還在跑 | **那是對的**（ADR-0025）：視窗是檢查清單不是開關。要結束用畫面右上角那顆按鈕 | ADR-0025 |
-| 啟動失敗，而視窗一閃就不見 | `%LOCALAPPDATA%\Cyclosa\logs\server.log`（上一次是 `server.prev.log`），或 `.\tools\Launch.ps1 -Foreground` | ADR-0025 |
+| 啟動失敗，而視窗一閃就不見 | `%LOCALAPPDATA%\Cyclosa\logs\server.log`（上一次是 `server.prev.log`）與 `server.err.log`（v0.24.3 起；載入失敗的堆疊只在這裡），或 `.\tools\Launch.ps1 -Foreground` | ADR-0025 |
+| 畫面說「連不到 Cyclosa 的伺服器」，而沒有人按結束 | 伺服器自己停了。`server.log` 最後幾行：「程式因為一個沒接住的錯誤而結束」＋ 堆疊 → JS 的錯；只有「行程結束 exitCode=…」→ 有人呼叫了 `process.exit`；**兩行都沒有** → 看 `server.err.log`（原生層的 assert，例如 libuv 的 `UV_HANDLE_CLOSING`）與日誌旁邊的 `report.*.json`（V8 fatal error）；**全部都空** → 被外面結束的 | `shared/crash-trace.ts`、`tests/shared/crash-trace.test.ts` |
 | 建置明明成功，啟動器卻說「建置失敗」 | 原生指令的 stderr 被包成 ErrorRecord。**判準是離開碼** —— 走 `Invoke-Native` | `docs/lessons.md` 2026-09-09 |
 | `npm ci` 之後型別爆一堆 | 多半是 TypeScript 被升到 6.1 以上。**`typescript-eslint` 的 peer 是 `<6.1.0`** | `environment/versions.md` |
 | build 完跑起來卻說找不到 migration | `.sql` 不是 `tsc` 會複製的東西 —— `tools/build/copy-assets.mjs` 負責搬 | 那個檔案自己的註解 |

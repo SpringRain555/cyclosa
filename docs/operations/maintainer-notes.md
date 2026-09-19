@@ -100,6 +100,8 @@
 | 抽出來的關聯比模型講的少 | 三種可能，**每一種都會記在 `run_angle.code` 或計數裡**：引文在原文裡找不到（`PROVIDER_QUOTE_NOT_FOUND`）、關係的兩端不是宣告過的實體、型別不在六個值裡 | `tests/domain/provider.test.ts` |
 | 引文的位置指到別的地方 | 不該發生 —— **位置是我們自己在正文裡找的**，模型給的數字不採信 | `locateQuote`、ADR-0021 |
 | `PROVIDER_SANDBOX_VIOLATION`，整批停下來 | 沙箱裡出現了放行清單以外的檔案。**那是白名單不是黑名單**，所以一個 `.csv` 也會報 | `tests/domain/provider.test.ts`、`tests/e2e/expansion-flow.test.ts` |
+| 找來源走 OpenAI 相容 API 停手，說缺「browse」或「沒有搜尋就交回了網址」 | **那是量出來的。** 端點收了 `web_search` 工具卻沒搜（回應裡沒有完成的 `web_search_call`），或根本沒有 `/responses`；設定頁「上網搜尋」那一行寫著原因。**沒搜就交回的網址不採用**（ADR-0034）| `tests/infrastructure/agent-openai.test.ts`、`tests/e2e/expansion-flow.test.ts` |
+| OpenAI 相容 API 的回應是空的、或設定頁說「還沒量過」而明明量過 | Responses API **不串流會回空的 `output`**（一律串流，`responses-api.ts`）；v0.24.1 之前的量測沒有 `protocol` 欄位，讀到就當沒量過、重量一次 | `tests/infrastructure/chat-openai.test.ts` 的「先走 Responses API」 |
 | agent 起不來，說結束碼不是 0 | **命令有空白時不要走 shell。** `needsShell` 只對 `.cmd`／`.bat` 回 true —— `shell: true` 不會替命令那一段加引號 | `agent-claude.ts` 的 `needsShell` |
 | 一次擴展花了幾次呼叫看不出來 | `run.requests`，作業紀錄那一頁顯示。**產生角度那一次也算** | `tests/e2e/expansion-flow.test.ts` |
 | 畫面說「本機執行，無金額成本」但用的是 `claude` | 那句話只在 `cost_usd = 0` 時出現。**`NULL` 是「這個模型沒有回報金額」** —— 兩者不同 | `data-model.md` |

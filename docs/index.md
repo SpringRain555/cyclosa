@@ -14,7 +14,7 @@
 
 ---
 
-## 現況：版面有一套規則、設定以任務為主而且改了就存、PDF 照原檔畫（v0.24.1）
+## 現況：設定頁分「模型分工」與「模型服務」、OpenAI 相容 API 走 Responses API 而且會搜尋（v0.24.2）
 
 下表的**現況欄是逐檔確認的**，不是規劃。**roadmap 上的 Stage 表全部是 ✅。**
 
@@ -129,6 +129,7 @@ LLM 擴展 → 全文／語意檢索 → 證據包匯出**。歸納與抽取各�
 | `chat-choice.md` | ✅ | **`chat` 角色的量測**：`json_schema: true` 這個宣告實際上是什麼樣子 | 該選哪個模型（結論在文件裡，設定值由使用者填）|
 | `sample-corpus-licence.md` | ✅ | **範例專題語料的授權查證**（兩個獨立依據、官方下載管道、robots 那一條） | 範例專題怎麼產生（那是 `sample-service.ts`）|
 | `openai-compat-json-schema.md` | ✅ | **OpenAI 相容端點對 `response_format` 的支援度**（v0.18.0 的第一條收尾條件）：量測設計、Ollama `/v1` 的結果、以及**為什麼本機 Ollama 仍然走原生協定** | 支援度的表 —— **刻意沒有**，每個端點＋模型各自量（ADR-0030）|
+| `openai-responses-web-search.md` | ✅ | **OpenAI 相容端點的 Responses API 與網頁搜尋**（2026-09-19，對使用者那一條端點的 11 次量測）：不串流回空的 `output`、帶 `web_search` 真的搜、json_schema 同一個請求就成立、`max_output_tokens` 被忽略；順帶查的搜尋服務比較 | 別家端點的行為 —— 每個端點各自量（ADR-0034）|
 | `security-sources.md` | ✅ | **資安領域的來源**（2026-09-16 使用者給的清單）：17 列怎麼進內建清單、三條探針的實查、會議與期刊各住在哪個網域、`cve.mitre.org` 的轉址與 Google Scholar 的 robots | 來源清單本身（那是 `catalog.ts`）|
 | `model-tasks-review.md` | ✅ | **模型任務的盤點**（2026-09-16）：四個任務與對應模型、切換的限制、agent 沒有 `kind`、四個任務各量過什麼與缺什麼、**缺的四個任務**（摘要／翻譯／掃描件／實體對齊）與下一輪的量法 | 任何一次量測的數字（在 `chat-choice.md`／`embedding-choice.md`）|
 | `sources/manifest.jsonl` | ✅ | （產生物）來源的 URL、時間、SHA-256 | —— |
@@ -144,7 +145,7 @@ LLM 擴展 → 全文／語意檢索 → 證據包匯出**。歸納與抽取各�
 
 | 文件 | 現況 | 它是什麼的權威 | **不要**寫在這裡 |
 |---|:--:|---|---|
-| `decisions/ADR-0001…0033` | ✅（**0033 是提議**，2026-09-19，等使用者逐條確認）| 一個決定當時的處境、選項與理由 | 現況（現況會變，ADR 不改）|
+| `decisions/ADR-0001…0034` | ✅（**0033 是提議**，2026-09-19，等使用者逐條確認；0034 已採納）| 一個決定當時的處境、選項與理由 | 現況（現況會變，ADR 不改）|
 | `requirements/REQ-0001…0009` | ✅（**0009 是草稿**，同上）| 一項需求的範圍與**邊界（不做什麼）** | 實作方式 |
 | `operations/release-checklist.md` | ✅ | 發布前**只有人才判斷得了**的驗收步驟 | 自動測試涵蓋的東西 |
 | `operations/maintainer-notes.md` | ✅ | **症狀 → 哪個檔 ＋ 哪條測試守著**的查找表 | 任何獨立規則 |

@@ -63,6 +63,11 @@
 > `POST /api/providers` 收 v1 或 v2 的形狀都行、存進去的永遠是 v2。
 > `GET …/items/:itemId/content` 多一欄 `stale`，`POST …/rebuild` 的回報多一組 `evidence`。
 >
+> **v0.24.2 沒有新的 `/api` 端點**（ADR-0034）。`GET /api/providers` 的 `tasks[]` 多一欄 **`browse`**（只有找來源那一列有：
+> `{state: 'yes'|'no'|'unchecked', checkedAt, detail}`；走 CLI 時 `checkedAt` 是 `null` ＝ 參數保證的），
+> `jsonMode` 多一欄 **`protocol`**（`'responses'`／`'chat'`／`null`）；`POST /api/providers/test` 多回 `browse`
+> （找來源走 OpenAI 相容 API 時，這一次量的是它會不會上網搜尋）。找來源的 `via` 可以是 `openai`。
+>
 > **v0.24.1 沒有新的 `/api` 端點。** 多一條靜態路徑 **`GET /pdfjs/:dir/:file`**：閱讀器的版面檢視要的
 > pdf.js 資料檔（`cmaps`／`standard_fonts`／`wasm`／`iccs` 四個資料夾，從裝好的 `pdfjs-dist` 直接給，
 > 檔名只准英數與 `._-`）。它不是 API，所以不回信封；不在那四個資料夾裡就是 404。
@@ -212,9 +217,9 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /healthz` | 回 `{"app":"cyclosa","version":"…"}`。**單一實例偵測靠它**（ADR-0020）—— 只看有沒有回 200 會把別人的服務誤認成自己 |
-| `GET /api/providers` | **v0.24.0 起（ADR-0032）回三樣**：`connections`（CLI／本機 Ollama／OpenAI 相容端點各一列：連不連得上、金鑰變數有沒有設、**這條連線上有哪些模型** —— `null` 代表列不出來，不是「一個都沒有」；CLI 永遠 `null`）、`tasks`（四個任務各一列：走哪一條連線、哪個模型、`state`、版本、能力宣告、`jsonMode`〔只有對話任務有，ADR-0030〕、`ok`、**缺哪幾樣**）、`config`（v2 的設定檔）。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
+| `GET /api/providers` | **v0.24.0 起（ADR-0032）回三樣**：`connections`（CLI／本機 Ollama／OpenAI 相容端點各一列：連不連得上、金鑰變數有沒有設、**這條連線上有哪些模型** —— `null` 代表列不出來，不是「一個都沒有」；CLI 永遠 `null`）、`tasks`（四個任務各一列：走哪一條連線、哪個模型、`state`、版本、能力宣告、`jsonMode`〔只有對話任務有，ADR-0030；v0.24.2 起多 `protocol`〕、`browse`〔只有找來源有，ADR-0034〕、`ok`、**缺哪幾樣**）、`config`（v2 的設定檔）。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
 | `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。**收 v1 或 v2 的形狀都行**，讀檔與收請求走同一支解析（`parseConfig`），存進去的永遠是 v2。每個任務的 `via` 不在它准許的清單裡就退回第一個准許的；金鑰欄位形狀不對就當沒設定 |
-| `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
+| `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode, browse}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求。找來源走 OpenAI 相容 API 時，量的是「會不會上網搜尋」（一個帶搜尋的小請求，v0.24.2）。設定頁的「儲存並測試」逐任務叫它 |
 | `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型。回 `{kind, models, auth}`。v0.24.1 起設定頁改了就存，按這顆之前會先存；這一支本身仍然不寫檔 |
 | `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**作業紀錄頁那一列從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）|
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（見下）|

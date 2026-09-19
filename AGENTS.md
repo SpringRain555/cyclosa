@@ -38,7 +38,14 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：版面有一套規則、設定以任務為主而且改了就存、PDF 照原檔畫（v0.24.1）
+## 現況：設定頁分「模型分工」與「模型服務」、OpenAI 相容 API 走 Responses API 而且會搜尋（v0.24.2）
+
+**v0.24.2 回應使用者看過 v0.24.1 的設定頁之後的六點（ADR-0034）。** 設定頁分「**模型分工**」（右上角「儲存並測試」：
+先存、再逐任務真的打一次）與「**模型服務**」（Claude Code、Ollama、OpenAI 相容 API 三塊各自框起來，各有「儲存並檢查」）。
+**找候選來源可以走 OpenAI 相容 API**（`infrastructure/providers/agent-openai.ts`）：Responses API ＋ 對方的 `web_search`
+工具，**會不會搜尋是量的**（`provider-checks.json` 的 `browse|` 紀錄），開始擴展之前先量、沒搜尋就交回的網址不採用。
+OpenAI 相容 API 的對話也**先走 Responses API**（`responses-api.ts`，一律串流），`/responses` 回 404 的端點才退回
+Chat Completions，走的協定記在量測裡、畫面上看得到。
 
 **v0.24.1 回應使用者看過 v0.24.0 之後的兩點。** 閱讀器的 PDF 多一種「**版面**」檢視（預設）：pdf.js 在瀏覽器裡
 照快照畫，圖與公式只有這裡看得到（`web/src/components/pdf/PdfPages.vue`）；版面上選的字換算回同一種錨點
@@ -167,9 +174,11 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 2. **可信度是數出來的，不是模型給的**（`scoreFor`）。它只吃獨立來源數
    與有沒有直接引文，而**重算的時機是「這條邊的出處變了」** ——
    不是「有人提了一個新分數」。提案帶來的分數每次都一樣，拿它比大小等於那條規則是死的。
-3. **agent 只有搜尋的能力**（`--tools WebSearch`）。真正在執行「不自己抓」
-   那條規則的是這個參數，不是事後掃沙箱 —— **沙箱那一層是備援**，
-   而且它是白名單、成功失敗都掃。
+3. **agent 只有搜尋的能力。** Claude Code 那一支靠 `--tools WebSearch`，OpenAI 相容 API 那一支靠
+   `tools` 只有 `web_search` 一個（v0.24.2）。真正在執行「不自己抓」那條規則的是這兩個參數，
+   不是事後掃沙箱 —— **沙箱那一層是備援**，而且它是白名單、成功失敗都掃（HTTP 那一支寫不了檔，
+   沙箱永遠是空的，照樣掃）。**後者「會不會搜尋」是量的**：回應裡沒有一筆完成的 `web_search_call`
+   就不採用那一次 —— 沒搜尋就交回的網址只可能來自記憶。
 4. **`shell: true` 不替命令那一段加引號。** `needsShell` 只對 `.cmd`／`.bat`
    回 true；改回「Windows 一律用 shell」的話，路徑有空白的子程序會起不來，
    而**畫面上的訊息會是「連不上這個模型」**。
@@ -200,6 +209,18 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 5. **改抽取邏輯就要 +1 `EXTRACTOR_VERSION`，並在 `EXTRACTOR_CHANGES` 寫下那一版改了哪幾種資料**
    （`tests/guards/extractor-version.test.ts`）。讀取找不到新版會退回舊版，所以**刪就要每一版都刪**
    （`removeDerived`）；「重算全部正文」會重解點註，也把關聯引文的字元位置對回新的正文。
+
+**動 OpenAI 相容 API 之前一定要知道的三件**（v0.24.2，ADR-0034）：
+
+1. **先走 Responses API，`/responses` 回 404 才退回 Chat Completions**，而且走的協定跟量測記在一起
+   （`JsonCheck.protocol`）。沒有 `protocol` 欄位的舊紀錄讀到就當沒量過 —— 那些是對 Chat Completions 量的。
+   量過 Responses、之後那條路不見了 → 說量測舊了、叫人重新檢查，**不自己換協定重送**。
+2. **Responses API 上一律串流。** 使用者那一條代理不串流的時候回 `output: []`（帶不帶工具都一樣），
+   內容只在 `response.output_item.done` 事件裡；`response.completed` 的 `output` 也是空的。
+   `parseResponsesBody` 串流與一整份 JSON 都認。
+3. **`provider-checks.json` 有兩種紀錄**（JSON 格式、`browse|` 前綴的搜尋），寫其中一種時另一種要原樣留著
+   （`json-checks.ts` 的 `writeEntry`）。「讀出認得的、整份寫回」會把另一種洗掉，而症狀是安靜的：
+   下一次跑任務多量一次、多付一次小錢。
 
 **動閱讀器的 PDF 版面之前一定要知道的三件**（v0.24.1）：
 

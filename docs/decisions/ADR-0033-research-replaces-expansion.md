@@ -100,8 +100,9 @@ agent 每條搜一次（每條最多 6 個網址）→ 擷取管線抓 → 抽�
 
 ### D5　規劃對話
 
-- 任務 **`plan`**（新）。**預設走 Claude CLI**：只有它能邊查邊談（`WebSearch`，**只看搜尋結果、不抓網頁**，
-  跟找來源同一個沙箱與 `--tools` 限制）；走 OpenAI 相容端點或本機 Ollama 也可以談，畫面說「這條連線不會上網查」。
+- 任務 **`plan`**（新）。**預設走 Claude CLI**：邊查邊談（`WebSearch`，**只看搜尋結果、不抓網頁**，
+  跟找來源同一個沙箱與 `--tools` 限制）。**v0.24.2 起 OpenAI 相容 API 也能邊查邊談**（Responses API 的
+  `web_search`，ADR-0034），所以第二個選項是它；走本機 Ollama 也可以談，畫面說「這個服務不會上網查」。
   這是 ADR-0032 的例外：`viaOptionsOf` 目前由角色推，`plan` 是第一個「三條連線都可以、能力不同」的任務
 - **每一輪都由 Cyclosa 帶完整的訊息串**，不用 CLI 的 `--resume`。現在的呼叫帶 `--no-session-persistence`
   （專題的主題與內容不留在使用者的 Claude 對話歷史裡，`agent-claude.ts`），而 `--resume` 需要把對話存在那邊。
@@ -220,8 +221,8 @@ agent 每條搜一次（每條最多 6 個網址）→ 擷取管線抓 → 抽�
 
 | 任務 | 新／舊 | 預設連線 | 要什麼 |
 |---|---|---|---|
-| 規劃對話 `plan` | 新 | Claude CLI（只有它能邊查邊談）| `json_schema`；`browse` 有就用 |
-| 找候選來源 `find-sources` | 舊 | Claude CLI | `browse` |
+| 規劃對話 `plan` | 新 | Claude CLI（OpenAI 相容 API 也能邊查邊談，v0.24.2 起）| `json_schema`；`browse` 有就用 |
+| 找候選來源 `find-sources` | 舊 | Claude CLI 或 OpenAI 相容 API（v0.24.2 起，ADR-0034）| `browse` |
 | 初讀 `digest` | 新 | 本機 Ollama（使用者可以改成線上端點）| `json_schema` |
 | 抽實體與關聯 `extract` | 舊 | 不變 | 不變 |
 | 語意向量 `embed` | 舊 | 不變 | 不變 |

@@ -456,6 +456,55 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 翻譯要標記來源模型與時間。**不自建跨語言對照表** ——
 實體對齊靠 LLM 判定（要出處）與選填的 Wikidata QID 當權威錨點。
 
+## ⬜ schema v9 起的草案：研究、候選、書目節點（Stage 19–24）
+
+> **這一段是設計，不是現況** —— 2026-09-19 寫，等使用者逐條確認（ADR-0033、REQ-0009）。
+> 欄位名與值域是草案；實作時**每個 Stage 各自一個 migration**（下面最後一張表），
+> 做完的那一部分才從這一段搬進上面的正文。
+
+| 表 | 存什麼 | 關鍵約束 |
+|---|---|---|
+| `research` | 一次研究或整理 | `kind` ∈ `research`／`consolidate`；`status` ∈ `planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`；**同一專題同時只有一列不在 `done`／`abandoned`**（ADR-0033 D4，用部分唯一索引守）|
+| `research_message` | 規劃對話的一輪 | `role` ∈ `user`／`model`；模型那一輪記**實際跑的模型**、走哪一條連線、花了多少（`NULL` ＝ 不知道，不是 0）、交出的那一份規劃 |
+| `research_direction` | 閘門一那一刻落成的方向 | `origin` ∈ `model`／`human`；**沒被採用的也留著**（`adopted=0`）—— 跟 `run_angle` 同一個理由 |
+| `research_candidate` | 一條候選來源 | 取得狀態與最終狀態**分兩欄**（見下）；同一次研究裡同一個網址只有一列 |
+
+**`research` 的欄位**：`id`、`kind`、`status`、`topic`（整理是 `NULL`）、`plan_json`（最新的一份規劃；閘門一之前會一直換）、
+`collect_run_id`、`build_run_id`（→ `run.id`；**機器工作仍然是 `run`**，研究只記工作流停在哪 —— ADR-0033 D3）、
+`created_at`／`updated_at`／`ended_at`。**花費不存** —— 從那一次的對話與兩筆作業加總，跟獨立來源數同一個理由（即時算，不存）。
+
+**`research_candidate` 的兩個狀態**：
+
+| 欄 | 值 | 誰改它 |
+|---|---|---|
+| `acquisition` | `found` → `fetching` → `fetched`；`needs-user`（帶 `code`：既有的擷取錯誤碼）；`uploaded`；`unavailable`（帶 `unavailable_reason` ∈ `paywall`／`not-found`／`blocked`／`other` ＋ `reason_note`）| 擷取管線、使用者 |
+| `decision` | `include`／`reference`／`discard`；確認之前是 `NULL` | 使用者（預設值由事實決定，ADR-0033 D10）|
+
+其餘欄位：`direction_id`（第一條找到它的方向；別的方向也找到時記在 `also_directions_json`）、`url`、`title`（必填 ——
+書目節點要有名字）、`why`、`bib_json`（作者、年份、出處：搜尋結果裡有才填）、`expected_access` ∈ `open`／`login`／`unknown`、
+`item_id`（抓到或上傳之後的那一份）、`relevance` ∈ `yes`／`no`／`unsure` ＋ `relevance_why`（初讀給的）。
+
+**既有的表要動的**：
+
+| 表 | 改什麼 | 怎麼改 |
+|---|---|---|
+| `item` | `kind` 多 `reference`（書目節點）、拿掉從來沒建過的 `paper` | **重建資料表**（SQLite 改不了既有的 CHECK）—— 這個專案的第一次；先 `VACUUM INTO` 備份、先在複本上跑 |
+| `item` | `title_zh`、`summary_zh`、`digested_by`、`digested_at`（初讀，衍生物 —— **原文欄位永遠不被覆蓋**）| `ADD COLUMN` |
+| `item` | `extracted_at`、`extracted_by`（「抽過了」—— 現在分不出「抽過但 0 條」與「沒抽過」）| `ADD COLUMN` |
+| `item` | `bib_json`（書目節點的作者、年份、出處）| `ADD COLUMN` |
+| `run` | `kind` 多 `research`、`consolidate` | 重建資料表（同上）|
+| `note` | **不用改** —— `md_path` 從 v1 就在；附上的筆記檔是 `selector_json='[]'`（整份）的一則點註 | —— |
+
+**書目節點**：`kind='reference'`、`sha256` 是 `NULL`、`status='included'`。之後使用者補上正文 → **同一個 id** 轉成一般的資料節點
+（`kind` 換成實際的種類、補上 `sha256`），連過的線都還在。
+
+| Stage | migration | 內容 |
+|---|---|---|
+| 19 | v9 | `research`、`research_message`、`research_direction`；`run` 重建（`kind` 多兩個值）|
+| 20 | v10 | `research_candidate`；`item` 重建（`reference`）＋ `bib_json` |
+| 21 | v11 | `item` 的初讀四欄 |
+| 22 | v12 | `item` 的 `extracted_at`／`extracted_by` |
+
 ## 實體型別的值域
 
 `entity.type`：`person`／`org`／`place`／`event`／`work`／`concept`。

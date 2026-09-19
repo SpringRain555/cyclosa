@@ -44,6 +44,8 @@
 照快照畫，圖與公式只有這裡看得到（`web/src/components/pdf/PdfPages.vue`）；版面上選的字換算回同一種錨點
 （`domain/annotation/layer-map.ts`，ADR-0019 後續），所以點註兩種檢視通用。設定頁**改了就存**、沒有儲存鈕，
 存的狀態在最上面那一行；頂列的狀態點跟著一起更新（`web/src/stores/model-state-store.ts`）。
+**「研究」的設計稿也寫好了**（`REQ-0009`、`ADR-0033` 是**提議**，ui-workflows §4 與 data-model 各有一段 ⬜ 草案）——
+**等使用者逐條確認，確認之前不動 Stage 19 的程式。**
 
 **v0.24.0 做了十四點裡設計的三塊。** 版面基礎在 `web/src/styles/base.css`（字級五級、按鈕／輸入框／表格
 只定義一次，`tests/guards/no-element-restyle.test.ts` 擋住元件各自重畫）；`providers.json` 升 v2，

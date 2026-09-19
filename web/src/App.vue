@@ -255,7 +255,9 @@ watch(
 }
 /**
  * 模型狀態的點，常駐在設定連結旁邊 —— **狀態不佔一個目的地。**
- * 形狀是第二重編碼（ADR-0018 規則 2）：實心＝可以用、空心＝還沒設定、虛線＝有問題。
+ * **靠形狀分，不靠顏色**（ADR-0018 規則 2）：實心＝可以用、空心＝還沒設定、虛線＝有問題。
+ * 「可以用」**不上綠色** —— 綠色在這個工具裡留給「完成」，來源網站的「讀得到」
+ * 與 v0.23.0 之前的設定頁徽章都是同一個判斷；只有「有問題」用琥珀（在等你處理）。
  * 窄畫面只留點，那句話進 title —— 2026-09-18 量到那串模型名在 768px 把結束鍵推出畫面。
  */
 .model-dot {
@@ -268,8 +270,8 @@ watch(
   margin-right: 6px;
 }
 .model-dot.ready {
-  background: var(--ui-success);
-  border-color: var(--ui-success);
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
 }
 .model-dot.problem {
   border-style: dashed;

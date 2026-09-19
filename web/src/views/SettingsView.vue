@@ -831,7 +831,8 @@ function connectionSummary(kind: ConnectionKind): string {
   font-family: var(--mono);
   font-size: var(--fs-label);
 }
-/* 狀態點跟頂列同一套：實心＝可以用、空心＝還沒設定、虛線＝有問題（形狀是第二重編碼）。 */
+/* 狀態點跟頂列同一套：實心＝可以用、空心＝還沒設定、虛線＝有問題。**靠形狀分**；
+   「可以用」不上綠色（綠色留給「完成」），只有「有問題」用琥珀。 */
 .state-dot {
   display: inline-block;
   width: 9px;
@@ -842,8 +843,8 @@ function connectionSummary(kind: ConnectionKind): string {
   margin-right: 6px;
 }
 .state-dot.ready {
-  background: var(--ui-success);
-  border-color: var(--ui-success);
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
 }
 .state-dot.problem {
   border-style: dashed;

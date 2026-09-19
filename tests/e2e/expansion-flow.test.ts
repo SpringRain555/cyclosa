@@ -39,6 +39,7 @@ import { transitionEdge } from '../../src/application/edge-service.js';
 import { isActive } from '../../src/application/run-registry.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import { CATALOG } from '../../src/infrastructure/sources/catalog.js';
+import { derivedPath } from '../../src/infrastructure/fs/case-files.js';
 
 // ══ 合成的來源網頁 ═════════════════════════════════════════
 
@@ -556,7 +557,7 @@ describe('勾選之後才真的開始', () => {
     expect(rows.evidence).toHaveLength(1);
     const ev = rows.evidence[0] as { item_id: string; char_start: number; char_end: number };
     const derived = JSON.parse(
-      await readFile(join(dataRoot, 'cases', slug, 'derived', `${ev.item_id}.v1.json`), 'utf8'),
+      await readFile(derivedPath(join(dataRoot, 'cases', slug), ev.item_id), 'utf8'),
     ) as { text: string };
     expect(derived.text.slice(ev.char_start, ev.char_end)).toBe(QUOTE);
   });

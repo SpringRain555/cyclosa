@@ -40,7 +40,8 @@ const listError = ref<import('../api').ApiError | null>(null);
 const detail = ref<ItemDetail | null>(null);
 const derived = ref<DerivedPayload | null>(null);
 const detailError = ref<import('../api').ApiError | null>(null);
-const page = ref(1);
+/** 這份正文是舊版抽取器抽的 —— 要說出來，不然使用者以為重排壞了。 */
+const stale = ref(false);
 const loading = ref(false);
 
 function query(cursor?: string): Record<string, string> {
@@ -70,7 +71,7 @@ async function loadDetail(): Promise<void> {
   detail.value = null;
   derived.value = null;
   detailError.value = null;
-  page.value = 1;
+  stale.value = false;
   if (id === null) return;
 
   loading.value = true;
@@ -85,7 +86,10 @@ async function loadDetail(): Promise<void> {
     return;
   }
   detail.value = meta.data;
-  if (content.ok) derived.value = content.data.derived;
+  if (content.ok) {
+    derived.value = content.data.derived;
+    stale.value = content.data.stale;
+  }
 
   // **開起來就是讀過了。** 已讀是正交旗標，不是狀態轉移 —— 它不影響管線。
   if (meta.data.item.readAt === null) {
@@ -102,13 +106,6 @@ watch([slug, sort, filter], () => void loadList(), { immediate: true });
 function open(id: string): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(id)}`);
 }
-
-/** 目前這一屏顯示的是哪一段文字。**點註的字元位置以它為準。** */
-const sourceText = computed(() => {
-  const d = derived.value;
-  if (d === null) return '';
-  return d.kind === 'pdf' ? (d.pages?.[page.value - 1] ?? '') : d.text;
-});
 
 interface Para {
   readonly text: string;
@@ -143,7 +140,29 @@ function splitParagraphs(text: string): readonly Para[] {
   return out;
 }
 
-const paragraphs = computed<readonly Para[]>(() => splitParagraphs(sourceText.value));
+/**
+ * 正文，按「頁」分塊。**PDF 整份連續捲動**（v0.24.0），每一頁一個 `<section data-page>`，
+ * 前面一條「第 n 頁」—— 點註仍然錨在「頁碼 ＋ 頁內字元區間」（ADR-0019），
+ * 所以每一頁的 `data-start` 是相對於那一頁的文字，不是整份。
+ * 網頁與純文字只有一塊，`page` 是 `null`。
+ */
+interface PageBlock {
+  readonly page: number | null;
+  readonly text: string;
+  readonly paragraphs: readonly Para[];
+}
+const blocks = computed<readonly PageBlock[]>(() => {
+  const d = derived.value;
+  if (d === null) return [];
+  if (d.kind === 'pdf' && d.pages !== null) {
+    return d.pages.map((text, i) => ({ page: i + 1, text, paragraphs: splitParagraphs(text) }));
+  }
+  return [{ page: null, text: d.text, paragraphs: splitParagraphs(d.text) }];
+});
+const hasContent = computed(() => blocks.value.some((b) => b.paragraphs.length > 0));
+function textOfPage(page: number | null): string {
+  return blocks.value.find((b) => b.page === page)?.text ?? '';
+}
 
 // ── 點註────────────────────────────────────────
 
@@ -155,6 +174,8 @@ const pending = ref<{ start: number; end: number; page: number | null; preview: 
 const pendingRect = ref<{ x: number; y: number; w: number; h: number } | null>(null);
 /** 「在正文裡找到它」按下去之後暫時提亮的那一則。 */
 const locatedId = ref<string | null>(null);
+/** 選取跨了兩頁：做不成點註，說一句。 */
+const selectionNote = ref<string | null>(null);
 const textPane = ref<HTMLElement | null>(null);
 const imageEl = ref<HTMLImageElement | null>(null);
 
@@ -198,7 +219,14 @@ function paragraphOf(node: Node): HTMLElement | null {
   return start?.closest<HTMLElement>('[data-start]') ?? null;
 }
 
+/** 這一段在哪一頁。網頁與純文字沒有頁，回 `null`。 */
+function pageOf(para: HTMLElement): number | null {
+  const raw = para.closest<HTMLElement>('[data-page]')?.dataset['page'];
+  return raw === undefined ? null : Number(raw);
+}
+
 function onSelect(): void {
+  selectionNote.value = null;
   const selection = window.getSelection();
   if (selection === null || selection.isCollapsed || selection.rangeCount === 0) return;
 
@@ -207,18 +235,20 @@ function onSelect(): void {
   const to = paragraphOf(range.endContainer);
   if (from === null || to === null) return;
 
+  // **跨頁的選取做不成點註**：錨點是「頁碼 ＋ 頁內區間」，一則點註只能在一頁上（ADR-0019）。
+  const page = pageOf(from);
+  if (page !== pageOf(to)) {
+    selectionNote.value = t.reader.crossPage;
+    return;
+  }
+
   const start =
     Number(from.dataset['start']) + offsetWithin(from, range.startContainer, range.startOffset);
   const end = Number(to.dataset['start']) + offsetWithin(to, range.endContainer, range.endOffset);
   if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start) return;
 
   pendingRect.value = null;
-  pending.value = {
-    start,
-    end,
-    page: derived.value?.kind === 'pdf' ? page.value : null,
-    preview: sourceText.value.slice(start, end),
-  };
+  pending.value = { start, end, page, preview: textOfPage(page).slice(start, end) };
 }
 
 /**
@@ -233,7 +263,7 @@ interface Segment {
   readonly noteId: string | null;
 }
 
-function segmentsOf(para: Para): readonly Segment[] {
+function segmentsOf(para: Para, page: number | null): readonly Segment[] {
   const paraEnd = para.start + para.text.length;
   const spans = notes.value
     .map((n) =>
@@ -250,7 +280,7 @@ function segmentsOf(para: Para): readonly Segment[] {
         page: number | null;
       } => h !== null,
     )
-    .filter((h) => h.page === (derived.value?.kind === 'pdf' ? page.value : null))
+    .filter((h) => h.page === page)
     .filter((h) => h.end > para.start && h.start < paraEnd)
     .sort((a, b) => a.start - b.start);
 
@@ -273,7 +303,7 @@ function segmentsOf(para: Para): readonly Segment[] {
 
 function locate(note: ResolvedNote): void {
   if (note.hit.kind === 'rect' || note.hit.kind === 'not-found') return;
-  if (note.hit.page !== null) page.value = note.hit.page;
+  // 整份連續捲動：不用翻頁，直接捲到那一則。
   locatedId.value = note.note.id;
   void nextTick(() => {
     const mark = textPane.value?.querySelector(`[data-note="${note.note.id}"]`);
@@ -366,6 +396,7 @@ watch(
   () => {
     clearPending();
     locatedId.value = null;
+    selectionNote.value = null;
     void loadDetail();
     void loadNotes();
   },
@@ -466,25 +497,34 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
           </p>
           <h1>{{ detail.item.title }}</h1>
 
-          <dl class="facts">
-            <template v-if="detail.item.sourceUrl">
+          <!-- 表頭資料一列一組，不逐行（v0.24.0）：來源那一格可能很長，放最後、可以縮。 -->
+          <dl class="facts-row">
+            <div v-if="detail.item.fetchedAt" class="fact">
+              <dt>{{ t.reader.fetchedAt }}</dt>
+              <dd>{{ when(detail.item.fetchedAt) }}</dd>
+            </div>
+            <div class="fact">
+              <dt>{{ t.reader.language }}</dt>
+              <dd>
+                {{ detail.item.lang === 'und' ? t.reader.unknownLanguage : detail.item.lang }}
+              </dd>
+            </div>
+            <div v-if="detail.item.byteSize" class="fact">
+              <dt>{{ t.reader.size }}</dt>
+              <dd>{{ humanSize(detail.item.byteSize) }}</dd>
+            </div>
+            <div v-if="derived?.kind === 'pdf' && derived.pages" class="fact">
+              <dt>{{ t.reader.pageCount }}</dt>
+              <dd>{{ derived.pages.length }}</dd>
+            </div>
+            <div v-if="detail.item.sourceUrl" class="fact source">
               <dt>{{ t.reader.source }}</dt>
               <dd>
                 <a :href="detail.item.sourceUrl" target="_blank" rel="noreferrer noopener">
                   {{ detail.item.sourceUrl }}
                 </a>
               </dd>
-            </template>
-            <template v-if="detail.item.fetchedAt">
-              <dt>{{ t.reader.fetchedAt }}</dt>
-              <dd>{{ when(detail.item.fetchedAt) }}</dd>
-            </template>
-            <dt>{{ t.reader.language }}</dt>
-            <dd>{{ detail.item.lang === 'und' ? t.reader.unknownLanguage : detail.item.lang }}</dd>
-            <template v-if="detail.item.byteSize">
-              <dt>{{ t.reader.size }}</dt>
-              <dd>{{ humanSize(detail.item.byteSize) }}</dd>
-            </template>
+            </div>
           </dl>
 
           <div class="actions">
@@ -548,31 +588,39 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
         </div>
 
         <template v-else-if="derived">
-          <!-- 翻頁鈕有自己的字。**借「上一份／下一份」的話，只有一份資料的人會以為只有第一頁。** -->
-          <nav v-if="derived.kind === 'pdf' && derived.pages" class="pages">
-            <button :disabled="page <= 1" @click="page--">{{ t.reader.prevPage }}</button>
-            <span>{{ fill(t.reader.page, { n: page }) }}</span>
-            <button :disabled="page >= derived.pages.length" @click="page++">
-              {{ t.reader.nextPage }}
-            </button>
-            <span class="muted">{{ fill(t.reader.pages, { n: derived.pages.length }) }}</span>
-          </nav>
+          <!-- 舊版抽取器抽的正文：讀得到，但要說 —— 不然使用者以為重排壞了。 -->
+          <p v-if="stale" class="callout">{{ t.reader.staleDerived }}</p>
+          <p v-if="selectionNote" class="callout pending">{{ selectionNote }}</p>
 
-          <p v-if="paragraphs.length === 0" class="muted">{{ t.reader.noContent }}</p>
-          <!-- `data-start` 是選取換算的依據，`@mouseup` 是它的觸發點。 -->
+          <p v-if="!hasContent" class="muted">{{ t.reader.noContent }}</p>
+          <!--
+            **PDF 整份連續捲動**，每一頁一個區塊、前面一條「第 n 頁」。
+            v0.23.0 之前一次一頁、翻頁鈕 —— 而使用者要的是整份往下讀。
+            `data-start` 是選取換算的依據（相對於那一頁），`@mouseup` 是它的觸發點。
+          -->
           <div v-else ref="textPane" class="body-text" @mouseup="onSelect">
-            <p v-for="p in paragraphs" :key="p.start" class="para" :data-start="p.start">
-              <template v-for="(seg, j) in segmentsOf(p)" :key="j">
-                <mark
-                  v-if="seg.noteId"
-                  class="hl"
-                  :class="{ located: seg.noteId === locatedId }"
-                  :data-note="seg.noteId"
-                  >{{ seg.text }}</mark
-                >
-                <template v-else>{{ seg.text }}</template>
-              </template>
-            </p>
+            <section
+              v-for="block in blocks"
+              :key="block.page ?? 0"
+              class="page-block"
+              :data-page="block.page ?? undefined"
+            >
+              <div v-if="block.page !== null" class="page-mark">
+                <span>{{ fill(t.reader.page, { n: block.page }) }}</span>
+              </div>
+              <p v-for="p in block.paragraphs" :key="p.start" class="para" :data-start="p.start">
+                <template v-for="(seg, j) in segmentsOf(p, block.page)" :key="j">
+                  <mark
+                    v-if="seg.noteId"
+                    class="hl"
+                    :class="{ located: seg.noteId === locatedId }"
+                    :data-note="seg.noteId"
+                    >{{ seg.text }}</mark
+                  >
+                  <template v-else>{{ seg.text }}</template>
+                </template>
+              </p>
+            </section>
           </div>
         </template>
 
@@ -608,18 +656,71 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
 </template>
 
 <style scoped>
+/**
+ * 三欄：清單 · 正文 · 點註。**點註不是彈出視窗** —— 它跟正文一直在同一屏上，
+ * 因為「我標了什麼」與「原文寫了什麼」要能互相對照。
+ *
+ * 寬度：正文那一欄至少要 40ch（release-checklist D10 第四個數字）。
+ * 1000px 以下三欄放不下 —— 2026-09-19 量到 768px 時中間只剩 140px、14ch，900px 時 37ch ——
+ * 所以點註欄改到正文底下，清單縮成 180px。
+ */
 .reader {
   display: grid;
-  /* 三欄：清單 · 正文 · 點註。**點註不是彈出視窗** —— 它跟正文一直在同一屏上，
-     因為「我標了什麼」與「原文寫了什麼」要能互相對照。 */
-  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(260px, 340px);
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(240px, 300px);
   height: 100%;
   min-height: 0;
 }
+@media (max-width: 999px) {
+  .reader {
+    grid-template-columns: minmax(150px, 180px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  /* 點註欄（NotesPanel 的根元素）橫跨底下一整列，最多佔四成高度。 */
+  .reader > .notes {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--line-subtle);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+}
 
+/**
+ * 正文：**16px、行高 1.7、最寬 68ch**。行長 50–75 個拉丁字母、中文約 40 字是閱讀的
+ * 舒適範圍（`ui-workflows.md` 三條跨頁規則），68ch 是中英混排的折衷。
+ * 選取要順手，所以這一塊不做任何 user-select 的限制。
+ */
 .body-text {
-  /* 選取要順手，所以這一塊不做任何 user-select 的限制。 */
   min-width: 0;
+  max-width: 68ch;
+  font-size: var(--fs-reading);
+  line-height: 1.7;
+}
+.page-block {
+  margin: 0;
+}
+/* 頁與頁之間一條線、中間寫「第 n 頁」。它是版面不是正文，所以不在 .para 裡。 */
+.page-mark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 28px 0 16px;
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  user-select: none;
+}
+.page-block:first-child .page-mark {
+  margin-top: 4px;
+}
+.page-mark::before,
+.page-mark::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--line-subtle);
+}
+.para {
+  margin: 0 0 1em;
+  white-space: pre-wrap;
 }
 
 /* 點註的高亮：暖色底 ＋ 底線。**底線是第二重編碼**（ADR-0018 規則 2）——
@@ -630,7 +731,6 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   color: inherit;
   padding: 0 1px;
 }
-
 .hl.located {
   background: color-mix(in srgb, var(--node-note) 42%, transparent);
 }
@@ -641,48 +741,50 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   cursor: crosshair;
   user-select: none;
 }
-
 .canvas img {
   display: block;
   max-width: 100%;
 }
-
 .rect {
   position: absolute;
   border: 2px solid var(--node-note);
   background: color-mix(in srgb, var(--node-note) 12%, transparent);
   pointer-events: none;
 }
-
 .rect.located {
   background: color-mix(in srgb, var(--node-note) 30%, transparent);
 }
-
 /* 框選中的那一個用虛線，跟已經存下來的分得開。 */
 .rect.pending {
   border-style: dashed;
   border-color: var(--ui-selected);
   background: color-mix(in srgb, var(--ui-selected) 12%, transparent);
 }
+
+/* ── 左欄：清單 ── */
 .list {
   border-right: 1px solid var(--line-subtle);
   overflow-y: auto;
   padding: 12px;
   background: var(--bg-panel);
+  min-width: 0;
 }
 .list-head h2 {
   font-size: var(--fs-body);
   margin: 0 0 8px;
 }
+/* 兩個下拉選單：欄夠寬就並排，不夠就各佔一行 —— 900px 寬時擠在一起，字壓到箭頭上。
+   右邊留給箭頭的那一段不能省（base.css 的 select 本來就留了）。 */
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-bottom: 10px;
 }
 .controls select {
-  flex: 1;
+  flex: 1 1 90px;
   min-width: 0;
-  padding: 5px 6px;
+  padding: 5px 24px 5px 8px;
 }
 .rows {
   list-style: none;
@@ -733,12 +835,15 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   width: 100%;
   margin-top: 10px;
 }
+
+/* ── 中欄：正文 ── */
 .pane {
   overflow-y: auto;
   padding: 24px 32px 60px;
+  min-width: 0;
 }
 .pane article {
-  max-width: 720px;
+  max-width: 80ch;
 }
 .position {
   color: var(--text-muted);
@@ -746,29 +851,37 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   margin: 0;
 }
 .doc-head h1 {
-  font-size: var(--fs-title);
   margin: 4px 0 12px;
+  line-height: 1.4;
 }
-.facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 14px;
-  font-size: var(--fs-label);
+/* 表頭一列一組：時間 · 語言 · 大小 · 頁數 · 來源。來源最長，放最後，可以縮。 */
+.facts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
   margin: 0 0 14px;
+  font-size: var(--fs-label);
 }
-.facts dt {
+.fact {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.fact dt {
   color: var(--text-muted);
+  white-space: nowrap;
 }
-.facts dd {
+.fact dd {
   margin: 0;
   color: var(--text-secondary);
-  word-break: break-all;
+}
+.fact.source {
+  flex: 1 1 100%;
+}
+.fact.source dd {
+  overflow-wrap: anywhere;
 }
 .actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
   margin-bottom: 10px;
 }
 .note {
@@ -780,19 +893,6 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   background: var(--bg-panel);
   color: var(--text-secondary);
   border-radius: var(--radius);
-}
-.pages {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 0 16px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line-subtle);
-}
-.para {
-  margin: 0 0 14px;
-  line-height: 1.85;
-  white-space: pre-wrap;
 }
 .image-wrap img {
   max-width: 100%;

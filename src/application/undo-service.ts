@@ -24,7 +24,6 @@
  * 一個回報「刪了 31 筆」的復原，跟一個回報「刪了 31 筆、留下 4 筆因為你動過」的復原，
  * 對使用者是兩件事。**後者才解釋得了為什麼圖上還有東西。**
  */
-import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { keptAnything, planUndo, type UndoPlan } from '../domain/run/index.js';
@@ -32,7 +31,7 @@ import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/databa
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { reindexTitleRank } from '../infrastructure/index/writer.js';
-import { derivedPath } from '../infrastructure/fs/case-files.js';
+import { removeDerived } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
@@ -107,7 +106,8 @@ export async function undoRun(
   // **衍生物跟著走。** 它們是可拋的（`derived\` 的定義），
   // 而留著會變成一堆沒有列指向它的孤兒檔。`sources\` 不在這裡，那是刻意的。
   for (const itemId of plan.deleteItems) {
-    await rm(derivedPath(folder, itemId), { force: true }).catch(() => undefined);
+    // **每一版都刪**（`removeDerived`）：只刪現在這一版的話，升版前抽的舊檔會留下來當孤兒。
+    await removeDerived(folder, itemId).catch(() => undefined);
   }
 
   return ok(

@@ -644,6 +644,13 @@ export interface RebuildReport {
     readonly shifted: number;
     readonly unresolved: number;
   };
+  /** 關聯的引文：重算之後位置對回去了幾條、找不到幾條（v0.24.0）。 */
+  readonly evidence: {
+    readonly checked: number;
+    readonly exact: number;
+    readonly shifted: number;
+    readonly unresolved: number;
+  };
 }
 
 export interface SiteHistory {
@@ -867,7 +874,7 @@ export const api = {
   item: (slug: string, itemId: string) =>
     request<ItemDetail>(`/api/cases/${enc(slug)}/items/${enc(itemId)}`),
   itemContent: (slug: string, itemId: string) =>
-    request<{ item: Item; derived: DerivedPayload | null }>(
+    request<{ item: Item; derived: DerivedPayload | null; stale: boolean }>(
       `/api/cases/${enc(slug)}/items/${enc(itemId)}/content`,
     ),
   snapshotUrl: (slug: string, itemId: string) =>

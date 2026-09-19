@@ -21,7 +21,11 @@ import type { FastifyInstance } from 'fastify';
 import { buildServer } from '../../src/server.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
 import { indexText, reindexTitleRank } from '../../src/infrastructure/index/writer.js';
-import { writeDerived, derivedPath } from '../../src/infrastructure/fs/case-files.js';
+import {
+  EXTRACTOR_VERSION,
+  removeDerived,
+  writeDerived,
+} from '../../src/infrastructure/fs/case-files.js';
 import { setExcerpt } from '../../src/infrastructure/db/repositories/item-repo.js';
 import { insertRun } from '../../src/infrastructure/db/repositories/run-repo.js';
 
@@ -89,7 +93,7 @@ async function addDoc(
   });
 
   await writeDerived(caseFolder, input.id, {
-    extractorVersion: 1,
+    extractorVersion: EXTRACTOR_VERSION,
     kind: 'web',
     title: input.title,
     text: input.text,
@@ -258,7 +262,7 @@ describe('實體用名字找，不走索引', () => {
 
 describe('三種狀態分得出來', () => {
   it('**正文檔案不在 → no-text，不是 miss** —— 那是不知道，不是不對', async () => {
-    await rm(derivedPath(caseFolder, 'itm-covid'), { force: true });
+    await removeDerived(caseFolder, 'itm-covid');
     const r = await search('疫情');
     const hit = r.data?.hits.find((h) => h.id === 'itm-covid');
     expect(hit?.check).toBe('no-text');

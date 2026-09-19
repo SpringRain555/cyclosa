@@ -17,6 +17,7 @@ import { createCase } from '../../src/application/case-service.js';
 import { importFile } from '../../src/application/ingest-service.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import { applyManualExtraction } from '../../tools/dev/apply-extraction.js';
+import { derivedPath } from '../../src/infrastructure/fs/case-files.js';
 
 const QUOTE = '合成公司在二月宣布收購合成工作室，交易金額沒有揭露。';
 const ARTICLE = [
@@ -139,7 +140,7 @@ describe('人給的抽取結果走跟模型一樣的路', () => {
     expect(rows.evidence).toHaveLength(1);
     const ev = rows.evidence[0] as { item_id: string; char_start: number; char_end: number };
     const derived = JSON.parse(
-      await readFile(join(dataRoot, 'cases', slug, 'derived', `${ev.item_id}.v1.json`), 'utf8'),
+      await readFile(derivedPath(join(dataRoot, 'cases', slug), ev.item_id), 'utf8'),
     ) as { text: string };
     expect(derived.text.slice(ev.char_start, ev.char_end)).toBe(QUOTE);
 

@@ -77,7 +77,8 @@ function scopedStyleOf(vue: string): string {
 }
 
 const FONT_SIZE = /font-size\s*:\s*([^;}]+)/g;
-const ALLOWED_FONT_SIZE = /^(var\(--fs-(title|section|body|small|label)\)|inherit)$/;
+// `--fs-reading` 跟 `--fs-section` 同一個數字（16），但它是另一個角色：讀長文的字，不是標題。
+const ALLOWED_FONT_SIZE = /^(var\(--fs-(title|section|body|small|label|reading)\)|inherit)$/;
 
 const files = walk(WEB_SRC);
 const vueFiles = files.filter((f) => f.endsWith('.vue'));

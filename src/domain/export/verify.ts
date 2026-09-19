@@ -74,6 +74,12 @@ export function checkQuote(
   // **比對本身用的是跟 v0.5.0／v0.6.0 同一支** —— 空白視為等價，回原文座標。
   const span = findFirst(text, quote);
   if (span === null) return { status: 'missing', start: recordedStart, end: recordedEnd };
+  // **就在記著的位置上、只差空白** —— 那是「對得上」，不是「搬家了」。
+  // 抽取器重排過空白之後（v0.24.0 的 PDF 重排：硬換行變空白），引文照樣在原位，
+  // 而把它標成「位置已移動」會讓證據包看起來比實際上亂。
+  if (span.start === recordedStart && span.end === recordedEnd) {
+    return { status: 'verified', start: recordedStart, end: recordedEnd };
+  }
   return { status: 'shifted', start: span.start, end: span.end };
 }
 

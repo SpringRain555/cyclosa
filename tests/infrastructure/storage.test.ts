@@ -10,8 +10,10 @@ import {
   SUPPORTED_SCHEMA_VERSION,
 } from '../../src/infrastructure/db/database.js';
 import {
+  EXTRACTOR_VERSION,
   appendManifest,
   readDerived,
+  removeDerived,
   sha256Of,
   writeDerived,
   writeSnapshot,
@@ -64,6 +66,37 @@ describe('快照不可變', () => {
 });
 
 describe('衍生物可以整批重算', () => {
+  /**
+   * **抽取器升版之後、按「重算全部正文」之前，舊版的產物還讀得到。**
+   * 沒有這一條的話，升級的下一秒每一份資料都變成「沒有正文」—— 而快照明明還在。
+   */
+  it('現在這一版沒有就退回讀舊版；兩版都在就讀新的', async () => {
+    const base = {
+      kind: 'text' as const,
+      title: '標題',
+      html: null,
+      pages: null,
+      excerpt: '',
+      lowConfidence: false,
+      reasons: [] as string[],
+    };
+    await writeDerived(dir, 'item-2', { ...base, extractorVersion: 1, text: '舊版抽的' });
+    expect((await readDerived(dir, 'item-2'))?.text).toBe('舊版抽的');
+    expect((await readDerived(dir, 'item-2'))?.extractorVersion).toBe(1);
+
+    await writeDerived(dir, 'item-2', {
+      ...base,
+      extractorVersion: EXTRACTOR_VERSION,
+      text: '新版抽的',
+    });
+    expect((await readDerived(dir, 'item-2'))?.text).toBe('新版抽的');
+
+    // **刪就每一版都刪。** 只刪現在這一版的話，讀取會退回去讀舊版 ——
+    // 「正文不在」變成「讀到一份舊的」，而那一份沒有任何列指向它。
+    await removeDerived(dir, 'item-2');
+    expect(await readDerived(dir, 'item-2')).toBeNull();
+  });
+
   it('寫得進、讀得回、刪得掉，而且刪它不會動到快照', async () => {
     const snapshot = await writeSnapshot(dir, new TextEncoder().encode('原始'), 'txt');
     await writeDerived(dir, 'item-1', {

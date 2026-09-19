@@ -35,10 +35,13 @@ import * as items from '../infrastructure/db/repositories/item-repo.js';
 import { detectLanguage } from '../infrastructure/extract/language.js';
 import {
   clearDerived,
+  readDerived,
   readSnapshot,
   writeDerived,
   type DerivedPayload,
 } from '../infrastructure/fs/case-files.js';
+import * as edges from '../infrastructure/db/repositories/edge-repo.js';
+import { checkQuote } from '../domain/export/verify.js';
 import { dropVectorsFor } from '../infrastructure/db/repositories/vector-repo.js';
 import { indexText } from '../infrastructure/index/writer.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
@@ -48,6 +51,44 @@ import { extract } from './ingest-service.js';
 import { reresolveAll } from './note-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
+
+/**
+ * 把每一條引文的位置對到**現在的正文**上。
+ *
+ * `domain/export/verify.ts` 的檔頭寫著「重算之後要把位置對回去是 rebuild 的事」，
+ * 而 v0.24.0 之前 rebuild 沒有做 —— 匯出每一次都自己重找一遍，資料庫裡的位置一直是舊的，
+ * 關聯面板上那一行「字元 a–b」也是。v0.24.0 的 PDF 重排讓每一份 PDF 的位置都會變，
+ * 所以這一步不能再省。
+ *
+ * - 對得上（含只差空白、就在原位）→ 不動
+ * - 引文還在、位置變了 → **只改位置**，引文本身不動（它是寫進去那一刻的事實）
+ * - 找不到 → 原樣留著、數出來。**不刪** —— 一條找不到出處的引文要讓人看見，
+ *   匯出時它會被標成回溯不到（`EXPORT_EVIDENCE_MISSING`）
+ */
+async function reanchorEvidence(
+  db: DatabaseSync,
+  folder: string,
+): Promise<RebuildReport['evidence']> {
+  const texts = new Map<string, string | null>();
+  const textOf = async (itemId: string): Promise<string | null> => {
+    if (!texts.has(itemId)) texts.set(itemId, (await readDerived(folder, itemId))?.text ?? null);
+    return texts.get(itemId) ?? null;
+  };
+  let exact = 0;
+  let shifted = 0;
+  let unresolved = 0;
+  const rows = edges.allEvidence(db);
+  for (const row of rows) {
+    const check = checkQuote(await textOf(row.itemId), row.quote, row.charStart, row.charEnd);
+    if (check.status === 'verified') exact++;
+    else if (check.status === 'missing') unresolved++;
+    else {
+      edges.setEvidenceSpan(db, row.id, check.start, check.end);
+      shifted++;
+    }
+  }
+  return { checked: rows.length, exact, shifted, unresolved };
+}
 const HEX64 = /^[0-9a-f]{64}$/;
 
 export interface RebuildReport {
@@ -59,6 +100,17 @@ export interface RebuildReport {
   /** 快照不見了或壞了 —— 那是 `sources/` 的問題，不是抽取的問題。 */
   readonly snapshotMissing: number;
   readonly notes: {
+    readonly checked: number;
+    readonly exact: number;
+    readonly shifted: number;
+    readonly unresolved: number;
+  };
+  /**
+   * 關聯的引文。**同一件事的另一半**：點註錨在快照上、重算後重解；
+   * 引文記的是「在正文的第幾個字」，正文一變就要對回去（v0.24.0 補上 ——
+   * 在那之前只有匯出會重驗，資料庫裡的位置一直是舊的）。
+   */
+  readonly evidence: {
     readonly checked: number;
     readonly exact: number;
     readonly shifted: number;
@@ -176,8 +228,9 @@ export async function rebuildDerived(
     // **重算完立刻重解錨點。** 分成兩顆按鈕的話，中間那段時間裡
     // `anchor_ok` 說的是上一次的事 —— 而那一欄的用途正是「現在對不對得上」。
     const notes = await reresolveAll(db, folder);
+    const evidence = await reanchorEvidence(db, folder);
 
-    return ok({ items: ids.length, reextracted, failed, snapshotMissing, notes }, cid);
+    return ok({ items: ids.length, reextracted, failed, snapshotMissing, notes, evidence }, cid);
   } finally {
     db.close();
   }

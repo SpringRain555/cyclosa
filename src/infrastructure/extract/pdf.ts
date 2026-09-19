@@ -9,6 +9,8 @@
  * 欄位名叫 `page` 而不是 `pageIndex` 是刻意的 —— 這是一個會反覆出錯的地方。
  */
 
+import { reflowPage, type PdfTextItem } from './pdf-reflow.js';
+
 export type PdfOutcome =
   | {
       readonly kind: 'ok';
@@ -19,11 +21,6 @@ export type PdfOutcome =
     }
   | { readonly kind: 'encrypted' }
   | { readonly kind: 'unreadable'; readonly reason: string };
-
-interface PdfTextItem {
-  readonly str?: unknown;
-  readonly hasEOL?: unknown;
-}
 
 /**
  * 動態載入 `pdfjs-dist`。
@@ -57,19 +54,14 @@ export async function extractPdf(bytes: Uint8Array): Promise<PdfOutcome> {
     for (let page = 1; page <= doc.numPages; page++) {
       const p = await doc.getPage(page);
       const content = await p.getTextContent();
-      let text = '';
+      // **重排成段落**（v0.24.0，`pdf-reflow.ts`）：v1 是逐行硬換行，閱讀器上每一行都斷，
+      // 抽取模型看到的引文也被切開。改了這裡就要 +1 `EXTRACTOR_VERSION`。
+      // `items` 裡混著 marked-content 的標記（沒有 `str`），只留真的字塊。
+      const textItems: PdfTextItem[] = [];
       for (const raw of content.items) {
-        const item = raw as PdfTextItem;
-        if (typeof item.str !== 'string') continue;
-        text += item.str;
-        if (item.hasEOL === true) text += '\n';
+        if ('str' in raw && typeof raw.str === 'string') textItems.push(raw);
       }
-      pages.push(
-        text
-          .replace(/[ \t]+/g, ' ')
-          .replace(/\n{3,}/g, '\n\n')
-          .trim(),
-      );
+      pages.push(reflowPage(textItems));
     }
 
     const meta = await doc.getMetadata().catch(() => null);

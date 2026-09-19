@@ -556,6 +556,20 @@ async function rebuild(): Promise<void> {
               {{ fill(t.rebuild.notesUnresolved, { n: rebuildReport.notes.unresolved }) }}
             </span>
           </template>
+          <!-- 關聯的引文（v0.24.0）。一條都沒有就不說 —— 匯入的資料本來就不抽關聯。 -->
+          <template v-if="rebuildReport.evidence.checked > 0">
+            <span
+              v-if="rebuildReport.evidence.unresolved === 0 && rebuildReport.evidence.shifted === 0"
+            >
+              {{ fill(t.rebuild.evidenceOk, { n: rebuildReport.evidence.checked }) }}
+            </span>
+            <span v-if="rebuildReport.evidence.shifted > 0">
+              {{ fill(t.rebuild.evidenceShifted, { n: rebuildReport.evidence.shifted }) }}
+            </span>
+            <span v-if="rebuildReport.evidence.unresolved > 0" class="warn">
+              {{ fill(t.rebuild.evidenceUnresolved, { n: rebuildReport.evidence.unresolved }) }}
+            </span>
+          </template>
         </p>
       </section>
 

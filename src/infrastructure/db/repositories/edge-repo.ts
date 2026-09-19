@@ -220,7 +220,39 @@ export function pendingCount(db: DatabaseSync): number {
   return Number(row?.['n'] ?? 0);
 }
 
+/** 整個專題的引文，重算正文之後對位置用（`rebuild-service`）。 */
+export function allEvidence(db: DatabaseSync): readonly {
+  readonly id: string;
+  readonly itemId: string;
+  readonly quote: string;
+  readonly charStart: number;
+  readonly charEnd: number;
+}[] {
+  const rows = db
+    .prepare('SELECT id, item_id, quote, char_start, char_end FROM edge_evidence ORDER BY id')
+    .all() as Raw[];
+  return rows.map((row) => ({
+    id: String(row['id']),
+    itemId: String(row['item_id']),
+    quote: String(row['quote'] ?? ''),
+    charStart: Number(row['char_start'] ?? 0),
+    charEnd: Number(row['char_end'] ?? 0),
+  }));
+}
+
 // ── 寫 ──────────────────────────────────────────────────────
+
+/**
+ * 引文搬家之後把位置對回去。**只動位置，不動引文本身** —— 引文是寫進去那一刻的事實，
+ * 位置是「它現在在正文的哪裡」，而後者會跟著抽取器改版而變（`domain/export/verify.ts`）。
+ */
+export function setEvidenceSpan(db: DatabaseSync, id: string, start: number, end: number): void {
+  db.prepare('UPDATE edge_evidence SET char_start = ?, char_end = ? WHERE id = ?').run(
+    start,
+    end,
+    id,
+  );
+}
 
 export function insertEvidence(
   db: DatabaseSync,

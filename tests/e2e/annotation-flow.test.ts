@@ -413,6 +413,75 @@ describe('驗收：derived/ 整批重算前後，解析結果差異為 0', () =>
 
     await changeItemStatus(dataRoot, slug, imageItemId, 'restore');
   }, 30_000);
+
+  /**
+   * **v0.24.0：引文的位置也跟著正文走。** 點註錨在快照上、重算後重解（上面那條驗收）；
+   * 關聯的引文記的是「在正文的第幾個字」—— 抽取器一改（PDF 重排），位置就全部平移。
+   * 在這之前 rebuild 只管點註，資料庫裡的引文位置一直是舊的。
+   */
+  it('重算之後關聯引文的位置對回去；找不到的原樣留著、數得出來', async () => {
+    const content = await getItemContent(dataRoot, slug, webItemId);
+    if (!content.ok || content.data.derived === null) throw new Error('讀不到正文');
+    const text = content.data.derived.text;
+    // 取中間一段、而且在正文裡只出現一次 —— 對位置的時候才不會對到別處。
+    const from = Math.floor(text.length / 3);
+    const quote = text.slice(from, from + 24);
+    expect(text.indexOf(quote)).toBe(text.lastIndexOf(quote));
+
+    const edge = await createEdge(dataRoot, slug, {
+      source: webItemId,
+      target: imageItemId,
+      rel: '補充',
+      layer: 'named',
+    });
+    if (!edge.ok) throw new Error(edge.code);
+
+    const open = async (): Promise<import('node:sqlite').DatabaseSync> => {
+      const opened = await openCaseDatabase(join(dataRoot, 'cases', slug, 'case.sqlite'), {
+        backupDir: join(dataRoot, 'backups'),
+        backupLabel: slug,
+      });
+      if (opened.kind !== 'ok') throw new Error('開不了資料庫');
+      return opened.db;
+    };
+    // 一筆位置錯了三個字（模擬舊抽取器留下的位置），一筆引文根本不在正文裡。
+    const db = await open();
+    const insert = db.prepare(
+      `INSERT INTO edge_evidence (id, edge_id, item_id, quote, char_start, char_end, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    insert.run('ev-moved', edge.data.id, webItemId, quote, from + 3, from + 27, Date.now());
+    insert.run('ev-gone', edge.data.id, webItemId, '這一句從來不在正文裡。', 0, 11, Date.now());
+    db.close();
+
+    const rebuilt = await rebuildDerived(dataRoot, slug);
+    if (!rebuilt.ok) throw new Error(rebuilt.code);
+    expect(rebuilt.data.evidence.checked).toBeGreaterThanOrEqual(2);
+    expect(rebuilt.data.evidence.shifted).toBeGreaterThanOrEqual(1);
+    expect(rebuilt.data.evidence.unresolved).toBeGreaterThanOrEqual(1);
+
+    const after = await open();
+    const spanOf = (id: string): { start: number; end: number; quote: string } => {
+      const row = after
+        .prepare('SELECT char_start, char_end, quote FROM edge_evidence WHERE id = ?')
+        .get(id) as { char_start: number; char_end: number; quote: string };
+      return { start: row.char_start, end: row.char_end, quote: row.quote };
+    };
+    const moved = spanOf('ev-moved');
+    const gone = spanOf('ev-gone');
+    after.close();
+
+    // 位置對回去了，**引文本身沒動**（它是寫進去那一刻的事實）。
+    expect(moved).toEqual({ start: from, end: from + 24, quote });
+    expect(text.slice(moved.start, moved.end)).toBe(quote);
+    // 找不到的那一筆原樣留著 —— 不刪、不亂指。
+    expect(gone).toEqual({ start: 0, end: 11, quote: '這一句從來不在正文裡。' });
+
+    // 再重算一次：已經對好的那一筆算「對得上」，不再算「移動過」。
+    const again = await rebuildDerived(dataRoot, slug);
+    if (!again.ok) throw new Error(again.code);
+    expect(again.data.evidence.shifted).toBe(0);
+  }, 30_000);
 });
 
 describe('錨點對不上的時候說對不上', () => {

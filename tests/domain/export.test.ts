@@ -67,6 +67,22 @@ describe('checkQuote：不採信自己資料庫裡存的位置', () => {
     expect(reflowed.slice(check.start, check.end)).toBe(quote);
   });
 
+  /**
+   * v0.24.0 的 PDF 重排：硬換行變成空白，字數不變 —— 引文還在**原來那個位置**。
+   * 那是「對得上」，不是「搬家了」；標成位置已移動會讓證據包看起來比實際上亂。
+   */
+  it('只差空白、而且就在記著的位置上 —— 算已核對，不是位置已移動', () => {
+    const before = 'Alpha beta\ngamma delta.';
+    const after = 'Alpha beta gamma delta.';
+    const recorded = before.slice(6, 16);
+    expect(recorded).toBe('beta\ngamma');
+    expect(checkQuote(after, recorded, 6, 16)).toEqual({ status: 'verified', start: 6, end: 16 });
+    // 位置真的變了的時候仍然是位置已移動。
+    const moved = checkQuote(`Intro. ${after}`, recorded, 6, 16);
+    expect(moved.status).toBe('shifted');
+    expect(moved.start).toBe(13);
+  });
+
   it('countMissing 數的是回溯不到的那幾條', () => {
     expect(
       countMissing([

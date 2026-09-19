@@ -15,6 +15,7 @@ import { useRoute } from 'vue-router';
 import { api } from './api';
 import { fill, t } from './i18n/zh-TW';
 import { useCaseStore } from './stores/case-store';
+import { useModelStateStore } from './stores/model-state-store';
 
 const route = useRoute();
 const store = useCaseStore();
@@ -50,9 +51,12 @@ const tabs = computed(() => {
  *
  * 讀的是 `/api/providers`，而那一支不會產生費用
  * （agent 只跑 `--version`、chat 只讀 `/api/tags`）。
+ *
+ * **狀態住在 store 裡**（v0.24.1）：設定頁改了就存，存完它直接更新這一顆 ——
+ * 不是只在打開 app 時讀一次。
  */
-type ModelState = 'ready' | 'none' | 'problem';
-const modelState = ref<ModelState>('none');
+const modelStore = useModelStateStore();
+const modelState = computed(() => modelStore.state);
 
 /**
  * 結束 Cyclosa。
@@ -108,14 +112,7 @@ async function quit(): Promise<void> {
   quitMessage.value = null;
 }
 
-onMounted(async () => {
-  const r = await api.providers();
-  if (!r.ok) return;
-  // 一個任務都沒設定 → 空心；設了但有一個跑不動（連不上、缺能力）→ 虛線；否則實心。
-  const configured = r.data.tasks.filter((row) => row.state !== 'not-configured');
-  if (configured.length === 0) modelState.value = 'none';
-  else modelState.value = configured.every((row) => row.ok) ? 'ready' : 'problem';
-});
+onMounted(() => void modelStore.refresh());
 
 watch(
   slug,

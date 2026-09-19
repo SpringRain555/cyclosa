@@ -18,13 +18,23 @@
  * （CLI 只跑 `--version`、HTTP 連線只列模型清單）。
  * 「實際打一次」是使用者按的按鈕，**逐任務**，而那個按鈕旁邊要先講它會不會花錢。
  *
- * ## 「連線並列出模型」不存檔就列
+ * ## 「連線並列出模型」
  *
- * 填了位址（與金鑰變數）之後按這顆，這個端點的模型就列成下拉選單 ——
- * 存了才列的話會先出現一個空的下拉選單（v0.23.0 之前就是這樣，使用者不知道要先按儲存）。
+ * 填了位址（與金鑰變數）之後按這顆，這個端點的模型就列成下拉選單。
+ * v0.24.0 它「不存檔就列」（存了才列的話會先出現一個空的下拉選單）；v0.24.1 起這一頁改了就存，
+ * 所以它先把位址存起來再列 —— 列的那支端點本身仍然不寫檔，寫檔的是這一頁。
  * 位址或金鑰變數一改，那份清單就作廢（它是對另一條端點列的），模型欄退回手打。
+ *
+ * ## 改了就存，沒有儲存鈕（v0.24.1）
+ *
+ * v0.24.0 的儲存鈕在整頁最下面，2026-09-19 使用者說「調整完容易忘記按」—— 而忘了按的後果
+ * 是安靜的：右邊那一欄的狀態是存檔那一份的，畫面看起來設好了，跑起來卻是舊的。
+ * 這一頁的每一個改動都是**可以原樣改回去的**（換嵌入模型也是：向量照模型分開存，
+ * 換回來舊的就能用），沒有一個需要「先想好再一起送出」—— 所以選了就存，
+ * 文字欄在離開那一格（或按 Enter）時存，不是每打一個字存一次。
+ * 存的狀態寫在這一頁**最上面、捲動時跟著走**的那一行，失敗要說原因。
  */
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 import {
   api,
@@ -45,11 +55,12 @@ import ErrorPanel from '../components/ErrorPanel.vue';
 import SourcesPanel from '../components/SourcesPanel.vue';
 import StatusGuide from '../components/StatusGuide.vue';
 import StoragePanel from '../components/StoragePanel.vue';
+import { useModelStateStore } from '../stores/model-state-store';
 
 const payload = ref<ProvidersPayload | null>(null);
 const error = ref<ApiError | null>(null);
-const saving = ref(false);
-const savedAt = ref(0);
+/** 頂列那一顆點：這一頁讀到或存完一份，就直接交給它（v0.24.1）。 */
+const modelStore = useModelStateStore();
 
 const tab = ref<'models' | 'sources' | 'guide' | 'storage'>('models');
 
@@ -168,6 +179,8 @@ function modelsFor(kind: ConnectionKind): string[] | null {
 async function listModels(kind: HttpKind): Promise<void> {
   listing.value = kind;
   listResult.value = null;
+  // 這一顆也是一個改動：位址先存起來，再列它的模型（改了就存，v0.24.1）。
+  await flush();
   const r = await api.listModels(kind, connectionDraft(kind));
   listing.value = null;
   if (!r.ok) {
@@ -196,7 +209,16 @@ function fillFrom(data: ProvidersPayload): void {
   for (const task of TASK_ORDER) next[task] = { ...c.tasks[task] };
   tasks.value = next;
   logModelCalls.value = c.diagnostics.logModelCalls;
-  // 存檔那一份連線列出來的模型，就是這一頁一開始的下拉選單。
+  listsFrom(data);
+}
+
+/**
+ * 存檔那一份連線列出來的模型，就是下拉選單。**只動清單，不動表單** ——
+ * 存檔回來的時候使用者可能已經在打下一格了，那時候用存檔那一份蓋掉表單，會吃掉剛打的字。
+ * 清單記著它是對哪個位址列的，對不上現在表單上的位址就自動作廢（`isStale`）。
+ */
+function listsFrom(data: ProvidersPayload): void {
+  const c = data.config;
   for (const kind of ['ollama', 'openai'] as const) {
     const status = data.connections.find((row) => row.kind === kind);
     const conn = kind === 'ollama' ? c.connections.ollama : c.connections.openai;
@@ -215,6 +237,7 @@ async function load(): Promise<void> {
   }
   payload.value = r.data;
   fillFrom(r.data);
+  modelStore.setFrom(r.data);
 }
 onMounted(() => void load());
 
@@ -246,26 +269,113 @@ function draftConfig(): ProvidersConfig {
   };
 }
 
-/** 表單跟存檔那一份不一樣 —— 右邊那一欄的狀態是存檔那一份的，這件事要說出來。 */
+/**
+ * 表單跟存檔那一份不一樣。改了就存之後，這只在兩個時候成立：
+ * 某一格還在打（文字欄離開那一格才存），或上一次沒存成。
+ */
 const dirty = computed(
   () =>
     payload.value !== null &&
     JSON.stringify(draftConfig()) !== JSON.stringify(payload.value.config),
 );
 
-async function save(): Promise<void> {
-  saving.value = true;
-  const r = await api.saveProviders(draftConfig());
-  saving.value = false;
-  if (!r.ok) {
-    error.value = r.error;
-    return;
-  }
-  error.value = null;
-  payload.value = r.data;
-  fillFrom(r.data);
-  savedAt.value = Date.now();
+// ── 改了就存（v0.24.1）─────────────────────────────────
+/**
+ * `held`：金鑰變數的名字不合格。**那時候不存** —— 伺服器會把不合格的名字當成沒設
+ * （`apiKeyEnvOf` 回 `null`），存下去之後畫面重新載入，使用者打的字就不見了。
+ */
+type SaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'held';
+const saveState = ref<SaveState>('idle');
+const savedAt = ref(0);
+let inflight: Promise<void> | null = null;
+/** 存檔途中又改了別的：這一次存完再存一次最新的，不是同時送兩份。 */
+let again = false;
+
+async function saveLoop(): Promise<void> {
+  do {
+    again = false;
+    if (apiKeyEnvBad.value) {
+      saveState.value = 'held';
+      return;
+    }
+    const sent = JSON.stringify(draftConfig());
+    saveState.value = 'saving';
+    const r = await api.saveProviders(JSON.parse(sent) as ProvidersConfig);
+    if (!r.ok) {
+      error.value = r.error;
+      saveState.value = 'failed';
+      return;
+    }
+    error.value = null;
+    payload.value = r.data;
+    modelStore.setFrom(r.data);
+    // 存檔途中使用者又打了字：只更新狀態與模型清單，**不用存檔那一份蓋掉表單**。
+    if (JSON.stringify(draftConfig()) === sent) fillFrom(r.data);
+    else listsFrom(r.data);
+    savedAt.value = Date.now();
+    saveState.value = 'saved';
+  } while (again);
 }
+
+/** 每一個改動之後叫它。**同一時間只有一次存檔在路上。** */
+function autosave(): Promise<void> {
+  if (inflight !== null) {
+    again = true;
+    return inflight;
+  }
+  inflight = saveLoop().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
+/** 按「實際打一次」或「連線並列出模型」之前：還沒存的先存，測的才是畫面上這一份。 */
+async function flush(): Promise<void> {
+  if (inflight !== null) await inflight;
+  if (dirty.value) await autosave();
+}
+
+// 還在打的那一格：離開這一頁也算「離開那一格」。
+onBeforeUnmount(() => {
+  if (dirty.value) void autosave();
+});
+
+const savedAtText = computed(() =>
+  savedAt.value === 0 ? '' : new Date(savedAt.value).toLocaleTimeString('zh-TW', { hour12: false }),
+);
+
+/**
+ * 最上面那一行。**順序就是優先順序**：正在存 → 不能存 → 沒存成 → 還在打 → 存好了 → 還沒動過。
+ * 「還沒動過」那一句是在說這一頁的規則 —— 沒有儲存鈕，第一次來的人要知道為什麼。
+ */
+type SaveTone = 'saving' | 'held' | 'failed' | 'editing' | 'saved' | 'idle';
+const saveTone = computed<SaveTone>(() => {
+  if (saveState.value === 'saving') return 'saving';
+  if (apiKeyEnvBad.value) return 'held';
+  if (saveState.value === 'failed') return 'failed';
+  if (dirty.value) return 'editing';
+  if (saveState.value === 'saved') return 'saved';
+  return 'idle';
+});
+const saveStateText = computed(() => {
+  const a = t.settings.autosave;
+  switch (saveTone.value) {
+    case 'saving':
+      return a.saving;
+    case 'held':
+      return a.held;
+    case 'failed':
+      return fill(a.failed, {
+        reason: error.value === null ? '' : (errorMessages[error.value.code] ?? error.value.code),
+      });
+    case 'editing':
+      return a.editing;
+    case 'saved':
+      return fill(a.saved, { time: savedAtText.value });
+    default:
+      return a.idle;
+  }
+});
 
 // ── 任務那張表 ─────────────────────────────────────────
 /** 每個任務可以走哪些連線 —— 跟 server 的 `viaOptionsOf` 同一條規則（角色推出來的）。 */
@@ -278,9 +388,15 @@ function setVia(task: ModelTask, via: ConnectionKind): void {
   if (tasks.value[task].via === via) return;
   // 模型名跟著連線走：Ollama 的模型名在 OpenAI 端點上是一個不存在的模型。
   tasks.value[task] = { via, model: '' };
+  void autosave();
 }
-function setModelOf(task: ModelTask, model: string): void {
+/**
+ * 換模型。下拉選單與「建議值」按下去就存；手打的那一格每打一個字進來一次（`save` 是 false），
+ * 離開那一格才存。
+ */
+function setModelOf(task: ModelTask, model: string, save = true): void {
   tasks.value[task] = { ...tasks.value[task], model };
+  if (save) void autosave();
 }
 
 /** 存檔那一份裡這個任務的狀態。 */
@@ -335,6 +451,8 @@ const testResult = ref<{ task: ModelTask; text: string } | null>(null);
 async function test(task: ModelTask): Promise<void> {
   testing.value = task;
   testResult.value = null;
+  // 測的是存檔那一份 —— 還在打的那一格先存，不然測到的是上一版。
+  await flush();
   const r = await api.testProvider(task);
   testing.value = null;
   if (!r.ok) {
@@ -413,6 +531,17 @@ function connectionSummary(kind: ConnectionKind): string {
           <StoragePanel v-else-if="tab === 'storage'" />
 
           <template v-else>
+            <!--
+              **改了就存（v0.24.1），存的狀態在最上面、捲動時跟著走。**
+              v0.24.0 的儲存鈕在整頁最底下，使用者調整完就忘了按 —— 而忘了按是安靜的。
+            -->
+            <p :class="['save-state', saveTone]" role="status" aria-live="polite">
+              <span class="save-dot" aria-hidden="true"></span>
+              <span class="save-text">{{ saveStateText }}</span>
+              <button v-if="saveTone === 'failed'" class="small" type="button" @click="autosave()">
+                {{ t.settings.autosave.retry }}
+              </button>
+            </p>
             <ErrorPanel v-if="error" :error="error" />
 
             <!-- ── 段落一：每個任務用哪條連線的哪個模型 ── -->
@@ -473,7 +602,10 @@ function connectionSummary(kind: ConnectionKind): string {
                           type="text"
                           :value="tasks[task].model"
                           :placeholder="t.settings.agentModelDefault"
-                          @input="setModelOf(task, ($event.target as HTMLInputElement).value)"
+                          @input="
+                            setModelOf(task, ($event.target as HTMLInputElement).value, false)
+                          "
+                          @change="autosave()"
                         />
                         <select
                           v-else-if="modelsFor(tasks[task].via)?.length"
@@ -504,7 +636,10 @@ function connectionSummary(kind: ConnectionKind): string {
                           type="text"
                           :value="tasks[task].model"
                           :placeholder="t.settings.modelPickText"
-                          @input="setModelOf(task, ($event.target as HTMLInputElement).value)"
+                          @input="
+                            setModelOf(task, ($event.target as HTMLInputElement).value, false)
+                          "
+                          @change="autosave()"
                         />
                         <span v-if="tasks[task].via === 'cli'" class="task-what">
                           {{ t.settings.agentModelHint }}
@@ -525,11 +660,11 @@ function connectionSummary(kind: ConnectionKind): string {
                         </span>
                         <!-- **這一句比那個下拉選單重要。** 換嵌入模型的代價要在按下去之前就看得到 -->
                         <span v-if="task === 'embed'" class="task-what warn">
-                          {{ t.settings.embedIrreversible }}
+                          {{ t.settings.embedSwitch }}
                         </span>
                       </td>
 
-                      <!-- 狀態：**存檔那一份的**。改了還沒存的話，儲存鈕旁邊會說。 -->
+                      <!-- 狀態：**存檔那一份的**。改了就存，所以它跟左邊一致；還在打的那一格，最上面那一行會說。 -->
                       <td class="status-cell">
                         <template v-if="rowOf(task) !== null">
                           <span class="state">
@@ -613,7 +748,12 @@ function connectionSummary(kind: ConnectionKind): string {
                 <p class="hint">{{ t.settings.connectionWhat.cli }}</p>
                 <label class="field">
                   <span>{{ t.settings.cliCommand }}</span>
-                  <input v-model="cliCommand" type="text" placeholder="claude" />
+                  <input
+                    v-model="cliCommand"
+                    type="text"
+                    placeholder="claude"
+                    @change="autosave()"
+                  />
                   <small>{{ t.settings.cliCommandHint }}</small>
                 </label>
               </div>
@@ -627,7 +767,12 @@ function connectionSummary(kind: ConnectionKind): string {
                 <p class="hint">{{ t.settings.connectionWhat.ollama }}</p>
                 <label class="field">
                   <span>{{ t.settings.baseUrl }}</span>
-                  <input v-model="ollamaUrl" type="text" :placeholder="OLLAMA_DEFAULT_URL" />
+                  <input
+                    v-model="ollamaUrl"
+                    type="text"
+                    :placeholder="OLLAMA_DEFAULT_URL"
+                    @change="autosave()"
+                  />
                 </label>
                 <div class="actions">
                   <button :disabled="listing !== null" @click="listModels('ollama')">
@@ -654,16 +799,22 @@ function connectionSummary(kind: ConnectionKind): string {
                       v-model="openaiUrl"
                       type="text"
                       :placeholder="t.settings.openaiBaseUrlPlaceholder"
+                      @change="autosave()"
                     />
                   </label>
                   <!-- **只填變數的名字。** 金鑰本身不進任何一個檔（2026-09-08）。 -->
                   <label class="field">
                     <span>{{ t.settings.apiKeyEnv }}</span>
-                    <input v-model="openaiKeyEnv" type="text" placeholder="OPENAI_API_KEY" />
+                    <input
+                      v-model="openaiKeyEnv"
+                      type="text"
+                      placeholder="OPENAI_API_KEY"
+                      @change="autosave()"
+                    />
                     <small>{{ t.settings.apiKeyEnvHint }}</small>
                   </label>
                 </div>
-                <!-- **不合格的名字會被丟掉，所以要在按下儲存之前就說。** -->
+                <!-- **不合格的名字會被丟掉，所以不存，而且當場說。** -->
                 <p v-if="apiKeyEnvBad" class="callout">{{ t.settings.apiKeyEnvBad }}</p>
                 <p
                   v-if="connectionOf('openai') && connectionOf('openai')!.auth !== 'none'"
@@ -717,21 +868,13 @@ function connectionSummary(kind: ConnectionKind): string {
             <section class="card diagnostics">
               <h2>{{ t.settings.diagnosticsTitle }}</h2>
               <label class="check">
-                <input v-model="logModelCalls" type="checkbox" />
+                <input v-model="logModelCalls" type="checkbox" @change="autosave()" />
                 <span>{{ t.settings.logModelCalls }}</span>
               </label>
               <p class="hint">{{ t.settings.logModelCallsWhat }}</p>
               <p class="hint">{{ t.settings.logModelCallsWhere }}</p>
               <p class="hint">{{ t.settings.logModelCallsCost }}</p>
             </section>
-
-            <div class="save">
-              <button class="primary" :disabled="saving" @click="save">
-                {{ t.settings.save }}
-              </button>
-              <span v-if="dirty" class="hint">{{ t.settings.unsaved }}</span>
-              <span v-else-if="savedAt" class="hint">{{ t.settings.saved }}</span>
-            </div>
           </template>
         </div>
       </div>
@@ -927,7 +1070,7 @@ function connectionSummary(kind: ConnectionKind): string {
   overflow-x: auto;
 }
 
-/* ── 診斷與儲存 ── */
+/* ── 診斷 ── */
 .diagnostics .check {
   margin-bottom: var(--s2);
 }
@@ -935,10 +1078,63 @@ function connectionSummary(kind: ConnectionKind): string {
   margin-top: 6px;
   max-width: 68ch;
 }
-.save {
+
+/*
+ * ── 改了就存的那一行 ──
+ * 貼在頁面最上面、捲動時跟著走（外層 `main.scroll` 是捲動容器）。
+ * 點的形狀跟任務表的狀態點同一套：實心＝存好了、空心＝還沒動過／還在打、虛線＝要處理。
+ * 「存好了」不上綠色（綠色留給「完成」，ADR-0018）；「沒存成」才用紅。
+ */
+.save-state {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: var(--s4);
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: 0 0 var(--s4);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: var(--fs-small);
+}
+.save-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-tertiary);
+}
+.save-state.saved .save-dot {
+  background: var(--text-secondary);
+  border-color: var(--text-secondary);
+}
+.save-state.saving .save-dot {
+  border-style: dotted;
+  border-color: var(--text-secondary);
+}
+.save-state.held,
+.save-state.editing {
+  border-color: var(--edge-pending);
+}
+.save-state.held .save-dot,
+.save-state.editing .save-dot {
+  border-style: dashed;
+  border-color: var(--edge-pending);
+}
+.save-state.failed {
+  border-color: var(--ui-danger);
+  color: var(--text);
+}
+.save-state.failed .save-dot {
+  border-color: var(--ui-danger);
+  background: var(--ui-danger);
+}
+.save-text {
+  flex: 1 1 24ch;
+  min-width: 0;
 }
 </style>

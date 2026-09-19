@@ -31,6 +31,8 @@
 | **切入角度** | `angle` | 擴展的一條多視角子問題。**使用者勾選之後才展開** | `data-model.md` |
 | **沙箱** | `sandbox` | agent 子程序的工作目錄。**裡面不得出現抓取產物** | ADR-0006 |
 | **能力宣告** | `capabilities` | 一個 provider 有沒有 `browse`／`tools`／`json_schema`／`vision`，以及 context 多大 | ADR-0006 |
+| **任務** | `task` | 會用到模型的一件事：找候選來源、歸納切入角度、抽實體與關係、算語意向量（`MODEL_TASKS`）。**模型設定以它為主鍵** | ADR-0032 |
+| **連線** | `connection` | 一條到模型的路：Claude Code CLI、本機 Ollama、OpenAI 相容端點。**定義一次，每個任務挑一條**；程式裡的「角色」（`agent`／`chat`／`embed`）只剩下決定「這個任務可以走哪幾條」 | ADR-0032 |
 
 ## 狀態的值
 

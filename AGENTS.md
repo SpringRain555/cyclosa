@@ -38,7 +38,14 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：第一次真實操作回報的實錯修掉了（v0.23.0）
+## 現況：版面有了一套規則、設定頁以任務為主、閱讀器整份連續捲動（v0.24.0）
+
+**v0.24.0 做了十四點裡設計的三塊。** 版面基礎在 `web/src/styles/base.css`（字級五級、按鈕／輸入框／表格
+只定義一次，`tests/guards/no-element-restyle.test.ts` 擋住元件各自重畫）；`providers.json` 升 v2，
+**主鍵是任務**：每個任務各自挑連線（CLI／本機 Ollama／OpenAI 相容端點）與模型（ADR-0032），
+跑任務一律 `chatFor(task)`，沒有「預設的 chat」；PDF 整份連續捲動，抽取端重排成段落
+（`extract/pdf-reflow.ts`，`EXTRACTOR_VERSION` 2）。**v0.23.0 寫的「投影門檻預設跟專題大小走」量過是錯的**
+（降門檻反而看得更少），沒做 —— `docs/research/open-questions.md` Q1。
 
 **v0.23.0 只修錯，不動設計。** 2026-09-18 使用者第一次拿一篇真的論文走完「建專題 → 匯入 → 擴展」，
 回報十四點；八點是程式碼對得到行號的實錯（`docs/changelog.md` 有表）：看不見字的「儲存」鈕
@@ -101,7 +108,7 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 輸入一個主題讓 LLM 產生切入角度、勾選展開 → 全文／語意／混合檢索 →
 把選取的子圖匯出成證據包**。
 
-`chat` 可以接本機 Ollama（原生協定），也可以接任何 OpenAI 相容端點。
+歸納與抽取各自可以接本機 Ollama（原生協定）或任何 OpenAI 相容端點（v0.24.0 起逐任務挑，ADR-0032）。
 **後者的「符合 schema」是量的** —— 每個端點＋模型量一次、帶著時間記在
 `%LOCALAPPDATA%\Cyclosa\provider-checks.json`；只到 `json_object` 的端點改由
 `conformsTo` 事後驗證，**而且設定頁與作業紀錄都說得出是哪一種**（ADR-0030）。
@@ -173,7 +180,7 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 3. **接管了套件的職責之後，對應的 API 就是陷阱。**
    切 2D **不呼叫** `numDimensions()` —— 它會重跑佈局初始化，按下去整張圖空白。
 
-**動擷取管線之前一定要知道的四件**：
+**動擷取管線之前一定要知道的五件**：
 
 1. **擷取管線是唯一出口**（`infrastructure/fetch/crawler.ts`）。節流、`robots.txt`、
    雜湊、manifest 只存在於那一層 —— 開第二條路等於讓它們全部失效。
@@ -183,6 +190,9 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 4. **被限流是退避重試，不是整批停**（ADR-0031）。同一個 URL 照 `Retry-After` 等、最多再試兩次，
    還是不行就**這一輪不再碰那個 host**（`Crawler.limitedHosts`，轉址的每一跳都查），其他 host 照跑。
    **`Crawler.stop()` 只代表使用者取消** —— 把它接回限流，一個網站的 429 又會變成整批停。
+5. **改抽取邏輯就要 +1 `EXTRACTOR_VERSION`，並在 `EXTRACTOR_CHANGES` 寫下那一版改了哪幾種資料**
+   （`tests/guards/extractor-version.test.ts`）。讀取找不到新版會退回舊版，所以**刪就要每一版都刪**
+   （`removeDerived`）；「重算全部正文」會重解點註，也把關聯引文的字元位置對回新的正文。
 
 > **這一節每個 Stage 收尾都要改。** 它是整份文件裡最容易變成謊言的一段 ——
 > 而一份說錯話的 agent 檔會讓下一個人（或 LLM）照著一個不存在的世界動手。

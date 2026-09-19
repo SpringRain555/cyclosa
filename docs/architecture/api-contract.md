@@ -55,6 +55,14 @@
 > （這個工具抓不到它們）；`POST /api/sources` **沒帶 `enabled` 就是不改它** —— 之前會把預設關著的列打開。
 > `DELETE` 對內建列仍然是關掉，不是刪掉。
 >
+> **v0.23.0 新增**：`DELETE …/runs/:runId`（只准沒開始的擴展草稿）。
+>
+> **v0.24.0 新增**：**`POST /api/providers/connections/:kind/models`**（不存檔就列模型）。
+> 同一版**模型設定改以任務為主鍵**（ADR-0032）：`GET /api/providers` 回 `{connections, tasks, config}`
+> （`config.version` 是 2），`POST /api/providers/test` 的 body 從 `{role}` 換成 `{task}`；
+> `POST /api/providers` 收 v1 或 v2 的形狀都行、存進去的永遠是 v2。
+> `GET …/items/:itemId/content` 多一欄 `stale`，`POST …/rebuild` 的回報多一組 `evidence`。
+>
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
 ---
@@ -200,9 +208,10 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /healthz` | 回 `{"app":"cyclosa","version":"…"}`。**單一實例偵測靠它**（ADR-0020）—— 只看有沒有回 200 會把別人的服務誤認成自己 |
-| `GET /api/providers` | 各角色目前設定了什麼、能力宣告是什麼、**跑不跑得動它要跑的任務（缺哪幾樣）**。另外回兩份模型清單：`chatModels`（**照 `chat` 的傳輸去問**：Ollama 問 `/api/tags`、OpenAI 相容端點問 `/models`）與 `embedModels`（**永遠問嵌入自己那個本機位址**）—— **`null` 代表列不出來**，不是「一個都沒有」。`chat` 的狀態多帶 `transport` 與 `jsonMode`（「符合 schema」由誰保證、什麼時候量的，ADR-0030），`chatTasks` 每一列也各帶一個 `jsonMode`。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
-| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。`chat.transport` 是 `ollama`／`openai`，**缺或不認得就是 `ollama`**（v0.18.0 之前唯一的選項）|
-| `POST /api/providers/test` | `{role}`：**實際打一次**。回 `{ok, code, costUsd, elapsedMs, jsonMode}`。**`chat` 走 OpenAI 相容端點時，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
+| `GET /api/providers` | **v0.24.0 起（ADR-0032）回三樣**：`connections`（CLI／本機 Ollama／OpenAI 相容端點各一列：連不連得上、金鑰變數有沒有設、**這條連線上有哪些模型** —— `null` 代表列不出來，不是「一個都沒有」；CLI 永遠 `null`）、`tasks`（四個任務各一列：走哪一條連線、哪個模型、`state`、版本、能力宣告、`jsonMode`〔只有對話任務有，ADR-0030〕、`ok`、**缺哪幾樣**）、`config`（v2 的設定檔）。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
+| `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。**收 v1 或 v2 的形狀都行**，讀檔與收請求走同一支解析（`parseConfig`），存進去的永遠是 v2。每個任務的 `via` 不在它准許的清單裡就退回第一個准許的；金鑰欄位形狀不對就當沒設定 |
+| `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
+| `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型，不必先按儲存。回 `{kind, models, auth}` |
 | `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**作業紀錄頁那一列從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）|
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
@@ -267,6 +276,10 @@
 > **它不是 `run`**：續跑點就是「還有哪些沒有向量」這個查詢本身，
 > 所以取消與復原對它沒有意義，而一個假的取消按鈕比沒有更糟。
 > `model` 是 `null` 代表還沒設定嵌入模型 —— **那是一個狀態，不是錯誤。**
+
+> **v0.24.0 起下面這兩段描述的形狀已經換掉**（ADR-0032）：沒有 `chat.taskModels`、
+> 沒有角色層的 `readiness`，每個任務自己帶連線與模型。留著是因為它們解釋了
+> 「為什麼逐任務算缺什麼」—— 那個理由沒有變，只是現在沒有角色層可以合併了。
 
 > ### `chat` 的逐任務覆寫（2026-09-10，v0.10.6）
 >
@@ -338,7 +351,7 @@
 |---|---|
 | `GET /api/cases/:id/items` | cursor 分頁 ＋ 篩選 |
 | `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言 |
-| `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）|
+| `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）。v0.24.0 起多一欄 `stale`：這份是舊版抽取器抽的，**而且那一版之後這一種資料的抽取真的改過**（`EXTRACTOR_CHANGES`）—— 閱讀器據此說一句「按重算全部正文會換成新的」 |
 | `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）|
 | `GET …/subgraph/focus` | 打開關聯圖時的起點。**回一個焦點，不回一張圖** |
 | `POST …/items/:itemId/read` | 標記已讀。**正交旗標，不是狀態轉移** |
@@ -409,7 +422,7 @@
 | `GET …/notes` | 專題全部的點註 |
 | `PATCH …/notes/:noteId` | 改註記內容。**錨點不動** |
 | `DELETE …/notes/:noteId` | 刪掉。回 `removedEdges` —— 順便拿掉的線有幾條 |
-| `POST …/rebuild` | **`derived/` 整批重算**，回重抽了幾份與每個錨點解得怎麼樣 |
+| `POST …/rebuild` | **`derived/` 整批重算**，回重抽了幾份、每個點註的錨點解得怎麼樣，以及（v0.24.0）**每條關聯引文的位置對回去了幾條、找不到幾條**（`evidence`）—— 引文記的是「在正文的第幾個字」，抽取器一改就全部平移。找不到的原樣留著，不刪 |
 
 > **建立點註時前端不送引文，只送位置。**
 >

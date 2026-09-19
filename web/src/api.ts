@@ -44,10 +44,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<ApiResult<T
       },
     });
   } catch {
-    // 連不到 server —— 多半是它剛結束了
+    // 連不到 server —— 多半是它剛結束了。**不借用 IO_UNEXPECTED**：那一句叫人交出識別碼，
+    // 而伺服器沒回話就沒有識別碼（v0.24.3）。
     return {
       ok: false,
-      error: { code: 'IO_UNEXPECTED', message: t.error.unknown, correlationId: '' },
+      error: {
+        code: 'IO_SERVER_UNREACHABLE',
+        message: errorMessages['IO_SERVER_UNREACHABLE'] ?? t.error.unknown,
+        correlationId: '',
+      },
     };
   }
 

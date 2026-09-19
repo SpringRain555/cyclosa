@@ -88,6 +88,15 @@ export const ERROR_CODES = {
   IO_SNAPSHOT_MISSING: 'partial',
   IO_SNAPSHOT_CORRUPT: 'error',
   IO_UNEXPECTED: 'error',
+  /**
+   * **畫面連不到 Cyclosa 自己的伺服器**（v0.24.3）。只有前端會產生這個碼：`fetch` 本身失敗，
+   * 伺服器根本沒有回話。
+   *
+   * 2026-09-19 之前這個情況用的是 `IO_UNEXPECTED` 的訊息 ——「請把下面的識別碼交出來」，
+   * 而下面沒有識別碼（伺服器沒回話，哪來的識別碼），也沒說伺服器已經不在了。
+   * 使用者看到的是一句要他交出一個不存在的東西的話。
+   */
+  IO_SERVER_UNREACHABLE: 'error',
 
   // ── FETCH_* 擷取 ─────────────────────────────────────────
   /** 貼進來的東西根本不是一個 http／https 網址。**這是輸入問題，不是網路問題。** */

@@ -54,6 +54,9 @@ export const errorMessages: Readonly<Record<string, string>> = {
   IO_SNAPSHOT_CORRUPT:
     '原始快照的內容跟當初存下來的不一樣 —— 快照本來不應該被改動。請確認是不是同步軟體或防毒動過它。',
   IO_UNEXPECTED: '存取檔案時出了預期外的問題。請把下面的識別碼交出來。',
+  /** 伺服器沒有回話，所以**沒有識別碼可以交** —— 這一句不能叫人交識別碼（v0.24.3）。 */
+  IO_SERVER_UNREACHABLE:
+    '連不到 Cyclosa 的伺服器 —— 它可能已經結束了。重新執行 start_cyclosa.cmd 之後再開這一頁。如果不是你結束的，%LOCALAPPDATA%\\Cyclosa\\logs 裡的 server.log 與 server.err.log 會記著它為什麼停。',
 
   // ── 擷取 ──────────────────────────────────────────────
   FETCH_BAD_URL: '這不是一個網址。檢查看看是不是少了開頭的 https://，或貼到的是一段文字。',

@@ -242,17 +242,25 @@ Write-Step '啟動'
 # 而一個存在資料根裡的日誌在那個情況下寫不出來。
 $logDir = Join-Path $env:LOCALAPPDATA 'Cyclosa\logs'
 $logFile = Join-Path $logDir 'server.log'
+# **stderr 也要有個去處**（v0.24.3）。日誌檔只收經過 logger 的那幾行；
+# 程式自己當掉時 Node 印的那一行（沒接住的錯誤的堆疊、原生層的 assert）只會出現在 stderr ——
+# 2026-09-19 伺服器在一次「儲存並測試」之後消失，server.log 一個字都沒有，就是因為那一行沒地方去。
+$errFile = Join-Path $logDir 'server.err.log'
 try {
     New-Item -ItemType Directory -Force -Path $logDir | Out-Null
     # 每次啟動留兩份：這一次與上一次。**不做輪替就會長成一個沒有人會刪的檔案。**
     if (Test-Path -LiteralPath $logFile) {
         Move-Item -LiteralPath $logFile -Destination (Join-Path $logDir 'server.prev.log') -Force
     }
+    if (Test-Path -LiteralPath $errFile) {
+        Move-Item -LiteralPath $errFile -Destination (Join-Path $logDir 'server.err.prev.log') -Force
+    }
     $env:CYCLOSA_LOG_FILE = $logFile
 } catch {
     # 日誌寫不了不該讓程式起不來 —— 但要說出來，不然「怎麼沒有日誌」會變成第二個謎。
     Write-Note "寫不了日誌（$logDir），這一次不留紀錄。"
     $logFile = $null
+    $errFile = $null
 }
 
 if ($Foreground) {
@@ -276,8 +284,26 @@ if ($Foreground) {
 # 走 ShellExecute 的那兩個不繼承這個主控台，所以這個視窗可以先走 ——
 # 而共用主控台的那一個，會讓視窗一直開到 server 結束為止。
 # （webscouts 的 `tools\Launch.ps1` 是同一個結論，理由也一樣。）
-$proc = Start-Process -FilePath $node -ArgumentList @($serverEntry) `
-    -WorkingDirectory $root -PassThru -WindowStyle Hidden
+#
+# **加上導向之後仍然是自己的主控台**（v0.24.3 實測）：導向讓 Start-Process 改走 CreateProcess
+# 而不是 ShellExecute，但它照樣替 node 開一個新的（隱藏的）主控台 —— node 底下有它自己的
+# conhost.exe，這個視窗關掉不會連帶關掉它。
+#
+# **stdout 導到 NUL，不能不導。** 只導 stderr 的話，CreateProcess 要三個標準代碼一起給，
+# 沒導的那一個就是這個視窗的 —— node 的 stdout 會指著一個等一下就關掉的主控台
+# （實測時伺服器的日誌行直接印進了起它的那個行程）。那裡印的東西 server.log 都有。
+$startArgs = @{
+    FilePath         = $node
+    ArgumentList     = @($serverEntry)
+    WorkingDirectory = $root
+    PassThru         = $true
+    WindowStyle      = 'Hidden'
+}
+if ($errFile) {
+    $startArgs['RedirectStandardError'] = $errFile
+    $startArgs['RedirectStandardOutput'] = 'NUL'
+}
+$proc = Start-Process @startArgs
 
 function Stop-WithLog {
     param([string]$Title, [string[]]$Lines)
@@ -286,6 +312,11 @@ function Stop-WithLog {
         $tail = Get-Content -LiteralPath $logFile -Tail 15 -Encoding UTF8
         if ($tail) { $extra = @('', 'server 最後印的幾行：') + $tail }
         $extra += @('', "完整紀錄：$logFile")
+    }
+    # 起不來的那一種，原因多半只在 stderr（載入失敗的堆疊不經過 logger）。
+    if ($errFile -and (Test-Path -LiteralPath $errFile)) {
+        $errTail = Get-Content -LiteralPath $errFile -Tail 15 -Encoding UTF8
+        if ($errTail) { $extra += @('', 'server 印到 stderr 的最後幾行：') + $errTail + @('', "完整紀錄：$errFile") }
     }
     Stop-WithMessage $Title ($Lines + $extra)
 }
@@ -317,6 +348,6 @@ Write-Host '  要換位置用設定頁的「資料位置」（會複製、驗證
 # **要結束的路只有一條，而且不在這裡。** 這個視窗等一下就不見了，
 # 所以它不能是關掉 Cyclosa 的方法 —— 那件事在畫面右上角。
 Write-Host '  要結束 Cyclosa，用畫面右上角的「結束 Cyclosa」。' -ForegroundColor DarkYellow
-if ($logFile) { Write-Host "  server 的紀錄：$logFile" -ForegroundColor DarkGray }
+if ($logFile) { Write-Host "  server 的紀錄：$logFile（當掉時的訊息在旁邊的 server.err.log）" -ForegroundColor DarkGray }
 Write-Host ''
 exit 0

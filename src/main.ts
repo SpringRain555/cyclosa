@@ -8,7 +8,11 @@
  */
 import { buildServer, HOST, PORT, VERSION } from './server.js';
 import { shutdownSequence, targetOf } from './interface/http/shutdown.js';
+import { installCrashTrace } from './shared/crash-trace.js';
 import { logger } from './shared/log.js';
+
+// **最先做。** 自己死掉的時候要留得下一行 —— 見 `shared/crash-trace.ts` 的檔頭。
+installCrashTrace();
 
 /**
  * 7433 上的那個是不是我們自己。

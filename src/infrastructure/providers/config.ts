@@ -127,14 +127,15 @@ export interface TaskSetting {
 /**
  * 每個任務**可以**走哪些連線。**由角色推出來，不另外手寫一份。**
  *
- * - 找來源要 `browse`，只有 CLI 有 —— 所以只能是 `cli`。
+ * - 找來源要 `browse`：CLI 有（`--tools WebSearch`），OpenAI 相容 API 走 Responses API 的
+ *   搜尋工具也有 —— **後者是量的**（`agent-openai.ts`，v0.24.2，ADR-0034）。本機 Ollama 沒有。
  * - 歸納與抽取是對話模型，本機或線上都行。
  * - 嵌入只准本機（ADR-0009）：向量會被寫進資料庫並長期保存，
  *   一個雲端端點隨時可能換掉背後的權重，**而那些變化不會報錯，只會讓比對安靜地變爛**。
  */
 export function viaOptionsOf(task: ModelTask): readonly ConnectionKind[] {
   const role = roleOfTask(task);
-  if (role === 'agent') return ['cli'];
+  if (role === 'agent') return ['cli', 'openai'];
   if (role === 'embed') return ['ollama'];
   return ['ollama', 'openai'];
 }

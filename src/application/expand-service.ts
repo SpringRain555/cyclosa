@@ -511,6 +511,21 @@ export async function chooseAngles(
     const match = missingFor(TASK_FIND_SOURCES, probe.capabilities);
     if (match.kind === 'missing') return capabilityError(cid, 'agent', match.flags, match.context);
 
+    /**
+     * **「會不會上網搜尋」也在開始之前確定**（v0.24.2，ADR-0034）。走 OpenAI 相容 API 的找來源，
+     * 搜尋是量的：沒量過就在這裡量一次（一個帶搜尋的小請求），量出不會就停 ——
+     * 不要等到每條角度都跑完、每一條都回「沒有搜尋就交回了網址」。CLI 沒有這一支（它的搜尋是參數）。
+     */
+    if (agent.checkBrowse !== undefined && agent.browseReport !== undefined) {
+      let browse = await agent.browseReport();
+      if (browse.state === 'unchecked') {
+        const measured = await agent.checkBrowse();
+        if (measured.kind === 'error') return err(measured.code, cid, { role: 'agent' });
+        browse = measured.value;
+      }
+      if (browse.state === 'no') return capabilityError(cid, 'agent', ['browse']);
+    }
+
     // chat 也要在 —— 抽關聯那一步靠它。**在開始之前就檢查**，
     // 不要抓完 30 個網址才發現沒有東西可以抽關聯。
     //

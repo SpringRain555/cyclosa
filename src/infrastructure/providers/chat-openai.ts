@@ -1,13 +1,21 @@
 /**
- * OpenAI 相容端點當 `chat`。
+ * OpenAI 相容 API 當 `chat`。
  *
- * 線上的（各家 API）與別家本機伺服器（vLLM、LM Studio、llama.cpp 的 server）
- * 都說這一種協定：`GET {baseUrl}/models`、`POST {baseUrl}/chat/completions`。
- * `baseUrl` 照各家文件的寫法**含 `/v1`**。
+ * 線上的（各家 API、訂閱的代理）與別家本機伺服器（vLLM、LM Studio、llama.cpp 的 server）
+ * 都說這一種協定：`GET {baseUrl}/models`，然後 `POST {baseUrl}/responses`（Responses API）
+ * 或 `POST {baseUrl}/chat/completions`（Chat Completions）。`baseUrl` 照各家文件的寫法**含 `/v1`**。
+ *
+ * ## 先走 Responses API，沒有那條路才退回 Chat Completions（v0.24.2，ADR-0034）
+ *
+ * 2026-09-19 使用者說「調用時用 responses format，不要用 chat format」—— 他那一條端點原生說的
+ * 是 Responses API，Chat Completions 在那上面是一層翻譯；而**網頁搜尋只有 Responses API 有**，
+ * 找來源那一支（`agent-openai.ts`）沒有別條路。所以對話也走這一條，同一個端點只有一種協定、一份量測。
+ * `/responses` 回 404（或 405、501）的端點才退回 Chat Completions，**而且走的是哪一種記在量測裡、
+ * 畫面上說得出來**（`JsonModeReport.protocol`）。兩條路的 body 由 `ask()` 各自組，其餘邏輯共用。
  *
  * ## 「符合 schema」這件事，這裡是量的，不是宣告的
  *
- * 各家對 `response_format` 的支援不一樣，而且**會變**：
+ * 各家對 `response_format`／`text.format` 的支援不一樣，而且**會變**：
  * 這個專案自己寫過一句「OpenAI 相容那條路只到 `json_object`」，
  * 2026-09-11 重量一次就不成立了（Ollama 0.33.2 的 `/v1` 支援 `json_schema`）。
  * 所以每一個「端點＋模型」各量一次（`checkJson`），結果帶著時間存在
@@ -17,8 +25,8 @@
  *
  * | 結果 | 怎麼送 | 誰保證形狀 |
  * |---|---|---|
- * | `schema` | `response_format: { type: 'json_schema', … }` | 端點 |
- * | `object` | `response_format: { type: 'json_object' }`，schema 寫進系統提示 | **這一側事後驗證** |
+ * | `schema` | `json_schema`（Responses 是 `text.format`，Chat 是 `response_format`）| 端點 |
+ * | `object` | `json_object`，schema 寫進系統提示 | **這一側事後驗證** |
  * | `none` | 不送 | —— 需要結構化輸出的任務停手（`PROVIDER_JSON_UNSUPPORTED`）|
  *
  * **兩種模式都會驗**（`conformsTo`）。`schema` 模式下驗不過代表端點說它支援
@@ -43,6 +51,8 @@
  *   **形狀不對不重問** —— 那會讓結果來自一組跟畫面上顯示的不同的條件
  * - **沒有成本上限**：這個協定不回報金額（`usage` 只有 token 數），
  *   所以 `costUsd` 是 `null` —— 不知道，不是 0
+ * - **Responses API 上一律串流**：使用者那一條代理不串流的時候回 `output: []`
+ *   （`responses-api.ts` 檔頭）。這裡沒有逐字顯示的需求，讀完整個事件流再組回來。
  */
 import {
   conformsTo,
@@ -52,27 +62,27 @@ import {
   type ProviderCapabilities,
 } from '../../domain/provider/index.js';
 import type { ErrorCode } from '../../domain/errors/codes.js';
-import { CHAT_TIMEOUT_MS, PROBE_TIMEOUT_MS, authHeader, withTimeout } from './http.js';
+import { CHAT_TIMEOUT_MS, authHeader, withTimeout } from './http.js';
 import {
   checkKey,
   readJsonChecks,
   writeJsonCheck,
   type JsonCheck,
   type MeasuredJsonMode,
+  type OpenAiProtocol,
 } from './json-checks.js';
+import {
+  codeForStatus,
+  contextOf,
+  fetchModels,
+  parseJson,
+  rootOf,
+  secretOf,
+  sleepUnlessAborted,
+  snippet,
+} from './openai-common.js';
+import { hasNoResponsesRoute, parseResponsesBody, sendResponses } from './responses-api.js';
 import type { CallOutcome, ChatProvider, JsonModeReport, ProbeResult } from './types.js';
-
-interface ModelEntry {
-  readonly id?: unknown;
-  /** OpenRouter 這類聚合服務會帶 */
-  readonly context_length?: unknown;
-  /** vLLM 會帶 */
-  readonly max_model_len?: unknown;
-}
-
-function rootOf(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/+$/, '');
-}
 
 /**
  * `/models` 列得出來的東西。**`null` ＝ 列不出來**（連不上、被拒、或位址不對），
@@ -88,40 +98,7 @@ export async function listOpenAiModels(
   return found.kind === 'ok' ? found.models.map((m) => String(m.id ?? '')).filter(Boolean) : null;
 }
 
-type ModelsResult =
-  | { readonly kind: 'ok'; readonly models: readonly ModelEntry[] }
-  | { readonly kind: 'auth'; readonly status: number }
-  | { readonly kind: 'http'; readonly status: number }
-  | { readonly kind: 'unreachable'; readonly detail: string };
-
-async function fetchModels(
-  root: string,
-  headers: Readonly<Record<string, string>>,
-  signal?: AbortSignal,
-): Promise<ModelsResult> {
-  const t = withTimeout(PROBE_TIMEOUT_MS, signal);
-  try {
-    const res = await fetch(`${root}/models`, { signal: t.signal, headers });
-    if (res.status === 401 || res.status === 403) return { kind: 'auth', status: res.status };
-    if (!res.ok) return { kind: 'http', status: res.status };
-    const body = (await res.json()) as { data?: unknown };
-    return { kind: 'ok', models: Array.isArray(body.data) ? (body.data as ModelEntry[]) : [] };
-  } catch (e) {
-    return { kind: 'unreachable', detail: String((e as Error).message) };
-  } finally {
-    t.done();
-  }
-}
-
-/** 對方有報就用；**沒報是 0 ＝ 不知道**，閘門對 0 放行（`missingFor`）。 */
-function contextOf(entry: ModelEntry): number {
-  for (const v of [entry.context_length, entry.max_model_len]) {
-    if (typeof v === 'number' && v > 0) return v;
-  }
-  return 0;
-}
-
-// ── 格式量測 ──────────────────────────────────────────────────
+// ── 格式量測 ──────────────────────────────────────────────
 
 /**
  * 量測用的 schema：**模型不可能自己猜到的值。**
@@ -141,45 +118,67 @@ export const PROBE_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const PULL_AWAY = [
-  { role: 'system', content: '回答使用者的問題。' },
-  { role: 'user', content: '用一句話介紹你自己。不要用 JSON，用一般的句子。' },
-];
-const ASK_JSON = [
-  { role: 'system', content: '只回 JSON。' },
-  { role: 'user', content: '回一個 JSON 物件，裡面有一個欄位 ok，值是 true。' },
-];
+const PULL_AWAY = {
+  system: '回答使用者的問題。',
+  user: '用一句話介紹你自己。不要用 JSON，用一般的句子。',
+};
+const ASK_JSON = {
+  system: '只回 JSON。',
+  user: '回一個 JSON 物件，裡面有一個欄位 ok，值是 true。',
+};
 
-interface Completion {
-  readonly status: number;
-  readonly content: string;
-  readonly finish: string | null;
-  readonly errorText: string;
+/** 要端點保證什麼形狀。兩種協定各自有寫法，但要的是同一件事。 */
+type OutputFormat =
+  | { readonly kind: 'schema'; readonly schema: Readonly<Record<string, unknown>> }
+  | { readonly kind: 'object' };
+
+interface AskRequest {
+  readonly model: string;
+  readonly system: string;
+  readonly user: string;
+  readonly format: OutputFormat;
 }
 
-/** 退避時也要聽得到取消：被 abort 就丟出去，讓外面走「連不上／逾時」那條。 */
-function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) return reject(signal.reason ?? new Error('aborted'));
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new Error('aborted'));
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
+/** 一次對話請求的結果，**兩種協定收斂成同一個形狀**，後面的判斷只寫一份。 */
+type Asked =
+  | {
+      readonly kind: 'answer';
+      readonly content: string;
+      /** 有值 ＝ 輸出在上限用完時停了，值是給人看的一句話 */
+      readonly truncated: string | null;
+    }
+  | { readonly kind: 'http'; readonly status: number; readonly text: string }
+  /** 對方回了 200 卻說這一次失敗或沒收尾（只有 Responses API 有這種） */
+  | { readonly kind: 'failed'; readonly detail: string }
+  | { readonly kind: 'thrown'; readonly detail: string; readonly timedOut: boolean };
+
+/**
+ * 嚴格模式有它自己的形狀要求（每個物件都要 `additionalProperties: false`、`required` 要列全），
+ * 而那是端點的要求不是我們的規則 —— 所以在這裡補，不改那三份 schema（`strictify` 的檔頭寫了為什麼）。
+ */
+function strictSchemaOf(schema: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  return { name: 'cyclosa', strict: true, schema: strictify(schema) };
 }
 
-async function complete(
+/** Chat Completions：`POST /chat/completions`，不串流。 */
+async function askChat(
   root: string,
   headers: Readonly<Record<string, string>>,
-  body: Record<string, unknown>,
+  req: AskRequest,
   timeoutMs: number,
   signal: AbortSignal | undefined,
-): Promise<Completion | { readonly thrown: string; readonly timedOut: boolean }> {
+): Promise<Asked> {
+  const body: Record<string, unknown> = {
+    model: req.model,
+    messages: [
+      { role: 'system', content: req.system },
+      { role: 'user', content: req.user },
+    ],
+    response_format:
+      req.format.kind === 'schema'
+        ? { type: 'json_schema', json_schema: strictSchemaOf(req.format.schema) }
+        : { type: 'json_object' },
+  };
   // **逾時是整次呼叫的預算，含退避的等待** —— 不是每一次重試各自一份。
   const t = withTimeout(timeoutMs, signal);
   try {
@@ -202,57 +201,87 @@ async function complete(
           continue;
         }
       }
-      if (!res.ok) return { status: res.status, content: '', finish: null, errorText: text };
+      if (!res.ok) return { kind: 'http', status: res.status, text };
       const json = JSON.parse(text) as {
         choices?: { message?: { content?: unknown }; finish_reason?: unknown }[];
       };
       const choice = json.choices?.[0];
       return {
-        status: res.status,
+        kind: 'answer',
         content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
-        finish: typeof choice?.finish_reason === 'string' ? choice.finish_reason : null,
-        errorText: '',
+        // 被截斷的空回應跟「模型壞了」下一步不同 —— 把對方自己說的理由帶出去。
+        truncated:
+          choice?.finish_reason === 'length'
+            ? '回應被截斷（finish_reason=length）—— 輸出在長度上限用完時停了'
+            : null,
       };
     }
   } catch (e) {
-    return { thrown: String((e as Error).message), timedOut: t.timedOut };
+    return { kind: 'thrown', detail: String((e as Error).message), timedOut: t.timedOut };
   } finally {
     t.done();
   }
 }
 
-function parseJson(content: string): unknown {
-  try {
-    return JSON.parse(content) as unknown;
-  } catch {
-    return undefined;
+/** Responses API：`POST /responses`，串流（`responses-api.ts`）。 */
+async function askResponses(
+  root: string,
+  headers: Readonly<Record<string, string>>,
+  req: AskRequest,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+): Promise<Asked> {
+  const sent = await sendResponses(
+    root,
+    headers,
+    {
+      model: req.model,
+      instructions: req.system,
+      input: req.user,
+      temperature: 0,
+      text: {
+        format:
+          req.format.kind === 'schema'
+            ? { type: 'json_schema', ...strictSchemaOf(req.format.schema) }
+            : { type: 'json_object' },
+      },
+    },
+    timeoutMs,
+    signal,
+  );
+  if (sent.kind !== 'body') return sent;
+  const answer = parseResponsesBody(sent.raw);
+  if (answer.status === 'failed') {
+    return { kind: 'failed', detail: `對方回報失敗：${answer.reason}` };
   }
+  if (answer.status === 'unfinished') return { kind: 'failed', detail: '串流沒有收尾就斷了' };
+  return {
+    kind: 'answer',
+    content: answer.text,
+    truncated:
+      answer.status === 'incomplete'
+        ? `回應沒有完成（${answer.reason || 'incomplete'}）—— 輸出在上限用完時停了`
+        : null,
+  };
 }
 
-/**
- * 錯誤訊息只留開頭一小段，**而且把金鑰遮掉**。
- *
- * 對方的錯誤頁可能很長，而且**可能夾著我們送出去的東西** —— 有的伺服器
- * 會把請求標頭回顯在錯誤內文裡。這一段會進 `detail`，而 `detail` 會進日誌、
- * 進 `provider-checks.json`、會在求助時被整份貼出來。金鑰只存名字的那條規矩
- *在這裡如果漏一格，就等於沒有那條規矩。
- *
- * 先遮再截：反過來的話，一把剛好跨在第 160 字上的金鑰會留下前半段。
- */
-function snippet(text: string, secret: string | null): string {
-  const scrubbed = secret !== null && secret.length > 0 ? text.split(secret).join('***') : text;
-  return scrubbed.replace(/\s+/g, ' ').trim().slice(0, 160);
+function ask(
+  protocol: OpenAiProtocol,
+  root: string,
+  headers: Readonly<Record<string, string>>,
+  req: AskRequest,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+): Promise<Asked> {
+  return protocol === 'responses'
+    ? askResponses(root, headers, req, timeoutMs, signal)
+    : askChat(root, headers, req, timeoutMs, signal);
 }
 
-/**
- * 狀態碼 → 我們的碼。**401／403 與 429 不能歸成「連不上」** ——
- * 前者的下一步是檢查金鑰，後者是等一下，而「連不上」叫人去看它有沒有開。
- */
-function codeForStatus(status: number): ErrorCode {
-  if (status === 401 || status === 403) return 'PROVIDER_AUTH_REJECTED';
-  if (status === 429) return 'PROVIDER_RATE_LIMITED';
-  return 'PROVIDER_UNREACHABLE';
-}
+export const PROTOCOL_NAME: Readonly<Record<OpenAiProtocol, string>> = {
+  responses: 'Responses API',
+  chat: 'Chat Completions',
+};
 
 // ── provider ─────────────────────────────────────────────────
 
@@ -265,18 +294,28 @@ export function createOpenAiChat(
   const root = rootOf(baseUrl);
   const key = checkKey(root, model);
   const headers = (): Readonly<Record<string, string>> => authHeader(apiKeyEnv, env);
-  /** 這一刻的金鑰值，**只拿來遮蔽**，不存、不回傳。 */
-  const secret = (): string | null => {
-    const v = apiKeyEnv === null ? undefined : env[apiKeyEnv];
-    return typeof v === 'string' && v.trim().length > 0 ? v.trim() : null;
-  };
+  const secret = (): string | null => secretOf(apiKeyEnv, env);
 
   async function known(): Promise<JsonCheck | null> {
     return (await readJsonChecks(env)).get(key) ?? null;
   }
 
+  function reportOf(check: JsonCheck | null): JsonModeReport {
+    return check === null
+      ? { mode: 'unchecked', checkedAt: null, detail: '', protocol: null }
+      : {
+          mode: check.mode,
+          checkedAt: check.checkedAt,
+          detail: check.detail,
+          protocol: check.protocol,
+        };
+  }
+
   /**
-   * 量一次。**會送出一到兩次真的請求。**
+   * 量一次。**會送出一到三次真的請求。**
+   *
+   * 第一個請求先走 Responses API；回 404 的端點就改走 Chat Completions 再問一次
+   * （那一次 404 不計費）。之後 `json_schema` 被拒或沒照做，再往 `json_object` 量一級。
    *
    * 被拒、限流、連不上的時候**不記下任何結果** —— 那些情況量不出支援度，
    * 記成 `none` 會讓一次暫時的網路問題變成一個永久的「這個端點不支援」。
@@ -293,75 +332,76 @@ export function createOpenAiChat(
       detail,
       cost: cost(),
     });
+    /** 量不出來的那幾種：回 `null` 表示可以繼續判斷。 */
+    const blocked = (a: Asked): CallOutcome<JsonModeReport> | null => {
+      if (a.kind === 'thrown') {
+        return fail(a.timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNREACHABLE', a.detail);
+      }
+      if (a.kind === 'failed') return fail('PROVIDER_UNEXPECTED', a.detail);
+      if (a.kind === 'http' && (a.status === 401 || a.status === 403 || a.status === 429)) {
+        return fail(codeForStatus(a.status), `HTTP ${a.status}`);
+      }
+      return null;
+    };
 
-    const a = await complete(
-      root,
-      headers(),
-      {
-        model,
-        messages: PULL_AWAY,
-        response_format: {
-          type: 'json_schema',
-          json_schema: { name: 'cyclosa_probe', strict: true, schema: PROBE_SCHEMA },
-        },
-      },
-      CHAT_TIMEOUT_MS,
-      signal,
-    );
-    if ('thrown' in a)
-      return fail(a.timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNREACHABLE', a.thrown);
-    if (a.status === 401 || a.status === 403 || a.status === 429) {
-      return fail(codeForStatus(a.status), `HTTP ${a.status}`);
+    let protocol: OpenAiProtocol = 'responses';
+    const probe: AskRequest = {
+      model,
+      ...PULL_AWAY,
+      format: { kind: 'schema', schema: PROBE_SCHEMA },
+    };
+    let a = await ask(protocol, root, headers(), probe, CHAT_TIMEOUT_MS, signal);
+    if (a.kind === 'http' && hasNoResponsesRoute(a.status)) {
+      protocol = 'chat';
+      a = await ask(protocol, root, headers(), probe, CHAT_TIMEOUT_MS, signal);
     }
+    const stop = blocked(a);
+    if (stop !== null) return stop;
+    const via = `（${PROTOCOL_NAME[protocol]}）`;
 
     let mode: MeasuredJsonMode;
     let detail: string;
-    if (a.status >= 200 && a.status < 300 && conformsTo(PROBE_SCHEMA, parseJson(a.content)).ok) {
+    if (a.kind === 'answer' && conformsTo(PROBE_SCHEMA, parseJson(a.content)).ok) {
       mode = 'schema';
-      detail = 'json_schema';
+      detail = `json_schema${via}`;
     } else {
       // 被拒（4xx）或「收了但沒照做」—— 兩者都往下一級量。
       const why =
-        a.status >= 400
-          ? `json_schema 被拒：HTTP ${a.status} ${snippet(a.errorText, secret())}`
-          : `json_schema 收了但沒有套用（回了：${snippet(a.content, secret())}）`;
-      const b = await complete(
+        a.kind === 'http'
+          ? `json_schema 被拒：HTTP ${a.status} ${snippet(a.text, secret())}`
+          : `json_schema 收了但沒有套用（回了：${snippet(a.kind === 'answer' ? a.content : '', secret())}）`;
+      const b = await ask(
+        protocol,
         root,
         headers(),
-        { model, messages: ASK_JSON, response_format: { type: 'json_object' } },
+        { model, ...ASK_JSON, format: { kind: 'object' } },
         CHAT_TIMEOUT_MS,
         signal,
       );
-      if ('thrown' in b) {
-        return fail(b.timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNREACHABLE', b.thrown);
-      }
-      if (b.status === 401 || b.status === 403 || b.status === 429) {
-        return fail(codeForStatus(b.status), `HTTP ${b.status}`);
-      }
-      const parsed = parseJson(b.content);
+      const stopB = blocked(b);
+      if (stopB !== null) return stopB;
+      const parsed = b.kind === 'answer' ? parseJson(b.content) : undefined;
       const isObject = typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed);
-      if (b.status >= 200 && b.status < 300 && isObject) {
+      if (b.kind === 'answer' && isObject) {
         mode = 'object';
-        detail = why;
+        detail = `${why}${via}`;
       } else {
         mode = 'none';
-        detail = `${why}；json_object ${b.status >= 400 ? `被拒：HTTP ${b.status}` : '回的不是物件'}`;
+        const second = b.kind === 'http' ? `被拒：HTTP ${b.status}` : '回的不是物件';
+        detail = `${why}；json_object ${second}${via}`;
       }
     }
 
-    const check: JsonCheck = { mode, checkedAt: Date.now(), detail };
+    const check: JsonCheck = { mode, checkedAt: Date.now(), detail, protocol };
     await writeJsonCheck(root, model, check, env);
-    return { kind: 'ok', value: check, cost: cost() };
+    return { kind: 'ok', value: reportOf(check), cost: cost() };
   }
 
   return {
     name: `openai:${model}`,
 
     async jsonMode(): Promise<JsonModeReport> {
-      const k = await known();
-      return k === null
-        ? { mode: 'unchecked', checkedAt: null, detail: '' }
-        : { mode: k.mode, checkedAt: k.checkedAt, detail: k.detail };
+      return reportOf(await known());
     },
 
     checkJson: measure,
@@ -418,71 +458,59 @@ export function createOpenAiChat(
       let check = await known();
       if (check === null) {
         const measured = await measure(signal);
-        if (measured.kind === 'error')
+        if (measured.kind === 'error') {
           return fail(measured.code, `量格式支援時：${measured.detail}`);
-        check = measured.value as JsonCheck;
+        }
+        check = (await known()) as JsonCheck;
       }
       if (check.mode === 'none') return fail('PROVIDER_JSON_UNSUPPORTED', check.detail);
 
       const schemaText = JSON.stringify(input.schema);
-      const request =
+      const req: AskRequest =
         check.mode === 'schema'
           ? {
               model,
-              messages: [
-                { role: 'system', content: input.system },
-                { role: 'user', content: input.user },
-              ],
-              response_format: {
-                type: 'json_schema',
-                // **嚴格模式有它自己的形狀要求**（每個物件都要 `additionalProperties: false`、
-                // `required` 要列全），而那是端點的要求不是我們的規則 ——
-                // 所以在這裡補，不改那三份 schema（`strictify` 的檔頭寫了為什麼）。
-                json_schema: { name: 'cyclosa', strict: true, schema: strictify(input.schema) },
-              },
+              system: input.system,
+              user: input.user,
+              format: { kind: 'schema', schema: input.schema },
             }
           : {
               model,
-              messages: [
-                {
-                  role: 'system',
-                  // 端點不保證形狀的時候，schema 只能靠提示詞告訴模型 ——
-                  // **而形狀由下面的 `conformsTo` 把關**，不是靠模型聽話。
-                  content: `${input.system}\n\n回應必須是一份符合下面這份 JSON Schema 的 JSON 物件，不要有任何其他文字：\n${schemaText}`,
-                },
-                { role: 'user', content: input.user },
-              ],
-              response_format: { type: 'json_object' },
+              // 端點不保證形狀的時候，schema 只能靠提示詞告訴模型 ——
+              // **而形狀由下面的 `conformsTo` 把關**，不是靠模型聽話。
+              system: `${input.system}\n\n回應必須是一份符合下面這份 JSON Schema 的 JSON 物件，不要有任何其他文字：\n${schemaText}`,
+              user: input.user,
+              format: { kind: 'object' },
             };
 
-      const res = await complete(root, headers(), request, CHAT_TIMEOUT_MS, signal);
-      if ('thrown' in res) {
+      const res = await ask(check.protocol, root, headers(), req, CHAT_TIMEOUT_MS, signal);
+      if (res.kind === 'thrown') {
         // 逾時與取消不是同一件事，連不上又是第三件（見 `chat-ollama.ts` 同一段）。
-        return fail(res.timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNREACHABLE', res.thrown);
+        return fail(res.timedOut ? 'PROVIDER_TIMEOUT' : 'PROVIDER_UNREACHABLE', res.detail);
       }
-      if (res.status < 200 || res.status >= 300) {
+      if (res.kind === 'failed') return fail('PROVIDER_UNEXPECTED', res.detail);
+      if (res.kind === 'http') {
         // `schema` 模式下被拒，最可能是端點改了而量測舊了 —— **說出來，不自己改模式重送**。
+        // 量的時候有 `/responses`、現在卻沒有了，也是同一種「量測舊了」。
         const stale =
-          check.mode === 'schema' &&
-          res.status === 400 &&
-          /response_format|json_schema/i.test(res.errorText)
-            ? `（${new Date(check.checkedAt).toISOString().slice(0, 10)} 量的是支援 json_schema；到設定頁重新檢查）`
+          (check.mode === 'schema' &&
+            res.status === 400 &&
+            /response_format|json_schema|format/i.test(res.text)) ||
+          (check.protocol === 'responses' && hasNoResponsesRoute(res.status))
+            ? `（${new Date(check.checkedAt).toISOString().slice(0, 10)} 量的是 ${PROTOCOL_NAME[check.protocol]} 支援 ${check.mode === 'schema' ? 'json_schema' : 'json_object'}；到設定頁重新檢查）`
             : '';
-        if (stale.length > 0) return fail('PROVIDER_JSON_UNSUPPORTED', `HTTP 400${stale}`);
-        return fail(
-          codeForStatus(res.status),
-          `HTTP ${res.status} ${snippet(res.errorText, secret())}`,
-        );
+        if (stale.length > 0) {
+          return fail('PROVIDER_JSON_UNSUPPORTED', `HTTP ${res.status}${stale}`);
+        }
+        return fail(codeForStatus(res.status), `HTTP ${res.status} ${snippet(res.text, secret())}`);
       }
 
       const value = parseJson(res.content);
       if (value === undefined) {
-        // 被截斷的空回應跟「模型壞了」下一步不同 —— 把對方自己說的理由帶出去。
-        const why =
-          res.finish === 'length'
-            ? '回應被截斷（finish_reason=length）—— 輸出在長度上限用完時停了'
-            : `${res.content.length} 個字元，不是 JSON`;
-        return fail('PROVIDER_OUTPUT_UNPARSEABLE', why);
+        return fail(
+          'PROVIDER_OUTPUT_UNPARSEABLE',
+          res.truncated ?? `${res.content.length} 個字元，不是 JSON`,
+        );
       }
 
       // **兩種模式都驗。** `schema` 模式下驗不過，代表端點說它支援卻沒有做到。

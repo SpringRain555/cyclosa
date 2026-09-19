@@ -134,7 +134,12 @@ export function createOllamaChat(
 
     // **原生 `format` 永遠是受限解碼** —— 那是這條協定的定義，不需要量。
     jsonMode: () =>
-      Promise.resolve({ mode: 'schema', checkedAt: null, detail: 'ollama-native-format' }),
+      Promise.resolve({
+        mode: 'schema',
+        checkedAt: null,
+        detail: 'ollama-native-format',
+        protocol: null,
+      }),
 
     async probe(signal?: AbortSignal): Promise<ProbeResult> {
       if (model.length === 0) return { kind: 'not-configured' };

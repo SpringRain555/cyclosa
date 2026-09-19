@@ -1171,3 +1171,177 @@ describe('模型呼叫的紀錄', () => {
     expect((calls[0] as { endpoint: string }).endpoint).toBe(new URL(ollamaBase).host);
   });
 });
+
+// ══ 找來源走 OpenAI 相容 API（v0.24.2，ADR-0034）═══════════════
+
+/**
+ * 假的只有那一個端點：一台起在本機、說 Responses API 的伺服器（`/models` ＋ `/responses` 串流）。
+ * 其餘全部是真的 —— `providers.json` v2 真的被讀、搜尋量測真的在勾選之前跑、
+ * 候選真的走擷取管線、沙箱真的被掃（HTTP 那一種寫不了檔，所以永遠是空的）。
+ *
+ * 這一組要證明的事：
+ * 1. 找來源可以不走 CLI —— 端點搜尋了、交回候選，新節點照樣帶著出處進來。
+ * 2. **「會不會搜尋」是量的**：端點收了工具卻沒搜尋 → 勾選那一步就停手，一個網址都沒抓。
+ * 3. 作業紀錄記得出這一次是走哪個端點。
+ */
+describe('找來源走 OpenAI 相容 API', () => {
+  let online: Server;
+  let onlineBase = '';
+  /** 假端點搜不搜：`search` 是真的端點 2026-09-19 的樣子，`no-search` 是收了工具沒照做。 */
+  let onlineMode: 'search' | 'no-search' = 'search';
+  const onlineCalls: Record<string, unknown>[] = [];
+
+  function sse(events: readonly Record<string, unknown>[]): string {
+    return events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('');
+  }
+
+  beforeAll(async () => {
+    online = createServer((req, res) => {
+      const path = (req.url ?? '/').replace(/^\/v1/, '').split('?')[0] ?? '/';
+      if (path === '/models') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [{ id: 'fake-online', context_length: 200_000 }] }));
+        return;
+      }
+      if (path !== '/responses') {
+        res.writeHead(404);
+        res.end('{}');
+        return;
+      }
+      void readBody(req).then((raw) => {
+        const body = JSON.parse(raw) as Record<string, unknown>;
+        onlineCalls.push(body);
+        const name = (body['text'] as { format: { name: string } }).format.name;
+        const text =
+          name === 'cyclosa_browse_probe'
+            ? JSON.stringify({ url: 'https://nodejs.org/en/download' })
+            : JSON.stringify({
+                candidates: [{ url: `${sourcesBase}/article`, why: '合成的理由' }],
+              });
+        const events: Record<string, unknown>[] = [{ type: 'response.created' }];
+        if (onlineMode === 'search') {
+          events.push({
+            type: 'response.output_item.done',
+            item: { type: 'web_search_call', status: 'completed', action: { query: '合成' } },
+          });
+        }
+        events.push(
+          {
+            type: 'response.output_item.done',
+            item: { type: 'message', content: [{ type: 'output_text', text }] },
+          },
+          { type: 'response.completed', response: { status: 'completed', output: [] } },
+        );
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(sse(events));
+      });
+    });
+    await new Promise<void>((r) => online.listen(0, '127.0.0.1', r));
+    const a = online.address();
+    onlineBase = `http://127.0.0.1:${typeof a === 'object' && a !== null ? a.port : 0}/v1`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((r) => online.close(() => r()));
+  });
+
+  beforeEach(async () => {
+    onlineMode = 'search';
+    onlineCalls.length = 0;
+    // v2 的形狀：找來源走 openai，其餘兩個對話任務留在假 Ollama。CLI 刻意不設 —— 這條路不需要它。
+    await writeFile(
+      join(sandbox, 'LocalAppData', 'Cyclosa', 'providers.json'),
+      JSON.stringify({
+        version: 2,
+        connections: {
+          cli: null,
+          ollama: { baseUrl: ollamaBase, apiKeyEnv: null },
+          openai: { baseUrl: onlineBase, apiKeyEnv: null },
+        },
+        tasks: {
+          'find-sources': { via: 'openai', model: 'fake-online' },
+          angles: { via: 'ollama', model: 'fake-model' },
+          extract: { via: 'ollama', model: 'fake-model' },
+          embed: { via: 'ollama', model: '' },
+        },
+        diagnostics: { logModelCalls: true },
+      }),
+      'utf8',
+    );
+  });
+
+  it('端點搜尋了、交回候選 → 候選走同一條擷取管線，新節點帶著出處進來；沙箱是空的', async () => {
+    extraction = {
+      entities: [
+        { name: '合成公司', type: 'org' },
+        { name: '合成工作室', type: 'org' },
+      ],
+      relations: [{ subject: '合成公司', rel: '收購', object: '合成工作室', quote: QUOTE }],
+    };
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    expect(chosen.ok).toBe(true);
+    await waitForRun(started.data.runId);
+
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    if (!detail.ok) return expect.fail(detail.code);
+    expect(detail.data.run.status).toBe('done');
+    expect(detail.data.items).toHaveLength(1);
+    expect(detail.data.items[0]?.outcome).toBe('ok');
+
+    // 勾選之前先量了一次「會不會搜尋」，然後才是找來源那一次：兩個 /responses 請求。
+    expect(onlineCalls).toHaveLength(2);
+    const probe = onlineCalls[0] as { text: { format: { name: string } }; tools: unknown };
+    expect(probe.text.format.name).toBe('cyclosa_browse_probe');
+    const real = onlineCalls[1] as { tools: unknown; tool_choice: unknown; instructions: string };
+    expect(real.tools).toEqual([{ type: 'web_search' }]);
+    expect(real.tool_choice).toBe('required');
+    expect(real.instructions).toContain('不要把頁面內容抓下來');
+
+    const rows = await inDb((db) => ({
+      named: db.prepare("SELECT rel, status FROM edge WHERE layer='named'").all() as {
+        rel: string;
+        status: string;
+      }[],
+    }));
+    expect(rows.named).toEqual([{ rel: '收購', status: 'pending' }]);
+
+    const root = join(dataRoot, 'cases', slug, 'agent', 'runs', started.data.runId);
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    expect(entries.filter((e) => e.isFile())).toEqual([]);
+
+    // 作業紀錄：找來源那一筆記的是這個端點，不是 CLI。
+    const dir = join(dataRoot, 'cases', slug, 'model-calls');
+    const lines = (
+      await Promise.all((await readdir(dir)).map((n) => readFile(join(dir, n), 'utf8')))
+    )
+      .join('\n')
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as { task: string; model: string; endpoint: string | null });
+    const find = lines.find((l) => l.task === 'find-sources');
+    expect(find?.model).toBe('openai:fake-online');
+    expect(find?.endpoint).toBe(new URL(onlineBase).host);
+  });
+
+  it('端點收了搜尋工具卻沒搜尋 → 勾選那一步就停手，說缺「browse」，一個網址都沒抓', async () => {
+    onlineMode = 'no-search';
+    const started = await startExpansion(dataRoot, slug, '一樁合成的收購案');
+    if (!started.ok) return expect.fail(started.code);
+    const chosen = await chooseAngles(dataRoot, slug, started.data.runId, [
+      started.data.angles[0]?.id as string,
+    ]);
+    expect(chosen.ok).toBe(false);
+    if (chosen.ok) return;
+    expect(chosen.code).toBe('PROVIDER_CAPABILITY_MISSING');
+    expect(JSON.stringify(chosen.detail)).toContain('browse');
+    // 只有量測那一次；找來源那一次沒有發生。
+    expect(onlineCalls).toHaveLength(1);
+    const detail = await getRun(dataRoot, slug, started.data.runId);
+    if (detail.ok) expect(detail.data.items).toHaveLength(0);
+  });
+});

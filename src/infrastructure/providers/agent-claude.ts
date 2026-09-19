@@ -160,7 +160,7 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
     /**
      * **只確認 CLI 在不在，不打一次 API。**
      *
-     * 設定頁上那個「實際打一次」按鈕才會花錢，而它是使用者按的。
+     * 設定頁上那個「儲存並測試」按鈕才會花錢，而它是使用者按的。
      * 開設定頁本身不該產生費用 —— 那是一個沒有人會預期的收費。
      */
     async probe(): Promise<ProbeResult> {

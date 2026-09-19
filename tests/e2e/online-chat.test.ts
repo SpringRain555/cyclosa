@@ -128,7 +128,9 @@ interface TaskRow {
   via: string;
   model: string;
   state: string;
-  jsonMode: { mode: string; checkedAt: number | null } | null;
+  jsonMode: { mode: string; checkedAt: number | null; protocol: string | null } | null;
+  /** v0.24.2：只有找來源那一列有 */
+  browse: { state: string; checkedAt: number | null; detail: string } | null;
 }
 /** v2 的形狀（ADR-0032）：連線一份、任務一份。 */
 interface Payload {
@@ -224,6 +226,20 @@ describe('線上 chat 端點', () => {
     ).data;
     expect(extract(again).jsonMode?.mode).toBe('schema');
     expect(extract(again).jsonMode?.checkedAt).toBeGreaterThan(0);
+    // v0.24.2：走的協定也在回應裡。這個假端點沒有 /responses，所以是 chat。
+    expect(extract(again).jsonMode?.protocol).toBe('chat');
+  });
+
+  /**
+   * v0.24.2 加的兩個欄位（`jsonMode.protocol`、`browse`）**只有這裡能證明它們真的在回應裡**
+   * —— 跟這份檔頭寫的同一個理由。
+   */
+  it('找來源那一列有 browse 欄位；其餘任務是 null', async () => {
+    const p = await saveOnline();
+    for (const row of p.tasks) expect('browse' in row, row.task).toBe(true);
+    expect(
+      p.tasks.filter((row) => row.task !== 'find-sources').every((r) => r.browse === null),
+    ).toBe(true);
   });
 
   it('端點只收 json_object 時量出 object —— 降級了，而且狀態說得出來', async () => {

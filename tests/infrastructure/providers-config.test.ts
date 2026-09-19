@@ -201,7 +201,7 @@ describe('v2 的形狀', () => {
   });
 
   it('`via` 不在准許的清單裡就退回第一個准許的', () => {
-    // 嵌入只准本機（ADR-0009）；找來源只有 CLI 有 browse。
+    // 嵌入只准本機（ADR-0009）；找來源不能走本機 Ollama（它沒有 browse）。
     const config = parseConfig({
       version: 2,
       tasks: {
@@ -216,7 +216,8 @@ describe('v2 的形狀', () => {
   });
 
   it('每個任務可以走哪些連線是由角色推出來的', () => {
-    expect(viaOptionsOf('find-sources')).toEqual(['cli']);
+    // 找來源：CLI 的搜尋是參數給的，OpenAI 相容 API 的搜尋是量的（v0.24.2，ADR-0034）。
+    expect(viaOptionsOf('find-sources')).toEqual(['cli', 'openai']);
     expect(viaOptionsOf('angles')).toEqual(['ollama', 'openai']);
     expect(viaOptionsOf('extract')).toEqual(['ollama', 'openai']);
     expect(viaOptionsOf('embed')).toEqual(['ollama']);

@@ -351,7 +351,7 @@ function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
   });
 
   /**
-   * 「連線並列出模型」：**不存檔就列**。填了位址（與金鑰變數）之後按這顆，
+   * 「儲存並檢查」列模型那一步：**這一支不存檔就列**。填了位址（與金鑰變數）之後按那顆，
    * 畫面才有東西可以做成下拉選單 —— 存了才列的話會先出現一個空的選單。
    */
   app.post<{ Params: { kind: string }; Body: unknown }>(

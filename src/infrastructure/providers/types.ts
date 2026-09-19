@@ -82,13 +82,37 @@ export interface JsonModeReport {
   readonly checkedAt: number | null;
   /** 給人看的一句話：保證從哪來，或為什麼是這個結果 */
   readonly detail: string;
+  /**
+   * OpenAI 相容 API 量的時候走的是哪一種（v0.24.2）：Responses API 或 Chat Completions。
+   * **`null` ＝ 不適用**（本機 Ollama 的原生協定）或還沒量。畫面上要說出來 ——
+   * 使用者指定了 Responses API，而「這個端點沒有那條路」是他要知道的事。
+   */
+  readonly protocol: 'responses' | 'chat' | null;
 }
 
 /**
- * 一次 agent 子程序。
+ * 「會不會上網搜尋」這件事的現況（v0.24.2，ADR-0034）。**只有量得出來的那一種 agent 有**
+ * （OpenAI 相容 API）；Claude Code 的搜尋是我們給它的參數（`--tools WebSearch`），不是量的。
+ *
+ * | `state` | 意思 |
+ * |---|---|
+ * | `yes` | 量過：真的搜尋了，交回的形狀也對 |
+ * | `no` | 量過：沒有搜尋、端點沒有 Responses API，或交回的形狀不對 —— 找來源在這裡跑不了 |
+ * | `unchecked` | 還沒量。**第一次真的跑之前會量**，設定頁按「儲存並測試」也會量 |
+ */
+export interface BrowseReport {
+  readonly state: 'yes' | 'no' | 'unchecked';
+  /** 量的時間（epoch 毫秒）；還沒量是 `null` */
+  readonly checkedAt: number | null;
+  readonly detail: string;
+}
+
+/**
+ * 一次 agent 呼叫：Claude Code 是一個子程序，OpenAI 相容 API 是一個帶搜尋工具的 HTTP 請求。
  *
  * **`cwd` 是沙箱**（ADR-0006 第 4 條）。呼叫端負責建它、跑完檢查它，
- * 而這一層負責**確實把子程序的工作目錄設成它** —— 那是唯一真正在執行的約束。
+ * 而子程序那一種負責**確實把工作目錄設成它** —— 那是唯一真正在執行的約束。
+ * HTTP 那一種寫不了檔，沙箱對它永遠是空的；呼叫端照樣掃，不為它開例外。
  */
 export interface AgentProvider {
   readonly name: string;
@@ -101,4 +125,8 @@ export interface AgentProvider {
     },
     signal?: AbortSignal,
   ): Promise<CallOutcome<string>>;
+  /** 「會不會上網搜尋」已經知道的事實。**不打網路**；沒有這一支的 agent 是宣告的，不是量的。 */
+  browseReport?(): Promise<BrowseReport>;
+  /** **量一次並記下來。會送出一個真的、帶搜尋的請求**，線上端點可能計費。 */
+  checkBrowse?(signal?: AbortSignal): Promise<CallOutcome<BrowseReport>>;
 }

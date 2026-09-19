@@ -1,21 +1,24 @@
 /**
- * provider 的讀取、設定與「實際打一次」。
+ * provider 的讀取、設定與「儲存並測試」。
  *
- * ## 「列出來」與「實際打一次」是兩件事，而且分開得很刻意
+ * ## 「檢查」與「測試」是兩件事，而且分開得很刻意
  *
  * 打開設定頁**不該產生費用**。所以 `listProviders` 對 CLI 只跑 `--version`
  * （確認它在不在），對 HTTP 連線只列模型清單（本機、免費；線上端點的 `/models` 不計費）。
+ * 設定頁每一塊「模型服務」的「儲存並檢查」走的也是這兩件事。
  *
- * 「實際打一次」是使用者按的按鈕，而它對 CLI **是真的會花錢的** ——
+ * 「儲存並測試」（`testProvider`，逐任務）是使用者按的按鈕，而它對 CLI **是真的會花錢的** ——
  * 2026-09-06 量到一次只回兩個 token 的呼叫花了 0.18 美元
- * （幾乎全部來自 cache creation）。所以畫面上那個按鈕要先講這件事。
+ * （幾乎全部來自 cache creation）。所以畫面上那個按鈕底下要先講這件事。
  *
  * ## v2：逐任務（ADR-0032）
  *
- * 每個任務各自走一條連線，所以「實際打一次」也是逐任務的：測的是**那個任務實際會跑的
- * 那一支**，不是某個角色的預設。「連線並列出模型」（`listModelsFor`）則**不存檔就列** ——
+ * 每個任務各自走一條連線，所以測試也是逐任務的：測的是**那個任務實際會跑的
+ * 那一支**，不是某個角色的預設。`listModelsFor` 則**不存檔就列** ——
  * 使用者填了位址與金鑰變數之後要先看得到「這個端點有哪些模型」，才選得了模型；
- * 存了才列的話，畫面上會先出現一個空的下拉選單。
+ * 存了才列的話，畫面上會先出現一個空的下拉選單（v0.24.1 起設定頁改了就存，按之前會先存）。
+ *
+ * ## v0.24.2：找來源走 OpenAI 相容 API 的時候，測的是「會不會上網搜尋」（ADR-0034）
  */
 import { mkdir } from 'node:fs/promises';
 
@@ -36,7 +39,7 @@ import {
 } from '../infrastructure/providers/registry.js';
 import { listOllamaModels } from '../infrastructure/providers/chat-ollama.js';
 import { listOpenAiModels } from '../infrastructure/providers/chat-openai.js';
-import type { JsonModeReport } from '../infrastructure/providers/types.js';
+import type { BrowseReport, JsonModeReport } from '../infrastructure/providers/types.js';
 import {
   apiKeyEnvOf,
   parseConfig,
@@ -128,7 +131,7 @@ export interface ModelsListing {
 }
 
 /**
- * 「連線並列出模型」：**不存檔就列。**
+ * 「儲存並檢查」列模型那一步：**這一支不存檔，只列。**
  *
  * 使用者填了位址（與金鑰變數）之後按這顆，畫面就能把這個端點的模型列成下拉選單 ——
  * 這是 Open WebUI 也用的順序：填位址與金鑰 → 打 `/models` 驗證 → 才選模型。
@@ -164,10 +167,15 @@ export interface ProviderTest {
    * 所以這一格是剛量出來的結果；其餘任務是 `null`。
    */
   readonly jsonMode: JsonModeReport | null;
+  /**
+   * 找來源走 OpenAI 相容 API 的時候，這顆按鈕量的是「會不會上網搜尋」（一個帶搜尋的小請求），
+   * 這一格是剛量出來的結果；其餘任務是 `null`（v0.24.2，ADR-0034）。
+   */
+  readonly browse: BrowseReport | null;
 }
 
 /**
- * 實際打一次。**這是使用者按的按鈕，不是頁面載入時跑的東西。**
+ * 真的打一次（「儲存並測試」逐任務叫它）。**這是使用者按的按鈕，不是頁面載入時跑的東西。**
  *
  * 測的是**這個任務實際會跑的那一支** —— 逐任務各自接連線之後，
  * 「測 chat」這句話沒有對象。CLI 那一邊會真的花錢，所以問的是**最小的一個問題**，
@@ -203,6 +211,7 @@ export async function testProvider(
         costUsd: call.cost.costUsd,
         elapsedMs: call.cost.elapsedMs,
         jsonMode: null,
+        browse: null,
       },
       cid,
     );
@@ -234,6 +243,7 @@ export async function testProvider(
             costUsd: check.cost.costUsd,
             elapsedMs: measureMs,
             jsonMode: null,
+            browse: null,
           },
           cid,
         );
@@ -254,6 +264,7 @@ export async function testProvider(
         costUsd: call.cost.costUsd,
         elapsedMs: measureMs + call.cost.elapsedMs,
         jsonMode: measured ?? (await chat.jsonMode()),
+        browse: null,
       },
       cid,
     );
@@ -265,6 +276,40 @@ export async function testProvider(
     maxCostUsd: null,
   });
   if (agent === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task });
+
+  /**
+   * 走 OpenAI 相容 API 的找來源：測的就是「會不會上網搜尋」—— 量一次、記下來（ADR-0034）。
+   * 這一支的 `run()` 一律要求搜尋，拿它回一個 `{"ok":true}` 沒有意義，而且會多搜一次。
+   */
+  if (agent.checkBrowse !== undefined) {
+    const check = await agent.checkBrowse();
+    if (check.kind === 'error') {
+      return ok(
+        {
+          task: entry.task,
+          ok: false,
+          code: check.code,
+          costUsd: check.cost.costUsd,
+          elapsedMs: check.cost.elapsedMs,
+          jsonMode: null,
+          browse: null,
+        },
+        cid,
+      );
+    }
+    return ok(
+      {
+        task: entry.task,
+        ok: check.value.state === 'yes',
+        code: check.value.state === 'yes' ? null : 'PROVIDER_CAPABILITY_MISSING',
+        costUsd: check.cost.costUsd,
+        elapsedMs: check.cost.elapsedMs,
+        jsonMode: null,
+        browse: check.value,
+      },
+      cid,
+    );
+  }
   if (dataRoot === null) return err('IO_DATA_ROOT_MISSING', cid, { task });
 
   // **測試也要在一個目錄裡跑**，而那個目錄不是任何專題的沙箱 ——
@@ -280,6 +325,7 @@ export async function testProvider(
       costUsd: call.cost.costUsd,
       elapsedMs: call.cost.elapsedMs,
       jsonMode: null,
+      browse: null,
     },
     cid,
   );

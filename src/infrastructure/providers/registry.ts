@@ -32,10 +32,17 @@ import {
   type ProvidersConfig,
 } from './config.js';
 import { createClaudeAgent } from './agent-claude.js';
+import { createOpenAiAgent } from './agent-openai.js';
 import { createOllamaChat, listOllamaModels } from './chat-ollama.js';
 import { createOpenAiChat, listOpenAiModels } from './chat-openai.js';
 import { createOllamaEmbed, type EmbedProvider } from './embed-ollama.js';
-import type { AgentProvider, ChatProvider, JsonModeReport, ProbeResult } from './types.js';
+import type {
+  AgentProvider,
+  BrowseReport,
+  ChatProvider,
+  JsonModeReport,
+  ProbeResult,
+} from './types.js';
 
 export type ProviderState = 'ready' | 'not-configured' | 'unreachable';
 export type AuthState = 'none' | 'env-set' | 'env-missing';
@@ -87,6 +94,12 @@ export interface TaskStatus {
   readonly capabilities: ProviderCapabilities;
   /** 「符合 schema」由誰保證。**只有對話任務有**，其餘是 `null`（ADR-0030）。 */
   readonly jsonMode: JsonModeReport | null;
+  /**
+   * 「會不會上網搜尋」。**只有找來源那一列有**，其餘是 `null`（v0.24.2，ADR-0034）。
+   * 走 CLI 的時候 `checkedAt` 是 `null`：那是我們給它的參數（`--tools WebSearch`），不是量的；
+   * 走 OpenAI 相容 API 的時候是量出來的，或還沒量。
+   */
+  readonly browse: BrowseReport | null;
 }
 
 /**
@@ -149,8 +162,34 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
     return made;
   };
   const cli = config.connections.cli;
-  const agentModel = config.tasks['find-sources'].model.trim();
+  const agentSetting = config.tasks['find-sources'];
+  const agentModel = agentSetting.model.trim();
   const embedModel = config.tasks.embed.model.trim();
+  /**
+   * 找來源走哪一支（v0.24.2）：CLI 是子程序，OpenAI 相容 API 是帶搜尋工具的 HTTP 請求。
+   * **後者要有模型名**（空字串在 CLI 那邊是「用它自己的預設」，在這邊是「還沒選」）。
+   */
+  const agentFor = (request: AgentRequest): AgentProvider | null => {
+    if (agentSetting.via === 'openai') {
+      const openai = config.connections.openai;
+      if (openai === null || agentModel.length === 0) return null;
+      return createOpenAiAgent({
+        baseUrl: openai.baseUrl,
+        model: agentModel,
+        apiKeyEnv: openai.apiKeyEnv,
+        schema: request.schema,
+        systemPrompt: request.systemPrompt,
+        env,
+      });
+    }
+    if (cli === null) return null;
+    return createClaudeAgent({
+      command: cli.command,
+      args: cli.args,
+      model: agentModel,
+      ...request,
+    });
+  };
   return {
     config,
     chatFor,
@@ -158,15 +197,7 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
       embedModel.length === 0
         ? null
         : createOllamaEmbed(config.connections.ollama.baseUrl, embedModel),
-    agentFor: (request) =>
-      cli === null
-        ? null
-        : createClaudeAgent({
-            command: cli.command,
-            args: cli.args,
-            model: agentModel,
-            ...request,
-          }),
+    agentFor,
     connectionOf: (task) => ({
       via: config.tasks[task].via,
       baseUrl: httpConnectionFor(config, task)?.baseUrl ?? null,
@@ -185,7 +216,7 @@ export interface ProvidersView {
  *
  * **打開設定頁不該產生費用**，所以這裡對 CLI 只跑 `--version`、對 HTTP 連線只列模型清單，
  * 對每個任務的模型只問「在不在、能力宣告是什麼」（Ollama 的 `/api/show`）。
- * 「實際打一次」是使用者按的按鈕（`provider-service.ts`）。
+ * 「儲存並測試」是使用者按的按鈕（`provider-service.ts`）。
  */
 export async function describeProviders(
   env: NodeJS.ProcessEnv = process.env,
@@ -196,11 +227,17 @@ export async function describeProviders(
   // ── 連線 ──
   const cli = config.connections.cli;
   const [cliProbe, ollamaModels, openaiModels] = await Promise.all([
+    // 連線那一列問的是「CLI 在不在」，跟找來源現在走哪一條無關 —— 所以直接建 CLI 那一支來探。
     cli === null
       ? Promise.resolve<ProbeResult>({ kind: 'not-configured' })
-      : (
-          providers.agentFor({ schema: {}, systemPrompt: '', maxCostUsd: null }) as AgentProvider
-        ).probe(),
+      : createClaudeAgent({
+          command: cli.command,
+          args: cli.args,
+          model: '',
+          schema: {},
+          systemPrompt: '',
+          maxCostUsd: null,
+        }).probe(),
     listOllamaModels(config.connections.ollama.baseUrl),
     config.connections.openai === null
       ? Promise.resolve<readonly string[] | null>(null)
@@ -258,7 +295,7 @@ export async function describeProviders(
     if (provider === null) {
       return Promise.resolve({
         probe: { kind: 'not-configured' },
-        json: { mode: 'unchecked', checkedAt: null, detail: '' },
+        json: { mode: 'unchecked', checkedAt: null, detail: '', protocol: null },
       });
     }
     const key = `${config.tasks[task].via}::${config.tasks[task].model}`;
@@ -276,9 +313,22 @@ export async function describeProviders(
   const tasks: TaskStatus[] = await Promise.all(
     MODEL_TASKS.map(async ({ task, role }): Promise<TaskStatus> => {
       const setting = config.tasks[task];
-      const common = { task, role, via: setting.via, model: setting.model };
+      const common = { task, role, via: setting.via, model: setting.model, browse: null };
       if (role === 'agent') {
-        return { ...common, ...fromProbe(cliProbe), jsonMode: null };
+        if (setting.via === 'openai') {
+          // 走 OpenAI 相容 API 的找來源：模型在不在清單上，以及「會不會搜尋」量過了沒。
+          const agent = providers.agentFor({ schema: {}, systemPrompt: '', maxCostUsd: null });
+          if (agent === null) {
+            return { ...common, ...fromProbe({ kind: 'not-configured' }), jsonMode: null };
+          }
+          const probe = await agent.probe();
+          const browse = probe.kind === 'ready' ? ((await agent.browseReport?.()) ?? null) : null;
+          return { ...common, ...fromProbe(probe), jsonMode: null, browse };
+        }
+        // CLI 的搜尋是我們給它的參數，不是量的 —— `checkedAt` 是 null。
+        const browse: BrowseReport | null =
+          cliProbe.kind === 'ready' ? { state: 'yes', checkedAt: null, detail: '' } : null;
+        return { ...common, ...fromProbe(cliProbe), jsonMode: null, browse };
       }
       if (role === 'embed') {
         return {

@@ -1,5 +1,5 @@
 /**
- * OpenAI 相容端點—— 對著一個**行為可以設定**的假端點。
+ * OpenAI 相容 API —— 對著一個**行為可以設定**的假端點。
  *
  * ## 為什麼是假端點，而不是量真的
  *
@@ -7,6 +7,12 @@
  * 但那一個端點只展示得出一種行為（`json_schema` 支援而且真的套用），
  * 而這支程式要處理的是**三種**：真的套用、收了但安靜忽略、直接拒絕。
  * 後兩種在這台機器上沒有一個端點演得出來，所以由這裡演。
+ *
+ * ## 兩條路（v0.24.2，ADR-0034）
+ *
+ * 假端點預設**沒有** `/responses`（回 404）：上面那些測試因此走的是 Chat Completions，
+ * 跟 v0.24.1 之前一模一樣。最後一組 describe 把 `/responses` 打開，
+ * 測「先走 Responses API」那一半：請求的形狀、串流的讀法、量到的協定、舊紀錄怎麼處理。
  *
  * **完全隔離**：`provider-checks.json` 寫在臨時的 `LOCALAPPDATA` 底下，
  * 環境變數用一個傳進去的物件，不動 `process.env`。
@@ -22,6 +28,8 @@ import {
   listOpenAiModels,
 } from '../../src/infrastructure/providers/chat-openai.js';
 import { checksFilePath, readJsonChecks } from '../../src/infrastructure/providers/json-checks.js';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 const KEY_ENV = 'CYCLOSA_TEST_KEY';
 /** 刻意長得像一把真的金鑰 —— 洩漏檢查找的就是它。 */
@@ -40,6 +48,40 @@ interface Behaviour {
   echoHeaders: boolean;
   /** 前幾次 chat 請求先回 429（帶 `Retry-After: 0`），之後照常 —— 演「排隊一下就好」 */
   rateLimitFirst: number;
+  /**
+   * `/responses` 有沒有、怎麼回（v0.24.2）。`none` ＝ 404（上面那些測試的前提）；
+   * 其餘三種跟 `schema` 那一欄同一組意思，但走 Responses API 的形狀（`text.format`、SSE 串流）。
+   * `json-body` ＝ 端點不理會 `stream`，回一整份 JSON；`incomplete` ＝ 串流說沒完成。
+   */
+  responses: 'none' | 'enforced' | 'ignored' | 'rejected' | 'json-body' | 'incomplete';
+}
+
+/** 一段 SSE：每個事件一個 `data:` 行。 */
+function sse(events: readonly Record<string, unknown>[]): string {
+  return events.map((e) => `event: ${String(e['type'])}\ndata: ${JSON.stringify(e)}\n\n`).join('');
+}
+/** Responses API 的串流：一個 message 項目 ＋ 收尾事件。**`response.completed` 的 output 刻意是空的**（使用者那一條代理就是這樣）。 */
+function responsesStream(text: string, end = 'response.completed', reason = ''): string {
+  const message = {
+    type: 'message',
+    role: 'assistant',
+    content: [{ type: 'output_text', text, annotations: [] }],
+  };
+  const closing: Record<string, unknown> =
+    end === 'response.completed'
+      ? { type: end, response: { status: 'completed', output: [] } }
+      : {
+          type: end,
+          response: { status: 'incomplete', incomplete_details: { reason }, output: [] },
+        };
+  return sse([
+    { type: 'response.created', response: { status: 'in_progress' } },
+    { type: 'response.output_item.added', item: { type: 'reasoning' } },
+    { type: 'response.output_item.done', item: { type: 'reasoning', summary: [] } },
+    { type: 'response.output_text.delta', delta: text },
+    { type: 'response.output_item.done', item: message },
+    closing,
+  ]);
 }
 
 let server: Server;
@@ -75,6 +117,7 @@ beforeEach(async () => {
     finish: 'stop',
     echoHeaders: false,
     rateLimitFirst: 0,
+    responses: 'none',
   };
 
   server = createServer((req, res) => {
@@ -96,6 +139,56 @@ beforeEach(async () => {
           200,
           JSON.stringify({ data: [{ id: 'm1', context_length: 128000 }, { id: 'm2' }] }),
         );
+      }
+
+      if (path === '/responses') {
+        if (behaviour.responses === 'none') return send(404, '{"error":"no such route"}');
+        if (behaviour.rateLimitFirst > 0) {
+          behaviour.rateLimitFirst -= 1;
+          return rateLimited();
+        }
+        const format = (body['text'] as { format?: { type?: string } } | undefined)?.format;
+        const input = String(body['input'] ?? '');
+        const isProbe = input.includes('介紹你自己');
+        const isObjectProbe = input.includes('欄位 ok，值是 true');
+        const stream = (text: string): void => {
+          if (behaviour.responses === 'json-body') {
+            return send(
+              200,
+              JSON.stringify({
+                status: 'completed',
+                output: [{ type: 'message', content: [{ type: 'output_text', text }] }],
+              }),
+            );
+          }
+          if (behaviour.responses === 'incomplete') {
+            res.writeHead(200, { 'content-type': 'text/event-stream' });
+            res.end(responsesStream('', 'response.incomplete', 'max_output_tokens'));
+            return;
+          }
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.end(responsesStream(text));
+        };
+        if (format?.type === 'json_schema') {
+          if (behaviour.responses === 'rejected') {
+            const echo = behaviour.echoHeaders ? ` auth=${req.headers.authorization ?? ''}` : '';
+            return send(400, `{"error":"unsupported text.format json_schema"${echo}}`);
+          }
+          if (isProbe) {
+            return stream(
+              behaviour.responses === 'ignored'
+                ? '我是一個語言模型。'
+                : JSON.stringify({ probe: 'cyclosa-json-schema-probe', n: 7 }),
+            );
+          }
+          return stream(behaviour.answer);
+        }
+        if (format?.type === 'json_object') {
+          if (!behaviour.object) return send(400, '{"error":"no json mode"}');
+          if (isObjectProbe) return stream(JSON.stringify({ ok: true }));
+          return stream(behaviour.answer);
+        }
+        return stream('一般的回答');
       }
 
       if (path === '/chat/completions') {
@@ -162,6 +255,7 @@ function chat(model = 'm1') {
 }
 
 const completions = (): number => seen.filter((s) => s.path === '/chat/completions').length;
+const responses = (): number => seen.filter((s) => s.path === '/responses').length;
 
 // ── 模型清單與探測 ─────────────────────────────────────────────
 
@@ -389,5 +483,125 @@ describe('金鑰只存名字', () => {
     }
     const file = await readFile(checksFilePath(env), 'utf8');
     expect(file).not.toContain(KEY);
+  });
+});
+
+// ── Responses API（v0.24.2）──────────────────────────────────
+
+/**
+ * 假端點把 `/responses` 打開之後的那一半。**前面每一條測試都是在 404 的前提下跑的**，
+ * 所以這裡只測「有那條路」才會發生的事。
+ */
+describe('先走 Responses API', () => {
+  beforeEach(() => {
+    behaviour.responses = 'enforced';
+  });
+
+  it('量測走 /responses：請求是 instructions ＋ input ＋ text.format，串流；一次 chat 請求都不送', async () => {
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('schema');
+    expect(r.kind === 'ok' && r.value.protocol).toBe('responses');
+    expect(completions()).toBe(0);
+    const sent = seen.find((x) => x.path === '/responses')?.body ?? {};
+    expect(sent['stream']).toBe(true);
+    expect(typeof sent['instructions']).toBe('string');
+    expect(typeof sent['input']).toBe('string');
+    expect((sent['text'] as { format: { type: string } }).format.type).toBe('json_schema');
+    expect(sent['messages']).toBeUndefined();
+    // 記下來的協定也是它。
+    const stored = [...(await readJsonChecks(env)).values()];
+    expect(stored[0]?.protocol).toBe('responses');
+    expect(stored[0]?.detail).toContain('Responses API');
+  });
+
+  it('json() 照量到的協定送，回應從串流的 output_item.done 組回來（completed 的 output 是空的）', async () => {
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') expect(r.value).toEqual({ ok: true });
+    expect(responses()).toBe(2);
+    expect(completions()).toBe(0);
+  });
+
+  it('端點不理會 stream、回一整份 JSON 也讀得懂', async () => {
+    behaviour.responses = 'json-body';
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind).toBe('ok');
+  });
+
+  it('收了但安靜忽略 → 往下一級量，object 也走 Responses API', async () => {
+    behaviour.responses = 'ignored';
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('object');
+    expect(r.kind === 'ok' && r.value.protocol).toBe('responses');
+    const last = seen.at(-1)?.body ?? {};
+    expect((last['text'] as { format: { type: string } }).format.type).toBe('json_object');
+    expect(completions()).toBe(0);
+  });
+
+  it('json_schema 被拒 → object；被拒的內文遮掉金鑰', async () => {
+    behaviour.responses = 'rejected';
+    behaviour.echoHeaders = true;
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('object');
+    if (r.kind === 'ok') {
+      expect(r.value.detail).not.toContain(KEY);
+      expect(r.value.detail).toContain('***');
+    }
+  });
+
+  it('沒有 /responses 的端點：量到的協定是 chat，而且記下來', async () => {
+    behaviour.responses = 'none';
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.protocol).toBe('chat');
+    expect(responses()).toBe(1);
+    expect(completions()).toBe(1);
+    expect([...(await readJsonChecks(env)).values()][0]?.protocol).toBe('chat');
+  });
+
+  it('串流說沒完成 → 說得出「沒有完成」與對方的理由', async () => {
+    await chat().checkJson!();
+    behaviour.responses = 'incomplete';
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_OUTPUT_UNPARSEABLE');
+    if (r.kind === 'error') expect(r.detail).toContain('max_output_tokens');
+  });
+
+  /**
+   * **量測舊了的第二種**：量的時候有 /responses，現在沒有了 —— 說出來、叫人重新檢查，
+   * 不自己換 Chat Completions 重送。
+   */
+  it('量過 Responses API，之後那條路不見了 → 叫人重新檢查，不換協定重送', async () => {
+    await chat().checkJson!();
+    behaviour.responses = 'none';
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_JSON_UNSUPPORTED');
+    if (r.kind === 'error') expect(r.detail).toContain('重新檢查');
+    expect(completions()).toBe(0);
+  });
+
+  /**
+   * v0.24.1 之前的紀錄沒有 `protocol`，而那些是對 Chat Completions 量的。
+   * 讀到就當沒量過：下一次會重量一次（一到兩個小請求），而不是拿舊協定的結果當新協定的。
+   */
+  it('沒有 protocol 欄位的舊紀錄 ＝ 沒量過', async () => {
+    const path = checksFilePath(env);
+    await mkdir(dirname(path), { recursive: true });
+    const key = `${base}|m1`;
+    await writeFile(
+      path,
+      JSON.stringify({ [key]: { mode: 'schema', checkedAt: 1, detail: 'json_schema' } }),
+      'utf8',
+    );
+    expect((await chat().jsonMode()).mode).toBe('unchecked');
+    const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+    expect(r.kind).toBe('ok');
+    expect([...(await readJsonChecks(env)).values()][0]?.protocol).toBe('responses');
+  });
+
+  it('429 一次之後就好了 → 兩個 /responses 請求', async () => {
+    behaviour.rateLimitFirst = 1;
+    const r = await chat().checkJson!();
+    expect(r.kind === 'ok' && r.value.mode).toBe('schema');
+    expect(responses()).toBe(2);
   });
 });

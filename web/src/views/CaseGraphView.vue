@@ -280,6 +280,7 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
         />
         <SelectionPanel
           v-else
+          :class="{ idle: store.selected === null && store.connectFrom === null }"
           :node="store.selected"
           :edges="store.selectedEdges"
           :nodes="store.nodes"
@@ -425,6 +426,15 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
   flex: 1;
   min-width: 0;
   position: relative;
+}
+/**
+ * 窄畫面上，沒選東西的時候右側欄只有一句「在圖上點一個節點」—— 它佔掉 296px，
+ * 而 768px 寬時圖本身只剩 240px（2026-09-19 截圖）。沒選東西就收起來，點了節點才出來。
+ */
+@media (max-width: 999px) {
+  .idle {
+    display: none;
+  }
 }
 .hint {
   color: var(--text-muted);

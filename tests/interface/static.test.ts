@@ -53,3 +53,41 @@ describe('safeResolve 的路徑圍堵', () => {
     }
   });
 });
+
+/**
+ * pdf.js 的資料檔（v0.24.1，閱讀器的「版面」檢視）。**同一套圍堵，再多兩道**：
+ * 只准四個資料夾、檔名只准英數與 `._-`。
+ */
+describe('/pdfjs/:dir/:file', () => {
+  async function server(): Promise<import('fastify').FastifyInstance> {
+    const { default: Fastify } = await import('fastify');
+    const { pdfjsRoot, registerPdfjsAssets } = await import('../../src/interface/http/static.js');
+    const app = Fastify({ logger: false });
+    registerPdfjsAssets(app, pdfjsRoot());
+    return app;
+  }
+
+  it('給得出 CMap 與 wasm，wasm 的 MIME 是 application/wasm', async () => {
+    const app = await server();
+    const cmap = await app.inject({ method: 'GET', url: '/pdfjs/cmaps/UniGB-UCS2-H.bcmap' });
+    expect(cmap.statusCode).toBe(200);
+    expect(cmap.rawPayload.length).toBeGreaterThan(0);
+    const wasm = await app.inject({ method: 'GET', url: '/pdfjs/wasm/openjpeg.wasm' });
+    expect(wasm.statusCode).toBe(200);
+    expect(wasm.headers['content-type']).toBe('application/wasm');
+    await app.close();
+  });
+
+  it.each([
+    '/pdfjs/build/pdf.mjs',
+    '/pdfjs/cmaps/..%2f..%2fpackage.json',
+    '/pdfjs/cmaps/%2e%2e',
+    '/pdfjs/cmaps/nope.bcmap',
+    '/pdfjs/..%2fbuild/pdf.mjs',
+  ])('擋掉：%s', async (url) => {
+    const app = await server();
+    const res = await app.inject({ method: 'GET', url });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});

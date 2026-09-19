@@ -35,6 +35,12 @@ import { REPO_ROOT } from './helpers.js';
 
 const WEB_SRC = join(REPO_ROOT, 'web', 'src');
 const BASE_CSS = join(WEB_SRC, 'styles', 'base.css');
+/**
+ * **字級那一條的唯一豁免**（v0.24.1）：PDF 版面檢視的文字層是一層透明的字，疊在 pdf.js
+ * 畫出來的頁面上；它的字級 ＝ 縮放比例 × 那一段字在 PDF 裡的字高 —— **那是幾何，不是介面的字級**。
+ * 豁免只給這一個檔，而且底下有一條釘著它裡面只有那兩行。
+ */
+const PDF_LAYER_CSS = join(WEB_SRC, 'styles', 'pdf-layer.css');
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -105,7 +111,7 @@ describe('版面的基礎只定義一次', () => {
   it('font-size 只有五個 token（或 inherit）', () => {
     const bad: string[] = [];
     for (const f of files) {
-      if (f === BASE_CSS) continue;
+      if (f === BASE_CSS || f === PDF_LAYER_CSS) continue;
       const text = readFileSync(f, 'utf8');
       for (const m of text.matchAll(FONT_SIZE)) {
         const value = (m[1] ?? '').trim();
@@ -115,6 +121,14 @@ describe('版面的基礎只定義一次', () => {
       }
     }
     expect(bad).toEqual([]);
+  });
+
+  it('pdf-layer.css 的豁免很窄：只有文字層那兩行，沒有夾帶介面的字級', () => {
+    const found = [...readFileSync(PDF_LAYER_CSS, 'utf8').matchAll(FONT_SIZE)].map((m) =>
+      (m[1] ?? '').trim(),
+    );
+    // 第一個是 `--min-font-size: 1`（pdf.js 的變數名裡剛好有 font-size）。
+    expect(found).toEqual(['1', 'calc(var(--text-scale-factor) * var(--font-height))']);
   });
 
   it('五個 token 都在 base.css 宣告', () => {

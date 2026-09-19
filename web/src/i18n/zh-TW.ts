@@ -402,7 +402,28 @@ export const t = {
     failedNotice: '這一份沒有抽取成功。原始快照還在，可以直接看它。',
     noContent: '沒有重構後的正文。原始快照還在。',
     imageOnly: '這是一張圖片。',
-    noTextLayer: '這份 PDF 沒有文字層，只能框選區域。不是工具壞了。',
+
+    // ── PDF 的兩種檢視（v0.24.1）──────────────────────────
+    //
+    // 2026-09-19 使用者：「閱讀器無法顯示圖片，也無法正常顯示數學公式」。抽出來的正文本來就沒有圖，
+    // 所以 PDF 多一種「版面」檢視（pdf.js 照原檔畫），原本那一種叫「文字」。點註兩邊通用。
+    viewLayout: '版面',
+    viewText: '文字',
+    viewLabel: '這一份怎麼顯示',
+    viewLayoutWhat: '照原檔畫出來：圖、公式、表格都在。選一段字就能存成點註。',
+    viewTextWhat:
+      '從 PDF 抽出來、重排成段落的文字：沒有圖，公式可能是散的，窄畫面比較好讀。點註兩邊通用。',
+    layoutLoading: '正在畫這份 PDF…',
+    layoutFailed: '這份 PDF 畫不出來（{reason}）。改用「文字」檢視，或按「看原始快照」。',
+    /** 選取換算不回正文的位置（`layer-map.ts` 回 not-found）。**不猜一個位置存下去。** */
+    layoutUnmatched:
+      '選到的這一段在正文裡對不到位置，沒辦法存成點註 —— 改在「文字」檢視裡選。這一份若標著舊版抽取器，先到作業紀錄按「重算全部正文」。',
+    layoutNoText:
+      '這份 PDF 沒有文字層（多半是掃描件）：看得到版面，但選不了字，也就做不成點註。不是工具壞了。',
+    layoutPage: '第 {n} / {total} 頁',
+    zoomIn: '放大',
+    zoomOut: '縮小',
+    zoomFit: '適合寬度',
     lowConfidenceTitle: '這份正文可能抽壞了',
   },
 

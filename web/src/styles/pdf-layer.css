@@ -1,0 +1,127 @@
+/*
+ * PDF「版面」檢視的頁面與文字層（v0.24.1，`components/pdf/PdfPages.vue`）。
+ *
+ * ## 為什麼是一份獨立的全域樣式
+ *
+ * 文字層的 DOM 是 pdf.js 產生的（每個字塊一個 span），Vue 的 scoped 樣式碰不到它；
+ * 而它需要一條「字級 ＝ 縮放比例 × 字高」的規則 —— **那不是介面的字級**，是讓一層透明的字
+ * 剛好疊在畫出來的字上面的幾何。`tests/guards/no-element-restyle.test.ts` 對這一份豁免
+ * 字級那一條，理由就是這一句；其餘規則照舊。
+ *
+ * 文字層那一段改寫自 pdf.js 的 `web/pdf_viewer.css`（Apache-2.0，Mozilla）——
+ * 只取文字層需要的部分，所有選擇器都掛在 `.pdf-sheet` 底下，不外漏到別的頁面。
+ */
+
+.pdf-sheet {
+  /* 縮放比例由元件逐頁寫在 style 上；這裡是預設值（也讓 css-variables 守門找得到宣告）。 */
+  --scale-factor: 1;
+  --user-unit: 1;
+  --total-scale-factor: calc(var(--scale-factor) * var(--user-unit));
+  --scale-round-x: 1px;
+  --scale-round-y: 1px;
+
+  position: relative;
+  overflow: hidden;
+  /* 還沒畫出來之前的樣子：一塊跟頁面一樣大的底，捲動時不會跳。 */
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+
+.pdf-sheet > .pdf-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-sheet .textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 0;
+}
+
+.pdf-sheet .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+
+.pdf-sheet .textLayer > :not(.markedContent),
+.pdf-sheet .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-sheet .textLayer .markedContent {
+  display: contents;
+}
+
+.pdf-sheet .textLayer ::selection {
+  background: color-mix(in srgb, var(--ui-action) 35%, transparent);
+  color: transparent;
+}
+
+.pdf-sheet .textLayer br::selection {
+  background: transparent;
+}
+
+/*
+ * 選取的時候，這一塊蓋住整頁（在字的底下）—— 拖過字與字之間的空白時，選取不會跳到奇怪的地方。
+ * 按下去時元件加上 `.selecting`，放開時拿掉（pdf.js 的檢視器也是這樣做）。
+ */
+.pdf-sheet .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.pdf-sheet .textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+/*
+ * 點註的高亮（CSS Custom Highlight API）：不改 pdf.js 產生的 DOM，只在字的範圍上塗色。
+ * 跟「文字」檢視的 `.hl` 同一套 —— 暖色底 ＋ 底線（底線是第二重編碼，ADR-0018 規則 2）。
+ */
+::highlight(cyclosa-note) {
+  background-color: color-mix(in srgb, var(--node-note) 30%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--node-note);
+}
+
+::highlight(cyclosa-note-located) {
+  background-color: color-mix(in srgb, var(--node-note) 55%, transparent);
+  text-decoration: underline;
+  text-decoration-color: var(--node-note);
+}
+
+/* 剛選好、還沒存的那一段：點進註記框之後瀏覽器的選取會消失，用這一層留著讓人看得到選了什麼。 */
+::highlight(cyclosa-pending) {
+  background-color: color-mix(in srgb, var(--ui-selected) 30%, transparent);
+}

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
-import { registerStatic } from './interface/http/static.js';
+import { pdfjsRoot, registerPdfjsAssets, registerStatic } from './interface/http/static.js';
 import { resolveOrCreateDataRoot } from './application/bootstrap-service.js';
 import { correlationId } from './shared/id.js';
 import { logger } from './shared/log.js';
@@ -112,6 +112,7 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
   });
 
   registerRoutes(app, ctx);
+  registerPdfjsAssets(app, pdfjsRoot());
   registerStatic(app, webRoot());
 
   return { app, ctx };

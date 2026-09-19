@@ -12,6 +12,13 @@
  * 要驗、要維護的新依賴 —— **是一個獨立的決定，不是這一階段順手做的事**。
  * 在那之前：正文顯示純文字段落，而**「看原始快照」給的是完整的原件**
  * （那一條走 `sandbox` ＋ CSP，在瀏覽器層隔離）。
+ *
+ * ## PDF 有兩種檢視（v0.24.1）
+ *
+ * 「**版面**」用 pdf.js 照原檔畫（`components/pdf/PdfPages.vue`）—— 圖與公式只有這裡看得到；
+ * 「**文字**」是抽出來重排過的正文（v0.24.0 的那一種），窄畫面好讀、沒有圖。
+ * **點註兩邊通用**：兩邊選到的都換算成同一種錨點（頁碼 ＋ 頁內區間，ADR-0019）。
+ * 預設是版面；使用者切過一次，這台機器上記得（只是偏好，讀不到就回預設）。
  */
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -21,6 +28,7 @@ import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import LowConfidenceBadge from '../components/LowConfidenceBadge.vue';
 import NotesPanel from '../components/NotesPanel.vue';
+import PdfPages from '../components/pdf/PdfPages.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -164,6 +172,45 @@ function textOfPage(page: number | null): string {
   return blocks.value.find((b) => b.page === page)?.text ?? '';
 }
 
+// ── PDF 的兩種檢視（v0.24.1）────────────────────────────
+type PdfView = 'layout' | 'text';
+const VIEW_KEY = 'cyclosa.reader.pdfView';
+/** 偏好存在這個瀏覽器裡；讀不到（無痕、被擋）就回預設 —— 它只是方便，不是資料。 */
+function readView(): PdfView {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === 'text' ? 'text' : 'layout';
+  } catch {
+    return 'layout';
+  }
+}
+const pdfView = ref<PdfView>(readView());
+function setView(view: PdfView): void {
+  pdfView.value = view;
+  selectionNote.value = null;
+  clearPending();
+  try {
+    window.localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // 存不了就只在這一次有效。
+  }
+}
+/** 這一份能不能畫版面：是 PDF，而且快照在（版面是從快照畫的，不是從正文）。 */
+const isPdf = computed(
+  () => derived.value?.kind === 'pdf' && (detail.value?.item.sha256 ?? null) !== null,
+);
+const layoutMode = computed(() => isPdf.value && pdfView.value === 'layout');
+const pdfPages = ref<InstanceType<typeof PdfPages> | null>(null);
+
+function onLayoutSelect(selection: {
+  start: number;
+  end: number;
+  page: number;
+  preview: string;
+}): void {
+  pendingRect.value = null;
+  pending.value = selection;
+}
+
 // ── 點註────────────────────────────────────────
 
 const notes = ref<ResolvedNote[]>([]);
@@ -305,6 +352,10 @@ function locate(note: ResolvedNote): void {
   if (note.hit.kind === 'rect' || note.hit.kind === 'not-found') return;
   // 整份連續捲動：不用翻頁，直接捲到那一則。
   locatedId.value = note.note.id;
+  if (layoutMode.value) {
+    void pdfPages.value?.scrollToNote(note.note.id);
+    return;
+  }
   void nextTick(() => {
     const mark = textPane.value?.querySelector(`[data-note="${note.note.id}"]`);
     mark?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -432,7 +483,7 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
 </script>
 
 <template>
-  <main class="reader">
+  <main :class="['reader', { layout: layoutMode }]">
     <aside class="list">
       <header class="list-head">
         <h2>{{ t.reader.listTitle }}</h2>
@@ -485,7 +536,7 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
       <ErrorPanel v-else-if="detailError" :error="detailError" />
       <p v-else-if="detail === null" class="muted pick">{{ t.reader.pickOne }}</p>
 
-      <article v-else>
+      <article v-else :class="{ wide: layoutMode }">
         <header class="doc-head">
           <p class="position">
             {{
@@ -555,6 +606,31 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
               {{ t.reader.retry }}
             </button>
           </div>
+
+          <!-- PDF 的兩種檢視（v0.24.1）：版面照原檔畫（圖、公式都在），文字是重排過的正文。 -->
+          <div v-if="isPdf" class="view-switch" role="group" :aria-label="t.reader.viewLabel">
+            <span class="tabs">
+              <button
+                type="button"
+                :class="{ on: pdfView === 'layout' }"
+                :aria-pressed="pdfView === 'layout'"
+                @click="setView('layout')"
+              >
+                {{ t.reader.viewLayout }}
+              </button>
+              <button
+                type="button"
+                :class="{ on: pdfView === 'text' }"
+                :aria-pressed="pdfView === 'text'"
+                @click="setView('text')"
+              >
+                {{ t.reader.viewText }}
+              </button>
+            </span>
+            <span class="muted note">{{
+              pdfView === 'layout' ? t.reader.viewLayoutWhat : t.reader.viewTextWhat
+            }}</span>
+          </div>
         </header>
 
         <p v-if="detail.item.status === 'excluded'" class="notice">{{ t.reader.excluded }}</p>
@@ -586,6 +662,21 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
             <span v-if="pendingRect" class="rect pending" :style="rectStyle(pendingRect)"></span>
           </div>
         </div>
+
+        <template v-else-if="derived && layoutMode">
+          <p v-if="selectionNote" class="callout pending">{{ selectionNote }}</p>
+          <PdfPages
+            ref="pdfPages"
+            :key="detail.item.id"
+            :src="snapshotUrl"
+            :page-texts="derived.pages ?? []"
+            :notes="notes"
+            :located-id="locatedId"
+            :pending="pending"
+            @select="onLayoutSelect"
+            @notice="selectionNote = $event"
+          />
+        </template>
 
         <template v-else-if="derived">
           <!-- 舊版抽取器抽的正文：讀得到，但要說 —— 不然使用者以為重排壞了。 -->
@@ -677,6 +768,24 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   }
   /* 點註欄（NotesPanel 的根元素）橫跨底下一整列，最多佔四成高度。 */
   .reader > .notes {
+    grid-column: 1 / -1;
+    border-left: 0;
+    border-top: 1px solid var(--line-subtle);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+}
+
+/**
+ * **PDF 的版面檢視要的是寬度**：一頁論文畫在 440px 寬（1024 寬的三欄）裡，字不到 10px。
+ * 所以版面檢視在 1280px 以下就把點註欄移到底下 —— 跟文字檢視 1000px 以下同一個形狀。
+ */
+@media (max-width: 1279px) {
+  .reader.layout {
+    grid-template-columns: minmax(150px, 180px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .reader.layout > .notes {
     grid-column: 1 / -1;
     border-left: 0;
     border-top: 1px solid var(--line-subtle);
@@ -838,12 +947,25 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
 
 /* ── 中欄：正文 ── */
 .pane {
+  /* 版面檢視的工具列要抵掉這一格才貼得住頂（PdfPages.vue）。 */
+  --pane-pad-top: 24px;
   overflow-y: auto;
-  padding: 24px 32px 60px;
+  padding: var(--pane-pad-top) 32px 60px;
   min-width: 0;
 }
 .pane article {
   max-width: 80ch;
+}
+/* 版面檢視：頁面自己決定寬度（適合寬度，最寬 1000px），不受閱讀欄的 80ch 限制。 */
+.pane article.wide {
+  max-width: none;
+}
+.view-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: 10px;
 }
 .position {
   color: var(--text-muted);

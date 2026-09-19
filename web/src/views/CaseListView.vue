@@ -301,16 +301,15 @@ onMounted(load);
 </script>
 
 <template>
-  <main class="page">
-    <header class="head">
+  <!-- 表格頁，用寬的那一種頁寬（base.css：1200）。 -->
+  <main class="page wide">
+    <header class="page-head">
       <h1>{{ t.caseList.title }}</h1>
-      <div class="head-actions">
-        <button class="primary" :disabled="root === null" @click="creating = true">
-          {{ t.caseList.newCase }}
-        </button>
-      </div>
+      <button class="primary" :disabled="root === null" @click="creating = true">
+        {{ t.caseList.newCase }}
+      </button>
     </header>
-    <p class="hint">{{ t.caseList.hint }}</p>
+    <p class="page-lead">{{ t.caseList.hint }}</p>
 
     <p v-if="loading" class="muted">{{ t.common.loading }}</p>
 
@@ -374,7 +373,7 @@ onMounted(load);
         <span class="picked-name">{{
           selected === null ? t.caseList.pickHint : fill(t.caseList.picked, { name: selected.name })
         }}</span>
-        <button v-if="selected && !renaming" type="button" class="clear" @click="clearPick">
+        <button v-if="selected && !renaming" type="button" class="quiet small" @click="clearPick">
           {{ t.caseList.clearPick }}
         </button>
         <span class="spacer"></span>
@@ -387,14 +386,16 @@ onMounted(load);
               :placeholder="t.caseList.renamePlaceholder"
               :disabled="renameBusy"
             />
-            <button type="submit" :disabled="renameBusy">{{ t.caseList.renameSave }}</button>
-            <button type="button" :disabled="renameBusy" @click="cancelRename">
+            <button type="submit" class="small" :disabled="renameBusy">
+              {{ t.caseList.renameSave }}
+            </button>
+            <button type="button" class="small" :disabled="renameBusy" @click="cancelRename">
               {{ t.caseList.renameCancel }}
             </button>
           </form>
         </template>
         <template v-else>
-          <button type="button" :disabled="selected === null" @click="startRename">
+          <button type="button" class="small" :disabled="selected === null" @click="startRename">
             {{ t.caseList.rename }}
           </button>
           <!--
@@ -402,7 +403,12 @@ onMounted(load);
             第一次呼叫只回「有幾份標著已讀」，帶了 force 才真的清。
             這件事沒有回頭路：哪幾份讀過是使用者累積出來的資訊。
           -->
-          <button type="button" :disabled="selected === null || unreadBusy" @click="clearAllRead">
+          <button
+            type="button"
+            class="small"
+            :disabled="selected === null || unreadBusy"
+            @click="clearAllRead"
+          >
             {{ t.caseList.unreadAll }}
           </button>
           <!--
@@ -410,7 +416,12 @@ onMounted(load);
             而在 v0.17.0 之前**零個呼叫點** —— 一個沒有按鈕的狀態轉移，
             使用者永遠到不了那個狀態。
           -->
-          <button type="button" :disabled="selected === null || statusBusy" @click="toggleArchive">
+          <button
+            type="button"
+            class="small"
+            :disabled="selected === null || statusBusy"
+            @click="toggleArchive"
+          >
             {{ selected?.status === 'archived' ? t.caseList.reopen : t.caseList.archive }}
           </button>
           <!--
@@ -419,7 +430,7 @@ onMounted(load);
           -->
           <button
             type="button"
-            class="danger"
+            class="danger small"
             :disabled="selected === null || deleteBusy"
             @click="startDelete"
           >
@@ -427,20 +438,22 @@ onMounted(load);
           </button>
           <RouterLink
             v-if="selected"
-            class="act"
+            class="btn small"
             :to="`/case/${encodeURIComponent(selected.slug)}/runs`"
           >
             {{ t.caseList.columns.open }}
           </RouterLink>
-          <button v-else type="button" disabled>{{ t.caseList.columns.open }}</button>
+          <button v-else type="button" class="small" disabled>
+            {{ t.caseList.columns.open }}
+          </button>
           <RouterLink
             v-if="selected"
-            class="act"
+            class="btn small"
             :to="`/case/${encodeURIComponent(selected.slug)}`"
           >
             {{ t.caseList.openGraph }}
           </RouterLink>
-          <button v-else type="button" disabled>{{ t.caseList.openGraph }}</button>
+          <button v-else type="button" class="small" disabled>{{ t.caseList.openGraph }}</button>
         </template>
       </div>
 
@@ -449,7 +462,7 @@ onMounted(load);
       <p v-if="unreadNote" class="muted small">{{ unreadNote }}</p>
       <ErrorPanel v-if="renameError" :error="renameError" />
 
-      <table>
+      <table class="table clickable">
         <thead>
           <tr>
             <th>{{ t.caseList.columns.name }}</th>
@@ -567,44 +580,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-/**
- * **`width: 100%` 不是多餘的。** 這個 `<main>` 是 `App.vue` 那個
- * `flex-direction: column` 容器的子項，而 `margin: 0 auto` 會把 flex 子項的
- * `stretch` 取消掉 —— 寬度變成「由內容決定」。2026-09-18 真的踩到：
- * 操作列的字從「點一列選取…」變成「選取：6G」，整頁就往中間縮一截、左右跳。
- * 設定頁 2026-09-11 已經在同一個坑裡爬出來過（`SettingsView.vue` 的 `.settings`），
- * 而這一頁沒跟著查。
- */
-.page {
-  width: 100%;
-  padding: 22px 26px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-h1 {
-  font-size: 19px;
-  margin: 0;
-}
-h2 {
-  font-size: 16px;
-  margin: 0 0 8px;
-}
-.hint {
-  color: var(--text-muted);
-  font-size: 13px;
-  margin: 4px 0 20px;
-}
-.muted {
-  color: var(--text-muted);
-}
-.small {
-  font-size: 12px;
-}
+/* 頁寬、標題、表格、表單、按鈕都在 base.css；這裡只有這一頁自己的東西。 */
 .stats {
   display: flex;
   gap: 28px;
@@ -619,31 +595,12 @@ h2 {
   flex-direction: column;
 }
 .stats b {
-  font-size: 20px;
+  font-size: var(--fs-title);
   font-variant-numeric: tabular-nums;
 }
 .stats span {
   color: var(--text-muted);
-  font-size: 12px;
-}
-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-th,
-td {
-  text-align: left;
-  padding: 9px 12px;
-  border-bottom: 1px solid var(--line-subtle);
-}
-th {
-  color: var(--text-muted);
-  font-weight: 500;
-  font-size: 12px;
-}
-.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-label);
 }
 .pending {
   color: var(--edge-pending);
@@ -652,21 +609,10 @@ th {
   color: var(--text);
   font-weight: 500;
 }
-.open {
-  color: var(--ui-action);
-  text-decoration: none;
-  font-size: 13px;
-}
 
-/* 改名的入口**平常很輕** —— 它不是這一頁的主要動作，
-   而一個跟「開啟」一樣顯眼的改名按鈕會讓人以為那是下一步。 */
 /* 操作列：**沒選的時候還在，只是按鈕是關的。**
    整條消失的話，使用者不會知道有這些操作存在。 */
 .actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
   padding: 8px 10px;
   margin: 14px 0 4px;
   border: 1px solid var(--line-subtle);
@@ -677,7 +623,7 @@ th {
   border-color: var(--line);
 }
 .picked-name {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
 }
 .actions.armed .picked-name {
@@ -686,42 +632,7 @@ th {
 .spacer {
   flex: 1;
 }
-.actions button,
-.actions .act {
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--text-secondary);
-  text-decoration: none;
-  cursor: pointer;
-}
-.actions button:hover:not(:disabled),
-.actions .act:hover {
-  background: var(--bg-hover);
-}
-.actions button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-/* 「取消選取」**不是一個操作，是收回一個選擇** —— 所以它比右邊那幾顆輕，
-   而且沒選的時候它整顆不在（沒有東西可以收回）。 */
-.actions button.clear {
-  border-color: transparent;
-  background: transparent;
-  color: var(--text-tertiary);
-  padding: 2px 6px;
-}
-.actions button.clear:hover {
-  color: var(--text);
-  background: var(--bg-hover);
-}
 
-tbody tr {
-  cursor: pointer;
-}
 /* 選取用青色 —— 圖上「選取」就是這個顏色（ADR-0018），兩邊一致。 */
 tbody tr.picked {
   background: var(--bg-raised);
@@ -734,32 +645,11 @@ tbody tr.picked {
   align-items: center;
   flex-wrap: wrap;
 }
+/* 改名的輸入框在一列裡，不是表單欄位 —— 不吃 base.css 的 100% 寬。 */
 .rename input {
-  font: inherit;
-  font-size: 13px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-app);
-  color: var(--text);
+  width: auto;
   min-width: 180px;
-}
-.rename button {
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-.rename button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-.rename button:disabled {
-  opacity: 0.5;
-  cursor: default;
+  padding: 4px 8px;
 }
 .empty,
 .setup {
@@ -774,20 +664,10 @@ tbody tr.picked {
   margin-bottom: 12px;
 }
 .pointer-note {
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 .pointer-note code {
   word-break: break-all;
-}
-.field {
-  display: block;
-  margin: 12px 0;
-}
-.field span {
-  display: block;
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-bottom: 5px;
 }
 .modal {
   position: fixed;
@@ -802,6 +682,9 @@ tbody tr.picked {
   border-radius: var(--radius-lg);
   padding: 22px 24px;
   width: min(520px, 92vw);
+}
+.dialog h2 {
+  margin-bottom: 12px;
 }
 /* 刪除對話框：**上緣一條紅線**，而不是整片紅底。
    那條線的工作是讓人在打字之前先知道自己在哪一個對話框裡。 */

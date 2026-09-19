@@ -38,16 +38,21 @@ const tabs = computed(() => {
 });
 
 /**
- * 現在正在用哪個模型。**要在按下去之前看得到，不是想起來的時候。**
+ * 模型這一塊現在能不能用。**要在按下去之前看得到，不是想起來的時候。**
  *
  * 這裡刻意不開一個新分頁：頂列那三格是「目的地」，
  * 而模型是一個**狀態**，狀態該常駐、不該佔一個目的地。
- * 名稱、版本、用途那三欄在設定頁裡 —— 點這一行就過去。
+ *
+ * **v0.24.0 起是一個點，不是那串模型名。** 三個角色都設好之後那串佔 32ch，
+ * 在 768px 寬的畫面上把「結束 Cyclosa」推出去；而且四個任務各接各的連線之後，
+ * 一串名字也說不清「哪一件事跑在哪」—— 那是設定頁的事。這裡只回答一個問題：
+ * 現在按下擴展會不會停手。點的形狀是第二重編碼（實心／空心／虛線），不只靠顏色。
  *
  * 讀的是 `/api/providers`，而那一支不會產生費用
  * （agent 只跑 `--version`、chat 只讀 `/api/tags`）。
  */
-const activeModels = ref<string[]>([]);
+type ModelState = 'ready' | 'none' | 'problem';
+const modelState = ref<ModelState>('none');
 
 /**
  * 結束 Cyclosa。
@@ -106,9 +111,11 @@ async function quit(): Promise<void> {
 onMounted(async () => {
   const r = await api.providers();
   if (!r.ok) return;
-  activeModels.value = r.data.statuses
-    .filter((s) => s.state === 'ready' && s.detail.length > 0)
-    .map((s) => s.detail);
+  const rows = r.data.taskReadiness;
+  // 一個任務都沒設定 → 空心；設了但有一個跑不動（連不上、缺能力）→ 虛線；否則實心。
+  const configured = rows.filter((row) => row.model.length > 0 || row.ok);
+  if (configured.length === 0) modelState.value = 'none';
+  else modelState.value = configured.every((row) => row.ok) ? 'ready' : 'problem';
 });
 
 watch(
@@ -156,9 +163,15 @@ watch(
         </nav>
       </template>
 
-      <RouterLink class="settings-link" to="/settings" active-class="on" exact-active-class="on">
-        <span v-if="activeModels.length > 0" class="models">{{ activeModels.join(' · ') }}</span>
-        <span v-else class="models none">{{ t.settings.activeNone }}</span>
+      <RouterLink
+        class="settings-link"
+        to="/settings"
+        active-class="on"
+        exact-active-class="on"
+        :title="t.settings.topbar[modelState]"
+      >
+        <span :class="['model-dot', modelState]" aria-hidden="true"></span>
+        <span class="model-state">{{ t.settings.topbar[modelState] }}</span>
         {{ t.nav.settings }}
       </RouterLink>
 
@@ -219,7 +232,7 @@ watch(
 }
 .crumb {
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: var(--fs-small);
   text-decoration: none;
 }
 .crumb:hover {
@@ -237,52 +250,39 @@ watch(
 .sep {
   color: var(--text-muted);
 }
+/* 分頁列的樣子在 base.css；這裡只管它在頂列上的位置。 */
 .tabs {
-  display: flex;
-  gap: 2px;
   margin-left: 16px;
 }
-.tabs a {
-  font-size: 13px;
-  padding: 4px 12px;
-  border-radius: var(--radius);
-  color: var(--text-tertiary);
-  text-decoration: none;
-}
-.tabs a:hover {
-  background: var(--bg-hover);
-}
-/* 選取用青色，跟圖上「選取」是同一個意思、同一個顏色（ADR-0018）。 */
-.tabs a.on {
-  color: var(--text);
-  background: var(--bg-raised);
-  box-shadow: inset 0 -2px 0 var(--ring-selected);
-}
-/* 現在用的模型常駐在設定連結旁邊 —— **狀態不佔一個目的地。** */
-/* 模型名稱可能很長（三個角色各一個），**但它不該把按鈕撐出畫面** —— 放不下就切掉。 */
-.models {
-  color: var(--text-muted);
-  font-size: 11px;
-  margin-right: 8px;
-  font-family: ui-monospace, monospace;
-  display: inline-block;
-  max-width: 32ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-}
-
-.models.none {
-  font-family: inherit;
-}
 /**
- * 窄畫面不顯示模型名。**它是狀態，不是目的地** —— 設定頁上看得到同一件事。
- * 2026-09-18 量到：三個角色都設好之後這一串佔 32ch，在 768px 寬的專題頁面上
- * 把「結束 Cyclosa」推出畫面（2026-09-11 那一輪量的時候模型還沒設）。
+ * 模型狀態的點，常駐在設定連結旁邊 —— **狀態不佔一個目的地。**
+ * 形狀是第二重編碼（ADR-0018 規則 2）：實心＝可以用、空心＝還沒設定、虛線＝有問題。
+ * 窄畫面只留點，那句話進 title —— 2026-09-18 量到那串模型名在 768px 把結束鍵推出畫面。
  */
+.model-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid var(--text-tertiary);
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.model-dot.ready {
+  background: var(--ui-success);
+  border-color: var(--ui-success);
+}
+.model-dot.problem {
+  border-style: dashed;
+  border-color: var(--edge-pending);
+}
+.model-state {
+  color: var(--text-muted);
+  font-size: var(--fs-label);
+  margin-right: 8px;
+}
 @media (max-width: 1023px) {
-  .models {
+  .model-state {
     display: none;
   }
 }
@@ -292,7 +292,7 @@ watch(
    一顆跟「設定」一樣顯眼的結束鍵，會讓人以為那是常用的下一步。 */
 .quit {
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 4px 10px;
   margin-left: 10px;
   /* **不換行。** 換成兩行的話它會比 44px 的頂列高，整條線就歪了
@@ -315,7 +315,7 @@ watch(
 .quit-note {
   margin: 0;
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: var(--fs-small);
   color: var(--text-secondary);
   background: var(--bg-panel);
   border-bottom: 1px solid var(--line-subtle);
@@ -335,21 +335,21 @@ watch(
 
 .farewell-box h1 {
   margin: 0 0 12px;
-  font-size: 20px;
+  font-size: var(--fs-title);
   font-weight: 600;
   color: var(--text);
 }
 
 .farewell-box p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-body);
   line-height: 1.7;
   color: var(--text-secondary);
 }
 
 .settings-link {
   margin-left: auto;
-  font-size: 13px;
+  font-size: var(--fs-small);
   padding: 4px 12px;
   border-radius: var(--radius);
   color: var(--text-tertiary);

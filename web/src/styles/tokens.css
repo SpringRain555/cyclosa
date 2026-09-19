@@ -93,7 +93,7 @@ body {
   background: var(--bg-app);
   color: var(--text);
   font-family: var(--font);
-  font-size: 14px;
+  font-size: var(--fs-body);
   line-height: 1.6;
 }
 
@@ -101,71 +101,7 @@ a {
   color: var(--ui-action);
 }
 
-button {
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  background: var(--bg-raised);
-  color: var(--text);
-  border-radius: var(--radius);
-  padding: 6px 14px;
-}
-
-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--line-strong);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-button.primary {
-  background: var(--ui-action);
-  border-color: var(--ui-action);
-  color: #0b1220;
-  font-weight: 600;
-}
-
-button.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
-  background: var(--ui-action);
-}
-
-/**
- * 回不去的動作。**只有外框是紅的，底不是** ——
- * 一顆填滿紅色的按鈕會比它旁邊那顆主要動作還搶眼，
- * 而這一顆要的是「看清楚再按」，不是「來按我」。
- *
- * 顏色的意思在說明分頁上（`panelDanger`）：紅留給失敗與回不去的動作，
- * **關聯圖上永遠不出現**。
- */
-button.danger {
-  color: var(--ui-danger);
-  border-color: var(--ui-danger);
-}
-
-button.danger:hover:not(:disabled) {
-  background: var(--ui-danger);
-  border-color: var(--ui-danger);
-  color: #0b1220;
-}
-
-input[type='text'] {
-  font: inherit;
-  background: var(--bg-app);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 7px 10px;
-  width: 100%;
-}
-
-input[type='text']:focus {
-  outline: none;
-  border-color: var(--ui-action);
-}
+/* 按鈕、輸入框、標題、表格、頁寬、字級 —— **全部在 base.css**（v0.24.0）。這一份只管顏色與記號。 */
 
 .mono {
   font-family: var(--mono);

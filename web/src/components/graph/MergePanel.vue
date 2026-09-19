@@ -112,9 +112,8 @@ async function merge(row: MergeCandidate): Promise<void> {
   gap: 8px;
 }
 
-h3 {
-  margin: 0;
-  font-size: 13px;
+.merges h3 {
+  font-size: var(--fs-small);
 }
 
 .muted,
@@ -122,7 +121,7 @@ h3 {
 .reason,
 .result {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.7;
   margin: 0;
 }
@@ -160,13 +159,13 @@ li {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   flex-wrap: wrap;
 }
 
 .side .label {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--fs-label);
   min-width: 3.5em;
 }
 
@@ -174,24 +173,8 @@ li {
   color: var(--text);
 }
 
-button {
+/* 按鈕在 base.css；這一欄只決定它靠左、不撐滿。 */
+.merges button {
   align-self: flex-start;
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-panel);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 </style>

@@ -8,6 +8,8 @@ import ReaderView from './views/ReaderView.vue';
 import RunsView from './views/RunsView.vue';
 import SettingsView from './views/SettingsView.vue';
 import './styles/tokens.css';
+// 字級、間距、頁寬、表單、按鈕、表格 —— 每一樣只定義一次（v0.24.0）。要在 tokens 之後。
+import './styles/base.css';
 // 圖例樣本的畫法。**圖上那一欄與設定頁的說明分頁共用**，所以不能是 scoped。
 import './styles/legend-marks.css';
 

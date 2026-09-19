@@ -130,9 +130,8 @@ async function copyPath(): Promise<void> {
   gap: 6px;
 }
 
-h3 {
-  margin: 0;
-  font-size: 13px;
+.export h3 {
+  font-size: var(--fs-small);
 }
 
 .hint,
@@ -142,7 +141,7 @@ h3 {
 .warn-note,
 .label {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--text-tertiary);
 }
@@ -157,7 +156,7 @@ h3 {
 
 .path {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.6;
   color: var(--text-secondary);
   word-break: break-all;
@@ -179,7 +178,7 @@ h3 {
 
 .done {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text);
 }
 
@@ -187,7 +186,7 @@ h3 {
   list-style: none;
   margin: 0;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
 }
 
@@ -198,29 +197,8 @@ h3 {
   color: var(--edge-pending);
 }
 
-button {
+/* 按鈕在 base.css；這一欄只決定它靠左、不撐滿。 */
+.export button {
   align-self: flex-start;
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-button.small {
-  font-size: 11px;
-  padding: 2px 7px;
-}
-
-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 </style>

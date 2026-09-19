@@ -671,7 +671,7 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   background: var(--bg-panel);
 }
 .list-head h2 {
-  font-size: 14px;
+  font-size: var(--fs-body);
   margin: 0 0 8px;
 }
 .controls {
@@ -679,13 +679,9 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   gap: 6px;
   margin-bottom: 10px;
 }
-select {
-  font: inherit;
+.controls select {
   flex: 1;
-  background: var(--bg-app);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
+  min-width: 0;
   padding: 5px 6px;
 }
 .rows {
@@ -727,7 +723,7 @@ select {
   align-items: center;
   gap: 6px;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
 }
 .status {
@@ -746,18 +742,18 @@ select {
 }
 .position {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-label);
   margin: 0;
 }
 .doc-head h1 {
-  font-size: 22px;
+  font-size: var(--fs-title);
   margin: 4px 0 12px;
 }
 .facts {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 14px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   margin: 0 0 14px;
 }
 .facts dt {
@@ -775,17 +771,8 @@ select {
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
-.btn {
-  display: inline-block;
-  border: 1px solid var(--line);
-  background: var(--bg-raised);
-  color: var(--text);
-  border-radius: var(--radius);
-  padding: 6px 14px;
-  text-decoration: none;
-}
 .note {
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .notice {
   border-left: 3px solid var(--edge-pending);
@@ -819,11 +806,8 @@ select {
   padding-top: 16px;
   border-top: 1px solid var(--line-subtle);
 }
-.muted {
-  color: var(--text-tertiary);
-}
 .empty,
 .pick {
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 </style>

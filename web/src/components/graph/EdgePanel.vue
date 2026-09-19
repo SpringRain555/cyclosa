@@ -287,7 +287,7 @@ function when(ms: number): string {
   padding: 12px 14px 20px;
   background: var(--bg-panel);
   border-left: 1px solid var(--line-subtle);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .head {
   display: flex;
@@ -295,14 +295,13 @@ function when(ms: number): string {
   justify-content: space-between;
   margin-bottom: 10px;
 }
-h2 {
-  font-size: 12px;
-  font-weight: 600;
+/* 面板的小標是灰色的標籤字，不是頁面的 h2。 */
+.edge-panel h2 {
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
-  margin: 0;
 }
 .title {
-  font-size: 14px;
+  font-size: var(--fs-body);
   margin: 0 0 8px;
   line-height: 1.5;
   color: var(--text);
@@ -346,7 +345,7 @@ h2 {
   color: var(--text-tertiary);
 }
 .section {
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   margin: 18px 0 8px;
   padding-top: 10px;
@@ -361,7 +360,7 @@ h2 {
 .actions button {
   flex: 1 1 auto;
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .actions button:disabled {
   opacity: 0.45;
@@ -414,7 +413,7 @@ blockquote {
   border-radius: 8px;
   background: var(--bg-raised);
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--fs-label);
   vertical-align: middle;
 }
 .badge.warn {

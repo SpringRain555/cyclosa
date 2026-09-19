@@ -1142,12 +1142,17 @@ export const t = {
       sampleDone: '範例專題已建立：{items} 份資料、{entities} 個實體、{edges} 條關聯。',
       sampleExists: '已經有一份範例專題了。要重建的話先把它刪掉。',
     },
-    /** 現在正在用哪一個 —— **要在按下去之前看得到，不是想起來的時候。** */
-    activeNone: '還沒設定模型',
-    activeLabel: '模型',
+    /**
+     * 頂列那個點旁邊的字 —— **要在按下去之前看得到，不是想起來的時候。**
+     * 三種：實心（每個設了的任務都跑得動）、空心（一個都沒設）、虛線（有一個跑不動）。
+     */
+    topbar: {
+      ready: '模型可以用',
+      none: '還沒設定模型',
+      problem: '有模型連不上或配不上',
+    },
     version: '版本',
     versionUnknown: '問不到版本',
-    purpose: '用途',
     /** 金鑰只從環境變數讀，不存進任何一個檔。 */
     apiKeyEnv: '金鑰的環境變數名稱',
     apiKeyEnvHint:

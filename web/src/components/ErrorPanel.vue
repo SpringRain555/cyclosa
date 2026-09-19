@@ -79,7 +79,7 @@ function detailString(key: string): string | null {
   grid-template-columns: auto 1fr;
   gap: 4px 14px;
   margin: 0 0 14px;
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 .detail dt {
   color: var(--text-muted);
@@ -97,6 +97,6 @@ function detailString(key: string): string | null {
 }
 .cid {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 </style>

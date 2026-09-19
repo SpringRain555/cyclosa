@@ -232,22 +232,22 @@ function relLabel(edge: SubgraphEdge): string {
   padding: 12px 14px 20px;
   background: var(--bg-panel);
   border-left: 1px solid var(--line-subtle);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
-h2 {
-  font-size: 12px;
-  font-weight: 600;
+/* 面板的小標是灰色的標籤字，不是頁面的 h2。 */
+.selection h2 {
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
   margin: 0 0 10px;
 }
 .title {
-  font-size: 14px;
+  font-size: var(--fs-body);
   margin: 0 0 10px;
   line-height: 1.4;
   color: var(--text);
 }
 .section {
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   margin: 18px 0 8px;
   padding-top: 10px;
@@ -277,7 +277,7 @@ h2 {
 }
 .actions button {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 5px 0;
 }
 .edges {
@@ -313,7 +313,7 @@ h2 {
   border-radius: 8px;
   background: var(--bg-raised);
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--fs-label);
 }
 .badge.warn {
   color: var(--edge-pending);
@@ -339,7 +339,7 @@ h2 {
   width: 100%;
   margin-top: 8px;
   padding: 5px 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .connect {
   margin-top: 10px;
@@ -351,7 +351,7 @@ h2 {
   margin-top: 8px;
 }
 .connect .actions button {
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 4px 0;
 }
 .connect .actions button:disabled {
@@ -378,7 +378,7 @@ h2 {
 .field select {
   width: 100%;
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .connect .hint {
   margin-top: 6px;

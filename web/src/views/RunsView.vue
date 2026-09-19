@@ -389,328 +389,370 @@ async function rebuild(): Promise<void> {
 </script>
 
 <template>
-  <main class="runs">
-    <section class="import" :class="{ dragging }">
-      <h2>{{ t.runs.newImport }}</h2>
+  <!--
+    捲動的是外層，寬度是內層（base.css）。表格頁用寬的那一種頁寬；
+    上面兩張卡（匯入、擴展）在寬畫面上並排 —— 它們是兩件平行的事，不是先後。
+  -->
+  <main class="scroll">
+    <div class="page wide">
+      <div class="top">
+        <section class="card import" :class="{ dragging }">
+          <h2>{{ t.runs.newImport }}</h2>
 
-      <label class="field">
-        <span>{{ t.runs.urlsLabel }}</span>
-        <textarea v-model="urls" rows="3" :placeholder="t.runs.urlsPlaceholder"></textarea>
-      </label>
+          <label class="field wide">
+            <span>{{ t.runs.urlsLabel }}</span>
+            <textarea v-model="urls" rows="3" :placeholder="t.runs.urlsPlaceholder"></textarea>
+          </label>
 
-      <div class="import-actions">
-        <button class="primary" :disabled="busy || urls.trim().length === 0" @click="submitUrls">
-          {{ busy ? t.runs.uploading : t.runs.submitUrls }}
-        </button>
-        <label class="btn">
-          {{ t.runs.picking }}
-          <input
-            type="file"
-            multiple
-            hidden
-            @change="submitFiles(($event.target as HTMLInputElement).files)"
-          />
-        </label>
-      </div>
+          <div class="import-actions">
+            <button
+              class="primary"
+              :disabled="busy || urls.trim().length === 0"
+              @click="submitUrls"
+            >
+              {{ busy ? t.runs.uploading : t.runs.submitUrls }}
+            </button>
+            <label class="btn">
+              {{ t.runs.picking }}
+              <input
+                type="file"
+                multiple
+                hidden
+                @change="submitFiles(($event.target as HTMLInputElement).files)"
+              />
+            </label>
+          </div>
 
-      <div
-        class="drop"
-        @dragover.prevent="dragging = true"
-        @dragleave.prevent="dragging = false"
-        @drop.prevent="onDrop"
-      >
-        {{ t.runs.dropHint }}
-      </div>
-    </section>
+          <div
+            class="drop"
+            @dragover.prevent="dragging = true"
+            @dragleave.prevent="dragging = false"
+            @drop.prevent="onDrop"
+          >
+            {{ t.runs.dropHint }}
+          </div>
+        </section>
 
-    <!--
+        <!--
       擴展。**兩階段之間有一個人**（REQ-0004）——
       第一步只產生子問題，畫面上要說出「還沒有開始抓」。
     -->
-    <section class="expand">
-      <h2>{{ t.expand.title }}</h2>
+        <section class="card expand">
+          <h2>{{ t.expand.title }}</h2>
 
-      <label class="field">
-        <span>{{ t.expand.topicLabel }}</span>
-        <input v-model="topic" type="text" :placeholder="t.expand.topicPlaceholder" />
-      </label>
+          <label class="field wide">
+            <span>{{ t.expand.topicLabel }}</span>
+            <input v-model="topic" type="text" :placeholder="t.expand.topicPlaceholder" />
+          </label>
 
-      <div class="import-actions">
-        <button :disabled="expanding || topic.trim().length === 0" @click="proposeAngles">
-          {{ expanding ? t.expand.working : t.expand.submit }}
-        </button>
-      </div>
+          <div class="import-actions">
+            <button :disabled="expanding || topic.trim().length === 0" @click="proposeAngles">
+              {{ expanding ? t.expand.working : t.expand.submit }}
+            </button>
+          </div>
 
-      <div v-if="draft" class="angles">
-        <h3>{{ t.expand.anglesTitle }}</h3>
-        <!-- **這一句一定要在。** 第一階段結束時什麼都還沒抓 -->
-        <p class="not-yet">{{ t.expand.notYet }}</p>
-        <p class="muted">
-          {{
-            draft.seededFrom > 0
-              ? fill(t.expand.seededFrom, { n: draft.seededFrom })
-              : t.expand.seededFromNothing
-          }}
-        </p>
+          <div v-if="draft" class="angles">
+            <h3>{{ t.expand.anglesTitle }}</h3>
+            <!-- **這一句一定要在。** 第一階段結束時什麼都還沒抓 -->
+            <p class="callout pending">{{ t.expand.notYet }}</p>
+            <p class="muted">
+              {{
+                draft.seededFrom > 0
+                  ? fill(t.expand.seededFrom, { n: draft.seededFrom })
+                  : t.expand.seededFromNothing
+              }}
+            </p>
 
-        <ul class="angle-list">
-          <li v-for="angle in draft.angles" :key="angle.id">
-            <label :class="{ picked: picked.has(angle.id) }">
-              <input
-                type="checkbox"
-                :checked="picked.has(angle.id)"
-                @change="togglePick(angle.id)"
-              />
-              <span class="q">{{ angle.question }}</span>
-              <span v-if="angle.stance" class="stance">{{ angle.stance }}</span>
-            </label>
-            <!--
+            <ul class="angle-list">
+              <li v-for="angle in draft.angles" :key="angle.id">
+                <label :class="{ picked: picked.has(angle.id) }">
+                  <input
+                    type="checkbox"
+                    :checked="picked.has(angle.id)"
+                    @change="togglePick(angle.id)"
+                  />
+                  <span class="q">{{ angle.question }}</span>
+                  <span v-if="angle.stance" class="stance">{{ angle.stance }}</span>
+                </label>
+                <!--
               **設計稿在這裡寫的是「預估會找到幾個」** —— 那個數字只可能是模型猜的。
               這一行是我們查得到也驗得了的：這條角度是從你已有的哪幾份長出來的。
             -->
-            <p class="seeds">
-              <template v-if="angle.seeds.length > 0">
-                {{ t.expand.seedsLabel }}：{{ angle.seeds.map((s) => s.title).join('、') }}
-              </template>
-              <template v-else>{{ t.expand.noSeeds }}</template>
-            </p>
-          </li>
-        </ul>
+                <p class="seeds">
+                  <template v-if="angle.seeds.length > 0">
+                    {{ t.expand.seedsLabel }}：{{ angle.seeds.map((s) => s.title).join('、') }}
+                  </template>
+                  <template v-else>{{ t.expand.noSeeds }}</template>
+                </p>
+              </li>
+            </ul>
 
-        <div class="import-actions">
-          <button class="primary" :disabled="expanding || picked.size === 0" @click="startPicked">
-            {{ fill(t.expand.start, { n: picked.size }) }}
-          </button>
-          <span class="muted small">
-            {{
-              picked.size === 0 ? t.expand.pickAtLeastOne : fill(t.expand.tooMany, { n: MAX_PICK })
-            }}
-          </span>
-        </div>
-
-        <p class="muted small">{{ t.expand.machineOnly }}</p>
-      </div>
-    </section>
-
-    <!-- **這一列一直在畫面上。** 它是這個工具對外的行為承諾。 -->
-    <section class="throttle">
-      <span class="label">{{ t.runs.throttleTitle }}</span>
-      <span v-if="policy" class="rule">
-        {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
-      </span>
-      <span v-if="policy" class="rule">
-        {{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}
-      </span>
-      <span class="rule">{{ t.runs.throttleRobots }}</span>
-      <span v-if="throttleNow" class="now">
-        {{ fill(t.runs.throttleNow, { host: throttleNow.host, ms: throttleNow.ms }) }}
-      </span>
-    </section>
-
-    <!-- `derived/` 整批重算。**衍生物可以丟掉重來，而那件事要有一條真的跑得起來的路。** -->
-    <section class="rebuild">
-      <button :disabled="rebuilding" @click="rebuild">
-        {{ rebuilding ? t.rebuild.running : t.rebuild.button }}
-      </button>
-      <p v-if="rebuildReport" class="report">
-        <span>{{
-          fill(t.rebuild.done, {
-            items: rebuildReport.items,
-            reextracted: rebuildReport.reextracted,
-          })
-        }}</span>
-        <span v-if="rebuildReport.failed > 0" class="warn">
-          {{ fill(t.rebuild.failed, { n: rebuildReport.failed }) }}
-        </span>
-        <span v-if="rebuildReport.snapshotMissing > 0" class="warn">
-          {{ fill(t.rebuild.missing, { n: rebuildReport.snapshotMissing }) }}
-        </span>
-        <span v-if="rebuildReport.notes.checked === 0" class="muted">{{ t.rebuild.noNotes }}</span>
-        <template v-else>
-          <span v-if="rebuildReport.notes.unresolved === 0 && rebuildReport.notes.shifted === 0">
-            {{ fill(t.rebuild.notesOk, { n: rebuildReport.notes.checked }) }}
-          </span>
-          <span v-if="rebuildReport.notes.shifted > 0" class="warn">
-            {{ fill(t.rebuild.notesShifted, { n: rebuildReport.notes.shifted }) }}
-          </span>
-          <span v-if="rebuildReport.notes.unresolved > 0" class="warn">
-            {{ fill(t.rebuild.notesUnresolved, { n: rebuildReport.notes.unresolved }) }}
-          </span>
-        </template>
-      </p>
-    </section>
-
-    <ErrorPanel v-if="error" :error="error" />
-
-    <div class="split">
-      <aside class="list">
-        <h2>{{ t.runs.title }}</h2>
-        <p v-if="runList.length === 0" class="muted">{{ t.runs.empty }}</p>
-        <ul v-else class="rows">
-          <li v-for="r in runList" :key="r.id">
-            <button class="row" :class="{ active: r.id === runId }" @click="openRun(r.id)">
-              <span class="row-title">{{ r.label }}</span>
-              <span class="row-meta">
-                <!-- 沒勾就走掉的擴展停在 queued。**它不是在排隊，是在等一個不會來的人** —— 標成草稿。 -->
-                <span v-if="isDraft(r)" class="badge draft">{{ t.runControl.draft }}</span>
-                <span v-else :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
-                <span v-if="r.live" class="live">{{ t.runs.live }}</span>
-                <span>{{ when(r.createdAt) }}</span>
+            <div class="import-actions">
+              <button
+                class="primary"
+                :disabled="expanding || picked.size === 0"
+                @click="startPicked"
+              >
+                {{ fill(t.expand.start, { n: picked.size }) }}
+              </button>
+              <span class="muted small">
+                {{
+                  picked.size === 0
+                    ? t.expand.pickAtLeastOne
+                    : fill(t.expand.tooMany, { n: MAX_PICK })
+                }}
               </span>
-            </button>
-            <button v-if="isDraft(r)" class="discard" :disabled="busyControl" @click="discard(r)">
-              {{ t.runControl.discard }}
-            </button>
-          </li>
-        </ul>
-      </aside>
+            </div>
 
-      <section v-if="run" class="detail">
-        <header class="detail-head">
-          <h2>{{ run.label }}</h2>
-          <!--
+            <p class="muted small">{{ t.expand.machineOnly }}</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- **這一列一直在畫面上。** 它是這個工具對外的行為承諾。 -->
+      <section class="throttle">
+        <span class="label">{{ t.runs.throttleTitle }}</span>
+        <span v-if="policy" class="rule">
+          {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
+        </span>
+        <span v-if="policy" class="rule">
+          {{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}
+        </span>
+        <span class="rule">{{ t.runs.throttleRobots }}</span>
+        <span v-if="throttleNow" class="now">
+          {{ fill(t.runs.throttleNow, { host: throttleNow.host, ms: throttleNow.ms }) }}
+        </span>
+      </section>
+
+      <!-- `derived/` 整批重算。**衍生物可以丟掉重來，而那件事要有一條真的跑得起來的路。** -->
+      <section class="rebuild">
+        <button :disabled="rebuilding" @click="rebuild">
+          {{ rebuilding ? t.rebuild.running : t.rebuild.button }}
+        </button>
+        <p v-if="rebuildReport" class="report">
+          <span>{{
+            fill(t.rebuild.done, {
+              items: rebuildReport.items,
+              reextracted: rebuildReport.reextracted,
+            })
+          }}</span>
+          <span v-if="rebuildReport.failed > 0" class="warn">
+            {{ fill(t.rebuild.failed, { n: rebuildReport.failed }) }}
+          </span>
+          <span v-if="rebuildReport.snapshotMissing > 0" class="warn">
+            {{ fill(t.rebuild.missing, { n: rebuildReport.snapshotMissing }) }}
+          </span>
+          <span v-if="rebuildReport.notes.checked === 0" class="muted">{{
+            t.rebuild.noNotes
+          }}</span>
+          <template v-else>
+            <span v-if="rebuildReport.notes.unresolved === 0 && rebuildReport.notes.shifted === 0">
+              {{ fill(t.rebuild.notesOk, { n: rebuildReport.notes.checked }) }}
+            </span>
+            <span v-if="rebuildReport.notes.shifted > 0" class="warn">
+              {{ fill(t.rebuild.notesShifted, { n: rebuildReport.notes.shifted }) }}
+            </span>
+            <span v-if="rebuildReport.notes.unresolved > 0" class="warn">
+              {{ fill(t.rebuild.notesUnresolved, { n: rebuildReport.notes.unresolved }) }}
+            </span>
+          </template>
+        </p>
+      </section>
+
+      <ErrorPanel v-if="error" :error="error" />
+
+      <div class="split">
+        <aside class="list">
+          <h2>{{ t.runs.title }}</h2>
+          <p v-if="runList.length === 0" class="muted">{{ t.runs.empty }}</p>
+          <ul v-else class="rows">
+            <li v-for="r in runList" :key="r.id">
+              <button class="row" :class="{ active: r.id === runId }" @click="openRun(r.id)">
+                <span class="row-title">{{ r.label }}</span>
+                <span class="row-meta">
+                  <!-- 沒勾就走掉的擴展停在 queued。**它不是在排隊，是在等一個不會來的人** —— 標成草稿。 -->
+                  <span v-if="isDraft(r)" class="badge draft">{{ t.runControl.draft }}</span>
+                  <span v-else :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
+                  <span v-if="r.live" class="live">{{ t.runs.live }}</span>
+                  <span>{{ when(r.createdAt) }}</span>
+                </span>
+              </button>
+              <button
+                v-if="isDraft(r)"
+                class="discard quiet small"
+                :disabled="busyControl"
+                @click="discard(r)"
+              >
+                {{ t.runControl.discard }}
+              </button>
+            </li>
+          </ul>
+        </aside>
+
+        <section v-if="run" class="detail">
+          <header class="detail-head">
+            <h2>{{ run.label }}</h2>
+            <!--
             **擴展數的是角度，匯入數的是網址** —— 兩種 run 的「一項」不一樣，
             所以句子也不一樣。共用一句的話，畫面上會出現「共 1 項」
             配著下面六列網址。
           -->
-          <p class="counts">
-            <span :class="['badge', run.status]">{{ t.runStatus[run.status] }}</span>
-            {{
-              fill(run.kind === 'expand' ? t.expand.counts : t.runs.counts, {
-                succeeded: run.succeeded,
-                failed: run.failed,
-                total: run.total,
-              })
-            }}
-          </p>
-          <!--
+            <p class="counts">
+              <span :class="['badge', run.status]">{{ t.runStatus[run.status] }}</span>
+              {{
+                fill(run.kind === 'expand' ? t.expand.counts : t.runs.counts, {
+                  succeeded: run.succeeded,
+                  failed: run.failed,
+                  total: run.total,
+                })
+              }}
+            </p>
+            <!--
             **「已取消」有三種來源，而使用者只按過其中一種。**
             沒有這一句的話，一個被強制結束留下來的作業看起來像
             「我自己取消了它」—— 而那件事沒有發生過。
           -->
-          <p v-if="run.endedReason" class="ended-reason">
-            {{ t.runEndedReason[run.endedReason] }}
-          </p>
-          <div class="controls">
-            <template v-if="run.live">
-              <button :disabled="busyControl" @click="pauseOrResume(run.paused)">
-                {{ run.paused ? t.runControl.resume : t.runControl.pause }}
+            <p v-if="run.endedReason" class="ended-reason">
+              {{ t.runEndedReason[run.endedReason] }}
+            </p>
+            <div class="controls">
+              <template v-if="run.live">
+                <button :disabled="busyControl" @click="pauseOrResume(run.paused)">
+                  {{ run.paused ? t.runControl.resume : t.runControl.pause }}
+                </button>
+                <button @click="cancel">{{ t.runs.cancel }}</button>
+                <span v-if="run.paused" class="paused">{{ t.runControl.paused }}</span>
+                <span v-else class="hint">{{ t.runControl.pauseHint }}</span>
+              </template>
+              <!-- 草稿沒有東西可以復原，只有丟掉。 -->
+              <button v-else-if="isDraft(run)" :disabled="busyControl" @click="discard(run)">
+                {{ t.runControl.discard }}
               </button>
-              <button @click="cancel">{{ t.runs.cancel }}</button>
-              <span v-if="run.paused" class="paused">{{ t.runControl.paused }}</span>
-              <span v-else class="hint">{{ t.runControl.pauseHint }}</span>
-            </template>
-            <!-- 草稿沒有東西可以復原，只有丟掉。 -->
-            <button v-else-if="isDraft(run)" :disabled="busyControl" @click="discard(run)">
-              {{ t.runControl.discard }}
-            </button>
-            <!-- **跑完才給復原。** 一邊寫一邊刪會留下說不清楚的狀態。 -->
-            <template v-else>
-              <!--
+              <!-- **跑完才給復原。** 一邊寫一邊刪會留下說不清楚的狀態。 -->
+              <template v-else>
+                <!--
                 回圖上看。**焦點放在這一次新增關聯最多的那一份** ——
                 2026-09-18 使用者跑完擴展回到圖上，看到的還是先前那一個點：
                 圖用的是舊焦點，而那份 PDF 一條邊都沒有。
               -->
-              <button v-if="graphFocusId !== null" @click="showOnGraph">
-                {{ t.runs.showOnGraph }}
-              </button>
-              <button :disabled="busyControl" @click="undo">
-                {{ t.runControl.undo }}
-              </button>
-            </template>
-          </div>
-        </header>
+                <button v-if="graphFocusId !== null" @click="showOnGraph">
+                  {{ t.runs.showOnGraph }}
+                </button>
+                <button :disabled="busyControl" @click="undo">
+                  {{ t.runControl.undo }}
+                </button>
+              </template>
+            </div>
+          </header>
 
-        <p v-if="undoNote" class="undo-note">{{ undoNote }}</p>
+          <p v-if="undoNote" class="undo-note">{{ undoNote }}</p>
 
-        <!--
+          <!--
           擴展這一次花了什麼。**請求數是主要上限**（ADR-0006 的補記），
           而金額只在 provider 真的回報時才是一個數字。
         -->
-        <!--
+          <!--
           **主題不在這裡。** 擴展的 `label` 就是 `topic` ——
           上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
         -->
-        <p v-if="run.kind === 'expand'" class="budget">
-          <span>{{ fill(t.expand.requests, { n: run.requests }) }}</span>
-          <span>{{ costText(run) }}</span>
-          <span v-if="run.providers" class="mono">{{
-            fill(t.expand.usedProviders, { chat: providerLabel(run) })
-          }}</span>
-        </p>
+          <p v-if="run.kind === 'expand'" class="budget">
+            <span>{{ fill(t.expand.requests, { n: run.requests }) }}</span>
+            <span>{{ costText(run) }}</span>
+            <span v-if="run.providers" class="mono">{{
+              fill(t.expand.usedProviders, { chat: providerLabel(run) })
+            }}</span>
+          </p>
 
-        <!-- 沒被勾的那幾條也在這裡 —— 作業紀錄要看得出當時有哪些選項 -->
-        <table v-if="runAngles.length > 0" class="angle-table">
-          <thead>
-            <tr>
-              <th>{{ t.expand.colAngle }}</th>
-              <th>{{ t.expand.colStance }}</th>
-              <th>{{ t.expand.colFound }}</th>
-              <th>{{ t.expand.colNodes }}</th>
-              <th>{{ t.expand.colEdges }}</th>
-              <th>{{ t.expand.colNote }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="angle in runAngles" :key="angle.id" :class="{ skipped: !angle.selected }">
-              <td>{{ angle.question }}</td>
-              <td>{{ angle.stance }}</td>
-              <td class="num">{{ angle.selected ? angle.foundUrls : '' }}</td>
-              <td class="num">{{ angle.selected ? angle.newNodes : '' }}</td>
-              <td class="num">{{ angle.selected ? angle.newEdges : '' }}</td>
-              <td class="note">
-                {{
-                  angle.selected
-                    ? angle.code
-                      ? (errorMessages[angle.code] ?? angle.code)
-                      : ''
-                    : t.expand.notSelected
-                }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+          <!-- 沒被勾的那幾條也在這裡 —— 作業紀錄要看得出當時有哪些選項 -->
+          <table v-if="runAngles.length > 0" class="table angle-table">
+            <thead>
+              <tr>
+                <th>{{ t.expand.colAngle }}</th>
+                <th>{{ t.expand.colStance }}</th>
+                <th>{{ t.expand.colFound }}</th>
+                <th>{{ t.expand.colNodes }}</th>
+                <th>{{ t.expand.colEdges }}</th>
+                <th>{{ t.expand.colNote }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="angle in runAngles" :key="angle.id" :class="{ skipped: !angle.selected }">
+                <td>{{ angle.question }}</td>
+                <td class="stance-cell">{{ angle.stance }}</td>
+                <td class="num">{{ angle.selected ? angle.foundUrls : '' }}</td>
+                <td class="num">{{ angle.selected ? angle.newNodes : '' }}</td>
+                <td class="num">{{ angle.selected ? angle.newEdges : '' }}</td>
+                <td class="note">
+                  {{
+                    angle.selected
+                      ? angle.code
+                        ? (errorMessages[angle.code] ?? angle.code)
+                        : ''
+                      : t.expand.notSelected
+                  }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-        <table>
-          <thead>
-            <tr>
-              <th>{{ t.runs.colStatus }}</th>
-              <th>{{ t.runs.colSource }}</th>
-              <th>{{ t.runs.colHost }}</th>
-              <th>{{ t.runs.colNodes }}</th>
-              <th>{{ t.runs.colEdges }}</th>
-              <th>{{ t.runs.colNote }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in runItems" :key="item.id">
-              <td>
-                <span :class="['badge', item.outcome]">{{ t.runOutcome[item.outcome] }}</span>
-              </td>
-              <td class="src">
-                <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
-                  {{ item.requested }}
-                </button>
-                <span v-else>{{ item.requested }}</span>
-              </td>
-              <td class="mono">{{ item.host ?? '' }}</td>
-              <td class="num">{{ item.newNodes }}</td>
-              <td class="num">{{ item.newEdges }}</td>
-              <td class="note">
-                {{ noteOf(item) }}
-                <span v-if="item.waitedMs" class="muted waited">
-                  {{ fill(t.runs.waited, { ms: item.waitedMs }) }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>{{ t.runs.colStatus }}</th>
+                <th>{{ t.runs.colSource }}</th>
+                <th>{{ t.runs.colHost }}</th>
+                <th>{{ t.runs.colNodes }}</th>
+                <th>{{ t.runs.colEdges }}</th>
+                <th>{{ t.runs.colNote }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in runItems" :key="item.id">
+                <td>
+                  <span :class="['badge', item.outcome]">{{ t.runOutcome[item.outcome] }}</span>
+                </td>
+                <td class="src">
+                  <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
+                    {{ item.requested }}
+                  </button>
+                  <span v-else>{{ item.requested }}</span>
+                </td>
+                <td class="mono">{{ item.host ?? '' }}</td>
+                <td class="num">{{ item.newNodes }}</td>
+                <td class="num">{{ item.newEdges }}</td>
+                <td class="note">
+                  {{ noteOf(item) }}
+                  <span v-if="item.waitedMs" class="muted waited">
+                    {{ fill(t.runs.waited, { ms: item.waitedMs }) }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
     </div>
   </main>
 </template>
 
 <style scoped>
+/* 頁寬、卡片、標題、表格、表單、按鈕都在 base.css；這裡只有這一頁自己的東西。 */
+.top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s4);
+  align-items: start;
+}
+/* 並排的兩張卡不吃 base.css 的 `.card + .card` 上邊距。 */
+.top .card + .card {
+  margin-top: 0;
+}
+@media (max-width: 900px) {
+  .top {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rebuild {
   display: flex;
   align-items: center;
@@ -727,7 +769,7 @@ async function rebuild(): Promise<void> {
   flex-direction: column;
   gap: 2px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.6;
   color: var(--text-secondary);
 }
@@ -736,37 +778,8 @@ async function rebuild(): Promise<void> {
   color: var(--edge-pending);
 }
 
-.runs {
-  padding: 20px 24px 60px;
-  overflow-y: auto;
-  height: 100%;
-}
-h2 {
-  font-size: 14px;
-  margin: 0 0 10px;
-}
-.import,
-.expand {
-  border: 1px solid var(--line-subtle);
-  background: var(--bg-panel);
-  border-radius: var(--radius-lg);
-  padding: 16px 18px;
-  max-width: 760px;
-}
-.expand {
-  margin-top: 12px;
-}
-h3 {
-  font-size: 13px;
+.angles h3 {
   margin: 14px 0 6px;
-}
-/* 「還沒開始抓」用琥珀的左邊線 —— 跟「待查證」同一個意思：**在等你** */
-.not-yet {
-  font-size: 13px;
-  color: var(--text-secondary);
-  border-left: 2px solid var(--edge-pending);
-  padding-left: 10px;
-  margin: 0 0 8px;
 }
 .angle-list {
   list-style: none;
@@ -779,7 +792,7 @@ h3 {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-small);
   cursor: pointer;
 }
 .angle-list label.picked .q {
@@ -789,29 +802,30 @@ h3 {
   color: var(--text-secondary);
 }
 .stance {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   border: 1px solid var(--line-subtle);
   border-radius: 999px;
   padding: 0 8px;
 }
 .seeds {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   margin: 2px 0 0 24px;
-}
-.small {
-  font-size: 12px;
 }
 .budget {
   display: flex;
   gap: 14px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
   margin: 0 0 10px;
 }
 .angle-table {
   margin-bottom: 16px;
+}
+/* 立場只有三四個字，不讓它折成一行一個字。 */
+.stance-cell {
+  white-space: nowrap;
 }
 /* 沒被勾的那幾條淡一點，**但仍然看得到** —— 它們是這次作業的一部分 */
 .angle-table tr.skipped td {
@@ -820,41 +834,12 @@ h3 {
 .import.dragging {
   border-color: var(--ui-action);
 }
-.field span {
-  display: block;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-bottom: 4px;
-}
-textarea,
-.field input[type='text'] {
-  font: inherit;
-  width: 100%;
-  background: var(--bg-app);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 8px 10px;
-  resize: vertical;
-}
-textarea:focus,
-.field input[type='text']:focus {
-  outline: none;
-  border-color: var(--ui-action);
-}
 .import-actions {
   display: flex;
   gap: 8px;
   margin: 10px 0;
-}
-.btn {
-  display: inline-block;
-  border: 1px solid var(--line);
-  background: var(--bg-raised);
-  color: var(--text);
-  border-radius: var(--radius);
-  padding: 6px 14px;
-  cursor: pointer;
+  align-items: center;
+  flex-wrap: wrap;
 }
 .drop {
   border: 1px dashed var(--line-muted);
@@ -862,7 +847,7 @@ textarea:focus,
   padding: 14px;
   text-align: center;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .throttle {
   display: flex;
@@ -874,7 +859,7 @@ textarea:focus,
   border: 1px solid var(--line-subtle);
   border-radius: var(--radius);
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
 }
 .throttle .label {
@@ -890,10 +875,19 @@ textarea:focus,
 }
 .split {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) 1fr;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   gap: 20px;
   margin-top: 16px;
   align-items: start;
+}
+@media (max-width: 900px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+}
+.list h2,
+.detail-head h2 {
+  margin-bottom: 10px;
 }
 .rows {
   list-style: none;
@@ -912,10 +906,7 @@ textarea:focus,
 }
 .discard {
   flex: none;
-  font-size: 11px;
-  padding: 3px 8px;
   margin-top: 8px;
-  color: var(--text-tertiary);
 }
 .row {
   display: block;
@@ -944,7 +935,7 @@ textarea:focus,
   gap: 8px;
   align-items: center;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
 }
 .controls {
@@ -955,7 +946,7 @@ textarea:focus,
 }
 .controls .hint,
 .controls .paused {
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
 }
 /* 暫停中用琥珀 —— 它是一個「還沒結束、等著你」的狀態，
@@ -965,7 +956,7 @@ textarea:focus,
 }
 .undo-note {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--text-secondary);
 }
@@ -982,7 +973,7 @@ textarea:focus,
 .counts {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-small);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -990,59 +981,30 @@ textarea:focus,
 .ended-reason {
   margin: 6px 0 0;
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
-table {
-  width: 100%;
-  border-collapse: collapse;
+.detail .table {
   margin-top: 12px;
-  font-size: 13px;
 }
-th {
-  text-align: left;
-  font-weight: 500;
-  color: var(--text-muted);
-  font-size: 11px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--line);
-}
-td {
-  padding: 8px;
-  border-bottom: 1px solid var(--line-subtle);
-  vertical-align: top;
-}
-td.num {
-  text-align: right;
+.detail .num {
   width: 72px;
 }
-td.src {
+.src {
   max-width: 320px;
   word-break: break-all;
 }
-td.note {
+.note {
   color: var(--text-secondary);
 }
 .waited {
   display: block;
-  font-size: 11px;
+  font-size: var(--fs-label);
 }
-.link {
-  border: none;
-  background: none;
-  padding: 0;
-  color: var(--ui-action);
+.detail .link {
   text-align: left;
-  text-decoration: underline;
+  font-weight: 400;
 }
-/* **狀態一律是文字，顏色只是輔助。** 綠對紅在綠紅色盲下只差 ΔE 2.2（ADR-0018）。 */
-.badge {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  font-size: 11px;
-  white-space: nowrap;
-}
+/* 狀態徽章的顏色。**狀態一律是文字，顏色只是輔助** —— 綠對紅在綠紅色盲下只差 ΔE 2.2（ADR-0018）。 */
 .badge.done,
 .badge.ok {
   border-color: var(--ui-success);
@@ -1062,9 +1024,6 @@ td.note {
 /* 草稿不是一個「狀態」，它是還沒發生 —— 不上色。 */
 .badge.draft {
   border-color: var(--line-muted);
-  color: var(--text-tertiary);
-}
-.muted {
   color: var(--text-tertiary);
 }
 </style>

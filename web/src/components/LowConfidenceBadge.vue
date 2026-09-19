@@ -40,7 +40,7 @@ const reasonText = (key: string): string =>
   border-radius: 50%;
   border: 1px solid var(--edge-pending);
   color: var(--edge-pending);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-weight: 700;
   line-height: 1;
   flex-shrink: 0;
@@ -67,6 +67,6 @@ ul {
   margin: 6px 0 0;
   padding-left: 30px;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 </style>

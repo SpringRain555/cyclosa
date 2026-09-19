@@ -112,17 +112,16 @@ const projectionValue = computed({
   padding: 12px 14px 20px;
   background: var(--bg-panel);
   border-right: 1px solid var(--line-subtle);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
-h2 {
-  font-size: 12px;
-  font-weight: 600;
+/* 圖例的標題是灰色的標籤字，不是頁面的標題。 */
+.legend h2 {
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
   margin: 0 0 10px;
 }
-h3 {
-  font-size: 11px;
-  font-weight: 600;
+.legend h3 {
+  font-size: var(--fs-label);
   color: var(--text-muted);
   margin: 0 0 6px;
 }
@@ -155,7 +154,7 @@ hr {
   color: var(--text-secondary);
   cursor: pointer;
 }
-input[type='range'] {
+.legend input[type='range'] {
   width: 100%;
 }
 .value {
@@ -178,7 +177,7 @@ input[type='range'] {
 .tiers button {
   flex: 1;
   padding: 4px 0;
-  font-size: 11px;
+  font-size: var(--fs-label);
 }
 .tiers button.on {
   border-color: var(--ui-action);

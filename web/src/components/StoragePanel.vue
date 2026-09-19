@@ -150,7 +150,7 @@ onMounted(load);
 /* 跟設定頁的 `.what` 與 `.facts dt` 同一組 token —— 兩頁並排，說明文字的深淺要一樣。 */
 .what {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin: 6px 0;
 }
 dl {
@@ -162,15 +162,14 @@ dl {
 }
 dt {
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
-h2 {
-  font-size: 15px;
-  margin: 22px 0 0;
+.storage h2 {
+  margin-top: 22px;
 }
 form {
   display: flex;
@@ -181,10 +180,10 @@ form input {
   flex: 1;
 }
 .small {
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .done {
   color: var(--ui-success);
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 </style>

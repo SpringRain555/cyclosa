@@ -246,9 +246,8 @@ function parts(hit: SearchHit): { before: string; match: string; after: string }
   gap: 6px;
 }
 
-h3 {
-  margin: 0;
-  font-size: 13px;
+.search h3 {
+  font-size: var(--fs-small);
 }
 
 .row {
@@ -265,7 +264,7 @@ h3 {
 
 .build button {
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-label);
   padding: 3px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -283,7 +282,7 @@ h3 {
 .modes button {
   flex: 1;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-label);
   padding: 3px 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -301,7 +300,7 @@ h3 {
   flex: 1;
   min-width: 0;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -317,7 +316,7 @@ h3 {
 .row button,
 .small {
   font: inherit;
-  font-size: 11px;
+  font-size: var(--fs-label);
   padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -330,7 +329,7 @@ h3 {
 .notice,
 .why {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.7;
   color: var(--text-tertiary);
 }
@@ -383,18 +382,18 @@ h3 {
 }
 
 .title {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text);
 }
 
 .tag {
-  font-size: 10px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   white-space: nowrap;
 }
 
 .snippet {
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.6;
   color: var(--text-tertiary);
 }

@@ -138,7 +138,7 @@ const unresolvedCount = computed(
 </script>
 
 <template>
-  <aside class="notes">
+  <aside class="notes compact">
     <header>
       <h3>{{ t.notes.panelTitle }}</h3>
       <p class="muted count">
@@ -219,14 +219,9 @@ const unresolvedCount = computed(
   min-width: 0;
 }
 
-h3 {
-  margin: 0;
-  font-size: 14px;
-}
-
 .count {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 
 .warn {
@@ -240,7 +235,7 @@ h3 {
 .hint,
 .empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.6;
 }
 
@@ -256,7 +251,7 @@ h3 {
 
 .excerpt {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.6;
 }
 
@@ -271,21 +266,8 @@ h3 {
 .label {
   display: block;
   margin-bottom: 4px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-secondary);
-}
-
-textarea {
-  width: 100%;
-  box-sizing: border-box;
-  resize: vertical;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-app);
-  color: var(--text);
-  font: inherit;
-  line-height: 1.6;
 }
 
 .row {
@@ -294,41 +276,8 @@ textarea {
   flex-wrap: wrap;
 }
 
-button {
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-button:hover {
-  background: var(--bg-hover);
-}
-
-/* 這一欄的按鈕比全域的小一號，所以整組要在這裡重寫一次 ——
-   **而重寫的時候很容易只改一半**：只寫 `color: var(--ui-action)`
-   就會得到藍底藍字，一個看得到形狀但讀不到字的按鈕。
-   2026-09-08 第一次截圖就是那樣。 */
-button.primary {
-  background: var(--ui-action);
-  border-color: var(--ui-action);
-  color: var(--bg-app);
-  font-weight: 600;
-}
-
-button.primary:hover:not(:disabled) {
-  background: var(--ui-action);
-  filter: brightness(1.08);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+/* 這一欄的按鈕比全域的小一號 —— 用 base.css 的 `.small`，**不在這裡重畫**。
+   2026-09-08 這裡重寫過一整組，而重寫的時候很容易只改一半（藍底藍字）。 */
 
 .rows {
   list-style: none;
@@ -357,20 +306,20 @@ button:disabled {
   padding-left: 8px;
   border-left: 2px solid var(--line-strong);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.6;
 }
 
 .body {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-small);
   line-height: 1.6;
   white-space: pre-wrap;
 }
 
 .anchor {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
 }
 
@@ -390,7 +339,7 @@ button:disabled {
 
 .why {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.6;
 }
 </style>

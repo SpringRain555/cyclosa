@@ -41,22 +41,22 @@ import { guideItem, guideSection, t } from '../i18n/zh-TW';
   padding-bottom: 24px;
 }
 .group {
-  font-size: 15px;
+  font-size: var(--fs-section);
   margin: 12px 0 4px;
 }
 .group-what {
   margin: 0 0 20px;
   max-width: 62ch;
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: var(--fs-small);
   line-height: 1.6;
 }
 section {
   margin-bottom: 24px;
 }
-h3 {
-  font-size: 12px;
-  font-weight: 600;
+/* 這一頁的小標是一條分隔線上的灰字，不是一般的 h3。 */
+.guide h3 {
+  font-size: var(--fs-label);
   color: var(--text-muted);
   margin: 0 0 10px;
   padding-bottom: 6px;
@@ -71,7 +71,7 @@ dt {
   gap: 9px;
   margin-top: 12px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 /* **樣本要跟文字對齊，而不是撐開那一行。** 線是 0 高度的邊框，
    所以它需要一個有高度的容器才對得上中線。 */
@@ -86,7 +86,7 @@ dd {
   margin: 3px 0 0 35px;
   max-width: 62ch;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--fs-small);
   line-height: 1.65;
 }
 </style>

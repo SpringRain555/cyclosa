@@ -770,25 +770,7 @@ async function test(role: ProviderRole): Promise<void> {
 
 <style scoped>
 .tabs {
-  display: flex;
-  gap: 6px;
   margin-bottom: 16px;
-}
-
-.tabs button {
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--text-tertiary);
-  cursor: pointer;
-}
-
-.tabs button.on {
-  border-color: var(--ui-selected);
-  color: var(--text);
 }
 
 .facts {
@@ -796,7 +778,7 @@ async function test(role: ProviderRole): Promise<void> {
   grid-template-columns: auto 1fr;
   gap: 2px 12px;
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 
 .facts dt {
@@ -850,17 +832,16 @@ async function test(role: ProviderRole): Promise<void> {
 .inner.wide {
   max-width: 1180px;
 }
-h1 {
-  font-size: 16px;
-  margin: 0 0 6px;
+.inner > h1 {
+  margin-bottom: 6px;
 }
-h2 {
-  font-size: 14px;
-  margin: 0;
+.role h2,
+.block h2 {
+  font-size: var(--fs-body);
 }
 .no-fallback {
   color: var(--text-tertiary);
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin: 0 0 18px;
 }
 .role {
@@ -886,7 +867,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin-bottom: 8px;
   cursor: pointer;
 }
@@ -901,7 +882,7 @@ h2 {
   flex-wrap: wrap;
 }
 .state {
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -928,12 +909,12 @@ h2 {
   border-style: solid;
 }
 .detail {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   font-family: var(--mono);
 }
 .what {
-  font-size: 13px;
+  font-size: var(--fs-small);
   color: var(--text-secondary);
   margin: 8px 0 12px;
 }
@@ -947,7 +928,7 @@ h2 {
   grid-template-columns: 110px 1fr;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 /**
  * 逐任務覆寫那一區。
@@ -965,7 +946,7 @@ h2 {
 /* ── 兩個段落的標題 ────────────────────────────────── */
 .group {
   margin: 28px 0 4px;
-  font-size: 15px;
+  font-size: var(--fs-section);
   color: var(--text);
 }
 .group:first-of-type {
@@ -973,7 +954,7 @@ h2 {
 }
 .group-what {
   margin: 0 0 14px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
   max-width: 62ch;
   line-height: 1.6;
@@ -998,13 +979,13 @@ h2 {
 .tasks-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 .tasks-table th {
   text-align: left;
   font-weight: 500;
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 6px 10px 6px 0;
   border-bottom: 1px solid var(--line);
 }
@@ -1023,7 +1004,7 @@ h2 {
 .task-what {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   /* **這一欄的最大寬度就是整張表的最小寬度。** 34ch 的時候四欄加起來
      是 728px，而這一頁的內容寬只有 712px —— 也就是永遠差一點。 */
@@ -1052,7 +1033,7 @@ h2 {
 .task-status .missing {
   display: block;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .badge {
   display: inline-block;
@@ -1061,7 +1042,7 @@ h2 {
   border-radius: 3px;
   background: var(--bg-hover);
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--fs-label);
 }
 /* setx 那一行要看得出來是可以整行複製的指令 */
 .setx {
@@ -1072,7 +1053,7 @@ h2 {
   background: var(--bg-app);
   color: var(--text-secondary);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-label);
   user-select: all;
   overflow-x: auto;
 }
@@ -1080,16 +1061,6 @@ h2 {
 .sep {
   color: var(--text-muted);
   margin: 0 4px;
-}
-input,
-select {
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--text);
-  padding: 5px 8px;
-  font-size: 13px;
-  font-family: inherit;
 }
 .caps {
   display: flex;
@@ -1099,11 +1070,11 @@ select {
   margin: 10px 0;
 }
 .caps-label {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
 }
 .cap {
-  font-size: 12px;
+  font-size: var(--fs-label);
   padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid var(--line-subtle);
@@ -1123,7 +1094,7 @@ select {
   font-family: var(--mono);
 }
 .missing {
-  font-size: 13px;
+  font-size: var(--fs-small);
   color: var(--text-secondary);
   border-left: 2px solid var(--edge-pending);
   padding-left: 10px;
@@ -1137,7 +1108,7 @@ select {
   margin-top: 10px;
 }
 .hint {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-muted);
   margin: 0;
 }
@@ -1153,24 +1124,16 @@ select {
   margin: 0 0 4px;
   padding-left: 10px;
   border-left: 3px solid var(--line-strong);
-  font-size: 12px;
+  font-size: var(--fs-label);
   font-weight: 700;
   color: var(--text);
 }
-/** 建議值那顆 —— 看起來是文字，但它是按鈕，因為它會改一個欄位。 */
+/** 建議值那顆（base.css 的 `.link`）跟它後面那句話之間留一點空。 */
 .link {
-  background: none;
-  border: none;
-  padding: 0;
   margin-right: 4px;
-  font: inherit;
-  font-weight: 700;
-  color: var(--ui-action);
-  cursor: pointer;
-  text-decoration: underline;
 }
 .test-result {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-secondary);
 }
 .save {
@@ -1180,34 +1143,17 @@ select {
   margin-top: 6px;
 }
 /**
- * **`.primary` 不在這裡重畫。** 2026-09-18 之前這裡把字塗成 `--ui-action`，
- * 而全域 `tokens.css` 把底也塗成同一個藍 —— 「儲存」變成一個看不見字的藍方塊。
- * 填色按鈕只在 `tokens.css` 定義一次。
+ * **按鈕不在這裡重畫。** 2026-09-18 之前這裡把 `.primary` 的字塗成 `--ui-action`，
+ * 而全域把底也塗成同一個藍 —— 「儲存」變成一個看不見字的藍方塊。
+ * 按鈕只在 `base.css` 定義一次。
  */
-button {
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  color: var(--text);
-  padding: 5px 12px;
-  font-size: 13px;
-  cursor: pointer;
-  font-family: inherit;
-}
-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 /* 連線方式：兩個選項並排，標籤與選項同一條基線。 */
 .transport {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 16px;
-  font-size: 13px;
+  font-size: var(--fs-small);
 }
 .transport .choice {
   display: inline-flex;

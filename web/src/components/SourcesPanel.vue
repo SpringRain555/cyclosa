@@ -344,7 +344,7 @@ function when(ms: number | null): string {
     <p v-if="rows.length === 0" class="muted">{{ t.sources.empty }}</p>
     <p v-else-if="groups.length === 0" class="muted">{{ t.sources.noMatch }}</p>
 
-    <table v-else>
+    <table v-else class="table">
       <thead>
         <tr>
           <th>{{ t.sources.columns.site }}</th>
@@ -404,7 +404,7 @@ function when(ms: number | null): string {
               </template>
             </td>
 
-            <td class="actions">
+            <td class="actions compact">
               <button v-if="row.probe" :disabled="busyHost !== null" @click="checkOne(row.host)">
                 {{ busyHost === row.host ? t.sources.checking : t.sources.checkOne }}
               </button>
@@ -461,7 +461,7 @@ function when(ms: number | null): string {
                   <span>{{ t.sources.fieldNote }}</span>
                   <input v-model="editing.noteZh" type="text" />
                 </label>
-                <div class="edit-actions">
+                <div class="edit-actions compact">
                   <button type="submit" :disabled="busyHost !== null">{{ t.sources.save }}</button>
                   <button type="button" :disabled="busyHost !== null" @click="cancelEdit">
                     {{ t.sources.cancel }}
@@ -529,7 +529,7 @@ function when(ms: number | null): string {
 .hint,
 .muted {
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--fs-label);
   line-height: 1.7;
   margin: 0;
 }
@@ -542,15 +542,11 @@ function when(ms: number | null): string {
   flex-wrap: wrap;
 }
 
-.search {
-  min-width: 220px;
-}
-
 .only {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-secondary);
 }
 
@@ -575,27 +571,6 @@ function when(ms: number | null): string {
   color: var(--text);
 }
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-th {
-  text-align: left;
-  font-weight: 500;
-  color: var(--text-tertiary);
-  font-size: 12px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--line);
-}
-
-td {
-  padding: 8px;
-  border-bottom: 1px solid var(--line-subtle);
-  vertical-align: top;
-}
-
 tr.group th {
   padding-top: 14px;
   color: var(--text-secondary);
@@ -613,11 +588,6 @@ tr.off {
   opacity: 0.55;
 }
 
-.num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
 .name {
   display: flex;
   align-items: center;
@@ -627,13 +597,13 @@ tr.off {
 
 .host {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   font-family: ui-monospace, monospace;
 }
 
 .note {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: var(--fs-label);
   line-height: 1.6;
   margin-top: 3px;
   max-width: 46ch;
@@ -643,7 +613,7 @@ tr.off {
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 5px;
-  font-size: 10px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
 }
 
@@ -683,7 +653,7 @@ tr.off {
 
 .basis {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--fs-label);
   margin-top: 2px;
 }
 
@@ -691,26 +661,6 @@ tr.off {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-}
-
-button {
-  font: inherit;
-  font-size: 12px;
-  padding: 4px 9px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 .count {
@@ -731,7 +681,7 @@ tr.editor td {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
   min-width: 0;
 }
@@ -753,7 +703,7 @@ tr.editor td {
 }
 
 .add h3 {
-  font-size: 13px;
+  font-size: var(--fs-small);
   margin: 0 0 8px;
 }
 
@@ -763,16 +713,14 @@ tr.editor td {
   flex-wrap: wrap;
 }
 
-input,
-select {
-  font: inherit;
-  font-size: 13px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-app);
-  color: var(--text);
+/* 新增那一列的欄位並排，不吃 base.css 的 100% 寬。 */
+.fields input,
+.fields select,
+.search {
+  width: auto;
   min-width: 160px;
+  flex: 1 1 160px;
+  padding: 5px 8px;
 }
 
 @media (max-width: 720px) {

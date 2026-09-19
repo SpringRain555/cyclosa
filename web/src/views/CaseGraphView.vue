@@ -128,7 +128,8 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 </script>
 
 <template>
-  <div class="page">
+  <!-- 不叫 .page：那是 base.css 的置中頁面模板，而關聯圖要填滿整個視窗。 -->
+  <div class="graph-page">
     <div v-if="store.error !== null" class="centered">
       <ErrorPanel :error="store.error" retryable @retry="store.reload()" />
     </div>
@@ -325,7 +326,7 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
   border-top: 1px solid var(--line-subtle);
 }
 
-.page {
+.graph-page {
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -340,11 +341,12 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
   flex-shrink: 0;
   padding: 8px 14px;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--line-subtle);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .label {
   color: var(--text-tertiary);
@@ -356,6 +358,10 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
   display: flex;
   gap: 3px;
 }
+/* 工具列上的字不換行 —— 一顆兩行高的按鈕會把整條工具列撐高。 */
+.toolbar button {
+  white-space: nowrap;
+}
 .hops button {
   display: flex;
   flex-direction: column;
@@ -365,11 +371,11 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
   line-height: 1.2;
 }
 .hops .n {
-  font-size: 11px;
+  font-size: var(--fs-label);
   color: var(--text-tertiary);
 }
 .hops .count {
-  font-size: 13px;
+  font-size: var(--fs-small);
   color: var(--text);
 }
 .hops button.on {
@@ -382,7 +388,8 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 .hops button.over .count {
   color: var(--edge-pending);
 }
-button.on {
+/* 工具列上「開著」的那幾顆（搜尋、匯出、2D）。 */
+.toolbar > button.on {
   border-color: var(--ui-action);
   color: var(--ui-action);
 }
@@ -393,7 +400,7 @@ button.on {
   background: var(--bg-raised);
   border-bottom: 1px solid var(--line-subtle);
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: var(--fs-label);
 }
 .action-error {
   flex-shrink: 0;

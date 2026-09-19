@@ -38,7 +38,12 @@
 
 完整脈絡（狀態、來源、市場調查、設計稿）見 `_meta\cards\cyclosa.md`，不要在這裡重複。
 
-## 現況：版面有了一套規則、設定頁以任務為主、閱讀器整份連續捲動（v0.24.0）
+## 現況：版面有一套規則、設定以任務為主而且改了就存、PDF 照原檔畫（v0.24.1）
+
+**v0.24.1 回應使用者看過 v0.24.0 之後的兩點。** 閱讀器的 PDF 多一種「**版面**」檢視（預設）：pdf.js 在瀏覽器裡
+照快照畫，圖與公式只有這裡看得到（`web/src/components/pdf/PdfPages.vue`）；版面上選的字換算回同一種錨點
+（`domain/annotation/layer-map.ts`，ADR-0019 後續），所以點註兩種檢視通用。設定頁**改了就存**、沒有儲存鈕，
+存的狀態在最上面那一行；頂列的狀態點跟著一起更新（`web/src/stores/model-state-store.ts`）。
 
 **v0.24.0 做了十四點裡設計的三塊。** 版面基礎在 `web/src/styles/base.css`（字級五級、按鈕／輸入框／表格
 只定義一次，`tests/guards/no-element-restyle.test.ts` 擋住元件各自重畫）；`providers.json` 升 v2，
@@ -193,6 +198,17 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 5. **改抽取邏輯就要 +1 `EXTRACTOR_VERSION`，並在 `EXTRACTOR_CHANGES` 寫下那一版改了哪幾種資料**
    （`tests/guards/extractor-version.test.ts`）。讀取找不到新版會退回舊版，所以**刪就要每一版都刪**
    （`removeDerived`）；「重算全部正文」會重解點註，也把關聯引文的字元位置對回新的正文。
+
+**動閱讀器的 PDF 版面之前一定要知道的三件**（v0.24.1）：
+
+1. **版面上選的字要換算回正文才存**（`mapBetween`）。兩邊的「骨架」（拿掉空白與連字號）一字不差的前提是
+   **同一個 `getTextContent()`、同樣的參數** —— 伺服器抽正文在 `extract/pdf.ts`，瀏覽器在 `PdfPages.vue`。
+   改了其中一邊，選取就從「逐字對」退到「找」，而找不到的時候畫面說對不到、不存。
+2. **pdf.js 另外要的資料檔由伺服器從裝好的 `pdfjs-dist` 給**（`/pdfjs/<資料夾>/`，`interface/http/static.ts`）。
+   少了它們**不報錯**：中日韓字變空白、JPEG 2000 的圖變一塊空白。worker 是 `.mjs`，
+   靜態檔的 MIME 表裡要有它，不然瀏覽器拒絕執行。
+3. **只畫看得到的幾頁**，捲出範圍的釋放 —— 一頁 canvas 十幾 MB。文字層字級那一條在 `styles/pdf-layer.css`，
+   是幾何不是介面字級：`no-element-restyle` 只對那一份豁免，而且釘著它裡面只有那兩行。
 
 > **這一節每個 Stage 收尾都要改。** 它是整份文件裡最容易變成謊言的一段 ——
 > 而一份說錯話的 agent 檔會讓下一個人（或 LLM）照著一個不存在的世界動手。

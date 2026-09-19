@@ -63,6 +63,10 @@
 > `POST /api/providers` 收 v1 或 v2 的形狀都行、存進去的永遠是 v2。
 > `GET …/items/:itemId/content` 多一欄 `stale`，`POST …/rebuild` 的回報多一組 `evidence`。
 >
+> **v0.24.1 沒有新的 `/api` 端點。** 多一條靜態路徑 **`GET /pdfjs/:dir/:file`**：閱讀器的版面檢視要的
+> pdf.js 資料檔（`cmaps`／`standard_fonts`／`wasm`／`iccs` 四個資料夾，從裝好的 `pdfjs-dist` 直接給，
+> 檔名只准英數與 `._-`）。它不是 API，所以不回信封；不在那四個資料夾裡就是 404。
+>
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
 ---
@@ -211,7 +215,7 @@
 | `GET /api/providers` | **v0.24.0 起（ADR-0032）回三樣**：`connections`（CLI／本機 Ollama／OpenAI 相容端點各一列：連不連得上、金鑰變數有沒有設、**這條連線上有哪些模型** —— `null` 代表列不出來，不是「一個都沒有」；CLI 永遠 `null`）、`tasks`（四個任務各一列：走哪一條連線、哪個模型、`state`、版本、能力宣告、`jsonMode`〔只有對話任務有，ADR-0030〕、`ok`、**缺哪幾樣**）、`config`（v2 的設定檔）。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
 | `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。**收 v1 或 v2 的形狀都行**，讀檔與收請求走同一支解析（`parseConfig`），存進去的永遠是 v2。每個任務的 `via` 不在它准許的清單裡就退回第一個准許的；金鑰欄位形狀不對就當沒設定 |
 | `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求 |
-| `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型，不必先按儲存。回 `{kind, models, auth}` |
+| `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型。回 `{kind, models, auth}`。v0.24.1 起設定頁改了就存，按這顆之前會先存；這一支本身仍然不寫檔 |
 | `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**作業紀錄頁那一列從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）|
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
@@ -352,7 +356,7 @@
 | `GET /api/cases/:id/items` | cursor 分頁 ＋ 篩選 |
 | `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言 |
 | `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）。v0.24.0 起多一欄 `stale`：這份是舊版抽取器抽的，**而且那一版之後這一種資料的抽取真的改過**（`EXTRACTOR_CHANGES`）—— 閱讀器據此說一句「按重算全部正文會換成新的」 |
-| `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）|
+| `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）。v0.24.1 起閱讀器的版面檢視也讀它：pdf.js 整份拿（不分段），在瀏覽器裡畫 |
 | `GET …/subgraph/focus` | 打開關聯圖時的起點。**回一個焦點，不回一張圖** |
 | `POST …/items/:itemId/read` | 標記已讀。**正交旗標，不是狀態轉移** |
 | `POST …/items/:itemId/exclude` ／ `/restore` | 已排除／復原。**只有人能做** |

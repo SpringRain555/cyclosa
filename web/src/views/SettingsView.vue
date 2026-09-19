@@ -2,28 +2,28 @@
 /**
  * 設定（ui-workflows §5）。
  *
- * ## 模型那一頁：任務 → 連線 ＋ 模型（v0.24.0，ADR-0032）
+ * ## 模型那一頁：「模型分工」＋「模型服務」（v0.24.0 的形狀，ADR-0032；v0.24.2 的名字）
  *
- * 一張表，四列：每一個會用到模型的任務各自說「走哪一條連線、用哪個模型」，
- * 右邊是它現在跑不跑得動。連線在底下定義一次（CLI、本機 Ollama、OpenAI 相容端點各一條）。
+ * 「模型分工」一張表，四列：每一個會用到模型的任務各自說「交給哪個服務上的哪個模型」，
+ * 右邊是它現在跑不跑得動。「模型服務」在底下各設定一次（Claude Code、Ollama、OpenAI 相容 API），
+ * 每一塊各自框起來，名字底下一行說它在哪裡跑、花不花錢。
  *
  * v0.10.6–v0.23.0 的版本是「三個角色各一格 ＋ 一張逐任務覆寫表」——
  * 使用者第一次真的用（2026-09-18）問「可調用模型與各任務模型是不是重複」，
  * 而切到線上端點之後滿頁都是 Ollama 的舊值。兩個問題的根都是「主鍵是角色」：
  * 使用者要決定的是每一件事跑哪裡，不是每一個角色連哪裡。
+ * 2026-09-19 使用者再看一次：三個區塊分不清、「連線」「連線並列出模型」用詞不準、
+ * 儲存與測試要放在表的右上角 —— 所以有了下面這兩顆。
  *
- * ## 「列出來」與「實際打一次」是兩件事
+ * ## 兩顆按鈕：「儲存並檢查」不花錢，「儲存並測試」會
  *
  * 打開這一頁不該產生費用，所以它只讀 `/api/providers`
  * （CLI 只跑 `--version`、HTTP 連線只列模型清單）。
- * 「實際打一次」是使用者按的按鈕，**逐任務**，而那個按鈕旁邊要先講它會不會花錢。
- *
- * ## 「連線並列出模型」
- *
- * 填了位址（與金鑰變數）之後按這顆，這個端點的模型就列成下拉選單。
- * v0.24.0 它「不存檔就列」（存了才列的話會先出現一個空的下拉選單）；v0.24.1 起這一頁改了就存，
- * 所以它先把位址存起來再列 —— 列的那支端點本身仍然不寫檔，寫檔的是這一頁。
- * 位址或金鑰變數一改，那份清單就作廢（它是對另一條端點列的），模型欄退回手打。
+ * - 每一塊「模型服務」右上角的「**儲存並檢查**」：先存這一塊，再看連不連得上、有哪些模型
+ *   （列出來的模型就是上面那張表的下拉選單）。位址或金鑰變數一改，舊清單就作廢，模型欄退回手打。
+ * - 「模型分工」右上角的「**儲存並測試**」：先存這一頁，再對每一個設好的任務**真的打一次**，
+ *   逐列寫結果。CLI 與線上服務會花錢，按鈕底下先講。找來源走 OpenAI 相容 API 的話，
+ *   測的是「會不會上網搜尋」（ADR-0034）。
  *
  * ## 改了就存，沒有儲存鈕（v0.24.1）
  *
@@ -39,6 +39,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   api,
   type ApiError,
+  type BrowseReport,
   type ChatTask,
   type ConnectionKind,
   type ConnectionStatus,
@@ -155,8 +156,6 @@ interface Listed {
   readonly apiKeyEnv: string | null;
 }
 const listed = ref<Record<HttpKind, Listed | null>>({ ollama: null, openai: null });
-const listing = ref<HttpKind | null>(null);
-const listResult = ref<{ kind: HttpKind; text: string } | null>(null);
 
 function connectionDraft(kind: HttpKind): HttpConnection {
   if (kind === 'ollama') return { baseUrl: ollamaUrl.value.trim(), apiKeyEnv: null };
@@ -176,24 +175,54 @@ function modelsFor(kind: ConnectionKind): string[] | null {
   return listed.value[kind]?.models ?? null;
 }
 
-async function listModels(kind: HttpKind): Promise<void> {
-  listing.value = kind;
-  listResult.value = null;
-  // 這一顆也是一個改動：位址先存起來，再列它的模型（改了就存，v0.24.1）。
+const checking = ref<ConnectionKind | null>(null);
+const checkResult = ref<{ kind: ConnectionKind; text: string } | null>(null);
+
+function nowText(): string {
+  return new Date().toLocaleTimeString('zh-TW', { hour12: false });
+}
+
+/**
+ * 「儲存並檢查」：先把這一塊存起來，再看它連不連得上、有哪些模型。**不花錢** ——
+ * CLI 只跑 `--version`，HTTP 的兩種只列 `/models`。金鑰變數的名字不合格時擋在最前面：那時候不存，
+ * 也就沒有東西可以檢查。
+ */
+async function checkConnection(kind: ConnectionKind): Promise<void> {
+  checkResult.value = null;
+  if (kind === 'openai' && apiKeyEnvBad.value) {
+    checkResult.value = { kind, text: t.settings.checkHeld };
+    return;
+  }
+  checking.value = kind;
   await flush();
+  if (saveTone.value === 'failed') {
+    checking.value = null;
+    checkResult.value = { kind, text: saveStateText.value };
+    return;
+  }
+  const time = nowText();
+  if (kind === 'cli') {
+    await refresh();
+    checking.value = null;
+    checkResult.value = {
+      kind,
+      text: fill(t.settings.checkedCli, { summary: connectionSummary('cli'), time }),
+    };
+    return;
+  }
   const r = await api.listModels(kind, connectionDraft(kind));
-  listing.value = null;
+  checking.value = null;
   if (!r.ok) {
-    listResult.value = { kind, text: errorMessages[r.error.code] ?? r.error.code };
+    checkResult.value = { kind, text: errorMessages[r.error.code] ?? r.error.code };
     return;
   }
   listed.value[kind] = { models: r.data.models, ...connectionDraft(kind) };
-  listResult.value = {
+  checkResult.value = {
     kind,
     text:
       r.data.models === null
         ? t.settings.listedNone
-        : fill(t.settings.listedOk, { n: r.data.models.length }),
+        : fill(t.settings.listedOk, { n: r.data.models.length, time }),
   };
 }
 
@@ -240,6 +269,22 @@ async function load(): Promise<void> {
   modelStore.setFrom(r.data);
 }
 onMounted(() => void load());
+
+/**
+ * 重新讀狀態（檢查或測試之後）。**不用存檔那一份蓋掉表單** —— 除非表單跟存檔一樣，
+ * 那時候蓋等於沒蓋。讀回來的期間使用者可能又在打下一格。
+ */
+async function refresh(): Promise<void> {
+  const r = await api.providers();
+  if (!r.ok) {
+    error.value = r.error;
+    return;
+  }
+  payload.value = r.data;
+  modelStore.setFrom(r.data);
+  if (dirty.value) listsFrom(r.data);
+  else fillFrom(r.data);
+}
 
 function draftConfig(): ProvidersConfig {
   const key = openaiKeyEnv.value.trim();
@@ -329,7 +374,7 @@ function autosave(): Promise<void> {
   return inflight;
 }
 
-/** 按「實際打一次」或「連線並列出模型」之前：還沒存的先存，測的才是畫面上這一份。 */
+/** 按「儲存並測試」或「儲存並檢查」之前：還沒存的先存，測的才是畫面上這一份。 */
 async function flush(): Promise<void> {
   if (inflight !== null) await inflight;
   if (dirty.value) await autosave();
@@ -378,15 +423,19 @@ const saveStateText = computed(() => {
 });
 
 // ── 任務那張表 ─────────────────────────────────────────
-/** 每個任務可以走哪些連線 —— 跟 server 的 `viaOptionsOf` 同一條規則（角色推出來的）。 */
+/** 每個任務可以走哪些服務 —— 跟 server 的 `viaOptionsOf` 同一條規則（角色推出來的）。 */
 function viaOptions(task: ModelTask): readonly ConnectionKind[] {
-  if (task === 'find-sources') return ['cli'];
   if (task === 'embed') return ['ollama'];
+  if (task === 'find-sources') return ['cli', 'openai'];
   return ['ollama', 'openai'];
+}
+/** 只有一種可選的任務，那一格要說為什麼。 */
+function viaFixedText(task: ModelTask): string {
+  return (t.settings.viaFixed as Partial<Record<ModelTask, string>>)[task] ?? '';
 }
 function setVia(task: ModelTask, via: ConnectionKind): void {
   if (tasks.value[task].via === via) return;
-  // 模型名跟著連線走：Ollama 的模型名在 OpenAI 端點上是一個不存在的模型。
+  // 模型名跟著服務走：Ollama 的模型名在 OpenAI 相容 API 上是一個不存在的模型。
   tasks.value[task] = { via, model: '' };
   void autosave();
 }
@@ -425,10 +474,24 @@ function missingText(row: TaskRow): string {
 function jsonModeText(report: JsonModeReport | null): string {
   if (report === null) return '';
   if (report.mode === 'schema' && report.checkedAt === null) return t.settings.jsonModeNative;
-  const text = t.settings.jsonMode[report.mode];
+  // 走的是哪一種協定要跟著寫：使用者指定了 Responses API（ADR-0034）。
+  const proto = report.protocol === null ? '' : ` · ${t.settings.protocolName[report.protocol]}`;
+  const text = `${t.settings.jsonMode[report.mode]}${proto}`;
   if (report.checkedAt === null) return text;
   const date = new Date(report.checkedAt).toLocaleString('zh-TW', { hour12: false });
   return `${text}（${fill(t.settings.jsonCheckedAt, { date })}）`;
+}
+/**
+ * 「上網搜尋」那一行。CLI 的 `checkedAt` 是 null ＝ 參數保證的；OpenAI 相容 API 的是量的 ——
+ * 量出不會的時候把原因帶出來（那句話說的是這個端點怎麼回的）。
+ */
+function browseText(report: BrowseReport): string {
+  const b = t.settings.browse;
+  if (report.state === 'unchecked') return b.unchecked;
+  if (report.checkedAt === null) return b.declared;
+  const date = new Date(report.checkedAt).toLocaleString('zh-TW', { hour12: false });
+  const base = report.state === 'yes' ? b.yes : `${b.no}：${report.detail}`;
+  return `${base}（${fill(t.settings.jsonCheckedAt, { date })}）`;
 }
 function contextText(row: TaskRow): string {
   const n = row.capabilities.context_tokens;
@@ -437,38 +500,58 @@ function contextText(row: TaskRow): string {
     ? fill(t.settings.contextTokens, { n: n.toLocaleString('en-US') })
     : t.settings.contextUnknown;
 }
-/** 會不會花錢，**按之前就說**：CLI 與線上端點會，本機不會。 */
-function testCostText(task: ModelTask): string {
-  const via = tasks.value[task].via;
-  if (via === 'cli') return t.settings.testCostsMoney;
-  if (via === 'openai') return t.settings.testCostsMoneyOnline;
-  return t.settings.testFree;
-}
+const testing = ref<{ done: number; total: number } | null>(null);
+const testResults = ref<Partial<Record<ModelTask, string>>>({});
+const testSummary = ref('');
 
-const testing = ref<ModelTask | null>(null);
-const testResult = ref<{ task: ModelTask; text: string } | null>(null);
-
-async function test(task: ModelTask): Promise<void> {
-  testing.value = task;
-  testResult.value = null;
-  // 測的是存檔那一份 —— 還在打的那一格先存，不然測到的是上一版。
+/**
+ * 「儲存並測試」：先存這一頁，再對每一個設好的任務**真的打一次**，逐列寫結果。
+ * **一個接一個**，不並行 —— 本機 Ollama 一次只常駐一個模型，四個同時打會互相把對方擠出去。
+ * 還沒設定的任務略過（那一列寫「略過」，不是失敗）。
+ */
+async function testAll(): Promise<void> {
+  testResults.value = {};
+  testSummary.value = '';
+  // 測的是存檔那一份 —— 還在打的那一格先存，不然測到的是上一版。最上面那一行會說存了沒。
   await flush();
-  const r = await api.testProvider(task);
-  testing.value = null;
-  if (!r.ok) {
-    testResult.value = { task, text: errorMessages[r.error.code] ?? r.error.code };
-    return;
+  if (saveTone.value === 'failed' || saveTone.value === 'held') return;
+  const targets = TASK_ORDER.filter((task) => rowOf(task)?.state !== 'not-configured');
+  testing.value = { done: 0, total: targets.length };
+  let okCount = 0;
+  for (const task of TASK_ORDER) {
+    if (!targets.includes(task)) {
+      testResults.value[task] = t.settings.testSkipped;
+      continue;
+    }
+    const r = await api.testProvider(task);
+    if (!r.ok) {
+      testResults.value[task] = errorMessages[r.error.code] ?? r.error.code;
+    } else {
+      const outcome = r.data.ok
+        ? fill(t.settings.testOk, { ms: r.data.elapsedMs })
+        : `${t.settings.testFailed}：${errorMessages[r.data.code ?? ''] ?? String(r.data.code)}`;
+      // 線上端點按這顆會重量一次格式支援與搜尋 —— 量到什麼要當場說出來，不是等重新整理。
+      const measured =
+        r.data.jsonMode !== null && r.data.jsonMode.checkedAt !== null
+          ? ` ${fill(t.settings.testJsonMode, { mode: jsonModeText(r.data.jsonMode) })}`
+          : '';
+      const browse =
+        r.data.browse !== null
+          ? ` ${fill(t.settings.testBrowse, { state: browseText(r.data.browse) })}`
+          : '';
+      testResults.value[task] = `${outcome}${measured}${browse}`;
+      if (r.data.ok) okCount++;
+    }
+    testing.value = { done: testing.value.done + 1, total: targets.length };
   }
-  const outcome = r.data.ok
-    ? fill(t.settings.testOk, { ms: r.data.elapsedMs })
-    : `${t.settings.testFailed}：${errorMessages[r.data.code ?? ''] ?? String(r.data.code)}`;
-  // 線上端點按這顆會重量一次格式支援 —— 量到什麼要當場說出來，不是等重新整理。
-  const measured =
-    r.data.jsonMode !== null && r.data.jsonMode.checkedAt !== null
-      ? ` ${fill(t.settings.testJsonMode, { mode: jsonModeText(r.data.jsonMode) })}`
-      : '';
-  testResult.value = { task, text: `${outcome}${measured}` };
-  if (measured.length > 0) await load();
+  // 量到的格式保證與搜尋要反映在狀態欄 —— 先更新，再把「做完了」那一句放上去。
+  await refresh();
+  testing.value = null;
+  testSummary.value = fill(t.settings.testAllDone, {
+    ok: okCount,
+    total: targets.length,
+    time: nowText(),
+  });
 }
 
 // ── 連線那一區 ─────────────────────────────────────────
@@ -544,10 +627,30 @@ function connectionSummary(kind: ConnectionKind): string {
             </p>
             <ErrorPanel v-if="error" :error="error" />
 
-            <!-- ── 段落一：每個任務用哪條連線的哪個模型 ── -->
+            <!-- ── 段落一：模型分工 ── -->
             <section class="card">
-              <h2>{{ t.settings.sectionTasks }}</h2>
-              <p class="card-what">{{ t.settings.sectionTasksWhat }} {{ t.settings.noFallback }}</p>
+              <!--
+                **「儲存並測試」在表的右上角**（2026-09-19 使用者指定的位置）：先存這一頁，
+                再對每一個設好的任務真的打一次。會不會花錢寫在標題底下那一句，按之前就看得到。
+              -->
+              <header class="card-head">
+                <h2>{{ t.settings.sectionTasks }}</h2>
+                <div class="card-action">
+                  <span v-if="testSummary" class="hint">{{ testSummary }}</span>
+                  <button
+                    class="primary"
+                    type="button"
+                    :disabled="testing !== null || saveTone === 'saving'"
+                    @click="testAll()"
+                  >
+                    {{ testing ? fill(t.settings.testAllBusy, testing) : t.settings.testAll }}
+                  </button>
+                </div>
+              </header>
+              <p class="card-what">
+                {{ t.settings.sectionTasksWhat }} {{ t.settings.noFallback }}
+                {{ t.settings.testAllWhat }}
+              </p>
 
               <div class="table-scroll">
                 <table class="table tasks-table">
@@ -566,7 +669,7 @@ function connectionSummary(kind: ConnectionKind): string {
                         <span class="task-what">{{ t.settings.taskWhat[task] }}</span>
                       </td>
 
-                      <!-- 連線：只有一種的任務顯示成文字並說為什麼 —— 一個不能動的下拉選單看起來像壞了。 -->
+                      <!-- 服務：只有一種的任務顯示成文字並說為什麼 —— 一個不能動的下拉選單看起來像壞了。 -->
                       <td class="via-cell">
                         <select
                           v-if="viaOptions(task).length > 1"
@@ -586,9 +689,7 @@ function connectionSummary(kind: ConnectionKind): string {
                           <span class="fixed">{{
                             t.settings.connectionNames[tasks[task].via]
                           }}</span>
-                          <span class="task-what">
-                            {{ t.settings.viaFixed[task as 'find-sources' | 'embed'] }}
-                          </span>
+                          <span class="task-what">{{ viaFixedText(task) }}</span>
                         </template>
                       </td>
 
@@ -709,23 +810,25 @@ function connectionSummary(kind: ConnectionKind): string {
                           >
                             {{ rowOf(task)!.jsonMode!.detail }}
                           </span>
+                          <!-- **會不會上網搜尋也要看得到**（ADR-0034）：找來源那一列，CLI 是參數給的、線上是量的。 -->
+                          <span
+                            v-if="rowOf(task)!.browse"
+                            :class="[
+                              'task-what',
+                              'json-mode',
+                              rowOf(task)!.browse!.state === 'no' ? 'none' : '',
+                            ]"
+                          >
+                            <span class="json-label">{{ t.settings.browseLabel }}</span>
+                            {{ browseText(rowOf(task)!.browse!) }}
+                          </span>
                           <span v-if="missingText(rowOf(task)!)" class="missing">
                             {{ missingText(rowOf(task)!) }}
                           </span>
                         </template>
-                        <!-- **逐任務「實際打一次」。** 會不會花錢要在按之前就說 -->
-                        <span class="test">
-                          <button
-                            class="small"
-                            :disabled="testing !== null || rowOf(task)?.state === 'not-configured'"
-                            @click="test(task)"
-                          >
-                            {{ testing === task ? t.settings.testing : t.settings.test }}
-                          </button>
-                          <span class="task-what">{{ testCostText(task) }}</span>
-                        </span>
-                        <span v-if="testResult?.task === task" class="test-result">
-                          {{ testResult.text }}
+                        <!-- 「儲存並測試」的結果逐列寫在這裡。 -->
+                        <span v-if="testResults[task]" class="test-result">
+                          {{ testResults[task] }}
                         </span>
                       </td>
                     </tr>
@@ -734,16 +837,30 @@ function connectionSummary(kind: ConnectionKind): string {
               </div>
             </section>
 
-            <!-- ── 段落二：連線（定義一次，上面選）── -->
+            <!-- ── 段落二：模型服務（設定一次，上面挑）── -->
             <section class="card">
               <h2>{{ t.settings.sectionConnections }}</h2>
               <p class="card-what">{{ t.settings.sectionConnectionsWhat }}</p>
 
-              <!-- Claude Code CLI -->
+              <!--
+                三塊各自框起來，標題列同一個形狀：名字＋一行「在哪裡跑、花不花錢」、現況、
+                右上角「儲存並檢查」。2026-09-19 之前三塊只隔一條線、用詞各自不同，使用者說分不清。
+              -->
+              <!-- Claude Code -->
               <div class="conn">
                 <header>
-                  <h3>{{ t.settings.connectionNames.cli }}</h3>
+                  <div class="conn-name">
+                    <h3>{{ t.settings.connectionNames.cli }}</h3>
+                    <span class="conn-kind">{{ t.settings.connectionKind.cli }}</span>
+                  </div>
                   <span class="summary">{{ connectionSummary('cli') }}</span>
+                  <button
+                    type="button"
+                    :disabled="checking !== null"
+                    @click="checkConnection('cli')"
+                  >
+                    {{ checking === 'cli' ? t.settings.listing : t.settings.listModels }}
+                  </button>
                 </header>
                 <p class="hint">{{ t.settings.connectionWhat.cli }}</p>
                 <label class="field">
@@ -756,13 +873,24 @@ function connectionSummary(kind: ConnectionKind): string {
                   />
                   <small>{{ t.settings.cliCommandHint }}</small>
                 </label>
+                <p v-if="checkResult?.kind === 'cli'" class="hint result">{{ checkResult.text }}</p>
               </div>
 
-              <!-- 本機 Ollama -->
+              <!-- Ollama -->
               <div class="conn">
                 <header>
-                  <h3>{{ t.settings.connectionNames.ollama }}</h3>
+                  <div class="conn-name">
+                    <h3>{{ t.settings.connectionNames.ollama }}</h3>
+                    <span class="conn-kind">{{ t.settings.connectionKind.ollama }}</span>
+                  </div>
                   <span class="summary">{{ connectionSummary('ollama') }}</span>
+                  <button
+                    type="button"
+                    :disabled="checking !== null"
+                    @click="checkConnection('ollama')"
+                  >
+                    {{ checking === 'ollama' ? t.settings.listing : t.settings.listModels }}
+                  </button>
                 </header>
                 <p class="hint">{{ t.settings.connectionWhat.ollama }}</p>
                 <label class="field">
@@ -774,22 +902,27 @@ function connectionSummary(kind: ConnectionKind): string {
                     @change="autosave()"
                   />
                 </label>
-                <div class="actions">
-                  <button :disabled="listing !== null" @click="listModels('ollama')">
-                    {{ listing === 'ollama' ? t.settings.listing : t.settings.listModels }}
-                  </button>
-                  <span v-if="listResult?.kind === 'ollama'" class="hint">{{
-                    listResult.text
-                  }}</span>
-                  <span v-else-if="isStale('ollama')" class="hint">{{ t.settings.listStale }}</span>
-                </div>
+                <p v-if="checkResult?.kind === 'ollama'" class="hint result">
+                  {{ checkResult.text }}
+                </p>
+                <p v-else-if="isStale('ollama')" class="hint">{{ t.settings.listStale }}</p>
               </div>
 
-              <!-- OpenAI 相容端點 -->
+              <!-- OpenAI 相容 API -->
               <div class="conn">
                 <header>
-                  <h3>{{ t.settings.connectionNames.openai }}</h3>
+                  <div class="conn-name">
+                    <h3>{{ t.settings.connectionNames.openai }}</h3>
+                    <span class="conn-kind">{{ t.settings.connectionKind.openai }}</span>
+                  </div>
                   <span class="summary">{{ connectionSummary('openai') }}</span>
+                  <button
+                    type="button"
+                    :disabled="checking !== null || openaiUrl.trim().length === 0"
+                    @click="checkConnection('openai')"
+                  >
+                    {{ checking === 'openai' ? t.settings.listing : t.settings.listModels }}
+                  </button>
                 </header>
                 <p class="hint">{{ t.settings.connectionWhat.openai }}</p>
                 <div class="field-row">
@@ -840,23 +973,15 @@ function connectionSummary(kind: ConnectionKind): string {
                   >
                   <p class="callout">{{ t.settings.apiKeyRestart }}</p>
                   <div class="actions">
-                    <button type="button" @click="load()">{{ t.settings.apiKeyRecheck }}</button>
+                    <button type="button" @click="refresh()">{{ t.settings.apiKeyRecheck }}</button>
                   </div>
                 </template>
-                <div class="actions">
-                  <button
-                    :disabled="listing !== null || openaiUrl.trim().length === 0"
-                    @click="listModels('openai')"
-                  >
-                    {{ listing === 'openai' ? t.settings.listing : t.settings.listModels }}
-                  </button>
-                  <span v-if="listResult?.kind === 'openai'" class="hint">{{
-                    listResult.text
-                  }}</span>
-                  <span v-else-if="openaiUrl.trim().length > 0 && isStale('openai')" class="hint">
-                    {{ t.settings.listStale }}
-                  </span>
-                </div>
+                <p v-if="checkResult?.kind === 'openai'" class="hint result">
+                  {{ checkResult.text }}
+                </p>
+                <p v-else-if="openaiUrl.trim().length > 0 && isStale('openai')" class="hint">
+                  {{ t.settings.listStale }}
+                </p>
               </div>
             </section>
 
@@ -1016,39 +1141,83 @@ function connectionSummary(kind: ConnectionKind): string {
   border-left: 2px solid var(--edge-pending);
   padding-left: 8px;
 }
-.test {
-  display: flex !important;
-  align-items: center;
-  gap: var(--s2);
-  flex-wrap: wrap;
-  margin-top: var(--s2);
-}
 .test-result {
-  margin-top: 4px;
+  margin-top: var(--s2);
   font-size: var(--fs-label);
   color: var(--text-secondary);
 }
 
-/* ── 連線 ── */
-.conn {
-  padding: var(--s3) 0;
-  border-top: 1px solid var(--line-subtle);
-}
-.conn header {
+/* ── 卡片標題列：標題在左、動作在右 ── */
+.card-head {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--s3);
   flex-wrap: wrap;
-  margin-bottom: 2px;
+  margin-bottom: var(--s3);
 }
-.conn .summary {
+.card-head > h2 {
+  margin: 0;
+}
+.card-action {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.card-action .hint {
+  font-size: var(--fs-label);
+}
+
+/* ── 模型服務：三塊各自框起來 ── */
+.conn {
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+.conn + .conn {
+  margin-top: var(--s3);
+}
+.conn > header {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s2);
+}
+.conn-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.conn-name > h3 {
+  margin: 0;
+}
+.conn-kind {
   font-size: var(--fs-label);
   color: var(--text-tertiary);
+}
+.conn .summary {
+  /* 現況那一段可以縮、可以換行，按鈕才留得在同一列（768 寬時 CLI 的版本字串很長）。 */
+  flex: 1 1 12ch;
+  min-width: 0;
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
   font-family: var(--mono);
+}
+.conn > header > button {
+  margin-left: auto;
 }
 .conn > .hint {
   margin-bottom: var(--s3);
   max-width: 68ch;
+}
+.conn > .hint.result {
+  margin: var(--s2) 0 0;
+  color: var(--text-secondary);
 }
 .conn .actions {
   margin-top: var(--s1);

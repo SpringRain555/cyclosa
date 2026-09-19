@@ -284,6 +284,18 @@ export interface JsonModeReport {
   mode: 'schema' | 'object' | 'none' | 'unchecked';
   checkedAt: number | null;
   detail: string;
+  /** OpenAI 相容 API 量的時候走的協定；本機 Ollama 或還沒量是 `null`（v0.24.2） */
+  protocol: 'responses' | 'chat' | null;
+}
+
+/**
+ * 「會不會上網搜尋」（v0.24.2，ADR-0034）。**server 的 `BrowseReport` 也有一份**（兩份建置）。
+ * `checkedAt` 是 `null` 而 `state` 是 `yes`：不是量的，是我們給 CLI 的參數（`--tools WebSearch`）。
+ */
+export interface BrowseReport {
+  state: 'yes' | 'no' | 'unchecked';
+  checkedAt: number | null;
+  detail: string;
 }
 
 export type ProviderState = 'ready' | 'not-configured' | 'unreachable';
@@ -330,6 +342,8 @@ export interface TaskRow {
   capabilities: ProviderCapabilities;
   /** 只有對話任務有；其餘是 `null` */
   jsonMode: JsonModeReport | null;
+  /** 只有找來源那一列有；其餘是 `null` */
+  browse: BrowseReport | null;
   ok: boolean;
   missing: string[];
 }
@@ -363,7 +377,7 @@ export interface ProvidersPayload {
   config: ProvidersConfig;
 }
 
-/** 「連線並列出模型」的結果：**不存檔**，只列。 */
+/** 「儲存並檢查」列模型那一步的結果：這一支端點本身不存檔，只列。 */
 export interface ModelsListing {
   kind: ConnectionKind;
   models: string[] | null;
@@ -395,6 +409,8 @@ export interface ProviderTest {
   elapsedMs: number;
   /** 線上端點按這顆按鈕會重量一次，所以這一格是剛量出來的結果 */
   jsonMode: JsonModeReport | null;
+  /** 找來源走 OpenAI 相容 API：這顆按鈕量的是它會不會上網搜尋；其餘任務是 `null` */
+  browse: BrowseReport | null;
 }
 
 // ── 圖 ──────────────────────────────────────────────────────
@@ -851,7 +867,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ task }),
     }),
-  /** 「連線並列出模型」：填了位址就能列，**不用先儲存**。 */
+  /** 「儲存並檢查」的第二步：列這條連線的模型。畫面先存再叫它；這一支本身不寫檔。 */
   listModels: (kind: 'ollama' | 'openai', connection: HttpConnection) =>
     request<ModelsListing>(`/api/providers/connections/${kind}/models`, {
       method: 'POST',

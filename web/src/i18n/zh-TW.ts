@@ -1187,17 +1187,24 @@ export const t = {
     /** 不自動降級是 ADR-0006 的決定，畫面上要說得出來 */
     noFallback: '配不上就停手，不會自動換一個能力較弱的來跑。',
 
-    // ── 段落一：每個任務用哪條連線的哪個模型（v0.24.0，ADR-0032）──
+    // ── 段落一：模型分工（v0.24.0 一張表，ADR-0032；v0.24.2 改名並加「儲存並測試」）──
     //
     // **主鍵是任務。** v0.10.6–v0.23.0 的設定頁是「三個角色各一格 ＋ 一張逐任務覆寫表」，
     // 使用者第一次真的用（2026-09-18）問「這兩個是不是重複」—— 它們講的是同一件事的兩半。
-    // 現在只有一張表：每一列說走哪一條連線、用哪個模型、現在跑不跑得動。
-    sectionTasks: '每個任務用哪條連線的哪個模型',
-    sectionTasksWhat:
-      '這個工具會用到模型的四個地方，每一個各自挑連線與模型。連線在下面定義一次，這裡選。',
+    // 現在只有一張表：每一列說走哪一個服務、用哪個模型、現在跑不跑得動。
+    // 2026-09-19 使用者挑的名字：這一區叫「模型分工」、下面那一區叫「模型服務」，
+    // 那一欄叫「服務」；右上角一顆「儲存並測試」，按下去先存、再逐任務真的打一次。
+    sectionTasks: '模型分工',
+    sectionTasksWhat: '每個任務交給哪個服務上的哪個模型做。服務在下面設定一次，這裡挑。',
+    testAll: '儲存並測試',
+    testAllWhat:
+      '「儲存並測試」會先存這一頁，再對每一個設好的任務真的打一次。Claude Code 與線上服務會花錢，本機不會。',
+    testAllBusy: '測試中（{done}／{total}）…',
+    testAllDone: '{ok}／{total} 個任務能用（{time}）',
+    testSkipped: '還沒設定，略過',
     taskTableHead: {
       task: '任務',
-      via: '連線',
+      via: '服務',
       model: '模型',
       status: '狀態',
     },
@@ -1208,14 +1215,13 @@ export const t = {
       embed: '算語意檢索的向量',
     },
     taskWhat: {
-      'find-sources': '用搜尋找出候選網址。它不抓網頁 —— 抓取一律走同一條擷取管線。',
+      'find-sources': '用網頁搜尋找出候選網址。它不抓網頁 —— 抓取一律走同一條擷取管線。',
       angles: '從專題裡已經有的內容歸納出幾條可以往下查的子問題。',
       extract: '把抓回來的正文變成實體與帶引文的關聯 —— 圖上長出什麼由這一步決定。',
       embed: '把正文與問句都變成向量，讓用字不同的東西也找得到。換掉要全部重算。',
     },
-    /** 連線只能選一種的任務，那一格要說為什麼 —— 一個不能動的下拉選單看起來像壞了。 */
+    /** 服務只能選一種的任務，那一格要說為什麼 —— 一個不能動的下拉選單看起來像壞了。 */
     viaFixed: {
-      'find-sources': '只有 CLI 能自己上網',
       embed: '只准本機 —— 換端點向量就作廢',
     },
     taskState: {
@@ -1226,7 +1232,7 @@ export const t = {
     /** 模型欄空著的時候的提示。CLI 那一列空著是一個有效的選擇。 */
     modelPick: '選一個',
     modelPickText: '輸入模型名稱',
-    modelUnlisted: '這條連線的清單還沒列出來 —— 先在下面按「連線並列出模型」，或直接輸入名稱。',
+    modelUnlisted: '這個服務的模型清單還沒列出來 —— 先在下面按「儲存並檢查」，或直接輸入名稱。',
     agentModelDefault: '留白 ＝ 用 CLI 自己的預設',
     agentModelHint:
       '交給 CLI 的 --model。留白就是不帶這個參數，用 CLI 自己的預設 —— 那是一個有效的選擇，不是沒設定。',
@@ -1252,7 +1258,7 @@ export const t = {
     },
     capabilities: '能力宣告',
     capabilityNames: {
-      browse: '自己上網',
+      browse: '上網搜尋',
       tools: '工具呼叫',
       json_schema: '保證 JSON 結構',
       vision: '看得懂圖',
@@ -1271,34 +1277,55 @@ export const t = {
         '由 Cyclosa 事後檢查。這個端點只保證回一份 JSON，形狀不對的回應一律擋下來、不會寫進專題。',
       none: '這個模型在這個端點上連 JSON 都不保證，需要結構化輸出的任務跑不了。常見的原因是選到了不能對話的模型（例如嵌入模型）—— 下面那行是端點自己說的理由。',
       unchecked:
-        '還沒量過。第一次真的跑任務時會先量一次（一到兩個很小的請求），也可以按「實際打一次」現在量。',
+        '還沒量過。第一次真的跑任務時會先量一次（一到兩個很小的請求），也可以按「儲存並測試」現在量。',
     },
     jsonModeNative: '由協定保證（Ollama 的 format 是受限解碼）',
     jsonCheckedAt: '{date} 量的',
-    test: '實際打一次',
-    testing: '打出去了，等回覆…',
+    /** OpenAI 相容 API 走哪一種協定 —— 使用者指定了 Responses API，所以走到哪一種要看得到（ADR-0034） */
+    protocolName: {
+      responses: 'Responses API',
+      chat: 'Chat Completions（這個端點沒有 /responses）',
+    },
     testOk: '成功，花了 {ms} 毫秒',
     testFailed: '失敗',
-    /** CLI 與線上端點的那顆按鈕真的會花錢，**按之前要先講** */
-    testCostsMoney: '會真的呼叫一次，可能產生費用。',
-    testCostsMoneyOnline: '會真的呼叫線上端點，可能產生費用；也會重新量一次格式支援。',
-    testFree: '本機模型，不產生費用。',
     testJsonMode: '格式保證：{mode}',
+    /**
+     * 「會不會上網搜尋」那一行（v0.24.2，ADR-0034）。CLI 是參數給的、不是量的；
+     * OpenAI 相容 API 是量的 —— 真的搜尋了、交回的形狀也對才算。
+     */
+    browseLabel: '上網搜尋',
+    browse: {
+      declared: '由參數保證（--tools WebSearch）',
+      yes: '量過會搜尋',
+      no: '量過不會搜尋',
+      unchecked: '還沒量。開始擴展之前會先量一次，也可以按「儲存並測試」現在量。',
+    },
+    testBrowse: '上網搜尋：{state}',
 
-    // ── 段落二：連線（定義一次，上面選）──
-    sectionConnections: '連線',
-    sectionConnectionsWhat: '三種連線各定義一次；上面那張表每一列挑其中一條。',
+    // ── 段落二：模型服務（設定一次，上面挑）──
+    //
+    // 2026-09-19 使用者說三個區塊分不清、用詞不一致。現在三塊各自框起來、名字都是產品名
+    // （Claude Code、Ollama、OpenAI 相容 API），「本機或線上、花不花錢」寫在名字底下那一行；
+    // 每一塊右上角一顆「儲存並檢查」—— 先存這一塊，再看連不連得上、有哪些模型。
+    sectionConnections: '模型服務',
+    sectionConnectionsWhat: '三種各設定一次；「模型分工」每一列從這裡挑。',
     connectionNames: {
-      cli: 'Claude Code CLI',
-      ollama: '本機 Ollama',
-      openai: 'OpenAI 相容端點',
+      cli: 'Claude Code',
+      ollama: 'Ollama',
+      openai: 'OpenAI 相容 API',
+    },
+    /** 名字底下那一行：在哪裡跑、花不花錢。 */
+    connectionKind: {
+      cli: '這台電腦上的 claude 指令 · 用你登入的帳號，吃訂閱額度',
+      ollama: '這台電腦上的模型伺服器 · 不花錢',
+      openai: '線上服務、訂閱的代理，或別家本機伺服器 · 線上的可能花錢',
     },
     connectionWhat: {
-      cli: '跑 claude -p。用的是登入那個帳號的額度；只有它能自己上網，所以找來源一定走這條。',
+      cli: '跑 claude -p，會上網搜尋（我們只給它搜尋這一個工具）。留空就是不啟用。',
       ollama:
-        '走 Ollama 自己的協定。這樣才能關掉模型的思考、指定 context 大小 —— 兩件事都量過會影響結果。本機模型不產生費用。',
+        '開著 Ollama 就能用：預設位址就是它的預設埠 11434，只有改過 OLLAMA_HOST 才需要改這一格。走它自己的協定，才關得掉模型的思考、指定得了 context 大小 —— 兩件事都量過會影響結果。',
       openai:
-        '線上的服務，或別家本機伺服器（vLLM、LM Studio 之類）。位址照那一家的文件寫，通常以 /v1 結尾。',
+        '位址照那一家的文件寫，通常以 /v1 結尾（vLLM、LM Studio 也是）。先走 Responses API（有網頁搜尋工具），沒有那條路的端點才退回 Chat Completions；走到哪一種，上面那張表的「格式保證」會寫。',
     },
     connState: {
       ready: '連得上',
@@ -1307,21 +1334,23 @@ export const t = {
     },
     cliFound: '找得到',
     modelCount: '{n} 個模型',
-    /** 「連線並列出模型」—— **不存檔就列**，Open WebUI 也是這個順序：填位址 → 打 /models → 才選模型 */
-    listModels: '連線並列出模型',
-    listing: '連線中…',
-    listedOk: '列出 {n} 個模型',
+    /** 「儲存並檢查」：先存這一塊，再看連不連得上、有哪些模型。跟「儲存並測試」分開：檢查不花錢，測試會。 */
+    listModels: '儲存並檢查',
+    listing: '檢查中…',
+    listedOk: '連得上，列出 {n} 個模型（{time}）',
     listedNone:
-      '列不出模型。檢查位址（OpenAI 相容端點通常以 /v1 結尾），以及金鑰那個環境變數有沒有設。',
-    listStale: '位址或金鑰變數改了 —— 上面選模型之前先按「連線並列出模型」。',
-    cliCommand: 'CLI 指令',
-    cliCommandHint: '留空就是不啟用。預設是 claude，靠系統路徑找。',
+      '連得上位址，但列不出模型。檢查位址（OpenAI 相容 API 通常以 /v1 結尾），以及金鑰那個環境變數有沒有設。',
+    checkedCli: '{summary}（{time}）',
+    checkHeld: '金鑰變數的名字不合格，改好之前不會儲存，也就檢查不了。',
+    listStale: '位址或金鑰變數改了 —— 上面選模型之前先按「儲存並檢查」。',
+    cliCommand: '指令',
+    cliCommandHint: '預設是 claude，靠系統路徑找。也可以填完整路徑。',
     baseUrl: '位址',
     openaiBaseUrlPlaceholder: 'https://api.example.com/v1',
     /** 金鑰只從環境變數讀，不存進任何一個檔。 */
     apiKeyEnv: '金鑰的環境變數名稱',
     apiKeyEnvHint:
-      '只填變數的名字（例如 OPENAI_API_KEY），不要填金鑰本身 —— 這個設定檔會被備份，也會在求助時被整份貼出來。留空代表不帶授權標頭。',
+      '只填變數的名字（例如 OPENAI_API_KEY），不要填金鑰本身 —— 這個設定檔會被備份，也會在求助時被整份貼出來。留空代表不帶金鑰。',
     /**
      * **這一句要說出兩件事**：為什麼擋（不是刁難打字），以及怎麼繞過去。
      * 沒有後半的話，一個變數真的叫小寫名字的人會以為這裡不支援他。

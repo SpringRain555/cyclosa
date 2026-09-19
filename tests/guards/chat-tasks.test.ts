@@ -1,16 +1,17 @@
 /**
- * 守門：**`chat` 底下那組任務名，在四個地方要是同一組。**
+ * 守門：**任務名與連線種類，在 server 與 web 要是同一組。**
  *
- * ## 為什麼會有四份
+ * ## 為什麼會有好幾份
  *
  * | 在哪 | 為什麼在那裡 |
  * |---|---|
- * | `domain/provider/capabilities.ts` | 唯一的定義（`CHAT_TASKS`）|
+ * | `domain/provider/capabilities.ts` | 唯一的定義（`CHAT_TASKS`、`MODEL_TASKS`）|
+ * | `infrastructure/providers/config.ts` | 連線種類的唯一定義（`CONNECTION_KINDS`）|
  * | `web/src/api.ts` | `web/` 與 server 是兩份建置，型別不能跨過去 |
- * | `web/src/i18n/zh-TW.ts` | 每個任務要有名字、說明與「為什麼建議這個」 |
- * | `SettingsView.vue` | 每個任務的建議模型 |
+ * | `web/src/i18n/zh-TW.ts` | 每個任務要有名字、說明；每種連線要有名字、說明 |
+ * | `SettingsView.vue` | 每個任務的建議模型、每個任務可以走哪些連線 |
  *
- * **只有第一份是定義，其餘三份是抄的。** 這個 repo 今天已經因為同一種形狀
+ * **只有前兩份是定義，其餘是抄的。** 這個 repo 今天已經因為同一種形狀
  * 修過四次（哪些專案有 agent 檔、卡片的 `data_root`、`docs/index.md` 的現況欄、
  * 設定頁的建議模型），所以新增一組跨建置的字串就要同時新增守它的測試。
  *
@@ -28,6 +29,7 @@ import {
   CHAT_TASK_REQUIREMENTS,
   MODEL_TASKS,
 } from '../../src/domain/provider/capabilities.js';
+import { CONNECTION_KINDS, viaOptionsOf } from '../../src/infrastructure/providers/config.js';
 
 const web = new URL('../../web/src/', import.meta.url);
 const api = await readFile(new URL('api.ts', web), 'utf8');
@@ -41,10 +43,11 @@ function keysOf(source: string, blockName: string): string[] {
   const end = source.indexOf('\n    },', start);
   const block = source.slice(start, end < 0 ? undefined : end);
   // 鍵可能帶引號（`'find-sources':`），因為它有連字號。
-  return [...block.matchAll(/^\s{6}'?([a-z-]+)'?:/gm)].map((m) => m[1] as string).sort();
+  return [...block.matchAll(/^\s{6}'?([a-z_-]+)'?:/gm)].map((m) => m[1] as string).sort();
 }
 
 const expected = [...CHAT_TASKS].sort();
+const allTasks = MODEL_TASKS.map((t) => t.task).sort();
 
 describe('chat 的任務名在 server 與 web 是同一組', () => {
   it('每個任務都有一份需求宣告', () => {
@@ -60,13 +63,7 @@ describe('chat 的任務名在 server 與 web 是同一組', () => {
     expect(api).toContain(`export type ChatTask = ${union};`);
   });
 
-  it('i18n 三個區塊各自涵蓋全部任務', () => {
-    for (const block of ['chatTaskNames', 'chatTaskWhat', 'chatTaskRecommendWhy']) {
-      expect(keysOf(i18n, block), block).toEqual(expected);
-    }
-  });
-
-  it('設定頁的建議模型涵蓋全部任務', () => {
+  it('設定頁的建議模型涵蓋全部 chat 任務', () => {
     const start = view.indexOf('const RECOMMENDED_TASK: Record<ChatTask, string> = {');
     expect(start).toBeGreaterThan(-1);
     const block = view.slice(start, view.indexOf('};', start));
@@ -78,17 +75,14 @@ describe('chat 的任務名在 server 與 web 是同一組', () => {
 /**
  * 2026-09-10：**同一種形狀又多了一組字串，所以守它的測試也要跟著多一組。**
  *
- * 設定頁上那張「各任務模型」的表是跨角色的，於是任務名從 `chat` 底下的兩個
- * 擴成四個（`MODEL_TASKS`）。而擴出來的那兩個 —— `find-sources` 與 `embed`
- * —— 走的是**跟 chat 完全不同的欄位**（前者是 CLI 的旗標，後者是角色自己的模型），
+ * 設定頁上那張表是跨角色的，於是任務名從 `chat` 底下的兩個擴成四個（`MODEL_TASKS`）。
+ * 而擴出來的那兩個 —— `find-sources` 與 `embed` —— 走的是**跟 chat 完全不同的連線**，
  * 所以「i18n 有而 server 沒有」這種漂法在它們身上更容易發生。
  */
-const allTasks = MODEL_TASKS.map((t) => t.task).sort();
-
 describe('四個任務的名字在 server 與 web 是同一組', () => {
   it('`CHAT_TASKS` 就是 `MODEL_TASKS` 裡角色是 chat 的那些', () => {
     // 兩份定義**必須推導得出對方** —— 否則加一個 chat 任務時會只加到一邊，
-    // 而症狀是「設定檔裡那個覆寫永遠讀不出來」。
+    // 而症狀是「設定檔裡那個任務永遠讀不出來」。
     const fromRegistry = MODEL_TASKS.filter((t) => t.role === 'chat')
       .map((t) => t.task)
       .sort();
@@ -100,7 +94,6 @@ describe('四個任務的名字在 server 與 web 是同一組', () => {
     for (const entry of MODEL_TASKS) {
       // **`embed` 的需求是空的，而那不是漏寫**（見 `TASK_EMBED` 的註解）——
       // 四個布林旗標描述的是對話模型會不會做某件事，而嵌入端點一件都不做。
-      // 所以這裡不能一律要求非空；能要求的是**只有它可以是空的**。
       if (entry.task === 'embed') expect(entry.requirement.needs).toEqual([]);
       else expect(entry.requirement.needs.length, entry.task).toBeGreaterThan(0);
     }
@@ -123,7 +116,13 @@ describe('四個任務的名字在 server 與 web 是同一組', () => {
     }
   });
 
-  it('設定頁那張表的建議值涵蓋全部四個', () => {
+  it('i18n 的「為什麼建議它」涵蓋每一個有建議值的任務', () => {
+    // 有建議值的是 chat 那兩個加 embed；找來源沒有（沒量過在 CLI 那邊換模型的效果）。
+    const withRecommendation = [...CHAT_TASKS, 'embed'].sort();
+    expect(keysOf(i18n, 'taskRecommendWhy')).toEqual(withRecommendation);
+  });
+
+  it('設定頁那張表的建議值涵蓋全部四個，而且表的列就是 MODEL_TASKS 的順序', () => {
     const start = view.indexOf('const RECOMMENDED_TASK_ALL: Record<ModelTask, string> = {');
     expect(start).toBeGreaterThan(-1);
     const block = view.slice(start, view.indexOf('};', start));
@@ -132,6 +131,45 @@ describe('四個任務的名字在 server 與 web 是同一組', () => {
     for (const task of allTasks) {
       if ((CHAT_TASKS as readonly string[]).includes(task)) continue;
       expect(block, task).toMatch(new RegExp(`'?${task}'?:`));
+    }
+    // 表的列順序：畫面自己排（`TASK_ORDER`），而它要跟 server 那份定義一樣 ——
+    // 兩邊順序不同的話，使用者在設定頁看到的順序跟作業紀錄裡的不一樣。
+    const order = view.match(/const TASK_ORDER: readonly ModelTask\[\] = \[([^\]]+)\]/)?.[1] ?? '';
+    const tasksInView = [...order.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+    expect(tasksInView).toEqual(MODEL_TASKS.map((t) => t.task));
+  });
+});
+
+/**
+ * v0.24.0：**連線種類也是一組跨建置的字串**（ADR-0032）。
+ * 每個任務可以走哪些連線是 server 由角色推出來的（`viaOptionsOf`），
+ * 而設定頁自己也寫了一份同樣的規則 —— 兩邊不一致的症狀是「畫面讓你選了一條
+ * server 存檔時會退回去的連線」，使用者看到的是「我選的不見了」。
+ */
+describe('連線種類在 server 與 web 是同一組', () => {
+  it('`web/src/api.ts` 的 ConnectionKind 聯集一字不差', () => {
+    const union = CONNECTION_KINDS.map((k) => `'${k}'`).join(' | ');
+    expect(api).toContain(`export type ConnectionKind = ${union};`);
+  });
+
+  it('i18n 每種連線都有名字與說明', () => {
+    for (const block of ['connectionNames', 'connectionWhat']) {
+      expect(keysOf(i18n, block), block).toEqual([...CONNECTION_KINDS].sort());
+    }
+  });
+
+  it('設定頁「每個任務可以走哪些連線」跟 server 的規則一樣', () => {
+    const start = view.indexOf('function viaOptions(task: ModelTask): readonly ConnectionKind[] {');
+    expect(start).toBeGreaterThan(-1);
+    const body = view.slice(start, view.indexOf('\n}', start));
+    for (const { task } of MODEL_TASKS) {
+      const expectedVia = viaOptionsOf(task);
+      // 只有一種的任務在畫面上是 `if (task === '…') return ['…']`；其餘落到最後那一行。
+      if (expectedVia.length === 1) {
+        expect(body, task).toContain(`if (task === '${task}') return ['${expectedVia[0]}'];`);
+      } else {
+        expect(body).toContain(`return [${expectedVia.map((k) => `'${k}'`).join(', ')}];`);
+      }
     }
   });
 });

@@ -28,25 +28,32 @@ const r = await listProviders();
 if (!r.ok) {
   console.log('ERR ' + r.code);
 } else {
-  console.log('taskReadiness:');
-  for (const row of r.data.taskReadiness) {
+  console.log('tasks:');
+  for (const row of r.data.tasks) {
     console.log(
       '  ' +
         row.task.padEnd(14) +
-        row.role.padEnd(7) +
+        row.via.padEnd(8) +
         ('model=' + (row.model || '(empty)')).padEnd(28) +
+        'state=' +
+        row.state.padEnd(16) +
         'ok=' +
         row.ok +
         (row.missing.length > 0 ? '  missing:' + row.missing.join(',') : ''),
     );
   }
-  console.log('readiness: ' + JSON.stringify(r.data.readiness));
-  console.log(
-    'chatModels: ' + (r.data.chatModels === null ? 'null' : String(r.data.chatModels.length)),
-  );
-  console.log('agent: ' + JSON.stringify(r.data.config.agent));
-  for (const st of r.data.statuses) {
-    console.log('  auth ' + st.role.padEnd(7) + st.auth);
+  console.log('connections:');
+  for (const c of r.data.connections) {
+    console.log(
+      '  ' +
+        c.kind.padEnd(8) +
+        c.state.padEnd(16) +
+        'auth=' +
+        c.auth.padEnd(12) +
+        'models=' +
+        (c.models === null ? 'null' : String(c.models.length)) +
+        (c.version ? '  version=' + c.version : ''),
+    );
   }
 }
 process.exit(0);

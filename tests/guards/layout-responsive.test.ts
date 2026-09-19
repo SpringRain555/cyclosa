@@ -174,9 +174,9 @@ describe('版面：捲動與行長是兩件事', () => {
   it('各任務模型那張表包在一個會橫捲的容器裡', () => {
     const settings = readFileSync(join(WEB_SRC, 'views', 'SettingsView.vue'), 'utf8');
     expect(settings).toContain('<div class="table-scroll">');
-    const scroll = rulesOf(settings, 'SettingsView.vue').find(
-      (r) => r.selector === '.table-scroll',
-    );
+    // v0.24.0 起 `.table-scroll` 只在 base.css 定義一次（`no-element-restyle`）。
+    const base = readFileSync(join(WEB_SRC, 'styles', 'base.css'), 'utf8');
+    const scroll = rulesOf(base, 'base.css').find((r) => r.selector === '.table-scroll');
     expect(scroll, '.table-scroll 沒有樣式').toBeDefined();
     expect(scroll!.body).toMatch(/overflow-x:\s*auto/);
   });

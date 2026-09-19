@@ -19,7 +19,7 @@
  * —— 那正是「還沒設定任何模型」這個要驗的狀態。
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -32,20 +32,22 @@ let localAppData: string;
 let app: FastifyInstance;
 let savedLocalAppData: string | undefined;
 
+/** v2（ADR-0032）：每一列各自說走哪一條連線、用哪個模型、跑不跑得動。 */
 interface TaskRow {
   task: string;
   role: string;
+  via: string;
   model: string;
-  overridden: boolean;
+  state: string;
   ok: boolean;
   missing: string[];
 }
 
 async function tasks(): Promise<TaskRow[]> {
   const res = await app.inject({ method: 'GET', url: '/api/providers' });
-  const body = res.json() as { ok: boolean; data: { taskReadiness: TaskRow[] } };
+  const body = res.json() as { ok: boolean; data: { tasks: TaskRow[] } };
   expect(body.ok).toBe(true);
-  return body.data.taskReadiness;
+  return body.data.tasks;
 }
 
 beforeEach(async () => {
@@ -88,13 +90,13 @@ describe('各任務模型那張表', () => {
        */
       expect(row.missing, row.task).toEqual([]);
       expect(row.model, row.task).toBe('');
-      expect(row.overridden, row.task).toBe(false);
+      expect(row.state, row.task).toBe('not-configured');
     }
   });
 
-  it('逐任務覆寫會反映在「實際會跑」那一欄，沒覆寫的跟著預設', async () => {
+  it('v1 的逐任務覆寫升版之後反映在每一列的模型，沒覆寫的跟著預設', async () => {
     // Ollama 連不連得上不影響這一條 —— 它問的是**挑模型那一步挑對了沒有**，
-    // 而那一步在探測之前就決定了。
+    // 而那一步在探測之前就決定了。寫的是 v1 的檔案：讀到就原地升版。
     await writeFile(
       join(localAppData, 'Cyclosa', 'providers.json'),
       JSON.stringify({
@@ -114,19 +116,88 @@ describe('各任務模型那張表', () => {
     const byTask = new Map((await tasks()).map((r) => [r.task, r]));
 
     expect(byTask.get('angles')?.model).toBe('覆寫的模型');
-    expect(byTask.get('angles')?.overridden).toBe(true);
+    expect(byTask.get('angles')?.via).toBe('ollama');
 
-    // **空字串是「跟著預設」，不是「沒有模型」** —— 兩者在畫面上要分得開。
+    // v1 的空字串是「跟著預設」—— 升版之後每一列都寫實際會跑的那一個。
     expect(byTask.get('extract')?.model).toBe('預設模型');
-    expect(byTask.get('extract')?.overridden).toBe(false);
+    expect(byTask.get('extract')?.via).toBe('ollama');
 
     // agent 的模型走 CLI 的 `--model`，形狀跟 chat 那兩個完全不同，
     // 而表格上它要跟其餘三列長得一樣。
     expect(byTask.get('find-sources')?.model).toBe('sonnet');
+    expect(byTask.get('find-sources')?.via).toBe('cli');
     expect(byTask.get('embed')?.model).toBe('嵌入模型');
+    expect(byTask.get('embed')?.via).toBe('ollama');
   });
 
-  it('角色層那一格是它底下所有任務的合併，不是自己算一次', async () => {
+  /**
+   * **v2 的形狀：兩個對話任務各接一條連線。** 這是 2026-09-18 使用者要的那一格
+   * （歸納留在本機、抽取走線上），v1 明寫不准。
+   */
+  it('v2：歸納走 Ollama、抽取走 OpenAI 相容端點，各自帶自己的連線', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: {
+        version: 2,
+        connections: {
+          cli: null,
+          ollama: { baseUrl: 'http://127.0.0.1:59999', apiKeyEnv: null },
+          openai: { baseUrl: 'http://127.0.0.1:59998/v1', apiKeyEnv: null },
+        },
+        tasks: {
+          'find-sources': { via: 'cli', model: '' },
+          angles: { via: 'ollama', model: '本機模型' },
+          extract: { via: 'openai', model: '線上模型' },
+          embed: { via: 'ollama', model: '' },
+        },
+        diagnostics: { logModelCalls: false },
+      },
+    });
+    const body = res.json() as { ok: boolean; data: { tasks: TaskRow[] } };
+    expect(body.ok).toBe(true);
+    const byTask = new Map(body.data.tasks.map((r) => [r.task, r]));
+    expect(byTask.get('angles')).toMatchObject({ via: 'ollama', model: '本機模型' });
+    expect(byTask.get('extract')).toMatchObject({ via: 'openai', model: '線上模型' });
+    // 兩條連線都通不了，所以兩列都不 ok —— 而且各自說自己連不上，不是替對方說。
+    expect(byTask.get('angles')?.state).toBe('unreachable');
+    expect(byTask.get('extract')?.state).toBe('unreachable');
+    // 存進去的檔案是 v2。
+    const file = JSON.parse(
+      await readFile(join(localAppData, 'Cyclosa', 'providers.json'), 'utf8'),
+    ) as { version: number; tasks: Record<string, { via: string }> };
+    expect(file.version).toBe(2);
+    expect(file.tasks['extract']?.via).toBe('openai');
+  });
+
+  /**
+   * **「連線並列出模型」不存檔就列。** 填了位址按下去就要有清單（或說列不出來），
+   * 不用先按儲存 —— 存了才列的話畫面上會先出現一個空的下拉選單。
+   */
+  it('POST /api/providers/connections/:kind/models 不動設定檔', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/providers/connections/ollama/models',
+      payload: { baseUrl: 'http://127.0.0.1:59999' },
+    });
+    const body = res.json() as { ok: boolean; data: { kind: string; models: string[] | null } };
+    expect(body.ok).toBe(true);
+    expect(body.data.kind).toBe('ollama');
+    // 通不了 → null（不是空陣列：「列不出來」與「一個都沒有」是兩件事）。
+    expect(body.data.models).toBeNull();
+    await expect(
+      readFile(join(localAppData, 'Cyclosa', 'providers.json'), 'utf8'),
+    ).rejects.toThrow();
+
+    const bad = await app.inject({
+      method: 'POST',
+      url: '/api/providers/connections/cli/models',
+      payload: { baseUrl: 'x' },
+    });
+    expect((bad.json() as { ok: boolean }).ok).toBe(false);
+  });
+
+  it('每一列各自對著自己的模型算，沒有任何「角色層」替它們代答', async () => {
     await writeFile(
       join(localAppData, 'Cyclosa', 'providers.json'),
       JSON.stringify({
@@ -143,20 +214,12 @@ describe('各任務模型那張表', () => {
       'utf8',
     );
 
-    const res = await app.inject({ method: 'GET', url: '/api/providers' });
-    const body = res.json() as {
-      data: {
-        readiness: { role: string; ok: boolean }[];
-        taskReadiness: TaskRow[];
-      };
-    };
-    const chatRole = body.data.readiness.find((r) => r.role === 'chat');
-    const chatTasks = body.data.taskReadiness.filter((r) => r.role === 'chat');
+    const chatTasks = (await tasks()).filter((r) => r.role === 'chat');
 
-    // 位址是通不了的，所以兩個任務都不 ok，而角色層也必須不 ok。
-    // **它不能自己拿預設模型的能力算** —— 那樣一個覆寫成小模型的抽取
+    // 位址是通不了的，所以兩個任務都不 ok、都說連不上。
+    // **它不能拿別列的能力算** —— 那樣一個覆寫成小模型的抽取
     // 會顯示成綠的，而設定頁上那個欄位裡寫的是預設模型的名字。
-    expect(chatTasks.every((r) => !r.ok)).toBe(true);
-    expect(chatRole?.ok).toBe(false);
+    expect(chatTasks.length).toBe(2);
+    expect(chatTasks.every((r) => !r.ok && r.state === 'unreachable')).toBe(true);
   });
 });

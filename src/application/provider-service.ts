@@ -3,77 +3,64 @@
  *
  * ## 「列出來」與「實際打一次」是兩件事，而且分開得很刻意
  *
- * 打開設定頁**不該產生費用**。所以 `listProviders` 對 agent 只跑 `--version`
- * （確認 CLI 在不在），對 chat 只讀 `/api/tags`（本機、免費）。
+ * 打開設定頁**不該產生費用**。所以 `listProviders` 對 CLI 只跑 `--version`
+ * （確認它在不在），對 HTTP 連線只列模型清單（本機、免費；線上端點的 `/models` 不計費）。
  *
- * 「實際打一次」是使用者按的按鈕，而它對 agent **是真的會花錢的** ——
+ * 「實際打一次」是使用者按的按鈕，而它對 CLI **是真的會花錢的** ——
  * 2026-09-06 量到一次只回兩個 token 的呼叫花了 0.18 美元
  * （幾乎全部來自 cache creation）。所以畫面上那個按鈕要先講這件事。
+ *
+ * ## v2：逐任務（ADR-0032）
+ *
+ * 每個任務各自走一條連線，所以「實際打一次」也是逐任務的：測的是**那個任務實際會跑的
+ * 那一支**，不是某個角色的預設。「連線並列出模型」（`listModelsFor`）則**不存檔就列** ——
+ * 使用者填了位址與金鑰變數之後要先看得到「這個端點有哪些模型」，才選得了模型；
+ * 存了才列的話，畫面上會先出現一個空的下拉選單。
  */
 import { mkdir } from 'node:fs/promises';
 
 import {
-  MODEL_TASKS,
   missingFor,
+  requirementOfTask,
+  MODEL_TASKS,
   type MatchResult,
   type ModelTask,
-  type ProviderCapabilities,
-  type ProviderRole,
 } from '../domain/provider/index.js';
 import {
+  authOf,
   describeProviders,
   loadProviders,
+  type AuthState,
   type ProvidersView,
+  type TaskStatus,
 } from '../infrastructure/providers/registry.js';
+import { listOllamaModels } from '../infrastructure/providers/chat-ollama.js';
+import { listOpenAiModels } from '../infrastructure/providers/chat-openai.js';
 import type { JsonModeReport } from '../infrastructure/providers/types.js';
 import {
   apiKeyEnvOf,
-  taskModelsOf,
-  transportOf,
+  parseConfig,
   writeProvidersConfig,
-  type ProvidersConfig,
+  type ConnectionKind,
 } from '../infrastructure/providers/config.js';
 import { tmpDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
 
-export interface ProvidersPayload extends ProvidersView {
-  /**
-   * 每個角色現在跑不跑得動它要跑的任務，以及**缺哪幾樣**。
-   *
-   * ADR-0006 第 3 條要求畫面說出「這個任務需要 X，目前設定的 provider 沒有 X」——
-   * 那句話要有地方拿到 X，而這裡就是那個地方。
-   * **設定頁上先看得到，比按下擴展才撞到牆好。**
-   */
-  readonly readiness: readonly {
-    readonly role: ProviderRole;
-    readonly ok: boolean;
-    readonly missing: readonly string[];
-  }[];
-  /**
-   * **逐任務的同一件事，四個任務全部都有。**
-   *
-   * 角色層那一格算的是「這個角色底下每一個任務都過得了嗎」，
-   * 而使用者要修的時候需要知道**是哪一個任務、跑在哪個模型上、缺什麼**。
-   * 合成一格的話，一個覆寫成小 context 模型的抽取會顯示成「chat 缺 context」——
-   * 而設定頁上那個模型欄位裡寫的是預設模型的名字，看起來完全沒問題。
-   *
-   * 2026-09-10 從只有 `chat` 的兩個任務擴成四個（`MODEL_TASKS`）。
-   * 在那之前「找來源」與「嵌入」在設定頁上沒有自己的一列 ——
-   * 而使用者問的是「我能不能替每一件事各挑一個模型」，那需要一份完整清單。
-   */
-  readonly taskReadiness: readonly TaskReadiness[];
-}
-
-export interface TaskReadiness {
-  readonly task: ModelTask;
-  readonly role: ProviderRole;
-  /** 實際會跑的模型。**空字串 ＝ 沒設定，或跟著這個角色自己的預設** */
-  readonly model: string;
-  /** 是逐任務覆寫來的，還是跟著角色的預設。**畫面上要分得開** */
-  readonly overridden: boolean;
+/**
+ * 一個任務現在跑不跑得動，以及**缺哪幾樣**。
+ *
+ * ADR-0006 第 3 條要求畫面說出「這個任務需要 X，目前設定的模型沒有 X」——
+ * 那句話要有地方拿到 X，而這裡就是那個地方。
+ * **設定頁上先看得到，比按下擴展才撞到牆好。**
+ */
+export interface TaskReadiness extends TaskStatus {
   readonly ok: boolean;
   readonly missing: readonly string[];
+}
+
+export interface ProvidersPayload extends Omit<ProvidersView, 'tasks'> {
+  readonly tasks: readonly TaskReadiness[];
 }
 
 /** 配對結果攤成畫面上那一行字要的東西。**context 不夠也是一種「缺」。** */
@@ -98,158 +85,33 @@ export async function listProviders(): Promise<Result<ProvidersPayload>> {
   /**
    * **每個任務對著它自己那個模型算一次。**
    *
-   * 2026-09-10 之前 `chat` 只有一個模型，所以角色層算一次就夠了。
-   * 逐任務覆寫之後那個假設不成立 —— 而它失效的方式是**看起來沒事**：
-   * 角色層那一格顯示的是預設模型，覆寫的那一個從來不會被檢查。
+   * 逐任務各自接連線之後，沒有任何「角色層」可以代表它們 ——
+   * 一個覆寫成小 context 模型的抽取，只有對著那個模型算才會顯示「缺 context」。
    *
-   * 同一天再擴一次：`agent` 與 `embed` 底下的任務也各自算，
-   * 因為設定頁上那張表要四列都有「缺哪幾樣」，不能只有中間兩列有。
+   * **沒設定的時候不列「缺哪幾樣」。** 一個完全沒設定的任務，能力宣告當然是全空的，
+   * 所以配對一定回「缺 X」—— 而畫面上那句話是「這個任務需要 X，**而目前設定的模型沒有**」。
+   * 那句話對一個沒有模型的任務是錯的：問題不是模型不夠好，是還沒選。
    */
-  const chatByTask = new Map(view.chatTasks.map((row) => [row.task as string, row]));
-  const statusByRole = new Map(view.statuses.map((row) => [row.role, row]));
-
-  const taskReadiness: TaskReadiness[] = MODEL_TASKS.map((entry) => {
-    const chatRow = chatByTask.get(entry.task);
-    const status = statusByRole.get(entry.role);
-
-    /**
-     * 拿哪一份能力來配對，**取決於這個任務有沒有自己的模型**。
-     *
-     * `chat` 底下兩個任務各自探過自己那個模型，所以用它們自己的；
-     * 其餘的只有一個模型，角色層那一份就是它自己那一份。
-     */
-    const capabilities: ProviderCapabilities | undefined =
-      chatRow?.capabilities ?? status?.capabilities;
-    const state = chatRow?.state ?? status?.state ?? 'not-configured';
-
-    /**
-     * **沒設定的時候不列「缺哪幾樣」。**
-     *
-     * 一個完全沒設定的角色，能力宣告當然是全空的，所以配對一定回「缺 X」——
-     * 而畫面上那句話是「這個角色要跑的任務需要 X，**而目前設定的模型沒有**」。
-     * 那句話對一個沒有模型的角色是錯的：問題不是模型不夠好，是還沒選。
-     *
-     * 2026-09-10 發現。在那之前它只影響角色層那一行，
-     * 而擴成四列的表格之後**四列會同時說同一句錯話**。
-     */
+  const tasks: TaskReadiness[] = view.tasks.map((row) => {
     const missing =
-      capabilities === undefined || state === 'not-configured'
+      row.state === 'not-configured'
         ? []
-        : missingNames([missingFor(entry.requirement, capabilities)]);
-
-    return {
-      task: entry.task,
-      role: entry.role,
-      model: chatRow?.model ?? modelOfRole(entry.role, view.config),
-      overridden: chatRow?.overridden ?? false,
-      ok: state === 'ready' && missing.length === 0,
-      missing,
-    };
+        : missingNames([missingFor(requirementOfTask(row.task), row.capabilities)]);
+    return { ...row, ok: row.state === 'ready' && missing.length === 0, missing };
   });
-
-  /**
-   * 角色層那一格 ＝ **它底下每一個任務的合併**，不是自己算一次。
-   *
-   * 2026-09-09 之前這裡只看 `TASK_ANGLES`，於是設定頁上顯示的「可以用」
-   * 只代表「歸納角度跑得動」—— 而 `chat` 底下還有一個抽取實體與關係，
-   * 它要吃 12,000 字的外部正文，context 需求高得多（`TASK_EXTRACT`）。
-   * 一個剛好 8000 context 的模型會在這一頁被標成綠的，然後在抽取時
-   * **把正文截掉一半而不報錯**。
-   *
-   * 2026-09-10 逐任務覆寫之後，它不能再自己拿 `status.capabilities` 算 ——
-   * 那是預設模型的能力，而覆寫的那一個從來不會被檢查。
-   */
-  const readiness = view.statuses.map((status) => {
-    const rows = taskReadiness.filter((row) => row.role === status.role);
-    return {
-      role: status.role,
-      ok: rows.length > 0 ? rows.every((row) => row.ok) : status.state === 'ready',
-      missing: [...new Set(rows.flatMap((row) => row.missing))],
-    };
-  });
-  return ok({ ...view, readiness, taskReadiness }, cid);
+  return ok({ connections: view.connections, config: view.config, tasks }, cid);
 }
 
 /**
- * 這個角色設定的模型是哪一個。
+ * 存設定。**收 v1 或 v2 的形狀都行** —— 讀檔與收請求走同一支解析（`parseConfig`），
+ * 舊的呼叫端送 v1 會被原地升版，存進去的永遠是 v2。
  *
- * `agent` 回的是 `--model` 那一欄，**空字串代表「不帶，用 CLI 自己的預設」**——
- * 而畫面上那兩件事要分得開（`agentModelHint`）。
+ * 金鑰欄位存的是環境變數的名字，不是金鑰。形狀不對的一律當成沒設定，
+ * 所以一把不小心貼進來的金鑰不會被寫進設定檔（`apiKeyEnvOf`）。
  */
-function modelOfRole(role: ProviderRole, config: ProvidersConfig): string {
-  if (role === 'agent') return config.agent?.model ?? '';
-  if (role === 'embed') return config.embed?.model ?? '';
-  return config.chat?.model ?? '';
-}
-
 export async function saveProviders(input: unknown): Promise<Result<ProvidersPayload>> {
   const cid = correlationId();
-  const raw = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
-
-  const chatRaw = raw['chat'];
-  const agentRaw = raw['agent'];
-  const chat =
-    typeof chatRaw === 'object' && chatRaw !== null
-      ? {
-          // 缺或不認得 ＝ 本機 Ollama（v0.18.0 之前唯一的選項）。**不猜** —— 見 `ChatTransport`。
-          transport: transportOf((chatRaw as Record<string, unknown>)['transport']),
-          baseUrl: String((chatRaw as Record<string, unknown>)['baseUrl'] ?? '').trim(),
-          model: String((chatRaw as Record<string, unknown>)['model'] ?? '').trim(),
-          // **存的是環境變數的名字，不是金鑰。** 形狀不對的一律當成沒設定，
-          // 所以一把不小心貼進來的金鑰不會被寫進設定檔。
-          apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),
-          // 逐任務覆寫。**不認得的鍵在這裡就被丟掉**，不會被寫進設定檔 ——
-          // 一個拼錯的任務名留在檔案裡，下次讀出來還是沒有作用，
-          // 而它看起來像是設過了。
-          taskModels: taskModelsOf((chatRaw as Record<string, unknown>)['taskModels']),
-        }
-      : null;
-  const agentCommand = String(
-    (typeof agentRaw === 'object' && agentRaw !== null
-      ? (agentRaw as Record<string, unknown>)['command']
-      : '') ?? '',
-  ).trim();
-  const agentArgsRaw =
-    typeof agentRaw === 'object' && agentRaw !== null
-      ? (agentRaw as Record<string, unknown>)['args']
-      : undefined;
-
-  const embedRaw = raw['embed'];
-  const embed =
-    typeof embedRaw === 'object' && embedRaw !== null
-      ? {
-          baseUrl: String((embedRaw as Record<string, unknown>)['baseUrl'] ?? '').trim(),
-          model: String((embedRaw as Record<string, unknown>)['model'] ?? '').trim(),
-        }
-      : null;
-
-  const config: ProvidersConfig = {
-    version: 1,
-    chat: chat === null || chat.baseUrl.length === 0 ? null : chat,
-    agent:
-      agentCommand.length === 0
-        ? null
-        : {
-            command: agentCommand,
-            args: Array.isArray(agentArgsRaw) ? agentArgsRaw.map((a) => String(a)) : [],
-            // `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設**，那是一個有效的選擇。
-            model: String(
-              (typeof agentRaw === 'object' && agentRaw !== null
-                ? (agentRaw as Record<string, unknown>)['model']
-                : '') ?? '',
-            ).trim(),
-          },
-    embed: embed === null || embed.baseUrl.length === 0 ? null : embed,
-    // **只有明確送 `true` 才算打開。** 缺欄位、送字串、送 1 都是關著 ——
-    // 一個「好像有打開」的診斷開關比沒有更糟：使用者以為留著紀錄，而其實沒有。
-    diagnostics: {
-      logModelCalls:
-        typeof raw['diagnostics'] === 'object' &&
-        raw['diagnostics'] !== null &&
-        (raw['diagnostics'] as Record<string, unknown>)['logModelCalls'] === true,
-    },
-  };
-
+  const config = parseConfig(input);
   try {
     await writeProvidersConfig(config);
   } catch (e) {
@@ -258,16 +120,48 @@ export async function saveProviders(input: unknown): Promise<Result<ProvidersPay
   return await listProviders();
 }
 
+export interface ModelsListing {
+  readonly kind: ConnectionKind;
+  /** `null` ＝ 列不出來（連不上、被拒）。 */
+  readonly models: readonly string[] | null;
+  readonly auth: AuthState;
+}
+
+/**
+ * 「連線並列出模型」：**不存檔就列。**
+ *
+ * 使用者填了位址（與金鑰變數）之後按這顆，畫面就能把這個端點的模型列成下拉選單 ——
+ * 這是 Open WebUI 也用的順序：填位址與金鑰 → 打 `/models` 驗證 → 才選模型。
+ * 存了才列的話，畫面上會先出現一個空的下拉選單，而使用者不知道要先按儲存。
+ *
+ * 只有 HTTP 的兩種連線有這件事；CLI 不吐模型清單。
+ */
+export async function listModelsFor(kind: string, input: unknown): Promise<Result<ModelsListing>> {
+  const cid = correlationId();
+  if (kind !== 'ollama' && kind !== 'openai') {
+    return err('PROVIDER_NOT_CONFIGURED', cid, { field: 'kind', reason: 'ollama 或 openai' });
+  }
+  const raw = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {};
+  const baseUrl = String(raw['baseUrl'] ?? '').trim();
+  if (baseUrl.length === 0) return err('PROVIDER_NOT_CONFIGURED', cid, { field: 'baseUrl' });
+  const apiKeyEnv = apiKeyEnvOf(raw['apiKeyEnv']);
+  const models =
+    kind === 'openai'
+      ? await listOpenAiModels(baseUrl, apiKeyEnv, process.env)
+      : await listOllamaModels(baseUrl);
+  return ok({ kind, models, auth: authOf(apiKeyEnv, process.env) }, cid);
+}
+
 export interface ProviderTest {
-  readonly role: ProviderRole;
+  readonly task: ModelTask;
   readonly ok: boolean;
   readonly code: string | null;
   /** provider 回報的實際花費。**`null` ＝ 它沒回報，不是 0** */
   readonly costUsd: number | null;
   readonly elapsedMs: number;
   /**
-   * `chat` 的「符合 schema」由誰保證。線上端點按這顆按鈕**會重量一次**，
-   * 所以這一格是剛量出來的結果；其餘角色是 `null`。
+   * 對話任務的「符合 schema」由誰保證。線上端點按這顆按鈕**會重量一次**，
+   * 所以這一格是剛量出來的結果；其餘任務是 `null`。
    */
   readonly jsonMode: JsonModeReport | null;
 }
@@ -275,32 +169,35 @@ export interface ProviderTest {
 /**
  * 實際打一次。**這是使用者按的按鈕，不是頁面載入時跑的東西。**
  *
- * agent 那一邊會真的花錢，所以問的是**最小的一個問題**，
+ * 測的是**這個任務實際會跑的那一支** —— 逐任務各自接連線之後，
+ * 「測 chat」這句話沒有對象。CLI 那一邊會真的花錢，所以問的是**最小的一個問題**，
  * 而且要求它回一個空的候選清單 —— 不搜尋、不上網。
  */
 export async function testProvider(
   dataRoot: string | null,
-  role: ProviderRole,
+  task: string,
 ): Promise<Result<ProviderTest>> {
   const cid = correlationId();
+  const entry = MODEL_TASKS.find((t) => t.task === task);
+  if (entry === undefined) {
+    return err('PROVIDER_NOT_CONFIGURED', cid, {
+      field: 'task',
+      reason: MODEL_TASKS.map((t) => t.task).join(', '),
+    });
+  }
   const providers = await loadProviders();
 
   /**
-   * **嵌入也打得動了（v0.11.0）。**
-   *
-   * 在那之前這裡無條件回「沒設定」，因為那個角色還沒有實作。
-   * 現在它是三個角色裡**最該按這顆按鈕**的一個：模型在不在 `/api/tags` 上
-   * 是設定頁載入時就看得到的事，而「它真的吐得出向量嗎」不是 ——
-   * 一個拉了一半的模型、一個記憶體不夠載入的模型，兩者都在清單上。
-   *
-   * 它走的是**查詢那一側**（帶前綴），因為那是使用者實際會觸發的路徑。
+   * **嵌入也打得動了（v0.11.0）。** 模型在不在清單上是設定頁載入時就看得到的事，
+   * 而「它真的吐得出向量嗎」不是 —— 一個拉了一半的模型、一個記憶體不夠載入的模型，
+   * 兩者都在清單上。它走的是**查詢那一側**（帶前綴），因為那是使用者實際會觸發的路徑。
    */
-  if (role === 'embed') {
-    if (providers.embed === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });
+  if (entry.role === 'embed') {
+    if (providers.embed === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task });
     const call = await providers.embed.embedQuery('測試');
     return ok(
       {
-        role,
+        task: entry.task,
         ok: call.kind === 'ok',
         code: call.kind === 'ok' ? null : call.code,
         costUsd: call.cost.costUsd,
@@ -311,9 +208,9 @@ export async function testProvider(
     );
   }
 
-  if (role === 'chat') {
-    const chat = providers.chat;
-    if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });
+  if (entry.role === 'chat') {
+    const chat = providers.chatFor(entry.task as 'angles' | 'extract');
+    if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task });
 
     /**
      * **線上端點：先重量一次格式支援。** 這顆按鈕因此同時是「重新檢查」——
@@ -331,7 +228,7 @@ export async function testProvider(
       if (check.kind === 'error') {
         return ok(
           {
-            role,
+            task: entry.task,
             ok: false,
             code: check.code,
             costUsd: check.cost.costUsd,
@@ -351,7 +248,7 @@ export async function testProvider(
     });
     return ok(
       {
-        role,
+        task: entry.task,
         ok: call.kind === 'ok',
         code: call.kind === 'ok' ? null : call.code,
         costUsd: call.cost.costUsd,
@@ -367,8 +264,8 @@ export async function testProvider(
     systemPrompt: '只回 JSON，不要用任何工具。',
     maxCostUsd: null,
   });
-  if (agent === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role });
-  if (dataRoot === null) return err('IO_DATA_ROOT_MISSING', cid, { role });
+  if (agent === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task });
+  if (dataRoot === null) return err('IO_DATA_ROOT_MISSING', cid, { task });
 
   // **測試也要在一個目錄裡跑**，而那個目錄不是任何專題的沙箱 ——
   // 它跟哪一個專題都沒有關係，所以放資料根的 `tmp\`。
@@ -377,7 +274,7 @@ export async function testProvider(
   const call = await agent.run({ prompt: '回 {"ok":true}', cwd, timeoutMs: 120_000 });
   return ok(
     {
-      role,
+      task: entry.task,
       ok: call.kind === 'ok',
       code: call.kind === 'ok' ? null : call.code,
       costUsd: call.cost.costUsd,

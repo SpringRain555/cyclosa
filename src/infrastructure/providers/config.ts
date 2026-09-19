@@ -16,27 +16,50 @@
  *
  * ## 檔案不存在是正常狀態
  *
- * 沒有這個檔就是「三個角色都沒設定」，那不是錯誤 ——
+ * 沒有這個檔就是「一個任務都沒設定」，那不是錯誤 ——
  * 這個工具的其餘部分（匯入、閱讀器、圖、裁決、全文檢索）**完全不需要模型**。
+ *
+ * ## v2：任務 → 連線 ＋ 模型（2026-09-19，ADR-0032）
+ *
+ * v1 的形狀是三個「角色」（agent／chat／embed），每個角色一條連線、一個預設模型，
+ * `chat` 底下再逐任務覆寫**模型**。它有一條明寫的限制：**`baseUrl` 與 `apiKeyEnv`
+ * 刻意不能逐任務覆寫** —— 兩個任務跑在不同端點上，「本機模型不花錢」這件事就按任務而異。
+ *
+ * 2026-09-18 使用者第一次真的用，要的正是那個被排除的形狀：歸納角度留在本機 Ollama，
+ * 抽取走線上端點（額度大得多）。而設定頁上「可調用模型」與「各任務模型」兩張表講的是
+ * 同一件事的兩半，使用者問「這兩個是不是重複」。
+ *
+ * 所以 v2 的主鍵是**任務**：每一個任務各自說「走哪一條連線、用哪個模型」；
+ * 連線只定義一次（CLI、本機 Ollama、OpenAI 相容端點各一條）。
+ * 「不花錢」那件事改成逐任務說（設定頁與作業紀錄都寫得出每一次呼叫走的是哪一條）。
+ *
+ * **舊檔案讀到就原地升版**（`upgradeV1`），不用使用者做任何事；下一次存檔就是 v2。
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { CHAT_TASKS, type ChatTask } from '../../domain/provider/index.js';
+import {
+  MODEL_TASKS,
+  roleOfTask,
+  type ChatTask,
+  type ModelTask,
+} from '../../domain/provider/index.js';
 import { pointerFilePath } from '../fs/paths.js';
 
 /**
- * `chat` 走哪一種協定。
+ * 三種連線。**這組字串也是設定檔裡 `via` 欄位的值**，web 那一邊抄了一份
+ * （`tests/guards/chat-tasks.test.ts` 釘著一致）。
  *
- * | 值 | 打哪裡 | 用在 |
+ * | 值 | 是什麼 | 打哪裡 |
  * |---|---|---|
- * | `ollama` | `/api/tags`、`/api/chat` | 本機 Ollama。**預設，而且舊的設定檔沒有這一欄時就是它** |
- * | `openai` | `/models`、`/chat/completions` | 任何 OpenAI 相容端點（線上的、或別家本機伺服器）|
+ * | `cli` | Claude Code CLI（`claude -p`）| 子程序 |
+ * | `ollama` | 本機 Ollama，原生協定 | `/api/tags`、`/api/chat`、`/api/embed` |
+ * | `openai` | 任何 OpenAI 相容端點（線上的、或別家本機伺服器）| `/models`、`/chat/completions` |
  *
  * ## 為什麼本機 Ollama 不改走 OpenAI 相容那條
  *
- * 它現在也支援 `json_schema` 了（2026-09-11 實測，推翻了原本的理由）。
- * **留下原生那條的理由換成一個量得到的數字**：`/v1` 送不了 `think: false`，
+ * 它現在也支援 `json_schema` 了（2026-09-11 實測）。
+ * **留下原生那條的理由是一個量得到的數字**：`/v1` 送不了 `think: false`，
  * 同一題 `qwen3.5:4b` 走 `/v1` 是 4.1 秒、2,935 字的思考，
  * 走原生並關掉思考是 **0.45 秒、0 字**（`docs/research/openai-compat-json-schema.md`）。
  * 而 `num_ctx` 也只有原生那條送得出去 —— 少了它，正文會在小 context 的機器上被安靜截斷。
@@ -44,6 +67,10 @@ import { pointerFilePath } from '../fs/paths.js';
  * **不自動偵測。** 兩種協定 Ollama 都答得出來，「它看起來像哪一種」
  * 猜錯的代價是那兩個量出來的設定安靜地消失。這是使用者選的事實。
  */
+export const CONNECTION_KINDS = ['cli', 'ollama', 'openai'] as const;
+export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
+
+/** v1 的 `chat.transport` —— 兩種 HTTP 連線。留著給 registry 與 web 的型別用。 */
 export const CHAT_TRANSPORTS = ['ollama', 'openai'] as const;
 export type ChatTransport = (typeof CHAT_TRANSPORTS)[number];
 
@@ -51,53 +78,10 @@ export function transportOf(value: unknown): ChatTransport {
   return value === 'openai' ? 'openai' : 'ollama';
 }
 
-export interface ChatConfig {
-  readonly transport: ChatTransport;
-  /**
-   * 端點的根位址。**兩種協定的慣例不一樣**：
-   * Ollama 是 `http://127.0.0.1:11434`（不含 `/v1`），
-   * OpenAI 相容端點照各家文件的寫法**含 `/v1`**（`https://api.example.com/v1`）。
-   */
-  readonly baseUrl: string;
-  readonly model: string;
-  /**
-   * 逐任務覆寫。**空字串 ＝ 跟著 `model`，不是「沒有模型」** ——
-   * 這兩件事在畫面上要分得開，所以這一欄永遠有全部的鍵，
-   * 不用「缺鍵」表示「沒覆寫」（缺鍵與空字串會在 JSON 來回一趟之後混在一起）。
-   *
-   * ## 為什麼覆寫的是模型而不是整份設定
-   *
-   * `baseUrl` 與 `apiKeyEnv` **刻意不能逐任務覆寫**：它們描述的是「連到哪個端點」，
-   * 而兩個任務跑在不同端點上會讓「本機模型不花錢」這件事按任務而異 ——
-   * 成本上限、逾時、金鑰偵測全部要跟著分岔。
-   * 而真正量出差別的是模型本身（`CHAT_TASKS` 的註解），不是端點。
-   */
-  readonly taskModels: Readonly<Record<ChatTask, string>>;
-  /**
-   * 帶金鑰的話，**金鑰在哪個環境變數裡** —— 不是金鑰本身。
-   *
-   * 這是 2026-09-08 定的：接雲端端點需要一把金鑰，
-   * 而**這個設定檔會被備份、會被同步、會在求助的時候被整份貼出來**。
-   * 所以這裡存的是名字，值只在送出請求的那一刻從環境讀一次。
-   *
-   * `null` ＝ 不帶授權標頭（本機 Ollama 就是這樣）。
-   */
-  readonly apiKeyEnv: string | null;
-}
-
-export interface AgentConfig {
+/** Claude Code CLI。 */
+export interface CliConnection {
   /** CLI 的名字或完整路徑。**預設 `claude`，靠 PATH 找** */
   readonly command: string;
-  /**
-   * 交給 CLI 的 `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設。**
-   *
-   * 2026-09-10 補上。在那之前「找來源」這個任務**完全沒有模型欄位** ——
-   * 而設定頁上那張逐任務的表少了一列，使用者只能去改 CLI 自己的設定。
-   *
-   * 這一欄與 `chat.taskModels` 不同形狀，是因為 `agent` 底下只有一個任務
-   * （`MODEL_TASKS`）。多了第二個任務的那一天再改成一張表。
-   */
-  readonly model: string;
   /**
    * 接在 `command` 後面、我們自己那些旗標**前面**的參數。
    *
@@ -110,91 +94,49 @@ export interface AgentConfig {
 }
 
 /**
- * 嵌入模型（2026-09-09，v0.10.2 補上）。
+ * 一條 HTTP 連線（本機 Ollama 或 OpenAI 相容端點）。
  *
- * **沒有 `apiKeyEnv`，那是刻意的。** 向量會被寫進資料庫並長期保存，
- * 而換模型要把全部重算 —— 一個雲端端點隨時可能換掉背後的權重、
- * 停用某個版本、或者調整它的正規化方式，而**那些變化不會報錯，
- * 只會讓比對安靜地變爛**（ADR-0009）。所以這一欄只接本機端點。
+ * `baseUrl` 兩種協定的慣例不一樣：Ollama 是 `http://127.0.0.1:11434`（不含 `/v1`），
+ * OpenAI 相容端點照各家文件的寫法**含 `/v1`**（`https://api.example.com/v1`）。
  *
- * 預設模型是量出來的：`qwen3-embedding:4b`（2026-09-09，七個候選、
- * 1955 段語料、50 條查詢，見 `docs/research/embedding-choice.md`）。
- * 小機器的替代選項是 `qwen3-embedding:0.6b`。
+ * `apiKeyEnv`：帶金鑰的話，**金鑰在哪個環境變數裡** —— 不是金鑰本身。
+ * 這是 2026-09-08 定的：這個設定檔會被備份、會被同步、會在求助的時候被整份貼出來，
+ * 所以這裡存的是名字，值只在送出請求的那一刻從環境讀一次。
+ * `null` ＝ 不帶授權標頭（本機 Ollama 就是這樣）。
  */
-export interface EmbedConfig {
+export interface HttpConnection {
   readonly baseUrl: string;
+  readonly apiKeyEnv: string | null;
+}
+
+export interface Connections {
+  /** `null` ＝ 沒設定。跑一個外部 CLI 是有實際後果的動作（它會花錢），**不預設開啟**。 */
+  readonly cli: CliConnection | null;
+  /** 永遠有一條 —— 位址是 Ollama 自己的慣例（`127.0.0.1:11434`），猜得準。 */
+  readonly ollama: HttpConnection;
+  /** `null` ＝ 沒設定。位址猜不準，所以沒有預設。 */
+  readonly openai: HttpConnection | null;
+}
+
+/** 一個任務走哪一條連線、用哪個模型。**`model` 是空字串 ＝ 這個任務還沒選模型**（CLI 例外：空 ＝ 用 CLI 自己的預設）。 */
+export interface TaskSetting {
+  readonly via: ConnectionKind;
   readonly model: string;
 }
 
-/** 量測選出來的預設。**設定頁把它當建議值顯示，不會自己寫進設定檔。** */
-export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
-
 /**
- * `chat` 的建議模型。**量出來的**（`docs/research/chat-choice.md`，2026-09-09）。
+ * 每個任務**可以**走哪些連線。**由角色推出來，不另外手寫一份。**
  *
- * 八個本機模型、兩個任務、每個任務三次而且每次換一份文件。
- * `qwen3.5:4b` 抽取六次全過、引文命中 **98%**、平均 **5 秒**（第二名 17 秒），
- * 而它只有 3.4 GB —— **比三個 30B 與第一輪評測（v0.10.3）的最佳都好。**
- *
- * **這個建議有一半在別的地方**：`chat-ollama.ts` 必須送 `think: false`。
- * 沒有那一欄的話同一個模型是 4/6、63 秒。
- *
- * 角度那一題它只回四條（上限六條），`granite4.2:8b` 回六條 ——
- * 逐任務覆寫的依據就是這個差距，而那個欄位還沒有做。
+ * - 找來源要 `browse`，只有 CLI 有 —— 所以只能是 `cli`。
+ * - 歸納與抽取是對話模型，本機或線上都行。
+ * - 嵌入只准本機（ADR-0009）：向量會被寫進資料庫並長期保存，
+ *   一個雲端端點隨時可能換掉背後的權重，**而那些變化不會報錯，只會讓比對安靜地變爛**。
  */
-export const RECOMMENDED_CHAT_MODEL = 'qwen3.5:4b';
-
-/**
- * 逐任務的建議值。**同一輪量測的另一半**（`docs/research/chat-choice.md` 發現六）。
- *
- * `angles` 建議 `granite4.2:8b` 而不是 `nemotron-cascade-2:30b`，
- * 雖然後者的 `seeds` 有效率是 100%（前者 83%）。三個理由，按重要性排：
- *
- * 1. **5.3 GB 對 24 GB。** 加上 `qwen3.5:4b` 的 3.4 GB 還是同時常駐得下，
- *    而 24 GB 那一個換任務就要把對方擠出顯示記憶體 —— 逐任務覆寫的前提就沒了。
- * 2. **`seeds` 那一欄自己還不可信**（同一份文件的「還沒做」第三條）：
- *    同樣 `think: false` 之下 `qwen3.5` 兩個型號都是 0%，差距大到不像在量同一件事。
- *    拿一個還不可信的欄位去換 19 GB 不划算。
- * 3. 角度彼此的相似度 0.712 是全場最低（`nemotron` 0.735）——
- *    **那一欄才是「多視角有沒有真的多視角」。**
- *
- * `extract` 就是 `RECOMMENDED_CHAT_MODEL` 本身。兩者一致是刻意的：
- * **預設模型要能單獨把兩個任務都跑完**，覆寫是可選的加分，不是必要條件。
- */
-export const RECOMMENDED_TASK_MODELS: Readonly<Record<ChatTask, string>> = {
-  angles: 'granite4.2:8b',
-  extract: RECOMMENDED_CHAT_MODEL,
-};
-
-/** 全部沒覆寫的那一份。**每個鍵都在、值是空字串。** */
-export function emptyTaskModels(): Record<ChatTask, string> {
-  return Object.fromEntries(CHAT_TASKS.map((task) => [task, ''])) as Record<ChatTask, string>;
-}
-
-/**
- * **這個任務實際會跑在哪個模型上。**
- *
- * 覆寫是空的就跟著 `model`。回空字串代表「這個任務沒有模型可用」——
- * 呼叫端要當成沒設定，不要當成「用預設的那個」。
- */
-export function chatModelFor(chat: ChatConfig | null, task: ChatTask): string {
-  if (chat === null) return '';
-  const override = chat.taskModels[task]?.trim() ?? '';
-  return override.length > 0 ? override : chat.model.trim();
-}
-
-/**
- * 從任意輸入讀出逐任務覆寫。**不認得的鍵一律丟掉**，不是原樣留著。
- *
- * 讀設定檔與收 HTTP 請求用的是同一支，那是刻意的：
- * 兩份各自寫的解析會漂，而漂掉的那一種形狀是「存進去的鍵讀不出來」。
- */
-export function taskModelsOf(raw: unknown): Record<ChatTask, string> {
-  const out = emptyTaskModels();
-  if (typeof raw !== 'object' || raw === null) return out;
-  const record = raw as Record<string, unknown>;
-  for (const task of CHAT_TASKS) out[task] = str(record[task]);
-  return out;
+export function viaOptionsOf(task: ModelTask): readonly ConnectionKind[] {
+  const role = roleOfTask(task);
+  if (role === 'agent') return ['cli'];
+  if (role === 'embed') return ['ollama'];
+  return ['ollama', 'openai'];
 }
 
 /**
@@ -211,39 +153,71 @@ export interface DiagnosticsConfig {
 }
 
 export interface ProvidersConfig {
-  readonly version: 1;
-  readonly chat: ChatConfig | null;
-  readonly agent: AgentConfig | null;
-  readonly embed: EmbedConfig | null;
+  readonly version: 2;
+  readonly connections: Connections;
+  readonly tasks: Readonly<Record<ModelTask, TaskSetting>>;
   readonly diagnostics: DiagnosticsConfig;
 }
 
+export const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
+
+/** 量測選出來的預設。**設定頁把它當建議值顯示，不會自己寫進設定檔。** */
+export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
+
 /**
- * 預設值。
+ * `chat` 的建議模型。**量出來的**（`docs/research/chat-choice.md`，2026-09-09）。
  *
- * **`chat` 有預設而 `agent` 沒有，那是刻意的不對稱**：
- * Ollama 的位址是它自己的慣例（`127.0.0.1:11434`），猜得準；
- * 但**模型名猜不準**，所以 `model` 是空的 —— 空的就等於沒設定，
- * 設定頁會把偵測到的清單列出來讓人挑。
+ * 八個本機模型、兩個任務、每個任務三次而且每次換一份文件。
+ * `qwen3.5:4b` 抽取六次全過、引文命中 **98%**、平均 **5 秒**（第二名 17 秒），
+ * 而它只有 3.4 GB —— **比三個 30B 與第一輪評測（v0.10.3）的最佳都好。**
  *
- * agent 那一邊「跑一個外部 CLI」是有實際後果的動作
- * （它是使用者權限下的完整程式，而且會花錢），**不預設開啟。**
+ * **這個建議有一半在別的地方**：`chat-ollama.ts` 必須送 `think: false`。
+ * 沒有那一欄的話同一個模型是 4/6、63 秒。
+ */
+export const RECOMMENDED_CHAT_MODEL = 'qwen3.5:4b';
+
+/**
+ * 逐任務的建議值。**同一輪量測的另一半**（`docs/research/chat-choice.md` 發現六）。
+ *
+ * `angles` 建議 `granite4.2:8b` 而不是 `nemotron-cascade-2:30b`，
+ * 雖然後者的 `seeds` 有效率是 100%（前者 83%）。三個理由，按重要性排：
+ *
+ * 1. **5.3 GB 對 24 GB。** 加上 `qwen3.5:4b` 的 3.4 GB 還是同時常駐得下，
+ *    而 24 GB 那一個換任務就要把對方擠出顯示記憶體。
+ * 2. **`seeds` 那一欄自己還不可信**（同一份文件的「還沒做」第三條）。
+ * 3. 角度彼此的相似度 0.712 是全場最低（`nemotron` 0.735）——
+ *    **那一欄才是「多視角有沒有真的多視角」。**
+ *
+ * `extract` 就是 `RECOMMENDED_CHAT_MODEL` 本身。兩者一致是刻意的：
+ * **預設模型要能單獨把兩個任務都跑完**，分開只是可選的加分，不是必要條件。
+ *
+ * **這些數字是在本機 Ollama 上量的**，所以設定頁只對走 `ollama` 的任務顯示建議。
+ */
+export const RECOMMENDED_TASK_MODELS: Readonly<Record<ChatTask, string>> = {
+  angles: 'granite4.2:8b',
+  extract: RECOMMENDED_CHAT_MODEL,
+};
+
+/**
+ * 預設值：一個任務都還沒選模型。
+ *
+ * **Ollama 的位址有預設而 CLI 沒有，那是刻意的不對稱**：
+ * 位址是 Ollama 自己的慣例，猜得準；但**模型名猜不準**，所以每個任務的 `model` 是空的 ——
+ * 空的就等於沒設定，設定頁會把偵測到的清單列出來讓人挑。
  */
 export const DEFAULT_CONFIG: ProvidersConfig = {
-  version: 1,
-  chat: {
-    transport: 'ollama',
-    baseUrl: 'http://127.0.0.1:11434',
-    model: '',
-    apiKeyEnv: null,
-    // **預設不覆寫。** 建議值顯示在設定頁上讓人按，不替他寫進設定檔 ——
-    // 逐任務覆寫的代價是「同時要有兩個模型在機器上」，那不是我們替他決定的事。
-    taskModels: emptyTaskModels(),
+  version: 2,
+  connections: {
+    cli: null,
+    ollama: { baseUrl: OLLAMA_DEFAULT_URL, apiKeyEnv: null },
+    openai: null,
   },
-  agent: null,
-  // `embed` 跟 `chat` 同一個理由：位址猜得準，**模型名不猜**。
-  // 空的就等於沒設定，設定頁把量測選出來的那一個標成「建議」讓人自己按。
-  embed: { baseUrl: 'http://127.0.0.1:11434', model: '' },
+  tasks: {
+    'find-sources': { via: 'cli', model: '' },
+    angles: { via: 'ollama', model: '' },
+    extract: { via: 'ollama', model: '' },
+    embed: { via: 'ollama', model: '' },
+  },
   // **預設關著。** 它長得快（抽取的提示詞裡是整份正文），而多數作業沒有人會回頭看。
   diagnostics: { logModelCalls: false },
 };
@@ -270,6 +244,136 @@ function str(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value.trim() : fallback;
 }
 
+function obj(value: unknown): Record<string, unknown> | null {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function httpConnectionOf(raw: unknown): HttpConnection | null {
+  const rec = obj(raw);
+  if (rec === null) return null;
+  const baseUrl = str(rec['baseUrl']);
+  return baseUrl.length === 0 ? null : { baseUrl, apiKeyEnv: apiKeyEnvOf(rec['apiKeyEnv']) };
+}
+
+function cliConnectionOf(raw: unknown): CliConnection | null {
+  const rec = obj(raw);
+  if (rec === null) return null;
+  const command = str(rec['command']);
+  if (command.length === 0) return null;
+  const args = rec['args'];
+  return { command, args: Array.isArray(args) ? args.map((a) => String(a)) : [] };
+}
+
+/**
+ * 從任意輸入讀出 v2 的形狀。**讀設定檔與收 HTTP 請求用的是同一支**，那是刻意的：
+ * 兩份各自寫的解析會漂，而漂掉的那一種形狀是「存進去的鍵讀不出來」。
+ *
+ * - 不認得的任務名一律丟掉，**每個任務都有一格**（缺鍵與空字串在 JSON 來回一趟之後會混在一起）。
+ * - `via` 不在那個任務准許的清單裡就退回第一個准許的 —— 一個指向不存在連線的任務比沒設定更糟。
+ * - `openai` 連線沒位址就是 `null`；`ollama` 沒位址就退回慣例位址。
+ */
+export function parseConfigV2(raw: Record<string, unknown>): ProvidersConfig {
+  const conn = obj(raw['connections']) ?? {};
+  const ollama = httpConnectionOf(conn['ollama']) ?? DEFAULT_CONFIG.connections.ollama;
+  const tasksRaw = obj(raw['tasks']) ?? {};
+  const tasks = Object.fromEntries(
+    MODEL_TASKS.map(({ task }) => {
+      const rec = obj(tasksRaw[task]) ?? {};
+      const allowed = viaOptionsOf(task);
+      const via = allowed.includes(rec['via'] as ConnectionKind)
+        ? (rec['via'] as ConnectionKind)
+        : (allowed[0] as ConnectionKind);
+      return [task, { via, model: str(rec['model']) }];
+    }),
+  ) as Record<ModelTask, TaskSetting>;
+  return {
+    version: 2,
+    connections: {
+      cli: cliConnectionOf(conn['cli']),
+      ollama,
+      openai: httpConnectionOf(conn['openai']),
+    },
+    tasks,
+    diagnostics: { logModelCalls: obj(raw['diagnostics'])?.['logModelCalls'] === true },
+  };
+}
+
+/**
+ * v1 → v2。**原地升版，不用使用者做任何事。**
+ *
+ * | v1 | v2 |
+ * |---|---|
+ * | `agent.command/args` | `connections.cli` |
+ * | `agent.model` | `tasks['find-sources'].model` |
+ * | `chat.transport/baseUrl/apiKeyEnv` | `connections.ollama` 或 `connections.openai`（看 transport）|
+ * | `chat.model` ＋ `chat.taskModels[task]`（覆寫優先）| `tasks.angles/extract.model`，`via` ＝ transport |
+ * | `embed.baseUrl/model` | `connections.ollama.baseUrl`（chat 不是 ollama 時）＋ `tasks.embed.model` |
+ * | `diagnostics` | 原樣 |
+ *
+ * 唯一有損的一格：v1 的 chat 與 embed 可以指向**兩個不同的 Ollama 位址**，v2 只有一條 Ollama 連線。
+ * chat 走 Ollama 的話用 chat 的位址（那一條有金鑰欄位），否則用 embed 的。
+ */
+export function upgradeV1(raw: Record<string, unknown>): ProvidersConfig {
+  const chat = obj(raw['chat']);
+  const agent = obj(raw['agent']);
+  const embed = obj(raw['embed']);
+  const transport = transportOf(chat?.['transport']);
+  const chatUrl = str(chat?.['baseUrl']);
+  const chatKey = apiKeyEnvOf(chat?.['apiKeyEnv']);
+  const embedUrl = str(embed?.['baseUrl']);
+  const overrides = obj(chat?.['taskModels']) ?? {};
+  const chatModel = str(chat?.['model']);
+  const chatTask = (task: ChatTask): TaskSetting => {
+    const override = str(overrides[task]);
+    return {
+      via: chatUrl.length === 0 ? 'ollama' : transport,
+      model: override.length > 0 ? override : chatModel,
+    };
+  };
+  const ollamaUrl =
+    transport === 'ollama' && chatUrl.length > 0
+      ? chatUrl
+      : embedUrl.length > 0
+        ? embedUrl
+        : OLLAMA_DEFAULT_URL;
+  return {
+    version: 2,
+    connections: {
+      cli: cliConnectionOf(agent),
+      ollama: {
+        baseUrl: ollamaUrl,
+        apiKeyEnv: transport === 'ollama' ? chatKey : null,
+      },
+      openai:
+        transport === 'openai' && chatUrl.length > 0
+          ? { baseUrl: chatUrl, apiKeyEnv: chatKey }
+          : null,
+    },
+    tasks: {
+      'find-sources': { via: 'cli', model: str(agent?.['model']) },
+      angles: chatTask('angles'),
+      extract: chatTask('extract'),
+      embed: { via: 'ollama', model: str(embed?.['model']) },
+    },
+    diagnostics: { logModelCalls: obj(raw['diagnostics'])?.['logModelCalls'] === true },
+  };
+}
+
+/** 任意輸入 → 設定。**`version: 2` 走 v2，其餘（含沒有 version 的）當 v1 升。** */
+export function parseConfig(raw: unknown): ProvidersConfig {
+  const rec = obj(raw);
+  if (rec === null) return DEFAULT_CONFIG;
+  return rec['version'] === 2 ? parseConfigV2(rec) : upgradeV1(rec);
+}
+
+/** 這個任務走的那一條連線；`cli` 回 `null`（它不是 HTTP）。 */
+export function httpConnectionFor(config: ProvidersConfig, task: ModelTask): HttpConnection | null {
+  const via = config.tasks[task].via;
+  if (via === 'ollama') return config.connections.ollama;
+  if (via === 'openai') return config.connections.openai;
+  return null;
+}
+
 /**
  * 讀設定。**壞掉的檔案退回預設值，不報錯。**
  *
@@ -287,55 +391,7 @@ export async function readProvidersConfig(
     return DEFAULT_CONFIG;
   }
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const chatRaw = parsed['chat'];
-    const agentRaw = parsed['agent'];
-    const chat =
-      typeof chatRaw === 'object' && chatRaw !== null
-        ? {
-            // **舊的設定檔沒有這一欄** —— 缺就是本機 Ollama，那是 v0.18.0 之前唯一的選項。
-            transport: transportOf((chatRaw as Record<string, unknown>)['transport']),
-            baseUrl: str((chatRaw as Record<string, unknown>)['baseUrl']),
-            model: str((chatRaw as Record<string, unknown>)['model']),
-            apiKeyEnv: apiKeyEnvOf((chatRaw as Record<string, unknown>)['apiKeyEnv']),
-            // **舊的設定檔沒有這一欄** —— 缺就是全部沒覆寫，而不是壞掉。
-            taskModels: taskModelsOf((chatRaw as Record<string, unknown>)['taskModels']),
-          }
-        : null;
-    const agentArgs = (agentRaw as Record<string, unknown> | null)?.['args'];
-    const agent =
-      typeof agentRaw === 'object' && agentRaw !== null
-        ? {
-            command: str((agentRaw as Record<string, unknown>)['command']),
-            args: Array.isArray(agentArgs) ? agentArgs.map((a) => String(a)) : [],
-            // **舊的設定檔沒有這一欄** —— 缺就是空字串（不帶 `--model`），不是壞掉。
-            model: str((agentRaw as Record<string, unknown>)['model']),
-          }
-        : null;
-    const embedRaw = parsed['embed'];
-    const embed =
-      typeof embedRaw === 'object' && embedRaw !== null
-        ? {
-            baseUrl: str((embedRaw as Record<string, unknown>)['baseUrl']),
-            model: str((embedRaw as Record<string, unknown>)['model']),
-          }
-        : null;
-    const diagRaw = parsed['diagnostics'];
-    return {
-      version: 1,
-      chat: chat === null || chat.baseUrl.length === 0 ? DEFAULT_CONFIG.chat : chat,
-      agent: agent === null || agent.command.length === 0 ? null : agent,
-      // **舊的設定檔沒有這一欄** —— 缺就是關著，而「關著」正是預設。
-      diagnostics: {
-        logModelCalls:
-          typeof diagRaw === 'object' &&
-          diagRaw !== null &&
-          (diagRaw as Record<string, unknown>)['logModelCalls'] === true,
-      },
-      // **舊的設定檔沒有這一欄** —— 缺就退回預設（位址有、模型空），
-      // 而不是變成 `null`：`null` 會讓設定頁上那一格連位址都是空的。
-      embed: embed === null || embed.baseUrl.length === 0 ? DEFAULT_CONFIG.embed : embed,
-    };
+    return parseConfig(JSON.parse(raw));
   } catch {
     return DEFAULT_CONFIG;
   }

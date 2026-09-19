@@ -346,17 +346,16 @@ function when(ms: number | null): string {
 
     <table v-else class="table">
       <thead>
+        <!-- 三欄（v0.24.0）：來源、狀態、動作。抓過幾次在「依據」那一句裡，檢查時間在狀態底下。 -->
         <tr>
           <th>{{ t.sources.columns.site }}</th>
           <th>{{ t.sources.columns.status }}</th>
-          <th class="num">{{ t.sources.columns.attempts }}</th>
-          <th>{{ t.sources.columns.checked }}</th>
           <th></th>
         </tr>
       </thead>
       <tbody v-for="group in groups" :key="group.key">
         <tr class="group">
-          <th colspan="5">
+          <th colspan="3">
             {{ group.label }}
             <span class="group-n">{{ fill(t.sources.groupCount, { n: group.rows.length }) }}</span>
           </th>
@@ -393,41 +392,41 @@ function when(ms: number | null): string {
               <div v-if="row.expected && row.verdict.basis === 'none'" class="basis">
                 {{ t.sources.expected[row.expected] }}
               </div>
+              <div class="basis">
+                <template v-if="row.probe">
+                  {{
+                    row.lastProbe
+                      ? fill(t.sources.lastChecked, { when: when(row.lastProbe.at) })
+                      : t.sources.lastCheckedNever
+                  }}
+                </template>
+                <span v-else :title="t.sources.noProbeWhy">{{ t.sources.noProbe }}</span>
+              </div>
             </td>
 
-            <td class="num">{{ row.history.attempts || '—' }}</td>
-
-            <td>
-              <template v-if="row.probe">{{ when(row.lastProbe?.at ?? null) }}</template>
-              <template v-else>
-                <span class="muted" :title="t.sources.noProbeWhy">{{ t.sources.noProbe }}</span>
-              </template>
-            </td>
-
-            <td class="actions compact">
-              <button v-if="row.probe" :disabled="busyHost !== null" @click="checkOne(row.host)">
-                {{ busyHost === row.host ? t.sources.checking : t.sources.checkOne }}
-              </button>
-              <button :disabled="busyHost !== null" @click="toggle(row)">
-                {{ row.enabled ? t.sources.disable : t.sources.enable }}
-              </button>
-              <button
-                v-if="!row.discovered"
-                :disabled="busyHost !== null || editing?.host === row.host"
-                @click="startEdit(row)"
-              >
-                {{ t.sources.edit }}
-              </button>
-              <!-- 內建的列也有這顆：先說「刪不掉、只會關掉」，確認之後真的關掉 —— 不給的話使用者會去找它。 -->
-              <button v-if="!row.discovered" :disabled="busyHost !== null" @click="remove(row)">
-                {{ t.sources.remove }}
-              </button>
+            <!-- 一個 display:flex 的 td 不再是表格格子 —— 邊框會跟隔壁對不齊，所以按鈕包在裡面那個 div。 -->
+            <td class="actions-cell compact">
+              <div class="actions">
+                <button v-if="row.probe" :disabled="busyHost !== null" @click="checkOne(row.host)">
+                  {{ busyHost === row.host ? t.sources.checking : t.sources.checkOne }}
+                </button>
+                <button :disabled="busyHost !== null" @click="toggle(row)">
+                  {{ row.enabled ? t.sources.disable : t.sources.enable }}
+                </button>
+                <button
+                  v-if="!row.discovered"
+                  :disabled="busyHost !== null || editing?.host === row.host"
+                  @click="startEdit(row)"
+                >
+                  {{ t.sources.edit }}
+                </button>
+              </div>
             </td>
           </tr>
 
           <!-- 就地展開的編輯列。同一時間只開一列。 -->
           <tr v-if="editing !== null && editing.host === row.host" class="editor">
-            <td colspan="5">
+            <td colspan="3">
               <form class="edit-form" @submit.prevent="saveEdit">
                 <label>
                   <span>{{ t.sources.fieldName }}</span>
@@ -465,6 +464,15 @@ function when(ms: number | null): string {
                   <button type="submit" :disabled="busyHost !== null">{{ t.sources.save }}</button>
                   <button type="button" :disabled="busyHost !== null" @click="cancelEdit">
                     {{ t.sources.cancel }}
+                  </button>
+                  <!-- 刪除在編輯列裡（v0.24.0）。內建的列也有這顆：先說「刪不掉、只會關掉」，確認之後真的關掉。 -->
+                  <button
+                    type="button"
+                    class="danger"
+                    :disabled="busyHost !== null"
+                    @click="remove(row)"
+                  >
+                    {{ t.sources.remove }}
                   </button>
                 </div>
               </form>
@@ -657,10 +665,15 @@ tr.off {
   margin-top: 2px;
 }
 
-.actions {
-  display: flex;
+.actions-cell {
+  min-width: 14ch;
+}
+.actions-cell .actions {
   gap: 6px;
-  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.edit-actions .danger {
+  margin-left: auto;
 }
 
 .count {

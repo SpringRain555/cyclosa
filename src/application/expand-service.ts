@@ -176,6 +176,7 @@ async function recordModelCall(
   },
 ): Promise<void> {
   if (!providers.config.diagnostics.logModelCalls) return;
+  const connection = providers.connectionOf(call.task);
   await appendModelCall(folder, {
     at: new Date().toISOString(),
     runId: call.runId,
@@ -183,8 +184,9 @@ async function recordModelCall(
     task: call.task,
     role: call.role,
     model: call.model,
-    transport: call.role === 'agent' ? 'claude-cli' : (providers.config.chat?.transport ?? ''),
-    endpoint: call.role === 'agent' ? null : endpointOf(providers.config.chat?.baseUrl ?? null),
+    // **逐任務**：每個任務各自走一條連線（v0.24.0），所以打到哪要問這個任務，不是問角色。
+    transport: connection.via === 'cli' ? 'claude-cli' : connection.via,
+    endpoint: endpointOf(connection.baseUrl),
     ...(call.itemId === undefined ? {} : { itemId: call.itemId }),
     request: { system: call.system, user: call.user },
     response: { text: call.text, errorDetail: call.errorDetail },
@@ -400,7 +402,7 @@ export async function startExpansion(
           providers.chatFor('extract')?.name === chat.name
             ? null
             : (providers.chatFor('extract')?.name ?? null),
-        agent: providers.config.agent?.command ?? null,
+        agent: providers.config.connections.cli?.command ?? null,
         /**
          * **這一次的格式保證是哪一種**。在呼叫**之後**讀，
          * 因為沒量過的端點會在那一次呼叫裡先量 —— 呼叫前讀的會是「還沒量」。

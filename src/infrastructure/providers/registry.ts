@@ -10,17 +10,25 @@
  * 模型被 `ollama rm` 掉、`claude` 被移出 PATH。
  * **快取一個「它是好的」會在最需要準確的時候是錯的**，
  * 而建一個物件的成本是零 —— 真正的成本在 `probe()`，那一支本來就要打出去問。
+ *
+ * ## v2：以任務為主鍵（ADR-0032）
+ *
+ * 每個任務各自說「走哪一條連線、用哪個模型」（`config.ts`）。
+ * 所以這裡沒有「預設的 chat」—— **跑任務一律 `chatFor(task)`**，而狀態也是逐任務回報：
+ * 一份「連線」的清單（連得上嗎、有哪些模型）＋ 一份「任務」的清單（這個任務的模型在不在、
+ * 能力夠不夠、格式保證是哪一種）。設定頁上那張表就是後者。
  */
-import type { ChatTask, ProviderRole } from '../../domain/provider/index.js';
+import type { ChatTask, ModelTask, ProviderRole } from '../../domain/provider/index.js';
 import {
-  CHAT_TASKS,
+  MODEL_TASKS,
   NO_CAPABILITIES,
   type ProviderCapabilities,
 } from '../../domain/provider/index.js';
 import {
-  chatModelFor,
+  httpConnectionFor,
   readProvidersConfig,
-  type ChatTransport,
+  type ConnectionKind,
+  type HttpConnection,
   type ProvidersConfig,
 } from './config.js';
 import { createClaudeAgent } from './agent-claude.js';
@@ -29,72 +37,56 @@ import { createOpenAiChat, listOpenAiModels } from './chat-openai.js';
 import { createOllamaEmbed, type EmbedProvider } from './embed-ollama.js';
 import type { AgentProvider, ChatProvider, JsonModeReport, ProbeResult } from './types.js';
 
-export interface ProviderStatus {
-  readonly role: ProviderRole;
-  /** 設定裡寫的是什麼。**空字串代表沒設定** */
-  readonly configured: string;
-  readonly state: 'ready' | 'not-configured' | 'unreachable';
-  readonly detail: string;
-  /** 版本。agent 是 CLI 的版本號，chat 是參數量與量化格式。**問不到就是 `null`。** */
-  readonly version: string | null;
-  /**
-   * 授權來自哪裡。**畫面上要說出來** ——
-   * 「沒設定金鑰」與「設了一個環境變數但那個變數是空的」是兩種完全不同的處境，
-   * 而它們的症狀（打不通）一模一樣。
-   */
-  readonly auth: 'none' | 'env-set' | 'env-missing';
-  readonly capabilities: ProviderCapabilities;
-  /**
-   * `chat` 走哪一種協定。其餘兩個角色是 `null` —— 它們只有一種。
-   *
-   * 畫面要用它決定兩件事：模型清單從哪來，以及「實際打一次」**會不會花錢**。
-   * 後者原本寫死「chat 是本機」，而接上線上端點之後那句話就不一定是真的。
-   */
-  readonly transport: ChatTransport | null;
-  /** 「符合 schema」由誰保證。**只有 `chat` 有**，其餘是 `null` */
-  readonly jsonMode: JsonModeReport | null;
-}
+export type ProviderState = 'ready' | 'not-configured' | 'unreachable';
+export type AuthState = 'none' | 'env-set' | 'env-missing';
 
-function authOf(apiKeyEnv: string | null, env: NodeJS.ProcessEnv): ProviderStatus['auth'] {
+/**
+ * 授權來自哪裡。**畫面上要說出來** ——
+ * 「沒設定金鑰」與「設了一個環境變數但那個變數是空的」是兩種完全不同的處境，
+ * 而它們的症狀（打不通）一模一樣。
+ */
+export function authOf(apiKeyEnv: string | null, env: NodeJS.ProcessEnv): AuthState {
   if (apiKeyEnv === null || apiKeyEnv.length === 0) return 'none';
   const value = env[apiKeyEnv];
   return typeof value === 'string' && value.trim().length > 0 ? 'env-set' : 'env-missing';
 }
 
-function statusOf(
-  role: ProviderRole,
-  configured: string,
-  probe: ProbeResult,
-  auth: ProviderStatus['auth'] = 'none',
-  transport: ChatTransport | null = null,
-  jsonMode: JsonModeReport | null = null,
-): ProviderStatus {
-  const common = { role, configured, auth, transport, jsonMode };
-  if (probe.kind === 'ready') {
-    return {
-      ...common,
-      state: 'ready',
-      detail: probe.model,
-      version: probe.version,
-      capabilities: probe.capabilities,
-    };
-  }
-  if (probe.kind === 'unreachable') {
-    return {
-      ...common,
-      state: 'unreachable',
-      detail: probe.detail,
-      version: null,
-      capabilities: NO_CAPABILITIES,
-    };
-  }
-  return {
-    ...common,
-    state: 'not-configured',
-    detail: '',
-    version: null,
-    capabilities: NO_CAPABILITIES,
-  };
+/** 一條連線現在的狀態。**每一條各自問一次**，不管有沒有任務走它。 */
+export interface ConnectionStatus {
+  readonly kind: ConnectionKind;
+  /** 設定裡有沒有這一條。`ollama` 永遠是 true（位址有預設）。 */
+  readonly configured: boolean;
+  readonly state: ProviderState;
+  /** 連不上的時候是原因；CLI 連得上的時候是空字串（版本在 `version`）。 */
+  readonly detail: string;
+  /** CLI 的版本號。HTTP 連線問不到，是 `null`。 */
+  readonly version: string | null;
+  readonly auth: AuthState;
+  /**
+   * 這條連線上真的有的模型。**`null` 代表列不出來**，不是「一個都沒有」。
+   * Ollama 問 `/api/tags`，OpenAI 相容端點問 `/models`，CLI 不吐清單（永遠 `null`）。
+   */
+  readonly models: readonly string[] | null;
+}
+
+/**
+ * 一個任務現在跑不跑得動。**逐任務，因為每個任務可以走不同的連線、不同的模型** ——
+ * 少了這一層的話，畫面會出現「連線是綠的、按下擴展卻停手」：綠的是連線，停手的是那個模型。
+ */
+export interface TaskStatus {
+  readonly task: ModelTask;
+  readonly role: ProviderRole;
+  readonly via: ConnectionKind;
+  /** 這個任務的模型。**空字串 ＝ 還沒選**（CLI 例外：空 ＝ 用 CLI 自己的預設）。 */
+  readonly model: string;
+  readonly state: ProviderState;
+  /** 連不上或找不到模型的原因。 */
+  readonly detail: string;
+  /** 模型的版本：Ollama 是參數量與量化格式，CLI 是版本號。**問不到就是 `null`。** */
+  readonly version: string | null;
+  readonly capabilities: ProviderCapabilities;
+  /** 「符合 schema」由誰保證。**只有對話任務有**，其餘是 `null`（ADR-0030）。 */
+  readonly jsonMode: JsonModeReport | null;
 }
 
 /**
@@ -110,13 +102,9 @@ export interface AgentRequest {
 export interface Providers {
   readonly config: ProvidersConfig;
   /**
-   * **預設模型那一支。** 設定頁的「實際打一次」用它。
-   *
-   * **跑任務不要用這一個** —— 用 `chatFor(task)`，否則逐任務覆寫會被繞過去，
-   * 而繞過去的症狀是「設了沒有生效」：畫面上完全看不出來。
+   * 這個任務實際會跑在哪一支上。**`null` ＝ 這個任務還沒選模型，或它的連線沒設定。**
+   * 跑任務只有這一條路 —— 沒有「預設的 chat」可以繞。
    */
-  readonly chat: ChatProvider | null;
-  /** 這個任務實際會跑在哪一支上。**覆寫是空的就是預設那一支。** */
   chatFor(task: ChatTask): ChatProvider | null;
   /**
    * 嵌入。**`null` ＝ 沒設定模型**，而那不是錯誤 ——
@@ -124,184 +112,207 @@ export interface Providers {
    */
   readonly embed: EmbedProvider | null;
   agentFor(request: AgentRequest): AgentProvider | null;
+  /** 這個任務走的連線與端點 —— 作業紀錄要寫「這一次呼叫打到哪」。 */
+  connectionOf(task: ModelTask): { readonly via: ConnectionKind; readonly baseUrl: string | null };
+}
+
+function chatProviderOf(
+  connection: HttpConnection,
+  via: ConnectionKind,
+  model: string,
+  env: NodeJS.ProcessEnv,
+): ChatProvider {
+  return via === 'openai'
+    ? createOpenAiChat(connection.baseUrl, model, connection.apiKeyEnv, env)
+    : createOllamaChat(connection.baseUrl, model, connection.apiKeyEnv, env);
 }
 
 export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promise<Providers> {
   const config = await readProvidersConfig(env);
   /**
-   * 同一個模型只建一支。
+   * 同一條連線上的同一個模型只建一支。
    *
    * 建物件的成本是零（這個檔頭寫過），但**兩支同名的 provider 會各自 probe 一次**，
-   * 而設定頁一打開就會全部 probe —— 兩個任務用同一個模型是最常見的設定，
-   * 沒有理由為它多打一次 `/api/tags`。
+   * 而設定頁一打開就會全部 probe —— 兩個任務用同一個模型是最常見的設定。
    */
   const built = new Map<string, ChatProvider>();
-  const chatOf = (model: string): ChatProvider | null => {
-    if (config.chat === null || model.length === 0) return null;
-    const existing = built.get(model);
+  const chatFor = (task: ChatTask): ChatProvider | null => {
+    const setting = config.tasks[task];
+    const connection = httpConnectionFor(config, task);
+    const model = setting.model.trim();
+    if (connection === null || model.length === 0) return null;
+    const key = `${setting.via}::${model}`;
+    const existing = built.get(key);
     if (existing !== undefined) return existing;
-    const { transport, baseUrl, apiKeyEnv } = config.chat;
-    const made =
-      transport === 'openai'
-        ? createOpenAiChat(baseUrl, model, apiKeyEnv, env)
-        : createOllamaChat(baseUrl, model, apiKeyEnv, env);
-    built.set(model, made);
+    const made = chatProviderOf(connection, setting.via, model, env);
+    built.set(key, made);
     return made;
   };
-  const agentCommand = config.agent?.command ?? '';
-  const agentArgs = config.agent?.args ?? [];
-  const agentModel = config.agent?.model.trim() ?? '';
-  const embedModel = config.embed?.model.trim() ?? '';
+  const cli = config.connections.cli;
+  const agentModel = config.tasks['find-sources'].model.trim();
+  const embedModel = config.tasks.embed.model.trim();
   return {
     config,
-    chat: chatOf(config.chat?.model.trim() ?? ''),
-    chatFor: (task) => chatOf(chatModelFor(config.chat, task)),
+    chatFor,
     embed:
-      config.embed === null || embedModel.length === 0
+      embedModel.length === 0
         ? null
-        : createOllamaEmbed(config.embed.baseUrl, embedModel),
+        : createOllamaEmbed(config.connections.ollama.baseUrl, embedModel),
     agentFor: (request) =>
-      agentCommand.length === 0
+      cli === null
         ? null
         : createClaudeAgent({
-            command: agentCommand,
-            args: agentArgs,
+            command: cli.command,
+            args: cli.args,
             model: agentModel,
             ...request,
           }),
+    connectionOf: (task) => ({
+      via: config.tasks[task].via,
+      baseUrl: httpConnectionFor(config, task)?.baseUrl ?? null,
+    }),
   };
 }
 
-/**
- * `chat` 底下每一個任務**實際會跑在哪個模型上，以及那個模型現在的狀態**。
- *
- * 角色層的那一格（`statuses` 裡的 `chat`）講的是預設模型 ——
- * **覆寫之後那一格就不再等於實際會跑的東西**，所以這裡要分開講。
- * 少了這一層的話，畫面會出現「角色是綠的、按下擴展卻停手」：
- * 綠的是預設模型，停手的是覆寫的那一個。
- */
-export interface ChatTaskStatus {
-  readonly task: ChatTask;
-  /** 實際會跑的模型。**空字串 ＝ 這個任務沒有模型可用** */
-  readonly model: string;
-  /** 是覆寫來的，還是跟著預設。**畫面上要分得開** */
-  readonly overridden: boolean;
-  readonly state: ProviderStatus['state'];
-  readonly capabilities: ProviderCapabilities;
-  /** 這個任務的模型「符合 schema」由誰保證。**按模型而異**，所以每一列各自帶 */
-  readonly jsonMode: JsonModeReport | null;
-}
-
 export interface ProvidersView {
-  readonly statuses: readonly ProviderStatus[];
-  /**
-   * `chat` 端點上真的有的模型。**`null` 代表列不出來**，不是「一個都沒有」。
-   *
-   * 從哪裡列取決於傳輸：Ollama 問 `/api/tags`，OpenAI 相容端點問 `/models`。
-   */
-  readonly chatModels: readonly string[] | null;
-  /**
-   * `embed` 端點上的模型（永遠是本機 Ollama 的 `/api/tags`）。
-   *
-   * **v0.18.0 之前它跟 `chatModels` 是同一份** —— 兩個角色預設指同一個 Ollama，
-   * 所以一直沒有人發現那是兩個問題。`chat` 一換成線上端點，
-   * 嵌入的下拉選單就會列出線上模型，而嵌入的探測會去線上清單裡找本機模型。
-   */
-  readonly embedModels: readonly string[] | null;
-  readonly chatTasks: readonly ChatTaskStatus[];
+  readonly connections: readonly ConnectionStatus[];
+  readonly tasks: readonly TaskStatus[];
   readonly config: ProvidersConfig;
 }
 
 /**
- * 設定頁要的東西。
+ * 設定頁要的東西：三條連線 ＋ 四個任務，每一格各自探一次。
  *
- * `embed` 也列出來，而且**永遠是「沒設定」** —— 它是 v0.11.0 的事。
- * 列出來的理由是 ui-workflows 寫的「三個角色各自設定」：
- * **少列一個角色，使用者會以為這個工具只有兩種模型。**
+ * **打開設定頁不該產生費用**，所以這裡對 CLI 只跑 `--version`、對 HTTP 連線只列模型清單，
+ * 對每個任務的模型只問「在不在、能力宣告是什麼」（Ollama 的 `/api/show`）。
+ * 「實際打一次」是使用者按的按鈕（`provider-service.ts`）。
  */
 export async function describeProviders(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<ProvidersView> {
   const providers = await loadProviders(env);
-  const chatConfigured = providers.config.chat?.model.trim() ?? '';
-  const agentConfigured = providers.config.agent?.command ?? '';
-  const embedConfigured = providers.config.embed?.model ?? '';
+  const { config } = providers;
 
-  /**
-   * 要 probe 哪幾個模型：預設那一個，加上每個任務實際會跑的那一個。
-   *
-   * **同一個模型只 probe 一次。** 兩個任務跟著預設是最常見的設定，
-   * 那種情況下這個 Map 只有一格 —— 逐任務覆寫不該讓打開設定頁變慢三倍。
-   */
-  const plan = CHAT_TASKS.map((task) => ({
-    task,
-    model: chatModelFor(providers.config.chat, task),
-    overridden: (providers.config.chat?.taskModels[task] ?? '').trim().length > 0,
-    provider: providers.chatFor(task),
-  }));
-  const toProbe = new Map<string, ChatProvider>();
-  if (providers.chat !== null) toProbe.set(chatConfigured, providers.chat);
-  for (const row of plan) {
-    if (row.provider !== null && !toProbe.has(row.model)) toProbe.set(row.model, row.provider);
-  }
-
-  const chatConfig = providers.config.chat;
-  const [probed, agentProbe, chatModels, embedModels] = await Promise.all([
-    Promise.all(
-      [...toProbe].map(
-        async ([model, provider]) =>
-          [model, { probe: await provider.probe(), json: await provider.jsonMode() }] as const,
-      ),
-    ).then((rows) => new Map(rows)),
-    agentConfigured.length === 0
+  // ── 連線 ──
+  const cli = config.connections.cli;
+  const [cliProbe, ollamaModels, openaiModels] = await Promise.all([
+    cli === null
       ? Promise.resolve<ProbeResult>({ kind: 'not-configured' })
       : (
           providers.agentFor({ schema: {}, systemPrompt: '', maxCostUsd: null }) as AgentProvider
         ).probe(),
-    chatConfig === null
+    listOllamaModels(config.connections.ollama.baseUrl),
+    config.connections.openai === null
       ? Promise.resolve<readonly string[] | null>(null)
-      : chatConfig.transport === 'openai'
-        ? listOpenAiModels(chatConfig.baseUrl, chatConfig.apiKeyEnv, env)
-        : listOllamaModels(chatConfig.baseUrl),
-    providers.config.embed === null
-      ? Promise.resolve<readonly string[] | null>(null)
-      : listOllamaModels(providers.config.embed.baseUrl),
+      : listOpenAiModels(
+          config.connections.openai.baseUrl,
+          config.connections.openai.apiKeyEnv,
+          env,
+        ),
   ]);
-
-  const notConfigured: ProbeResult = { kind: 'not-configured' };
-  const chatRow = probed.get(chatConfigured);
-  const chatProbe = chatRow?.probe ?? notConfigured;
-  const transport = chatConfig?.transport ?? null;
-
-  return {
-    statuses: [
-      statusOf('agent', agentConfigured, agentProbe),
-      statusOf(
-        'chat',
-        chatConfigured,
-        chatProbe,
-        authOf(chatConfig?.apiKeyEnv ?? null, env),
-        transport,
-        chatRow?.json ?? null,
-      ),
-      statusOf('embed', embedConfigured, embedProbe(embedConfigured, embedModels)),
-    ],
-    chatModels,
-    embedModels,
-    chatTasks: plan.map((row) => {
-      const probedRow = probed.get(row.model);
-      const status = statusOf('chat', row.model, probedRow?.probe ?? notConfigured);
-      return {
-        task: row.task,
-        model: row.model,
-        overridden: row.overridden,
-        state: status.state,
-        capabilities: status.capabilities,
-        jsonMode: probedRow?.json ?? null,
-      };
-    }),
-    config: providers.config,
+  const modelsByKind: Record<ConnectionKind, readonly string[] | null> = {
+    cli: null,
+    ollama: ollamaModels,
+    openai: openaiModels,
   };
+  const connections: ConnectionStatus[] = [
+    {
+      kind: 'cli',
+      configured: cli !== null,
+      state: cliProbe.kind,
+      detail: cliProbe.kind === 'unreachable' ? cliProbe.detail : '',
+      version: cliProbe.kind === 'ready' ? cliProbe.version : null,
+      auth: 'none',
+      models: null,
+    },
+    {
+      kind: 'ollama',
+      configured: true,
+      state: ollamaModels === null ? 'unreachable' : 'ready',
+      detail: ollamaModels === null ? 'Ollama 沒有回應' : '',
+      version: null,
+      auth: authOf(config.connections.ollama.apiKeyEnv, env),
+      models: ollamaModels,
+    },
+    {
+      kind: 'openai',
+      configured: config.connections.openai !== null,
+      state:
+        config.connections.openai === null
+          ? 'not-configured'
+          : openaiModels === null
+            ? 'unreachable'
+            : 'ready',
+      detail: config.connections.openai !== null && openaiModels === null ? '列不出模型' : '',
+      version: null,
+      auth: authOf(config.connections.openai?.apiKeyEnv ?? null, env),
+      models: openaiModels,
+    },
+  ];
+
+  // ── 任務 ──
+  // 同一條連線上的同一個模型只探一次（兩個任務用同一個模型是最常見的設定）。
+  const probed = new Map<string, Promise<{ probe: ProbeResult; json: JsonModeReport }>>();
+  const probeChat = (task: ChatTask): Promise<{ probe: ProbeResult; json: JsonModeReport }> => {
+    const provider = providers.chatFor(task);
+    if (provider === null) {
+      return Promise.resolve({
+        probe: { kind: 'not-configured' },
+        json: { mode: 'unchecked', checkedAt: null, detail: '' },
+      });
+    }
+    const key = `${config.tasks[task].via}::${config.tasks[task].model}`;
+    let pending = probed.get(key);
+    if (pending === undefined) {
+      pending = (async () => ({
+        probe: await provider.probe(),
+        json: await provider.jsonMode(),
+      }))();
+      probed.set(key, pending);
+    }
+    return pending;
+  };
+
+  const tasks: TaskStatus[] = await Promise.all(
+    MODEL_TASKS.map(async ({ task, role }): Promise<TaskStatus> => {
+      const setting = config.tasks[task];
+      const common = { task, role, via: setting.via, model: setting.model };
+      if (role === 'agent') {
+        return { ...common, ...fromProbe(cliProbe), jsonMode: null };
+      }
+      if (role === 'embed') {
+        return {
+          ...common,
+          ...fromProbe(embedProbe(setting.model, modelsByKind[setting.via])),
+          jsonMode: null,
+        };
+      }
+      const { probe, json } = await probeChat(task as ChatTask);
+      return { ...common, ...fromProbe(probe), jsonMode: probe.kind === 'ready' ? json : null };
+    }),
+  );
+
+  return { connections, tasks, config };
+}
+
+function fromProbe(probe: ProbeResult): {
+  state: ProviderState;
+  detail: string;
+  version: string | null;
+  capabilities: ProviderCapabilities;
+} {
+  if (probe.kind === 'ready') {
+    return { state: 'ready', detail: '', version: probe.version, capabilities: probe.capabilities };
+  }
+  if (probe.kind === 'unreachable') {
+    return {
+      state: 'unreachable',
+      detail: probe.detail,
+      version: null,
+      capabilities: NO_CAPABILITIES,
+    };
+  }
+  return { state: 'not-configured', detail: '', version: null, capabilities: NO_CAPABILITIES };
 }
 
 /**
@@ -314,7 +325,6 @@ export async function describeProviders(
  *
  * 能力宣告一律是 `NO_CAPABILITIES`：`browse`／`tools`／`json_schema`／`vision`
  * 對嵌入模型一個都不適用，**而假裝它有比誠實說沒有更糟**。
- * 語意檢索那一半接上去之前，這一格的意義就是「模型選好了、也真的在」。
  */
 function embedProbe(model: string, available: readonly string[] | null): ProbeResult {
   if (model.length === 0) return { kind: 'not-configured' };

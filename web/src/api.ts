@@ -253,7 +253,11 @@ export interface ExpansionStart {
   seededFrom: number;
 }
 
-// ── provider──────────────────────────────────────
+// ── provider ─────────────────────────────────────
+//
+// **v2（v0.24.0，ADR-0032）：任務 → 連線 ＋ 模型。** server 的
+// `infrastructure/providers/config.ts` 是定義，這裡是抄的（`web/` 與 server 是兩份建置，
+// 型別跨不過去）—— `tests/guards/chat-tasks.test.ts` 釘著兩邊一致。
 
 export type ProviderRole = 'agent' | 'chat' | 'embed';
 
@@ -265,7 +269,10 @@ export interface ProviderCapabilities {
   context_tokens: number;
 }
 
-/** `chat` 走哪一種協定。**server 的 `ChatTransport` 也有一份**（兩份建置）。 */
+/** 三種連線。**server 的 `CONNECTION_KINDS` 也有一份**（兩份建置）。 */
+export type ConnectionKind = 'cli' | 'ollama' | 'openai';
+
+/** v1 的 `chat.transport`：兩種 HTTP 連線。 */
 export type ChatTransport = 'ollama' | 'openai';
 
 /**
@@ -279,18 +286,20 @@ export interface JsonModeReport {
   detail: string;
 }
 
-export interface ProviderStatus {
-  readonly version?: string | null;
-  readonly auth?: 'none' | 'env-set' | 'env-missing';
-  role: ProviderRole;
-  configured: string;
-  state: 'ready' | 'not-configured' | 'unreachable';
+export type ProviderState = 'ready' | 'not-configured' | 'unreachable';
+export type AuthState = 'none' | 'env-set' | 'env-missing';
+
+/** 一條連線現在的狀態。 */
+export interface ConnectionStatus {
+  kind: ConnectionKind;
+  configured: boolean;
+  state: ProviderState;
   detail: string;
-  capabilities: ProviderCapabilities;
-  /** 只有 `chat` 有；其餘兩個角色是 `null` */
-  transport: ChatTransport | null;
-  /** 只有 `chat` 有；其餘兩個角色是 `null` */
-  jsonMode: JsonModeReport | null;
+  /** CLI 的版本號；HTTP 連線是 `null` */
+  version: string | null;
+  auth: AuthState;
+  /** 這條連線上真的有的模型。**`null` ＝ 列不出來**，不是「一個都沒有」；CLI 永遠 `null` */
+  models: string[] | null;
 }
 
 /**
@@ -303,65 +312,62 @@ export type ChatTask = 'angles' | 'extract';
  * **這個工具會用到模型的全部四個地方。**
  *
  * server 的 `domain/provider/capabilities.ts` 有 `MODEL_TASKS` 那一份定義，
- * 這裡是抄的（`web/` 與 server 是兩份建置，型別跨不過去）——
- * `tests/guards/chat-tasks.test.ts` 釘著兩邊一致。
+ * 這裡是抄的 —— `tests/guards/chat-tasks.test.ts` 釘著兩邊一致。
  */
 export type ModelTask = 'find-sources' | ChatTask | 'embed';
 
-export interface ProvidersPayload {
-  statuses: ProviderStatus[];
-  /**
-   * `chat` 端點上真的有的模型。**`null` 代表列不出來**，不是「一個都沒有」。
-   * 從哪裡列取決於傳輸：Ollama 問 `/api/tags`，OpenAI 相容端點問 `/models`。
-   */
-  chatModels: string[] | null;
-  /**
-   * `embed` 端點（本機 Ollama）上的模型。**v0.18.0 之前它跟 `chatModels` 是同一份**，
-   * 而 chat 一換成線上端點，嵌入的下拉選單就會列出線上模型。
-   */
-  embedModels: string[] | null;
-  /** 每個 chat 任務**實際會跑在哪個模型上**，以及那個模型的狀態 */
-  chatTasks: {
-    task: ChatTask;
-    model: string;
-    overridden: boolean;
-    state: ProviderStatus['state'];
-    capabilities: ProviderCapabilities;
-    /** **按模型而異**，所以每一列各自帶 */
-    jsonMode: JsonModeReport | null;
-  }[];
-  config: {
-    version: 1;
-    chat: {
-      transport: ChatTransport;
-      baseUrl: string;
-      model: string;
-      apiKeyEnv: string | null;
-      /** 逐任務覆寫。**空字串 ＝ 跟著 `model`**，不是「沒有模型」 */
-      taskModels: Record<ChatTask, string>;
-    } | null;
-    /** `model` 走 CLI 的 `--model`。**空字串 ＝ 不帶，用 CLI 自己的預設** */
-    agent: { command: string; args: string[]; model: string } | null;
-    /** **沒有 apiKeyEnv** —— 嵌入只接本機端點，理由見 `providers/config.ts` */
-    embed: { baseUrl: string; model: string } | null;
-    /** 診斷。**預設關著**；打開之後會花模型的三個任務把提示詞與回覆寫進專題資料夾 */
-    diagnostics: { logModelCalls: boolean };
+/** 一個任務現在跑不跑得動 —— 設定頁那張表的一列。 */
+export interface TaskRow {
+  task: ModelTask;
+  role: ProviderRole;
+  via: ConnectionKind;
+  /** 這個任務的模型。**空字串 ＝ 還沒選**（CLI 例外：空 ＝ 用 CLI 自己的預設） */
+  model: string;
+  state: ProviderState;
+  detail: string;
+  /** 模型的版本（Ollama 是參數量與量化格式）；問不到就是 `null` */
+  version: string | null;
+  capabilities: ProviderCapabilities;
+  /** 只有對話任務有；其餘是 `null` */
+  jsonMode: JsonModeReport | null;
+  ok: boolean;
+  missing: string[];
+}
+
+export interface TaskSetting {
+  via: ConnectionKind;
+  model: string;
+}
+
+export interface HttpConnection {
+  baseUrl: string;
+  /** 金鑰的環境變數**名稱**，不是金鑰（`providers/config.ts`） */
+  apiKeyEnv: string | null;
+}
+
+export interface ProvidersConfig {
+  version: 2;
+  connections: {
+    cli: { command: string; args: string[] } | null;
+    ollama: HttpConnection;
+    openai: HttpConnection | null;
   };
-  readiness: { role: ProviderRole; ok: boolean; missing: string[] }[];
-  /**
-   * 逐任務的同一件事，**四個任務全部都有**。
-   *
-   * 角色層那一格算的是「底下每一個任務都過得了嗎」，
-   * 而使用者要修的時候需要知道**是哪一個任務、跑在哪個模型上、缺什麼**。
-   */
-  taskReadiness: {
-    task: ModelTask;
-    role: ProviderRole;
-    model: string;
-    overridden: boolean;
-    ok: boolean;
-    missing: string[];
-  }[];
+  tasks: Record<ModelTask, TaskSetting>;
+  /** 診斷。**預設關著**；打開之後會花模型的三個任務把提示詞與回覆寫進專題資料夾 */
+  diagnostics: { logModelCalls: boolean };
+}
+
+export interface ProvidersPayload {
+  connections: ConnectionStatus[];
+  tasks: TaskRow[];
+  config: ProvidersConfig;
+}
+
+/** 「連線並列出模型」的結果：**不存檔**，只列。 */
+export interface ModelsListing {
+  kind: ConnectionKind;
+  models: string[] | null;
+  auth: AuthState;
 }
 
 /** 搜尋模式。**server 的 `SearchMode` 也有一份**（兩份建置）。 */
@@ -382,7 +388,7 @@ export interface BackfillReport {
 }
 
 export interface ProviderTest {
-  role: ProviderRole;
+  task: ModelTask;
   ok: boolean;
   code: string | null;
   costUsd: number | null;
@@ -827,15 +833,22 @@ export const api = {
 
   // ── provider ────────────────────────────────────────────
   providers: () => request<ProvidersPayload>('/api/providers'),
-  saveProviders: (config: ProvidersPayload['config']) =>
+  saveProviders: (config: ProvidersConfig) =>
     request<ProvidersPayload>('/api/providers', {
       method: 'POST',
       body: JSON.stringify(config),
     }),
-  testProvider: (role: ProviderRole) =>
+  /** **逐任務**：測的是那個任務實際會跑的那一支。 */
+  testProvider: (task: ModelTask) =>
     request<ProviderTest>('/api/providers/test', {
       method: 'POST',
-      body: JSON.stringify({ role }),
+      body: JSON.stringify({ task }),
+    }),
+  /** 「連線並列出模型」：填了位址就能列，**不用先儲存**。 */
+  listModels: (kind: 'ollama' | 'openai', connection: HttpConnection) =>
+    request<ModelsListing>(`/api/providers/connections/${kind}/models`, {
+      method: 'POST',
+      body: JSON.stringify(connection),
     }),
 
   /**

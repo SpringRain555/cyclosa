@@ -41,16 +41,6 @@ describe('設定頁的建議模型與 server 的常數一致', () => {
   });
 
   /**
-   * **建議的模型要真的出現在那個角色的欄位旁邊。**
-   *
-   * 常數對得上、按鈕忘了接，是另一種漂 —— 而它不會有任何測試變紅。
-   */
-  it('兩個建議都有一顆按得下去的按鈕', () => {
-    expect(view).toContain('@click="model = RECOMMENDED_CHAT"');
-    expect(view).toContain('@click="embedModel = RECOMMENDED_EMBED"');
-  });
-
-  /**
    * **逐任務的那幾個也是抄的，所以也要釘。**
    *
    * 這一組比上面兩個更容易漂：它們不是「一個字串」而是「一張表」，
@@ -72,25 +62,33 @@ describe('設定頁的建議模型與 server 的常數一致', () => {
         `${task} 的建議值在設定頁裡不是 ${model}`,
       ).toBe(true);
     }
+    // 嵌入那一格也在同一張表上（v0.24.0 起只有一張表）。
+    expect(view).toContain('embed: RECOMMENDED_EMBED,');
   });
 
+  /**
+   * **建議的模型要真的出現在那個欄位旁邊。**
+   *
+   * 常數對得上、按鈕忘了接，是另一種漂 —— 而它不會有任何測試變紅。
+   * v0.24.0 起只有一張表，一顆按鈕跑全部任務（`RECOMMENDED_TASK_ALL[task]`），
+   * 所以釘的是那個索引 —— 它在的話，新增一個任務不會漏掉按鈕。
+   */
   it('每個任務的建議都有一顆按得下去的按鈕', () => {
-    // 一顆按鈕跑全部任務（`RECOMMENDED_TASK_ALL[row.task]`），所以釘的是那個索引 ——
-    // 它在的話，新增一個任務不會漏掉按鈕。
-    //
-    // **2026-09-10 換了形狀**：那張表擴成跨角色的四列之後，寫回哪一個 ref
-    // 依角色而異（chat 寫 `taskModels`、embed 寫 `embedModel`、
-    // agent 寫 `agentModel`），所以繫結從直接指派改成一支轉換函式。
-    expect(view).toContain('@click="setModelOf(row.task, RECOMMENDED_TASK_ALL[row.task])"');
+    expect(view).toContain('@click="setModelOf(task, RECOMMENDED_TASK_ALL[task])"');
   });
 
   it('沒有依據的那一格是空字串，不是一個編出來的模型名', () => {
-    // `find-sources` 跑在 agent 上，而**我們沒有量過在那一邊換模型的效果**
+    // `find-sources` 跑在 CLI 上，而**我們沒有量過在那一邊換模型的效果**
     // —— `docs/research/` 那幾輪量的是本機 chat 模型。
     // 空字串讓那一列不出現建議按鈕；填一個名字會讓它看起來像量過的。
     const start = view.indexOf('const RECOMMENDED_TASK_ALL');
     expect(start).toBeGreaterThan(-1);
     const block = view.slice(start, view.indexOf('};', start));
     expect(block).toMatch(/'find-sources':\s*''/);
+  });
+
+  it('建議只對走本機 Ollama 的任務顯示 —— 那些數字是在本機量的', () => {
+    // 拿一份在本機量的結果替線上端點上的模型名背書，是用沒量過那個世界的結果騙人。
+    expect(view).toMatch(/tasks\.value\[task\]\.via !== 'ollama'\) return '';/);
   });
 });

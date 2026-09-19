@@ -117,25 +117,34 @@ afterEach(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-interface Status {
-  role: string;
+interface Connection {
+  kind: string;
   state: string;
-  transport: string | null;
-  jsonMode: { mode: string; checkedAt: number | null } | null;
   auth: string;
+  models: string[] | null;
 }
+interface TaskRow {
+  task: string;
+  via: string;
+  model: string;
+  state: string;
+  jsonMode: { mode: string; checkedAt: number | null } | null;
+}
+/** v2 的形狀（ADR-0032）：連線一份、任務一份。 */
 interface Payload {
-  statuses: Status[];
-  chatModels: string[] | null;
-  embedModels: string[] | null;
-  chatTasks: { task: string; jsonMode: { mode: string } | null }[];
-  config: { chat: { transport: string; apiKeyEnv: string | null } | null };
+  connections: Connection[];
+  tasks: TaskRow[];
+  config: {
+    connections: { openai: { baseUrl: string; apiKeyEnv: string | null } | null };
+    tasks: Record<string, { via: string; model: string }>;
+  };
 }
 
 async function saveOnline(): Promise<Payload> {
   const res = await app.inject({
     method: 'POST',
     url: '/api/providers',
+    // **送 v1 的形狀**：存檔那一支要收得下舊的呼叫端，原地升版（`parseConfig`）。
     payload: {
       version: 1,
       chat: {
@@ -154,13 +163,17 @@ async function saveOnline(): Promise<Payload> {
   return body.data;
 }
 
-const chatStatus = (p: Payload): Status => p.statuses.find((s) => s.role === 'chat') as Status;
+const openai = (p: Payload): Connection =>
+  p.connections.find((c) => c.kind === 'openai') as Connection;
+const extract = (p: Payload): TaskRow => p.tasks.find((t) => t.task === 'extract') as TaskRow;
 
 describe('線上 chat 端點', () => {
   it('存得進去，讀回來是 openai，而且設定檔裡存的是變數名不是金鑰', async () => {
     const p = await saveOnline();
-    expect(p.config.chat?.transport).toBe('openai');
-    expect(p.config.chat?.apiKeyEnv).toBe(KEY_ENV);
+    // v1 升成 v2：兩個對話任務都走 openai，金鑰變數名在 openai 那條連線上。
+    expect(p.config.tasks['angles']?.via).toBe('openai');
+    expect(p.config.tasks['extract']?.via).toBe('openai');
+    expect(p.config.connections.openai?.apiKeyEnv).toBe(KEY_ENV);
     const file = await readFile(join(localAppData, 'Cyclosa', 'providers.json'), 'utf8');
     expect(file).toContain(KEY_ENV);
     expect(file).not.toContain(KEY);
@@ -168,11 +181,11 @@ describe('線上 chat 端點', () => {
 
   it('模型清單來自線上端點的 /models，狀態是就緒、金鑰偵測到', async () => {
     const p = await saveOnline();
-    expect(p.chatModels).toEqual(['online-large']);
-    const chat = chatStatus(p);
-    expect(chat.state).toBe('ready');
-    expect(chat.transport).toBe('openai');
-    expect(chat.auth).toBe('env-set');
+    expect(openai(p).models).toEqual(['online-large']);
+    expect(openai(p).state).toBe('ready');
+    expect(openai(p).auth).toBe('env-set');
+    expect(extract(p).state).toBe('ready');
+    expect(extract(p).via).toBe('openai');
   });
 
   /**
@@ -182,15 +195,16 @@ describe('線上 chat 端點', () => {
    */
   it('嵌入的清單與狀態還是問本機 Ollama，不跟著 chat 走', async () => {
     const p = await saveOnline();
-    expect(p.embedModels).toEqual(['qwen3-embedding:4b']);
-    expect(p.statuses.find((s) => s.role === 'embed')?.state).toBe('ready');
+    expect(p.connections.find((c) => c.kind === 'ollama')?.models).toEqual(['qwen3-embedding:4b']);
+    expect(p.tasks.find((t) => t.task === 'embed')?.state).toBe('ready');
   });
 
   it('打開設定頁不送任何一次對話請求，格式保證顯示「還沒量」', async () => {
     const p = await saveOnline();
     expect(completions).toBe(0);
-    expect(chatStatus(p).jsonMode?.mode).toBe('unchecked');
-    expect(p.chatTasks.every((row) => row.jsonMode?.mode === 'unchecked')).toBe(true);
+    const chatRows = p.tasks.filter((row) => row.via === 'openai');
+    expect(chatRows.length).toBe(2);
+    expect(chatRows.every((row) => row.jsonMode?.mode === 'unchecked')).toBe(true);
   });
 
   it('按「實際打一次」會量格式支援，而且量到的結果留在狀態裡、帶著時間', async () => {
@@ -198,7 +212,8 @@ describe('線上 chat 端點', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/providers/test',
-      payload: { role: 'chat' },
+      // **逐任務**（v0.24.0）：測的是那個任務實際會跑的那一支。
+      payload: { task: 'extract' },
     });
     const test = (res.json() as { data: { ok: boolean; jsonMode: { mode: string } } }).data;
     expect(test.ok).toBe(true);
@@ -207,26 +222,27 @@ describe('線上 chat 端點', () => {
     const again = (
       (await app.inject({ method: 'GET', url: '/api/providers' })).json() as { data: Payload }
     ).data;
-    expect(chatStatus(again).jsonMode?.mode).toBe('schema');
-    expect(chatStatus(again).jsonMode?.checkedAt).toBeGreaterThan(0);
+    expect(extract(again).jsonMode?.mode).toBe('schema');
+    expect(extract(again).jsonMode?.checkedAt).toBeGreaterThan(0);
   });
 
   it('端點只收 json_object 時量出 object —— 降級了，而且狀態說得出來', async () => {
     schemaSupported = false;
     await saveOnline();
-    await app.inject({ method: 'POST', url: '/api/providers/test', payload: { role: 'chat' } });
+    await app.inject({ method: 'POST', url: '/api/providers/test', payload: { task: 'extract' } });
     const p = (
       (await app.inject({ method: 'GET', url: '/api/providers' })).json() as { data: Payload }
     ).data;
-    expect(chatStatus(p).jsonMode?.mode).toBe('object');
+    expect(extract(p).jsonMode?.mode).toBe('object');
     // 事後檢查也算保證了形狀，所以閘門不擋 —— **擋的是 none，而 object 是說出來的降級**
-    expect(chatStatus(p).state).toBe('ready');
+    expect(extract(p).state).toBe('ready');
   });
 
   it('環境變數沒設的時候，狀態說得出「設了名字但讀不到」', async () => {
     delete process.env[KEY_ENV];
     const p = await saveOnline();
-    expect(chatStatus(p).auth).toBe('env-missing');
-    expect(chatStatus(p).state).toBe('unreachable');
+    expect(openai(p).auth).toBe('env-missing');
+    expect(openai(p).state).toBe('unreachable');
+    expect(extract(p).state).toBe('unreachable');
   });
 });

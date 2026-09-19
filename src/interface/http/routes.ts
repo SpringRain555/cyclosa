@@ -47,7 +47,12 @@ import {
 } from '../../application/item-service.js';
 import { discardDraftRun, getRun, listRuns } from '../../application/run-service.js';
 import { chooseAngles, startExpansion } from '../../application/expand-service.js';
-import { listProviders, saveProviders, testProvider } from '../../application/provider-service.js';
+import {
+  listModelsFor,
+  listProviders,
+  saveProviders,
+  testProvider,
+} from '../../application/provider-service.js';
 import {
   defaultFocus,
   subgraph,
@@ -78,7 +83,6 @@ import {
   mergeEntity,
   unmergeEntity,
 } from '../../application/entity-service.js';
-import { PROVIDER_ROLES, type ProviderRole } from '../../domain/provider/index.js';
 import {
   DEFAULT_PROJECTION_THRESHOLDS,
   EDGE_ACTIONS,
@@ -337,13 +341,23 @@ function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
     send(reply, await saveProviders(req.body)),
   );
 
-  app.post<{ Body: { role?: unknown } }>('/api/providers/test', async (req, reply) => {
-    const role = req.body?.role;
-    if (typeof role !== 'string' || !(PROVIDER_ROLES as readonly string[]).includes(role)) {
+  // **逐任務**（v0.24.0）：測的是那個任務實際會跑的那一支，不是某個角色的預設。
+  app.post<{ Body: { task?: unknown } }>('/api/providers/test', async (req, reply) => {
+    const task = req.body?.task;
+    if (typeof task !== 'string') {
       return reply.code(400).send({ ok: false, code: 'PROVIDER_NOT_CONFIGURED' });
     }
-    return send(reply, await testProvider(ctx.dataRoot, role as ProviderRole));
+    return send(reply, await testProvider(ctx.dataRoot, task));
   });
+
+  /**
+   * 「連線並列出模型」：**不存檔就列**。填了位址（與金鑰變數）之後按這顆，
+   * 畫面才有東西可以做成下拉選單 —— 存了才列的話會先出現一個空的選單。
+   */
+  app.post<{ Params: { kind: string }; Body: unknown }>(
+    '/api/providers/connections/:kind/models',
+    async (req, reply) => send(reply, await listModelsFor(req.params.kind, req.body)),
+  );
 }
 
 /**

@@ -111,9 +111,8 @@ async function quit(): Promise<void> {
 onMounted(async () => {
   const r = await api.providers();
   if (!r.ok) return;
-  const rows = r.data.taskReadiness;
   // 一個任務都沒設定 → 空心；設了但有一個跑不動（連不上、缺能力）→ 虛線；否則實心。
-  const configured = rows.filter((row) => row.model.length > 0 || row.ok);
+  const configured = r.data.tasks.filter((row) => row.state !== 'not-configured');
   if (configured.length === 0) modelState.value = 'none';
   else modelState.value = configured.every((row) => row.ok) ? 'ready' : 'problem';
 });

@@ -146,7 +146,7 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 > 用 `tools/dev/apply-extraction.ts`（走 `applyExtraction`，規則一條都不繞）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-守門測試在 `tests/guards/`。資料庫是 **schema v8**。
+守門測試在 `tests/guards/`。資料庫是 **schema v9**。
 
 > **這一節每個版本收尾都要改，而它已經失守過一次。**
 > 2026-09-11 回頭看的時候它還停在「v0.5.0」，寫著

@@ -211,7 +211,7 @@ Cyclosa 照它說的等、最多再試兩次；還是不行就那個網站這一
 build 出來的 server 走完一次真實的匯入 —— 4 個網址（其中一個 404、一個被 robots 擋、
 一個內容重複）得到一個 `部分失敗` 的作業，其餘照常寫入；
 拖 Markdown／PNG／PDF 進去也走同一條管線，PDF 抽得出文字層與頁數。
-`case.sqlite` 現在是 **schema v8**（WAL、trigger、bigram 與 FTS5 索引）。
+`case.sqlite` 現在是 **schema v9**（WAL、trigger、bigram 與 FTS5 索引）。
 
 關聯圖用一份**合成的**圖（四層關聯 ＋ 投影三段各一個實例）**實際截圖看過** ——
 四種畫法、選取與一跳提亮、2D／3D 切換、圖例開關逐一確認。

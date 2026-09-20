@@ -465,7 +465,7 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 | 表 | 存什麼 | 關鍵約束 |
 |---|---|---|
 | `research` | 一次研究或整理 | `kind` ∈ `research`／`consolidate`；`status` ∈ `planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`；**同一專題同時只有一列不在 `done`／`abandoned`**（ADR-0033 D4，用部分唯一索引守）|
-| `research_message` | 規劃對話的一輪 | `role` ∈ `user`／`model`；模型那一輪記**實際跑的模型**、走哪一條連線、花了多少（`NULL` ＝ 不知道，不是 0）、交出的那一份規劃 |
+| `research_message` | 規劃對話的一輪 | `role` ∈ `user`／`model`；模型那一輪記**實際跑的模型**、走哪一個服務、花了多少（`NULL` ＝ 不知道，不是 0）、交出的那一份規劃 |
 | `research_direction` | 閘門一那一刻落成的方向 | `origin` ∈ `model`／`human`；**沒被採用的也留著**（`adopted=0`）—— 跟 `run_angle` 同一個理由 |
 | `research_candidate` | 一條候選來源 | 取得狀態與最終狀態**分兩欄**（見下）；同一次研究裡同一個網址只有一列 |
 
@@ -503,7 +503,9 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 | 19 | v9 | `research`、`research_message`、`research_direction`；`run` 重建（`kind` 多兩個值）|
 | 20 | v10 | `research_candidate`；`item` 重建（`reference`）＋ `bib_json` |
 | 21 | v11 | `item` 的初讀四欄 |
-| 22 | v12 | `item` 的 `extracted_at`／`extracted_by` |
+| 22 | v12 | `item` 的 `extracted_at`／`extracted_by`；`run` 再重建一次拿掉 `expand`；**舊的擴展紀錄一次性清除**（ADR-0033 D17：備份 → 逐筆走既有的復原 → 刪紀錄 → `DROP TABLE run_angle`。復原是 app 層的邏輯，不是 SQL）|
+
+**清除排在最後一個 migration**，不是第一個：這樣萬一 Stage 19 先單獨出貨，舊的擴展流程還活著。
 
 ## 實體型別的值域
 

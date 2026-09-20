@@ -73,29 +73,53 @@ export const BROWSE_PROBE_SCHEMA = {
 const BROWSE_PROBE_SYSTEM = '用網頁搜尋找答案。只回 JSON。';
 const BROWSE_PROBE_USER = '用網頁搜尋找出 Node.js 官方網站的下載頁網址，放在 url 欄位。';
 
+/**
+ * 搜尋是**一定要**還是**有就用**。
+ *
+ * | | 誰用 | 沒搜尋的時候 |
+ * |---|---|---|
+ * | `required` | 找候選來源 | **不採用那一次** —— 沒搜尋就交回的網址只可能來自記憶 |
+ * | `optional` | 規劃對話（ADR-0033 D5）| 照常用 —— 談方向本來就不一定要查 |
+ *
+ * `optional` 是 v0.25.0 加的。談方向的素材是這個專題裡已經有的東西，
+ * **查得到更好、查不到照樣談得出來**；強迫它每一輪都搜尋，等於每一輪都多付一次錢
+ * 去查一件使用者可能只是在改字的事。
+ */
+export type SearchMode = 'required' | 'optional';
+
 export interface OpenAiAgentOptions {
   readonly baseUrl: string;
   readonly model: string;
   readonly apiKeyEnv: string | null;
   readonly schema: Readonly<Record<string, unknown>>;
   readonly systemPrompt: string;
+  /** 預設 `required`（找候選來源那一支的行為，v0.24.2 起就是這樣）。 */
+  readonly search?: SearchMode;
   readonly env?: NodeJS.ProcessEnv;
 }
 
-/** 一次帶搜尋的請求：系統提示、題目、要的形狀。量測與正式呼叫都是這個形狀。 */
+/**
+ * 一次請求：系統提示、題目、要的形狀。量測與正式呼叫都是這個形狀。
+ *
+ * `tools` 是空陣列的時候連 `tool_choice` 都不送 —— 那是「量過這個端點收不了搜尋工具」
+ * 的情況（見 `run`）：仍然要談得下去，只是不會上網查。
+ */
 function searchBody(
   model: string,
   system: string,
   user: string,
   name: string,
   schema: Readonly<Record<string, unknown>>,
+  mode: SearchMode = 'required',
+  tools: readonly Record<string, unknown>[] = WEB_SEARCH_ONLY,
 ): Record<string, unknown> {
   return {
     model,
     instructions: system,
     input: user,
-    tools: WEB_SEARCH_ONLY,
-    tool_choice: 'required',
+    ...(tools.length === 0
+      ? {}
+      : { tools, tool_choice: mode === 'required' ? 'required' : 'auto' }),
     text: {
       format: {
         type: 'json_schema',
@@ -110,6 +134,7 @@ function searchBody(
 
 export function createOpenAiAgent(options: OpenAiAgentOptions): AgentProvider {
   const env = options.env ?? process.env;
+  const mode: SearchMode = options.search ?? 'required';
   const model = options.model.trim();
   const root = rootOf(options.baseUrl);
   const key = checkKey(root, model);
@@ -274,14 +299,30 @@ export function createOpenAiAgent(options: OpenAiAgentOptions): AgentProvider {
       });
 
       const check = await known();
-      if (check !== null && !check.ok) {
+      /**
+       * 量過不會搜尋的端點：**找來源在這裡停手，規劃對話照談。**
+       *
+       * 兩者的差別是那一次交出來的東西能不能用：沒搜尋的網址只可能來自記憶（不採用），
+       * 而沒查資料的方向仍然是一份可以改、可以刪的方向（照用，畫面說它不會上網查）。
+       * 這種端點連搜尋工具都可能收不了（量測時 400 過），所以那一次**不送 `tools`**。
+       */
+      const blind = check !== null && !check.ok;
+      if (blind && mode === 'required') {
         return fail('PROVIDER_CAPABILITY_MISSING', `量過：${check.detail}`);
       }
 
       const sent = await sendResponses(
         root,
         headers(),
-        searchBody(model, options.systemPrompt, input.prompt, 'cyclosa_sources', options.schema),
+        searchBody(
+          model,
+          options.systemPrompt,
+          input.prompt,
+          'cyclosa_sources',
+          options.schema,
+          mode,
+          blind ? [] : WEB_SEARCH_ONLY,
+        ),
         input.timeoutMs,
         signal,
       );
@@ -313,8 +354,8 @@ export function createOpenAiAgent(options: OpenAiAgentOptions): AgentProvider {
             : '串流沒有收尾就斷了',
         );
       }
-      // 見檔頭：沒搜尋就交回的網址只可能來自記憶。
-      if (answer.searches === 0) {
+      // 見檔頭：沒搜尋就交回的網址只可能來自記憶。**規劃對話不適用**（`SearchMode`）。
+      if (mode === 'required' && answer.searches === 0) {
         return fail('PROVIDER_CAPABILITY_MISSING', '這一次沒有搜尋就交回了網址 —— 不採用');
       }
       const value = parseJson(answer.text);

@@ -73,9 +73,10 @@ const ollamaUrl = ref(OLLAMA_DEFAULT_URL);
 const openaiUrl = ref('');
 /** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
 const openaiKeyEnv = ref('');
-const TASK_ORDER: readonly ModelTask[] = ['find-sources', 'angles', 'extract', 'embed'];
+const TASK_ORDER: readonly ModelTask[] = ['plan', 'find-sources', 'angles', 'extract', 'embed'];
 function emptyTasks(): Record<ModelTask, TaskSetting> {
   return {
+    plan: { via: 'cli', model: '' },
     'find-sources': { via: 'cli', model: '' },
     angles: { via: 'ollama', model: '' },
     extract: { via: 'ollama', model: '' },
@@ -132,6 +133,9 @@ const RECOMMENDED_TASK: Record<ChatTask, string> = {
  * agent 的模型由 CLI 自己的設定決定，而我們沒有量過在那一邊換模型的效果。
  */
 const RECOMMENDED_TASK_ALL: Record<ModelTask, string> = {
+  // 規劃對話跟找來源同一個理由：**沒有量過在這個任務上換模型的效果**，
+  // 所以不給建議值 —— 一個沒有量測背書的建議比沒有建議糟。
+  plan: '',
   'find-sources': '',
   ...RECOMMENDED_TASK,
   embed: RECOMMENDED_EMBED,
@@ -427,6 +431,8 @@ const saveStateText = computed(() => {
 function viaOptions(task: ModelTask): readonly ConnectionKind[] {
   if (task === 'embed') return ['ollama'];
   if (task === 'find-sources') return ['cli', 'openai'];
+  // 規劃對話三個服務都可以，而且能力不同（ADR-0033 D5）：前兩個邊查邊談，Ollama 只能談。
+  if (task === 'plan') return ['cli', 'openai', 'ollama'];
   return ['ollama', 'openai'];
 }
 /** 只有一種可選的任務，那一格要說為什麼。 */
@@ -488,7 +494,10 @@ function jsonModeText(report: JsonModeReport | null): string {
 function browseText(report: BrowseReport): string {
   const b = t.settings.browse;
   if (report.state === 'unchecked') return b.unchecked;
-  if (report.checkedAt === null) return b.declared;
+  // **宣告的有兩種**：CLI 是「一定會」，本機 Ollama 是「一定不會」。
+  // 只看 checkedAt 的話，後者會顯示成「由參數保證（--tools WebSearch）」——
+  // 一句在講另一條服務的話。
+  if (report.checkedAt === null) return report.state === 'yes' ? b.declared : b.declaredNo;
   const date = new Date(report.checkedAt).toLocaleString('zh-TW', { hour12: false });
   const base = report.state === 'yes' ? b.yes : `${b.no}：${report.detail}`;
   return `${base}（${fill(t.settings.jsonCheckedAt, { date })}）`;

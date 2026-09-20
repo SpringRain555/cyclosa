@@ -144,6 +144,40 @@ export const TASK_FIND_SOURCES: TaskRequirement = {
 };
 
 /**
+ * 規劃對話：跟人來回談出這次研究的蒐集方向（Stage 19，ADR-0033 D5）。
+ *
+ * **需要 `json_schema`，不需要 `browse`** —— 兩個都是刻意的。
+ *
+ * 每一輪的輸出同時要給人看（`reply`）與給程式用（方向清單），而方向清單會變成
+ * 閘門一之後真的去找的那張表。**靠正則從散文裡撈方向，會在模型換一種寫法時安靜地少撈幾條**
+ * —— 那正是這一步最不能發生的事：少的那一條使用者根本不知道它存在過。
+ *
+ * `browse` 是**有就用**：Claude Code 有（`--tools WebSearch`）、OpenAI 相容 API 量過會搜尋的也有
+ * （ADR-0034），本機 Ollama 沒有。沒有它也談得出方向 —— 素材是這個專題裡已經有的東西
+ * （`TASK_ANGLES` 的同一個理由）。**所以它不進 `needs`**：列進去等於把本機那條路關掉，
+ * 而畫面上只會說「缺少 browse」，使用者不會知道「其實可以談，只是不會上網查」。
+ * 差別由畫面說（ui-workflows §4）。
+ *
+ * ## context 為什麼是 18000
+ *
+ * 送出去的是**攤平的整段對話 ＋ 專題摘要**，上限 `MAX_PLAN_PROMPT_CHARS`（8,000 字元，
+ * `application/research-prompts.ts`）。最壞的 tokenizer 是 1.2 token／字元
+ * （`WORST_TOKENS_PER_CHAR`，2026-09-09 量的），所以輸入 ≈ 9,600。
+ *
+ * 輸出那一側取 8,000：12 條方向（`MAX_DIRECTIONS`）各帶標題、要找什麼、預期來源、關鍵詞，
+ * 加上 `reply`、`relation` 與「刻意不查的範圍」—— 照 `PLAN_SCHEMA` 的上界算滿是約 6,000 字元。
+ * **輸出也算在 context 裡**（多數執行環境的 context 是輸入 ＋ 輸出）。
+ *
+ * 合計 17,600，取 **18,000**。`tests/guards/extract-context.test.ts` 釘著這個關係 ——
+ * 兩個數字在不同的層，改一個很容易忘了另一個，而不夠大的下場是**對話前半被安靜截掉**：
+ * 模型照樣回一份合法的規劃，只是它忘了你前三輪說過什麼。
+ */
+export const TASK_PLAN: TaskRequirement = {
+  needs: ['json_schema'],
+  minContextTokens: 18_000,
+};
+
+/**
  * 從抓回來的正文抽出實體與關係。
  *
  * **這一條 2026-09-09 才補上，而在那之前它根本不存在** —— `expand-service.ts`
@@ -277,7 +311,12 @@ export const TASK_EMBED: TaskRequirement = {
  * `agent` 與 `embed` 目前各只有一個 —— **那是現況不是規則**，
  * 所以這份表用「任務」當主鍵，不是用「角色」。
  */
+/**
+ * 順序就是設定頁「模型分工」那張表的列順序（守門釘著兩邊一樣）。
+ * **照流程排**：先談出方向、再找來源、（角度是舊流程，Stage 22 退場）、抽取、向量。
+ */
 export const MODEL_TASKS = [
+  { task: 'plan', role: 'agent', requirement: TASK_PLAN },
   { task: 'find-sources', role: 'agent', requirement: TASK_FIND_SOURCES },
   { task: 'angles', role: 'chat', requirement: TASK_ANGLES },
   { task: 'extract', role: 'chat', requirement: TASK_EXTRACT },
@@ -352,4 +391,7 @@ export const WORST_TOKENS_PER_CHAR = 1.2;
 export const REQUIRED_CONTEXT_TOKENS = Math.max(
   TASK_ANGLES.minContextTokens ?? 0,
   TASK_EXTRACT.minContextTokens ?? 0,
+  // 規劃對話也可以走本機 Ollama（ADR-0033 D5），而它送的是攤平的整段對話 ——
+  // 漏掉它的話，`num_ctx` 會比這個任務真正需要的小，而症狀是對話前半被安靜截掉。
+  TASK_PLAN.minContextTokens ?? 0,
 );

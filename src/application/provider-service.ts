@@ -270,18 +270,27 @@ export async function testProvider(
     );
   }
 
-  const agent = providers.agentFor({
+  const request = {
     schema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] },
     systemPrompt: '只回 JSON，不要用任何工具。',
     maxCostUsd: null,
-  });
+  };
+  /**
+   * **規劃對話走的是它自己那一條服務**（ADR-0033 D5：三個服務都可以），
+   * 而 `agentFor` 問的是找來源那一條。用錯的話這顆按鈕會測另一個任務的設定，
+   * 而畫面上那一列會寫著「可以用」—— 那是最糟的一種錯：它說的是另一件事的結果。
+   */
+  const agent = entry.task === 'plan' ? providers.planFor(request) : providers.agentFor(request);
   if (agent === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task });
 
   /**
    * 走 OpenAI 相容 API 的找來源：測的就是「會不會上網搜尋」—— 量一次、記下來（ADR-0034）。
    * 這一支的 `run()` 一律要求搜尋，拿它回一個 `{"ok":true}` 沒有意義，而且會多搜一次。
+   *
+   * **規劃對話不量搜尋**：它是「有就用」，沒有也談得成 —— 為它量一次等於多付一次錢
+   * 去確認一件不影響這個任務跑不跑得動的事。
    */
-  if (agent.checkBrowse !== undefined) {
+  if (entry.task !== 'plan' && agent.checkBrowse !== undefined) {
     const check = await agent.checkBrowse();
     if (check.kind === 'error') {
       return ok(

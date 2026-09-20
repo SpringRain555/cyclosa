@@ -48,6 +48,17 @@ import {
 import { discardDraftRun, getRun, listRuns } from '../../application/run-service.js';
 import { chooseAngles, startExpansion } from '../../application/expand-service.js';
 import {
+  abandonResearch,
+  converse,
+  deleteResearch,
+  editDirections,
+  getResearchView,
+  listResearchViews,
+  startCollecting,
+  startResearch,
+  type DirectionInput,
+} from '../../application/research-service.js';
+import {
   listModelsFor,
   listProviders,
   saveProviders,
@@ -321,6 +332,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerProviderRoutes(app, ctx);
   registerIngestRoutes(app, ctx);
   registerExpandRoutes(app, ctx);
+  registerResearchRoutes(app, ctx);
   registerItemRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
   registerEdgeRoutes(app, ctx);
@@ -385,6 +397,93 @@ function registerExpandRoutes(app: FastifyInstance, ctx: AppContext): void {
       const raw = req.body?.angles;
       const angles = Array.isArray(raw) ? raw.map((a) => String(a)) : [];
       return send(reply, await chooseAngles(dataRoot, req.params.slug, req.params.runId, angles));
+    },
+  );
+}
+
+/**
+ * 研究（Stage 19，ADR-0033）。**這一版只到閘門一。**
+ *
+ * 路由只做「解析請求 → 呼叫 service → 對映錯誤」—— 規則一條都不在這裡
+ * （可不可以再談、閘門按不按得下去在 `domain/research`）。
+ */
+function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/research', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listResearchViews(dataRoot, req.params.slug));
+  });
+
+  app.post<{ Params: { slug: string }; Body: { topic?: unknown } }>(
+    '/api/cases/:slug/research',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const topic = typeof req.body?.topic === 'string' ? req.body.topic : '';
+      return send(reply, await startResearch(dataRoot, req.params.slug, { topic }));
+    },
+  );
+
+  app.get<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await getResearchView(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  /** 談一輪。**這一支會花錢** —— 畫面上那句話在閘門旁邊先說過了。 */
+  app.post<{ Params: { slug: string; researchId: string }; Body: { said?: unknown } }>(
+    '/api/cases/:slug/research/:researchId/messages',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const said = typeof req.body?.said === 'string' ? req.body.said : '';
+      return send(reply, await converse(dataRoot, req.params.slug, req.params.researchId, said));
+    },
+  );
+
+  /** 改方向（整份換掉）。**不花錢** —— 這是人自己改的。 */
+  app.put<{ Params: { slug: string; researchId: string }; Body: { directions?: unknown } }>(
+    '/api/cases/:slug/research/:researchId/directions',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const raw = req.body?.directions;
+      const list = Array.isArray(raw) ? (raw as DirectionInput[]) : [];
+      return send(
+        reply,
+        await editDirections(dataRoot, req.params.slug, req.params.researchId, list),
+      );
+    },
+  );
+
+  /** 閘門一。 */
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId/start',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await startCollecting(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId/abandon',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await abandonResearch(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  app.delete<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await deleteResearch(dataRoot, req.params.slug, req.params.researchId));
     },
   );
 }

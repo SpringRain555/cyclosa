@@ -134,6 +134,10 @@ export interface TaskSetting {
  *   一個雲端端點隨時可能換掉背後的權重，**而那些變化不會報錯，只會讓比對安靜地變爛**。
  */
 export function viaOptionsOf(task: ModelTask): readonly ConnectionKind[] {
+  // **規劃對話是第一個「三個服務都可以、而且能力不同」的任務**（ADR-0033 D5）：
+  // Claude Code 與量過會搜尋的 OpenAI 相容 API 可以邊查邊談，本機 Ollama 只能談。
+  // 所以它不由角色推 —— 由角色推的話會少掉 Ollama 那一條，而那一條是可以用的。
+  if (task === 'plan') return ['cli', 'openai', 'ollama'];
   const role = roleOfTask(task);
   if (role === 'agent') return ['cli', 'openai'];
   if (role === 'embed') return ['ollama'];
@@ -214,6 +218,9 @@ export const DEFAULT_CONFIG: ProvidersConfig = {
     openai: null,
   },
   tasks: {
+    // 規劃對話預設走 Claude Code：它是唯一**不必先挑模型**就跑得動的一條（CLI 有自己的預設），
+    // 而且它會邊查邊談（ADR-0033 D16）。使用者可以在設定頁換成別的服務。
+    plan: { via: 'cli', model: '' },
     'find-sources': { via: 'cli', model: '' },
     angles: { via: 'ollama', model: '' },
     extract: { via: 'ollama', model: '' },
@@ -351,6 +358,8 @@ export function upgradeV1(raw: Record<string, unknown>): ProvidersConfig {
           : null,
     },
     tasks: {
+      // v1 沒有規劃對話這個任務（它是 v0.25.0 才有的），所以升上來的一律是預設值。
+      plan: { via: 'cli', model: '' },
       'find-sources': { via: 'cli', model: str(agent?.['model']) },
       angles: chatTask('angles'),
       extract: chatTask('extract'),

@@ -222,4 +222,57 @@ describe('各任務模型那張表', () => {
     expect(chatTasks.length).toBe(2);
     expect(chatTasks.every((r) => !r.ok && r.state === 'unreachable')).toBe(true);
   });
+
+  /**
+   * **規劃對話走的是它自己那一條服務**（ADR-0033 D5）。
+   *
+   * 它跟找候選來源同一個角色（`agent`），而 registry 有兩支：`agentFor` 問的是找來源那一條。
+   * 2026-09-20 第一版的「儲存並測試」對規劃對話叫的就是 `agentFor` ——
+   * 於是那一列測的是另一個任務的設定，**而畫面上會寫「可以用」**。
+   * 那是最糟的一種錯：它說的是另一件事的結果。
+   */
+  it('規劃對話：狀態與測試都對著它自己那一條服務，不是找來源那一條', async () => {
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/providers',
+      payload: {
+        version: 2,
+        connections: {
+          cli: null,
+          ollama: { baseUrl: 'http://127.0.0.1:59999', apiKeyEnv: null },
+          openai: null,
+        },
+        tasks: {
+          // 規劃對話走本機 Ollama（三個服務都可以，ADR-0033 D5），找來源留在沒設定的 CLI。
+          plan: { via: 'ollama', model: '規劃用的模型' },
+          'find-sources': { via: 'cli', model: '' },
+          angles: { via: 'ollama', model: '本機模型' },
+          extract: { via: 'ollama', model: '本機模型' },
+          embed: { via: 'ollama', model: '' },
+        },
+        diagnostics: { logModelCalls: false },
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+
+    const byTask = new Map((await tasks()).map((r) => [r.task, r]));
+    // 走 Ollama（位址通不了），**不是** CLI 的「還沒設定」。
+    expect(byTask.get('plan')).toMatchObject({
+      via: 'ollama',
+      model: '規劃用的模型',
+      state: 'unreachable',
+    });
+    expect(byTask.get('find-sources')?.state).toBe('not-configured');
+
+    // 「儲存並測試」那一顆：規劃對話要打到它自己那條（連不上），
+    // 而不是回 CLI 那條的「還沒設定」。
+    const tested = await app.inject({
+      method: 'POST',
+      url: '/api/providers/test',
+      payload: { task: 'plan' },
+    });
+    const body = tested.json() as { ok: boolean; code?: string; data?: { ok: boolean } };
+    if (body.ok) expect(body.data?.ok).toBe(false);
+    else expect(body.code).not.toBe('PROVIDER_NOT_CONFIGURED');
+  });
 });

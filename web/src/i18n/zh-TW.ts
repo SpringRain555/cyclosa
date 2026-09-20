@@ -122,6 +122,11 @@ export const errorMessages: Readonly<Record<string, string>> = {
   RUN_NOT_FOUND: '找不到這次作業。它可能屬於另一個專題。',
   RUN_STILL_ACTIVE: '這次作業還在跑，沒辦法復原。先按取消，或等它跑完再試。',
   RUN_UNEXPECTED: '處理這次作業時出了預期外的問題。請把下面的識別碼交出來。',
+  RESEARCH_NOT_FOUND: '找不到這次研究。它可能屬於另一個專題，或是已經被刪掉了。',
+  RESEARCH_ALREADY_OPEN:
+    '這個專題已經有一次研究還沒結束。先把它做完，或在那一筆上按「放棄這次研究」，才能再開一次。',
+  RESEARCH_STEP_INVALID: '這一步在目前這個階段做不了。重新整理這一頁，看看它現在停在哪一步。',
+  RESEARCH_UNEXPECTED: '處理這次研究時出了預期外的問題。請把下面的識別碼交出來。',
   GRAPH_EVIDENCE_REQUIRED:
     '這條關聯沒有任何引文，不能標成已確認。請先補一筆出處，或改成自己手動建立一條。',
   GRAPH_HUMAN_ROW_IMMUTABLE:
@@ -715,7 +720,7 @@ export const t = {
   },
 
   runs: {
-    tab: '作業紀錄',
+    tab: '匯入與研究',
     title: '作業紀錄',
     empty: '還沒有任何作業。貼一個網址或拖一個檔案進來就會開始。',
     newImport: '匯入',
@@ -1096,6 +1101,7 @@ export const t = {
    * 工具打算怎麼找、找到了什麼、你勾了哪幾條、花了幾次呼叫。
    */
   expand: {
+    legacy: '舊版流程。新的「研究」在上面那一塊 —— 它會先跟你談出方向，花錢之前停下來等你。',
     open: '擴展',
     title: '擴展這個專題',
     topicLabel: '從哪個主題出發',
@@ -1135,6 +1141,79 @@ export const t = {
     costUnknown: '這個模型沒有回報金額',
     usedProviders: '用的是 {chat}',
     machineOnly: '機器抽出來的關聯一律進「待查證」，沒有任何一條路會自動確認。',
+  },
+
+  /**
+   * 研究（v0.25.0，ADR-0033）。**這一版只到閘門一。**
+   *
+   * 每一句都要能回答「現在花了什麼」—— 這個流程存在的理由就是「花錢之前停下來」。
+   */
+  research: {
+    title: '新的研究',
+    topicLabel: '這次想研究什麼',
+    topicPlaceholder: '一個主題、一個問題、一個人',
+    start: '開始',
+    starting: '正在查你已經有的資料…',
+    /** **這一句在按任何會花錢的按鈕之前就出現** —— 它算的是本機索引。 */
+    freeHint: '按下去只會查你已經有的資料，不花錢。',
+    hitsSome: '你已有的 {total} 份裡，{n} 份提到它',
+    hitsNone: '你已有的 {total} 份都沒有提到它 —— 這是一個新的方向。',
+    hitsEmptyCase: '這個專題還沒有任何資料 —— 這是一個全新的方向。',
+    /** 開起來之後停在規劃，畫面要說清楚接下來有兩條路。 */
+    planTitle: '規劃',
+    planEmpty: '還沒有方向。跟模型談一輪，或自己加一條。',
+    sayLabel: '跟模型說',
+    sayPlaceholder: '例如：我要的是標準文件，不是新聞報導',
+    say: '談一輪',
+    saying: '模型在想…',
+    sayCosts: '談一輪會用到「{service}」上的 {model}，這一步會花錢。',
+    sayFree: '談一輪會用到本機的 {model}，不花錢。',
+    noBrowse: '這個服務不會上網查 —— 它只能用你專題裡已經有的東西談。',
+    you: '你',
+    model: '模型',
+    failedTurn: '這一輪沒有交出可以用的規劃。',
+    relation: '跟這個專題的關係',
+    outOfScope: '刻意不查',
+    overflow: '模型提的比一次放得下的多，多出來的沒有留 —— 上限是 {n} 條。',
+    edited: '你改的',
+    directionWhat: '要找什麼',
+    directionExpect: '預期來源',
+    directionKeywords: '關鍵詞',
+    addDirection: '自己加一條',
+    newDirection: '新的方向',
+    removeDirection: '刪掉',
+    saveDirections: '存下改過的方向',
+    savingDirections: '存著…',
+    directionsFree: '改方向不花錢。',
+    /** 閘門一。**按下去之前什麼都還沒抓** —— 這句話是 REQ-0009 R5 的驗收條件。 */
+    gateOne: '照這份規劃開始',
+    gateOneHint: '按下去之前，一次搜尋、一次擷取都還沒有發生。',
+    gateOneNext: '按下去之後會照這 {n} 條方向去找來源、抓回來、讀一次。',
+    gateOneNotReady: '至少要有一條方向。',
+    /** 蒐集還沒接上（Stage 20）。**照實說**，不要假裝它在跑。 */
+    collectingTitle: '方向定案了',
+    collectingBody:
+      '這 {n} 條方向已經定下來。去找來源、抓回來、讀一次那幾步還沒做進這一版 —— 它們是下一步。',
+    frozenNotAdopted: '沒採用',
+    abandon: '放棄這次研究',
+    abandoned: '放棄了',
+    remove: '刪掉這次研究',
+    removeHint: '刪的是對話、規劃與方向。這一版還沒有任何東西寫進圖。',
+    costSoFar: '到目前為止花了 {usd} 美元',
+    costUnknown: '有 {n} 輪沒有回報金額',
+    costNone: '目前還沒有花錢',
+    /** 歷次紀錄那一欄。 */
+    listTitle: '歷次研究',
+    listEmpty: '還沒有任何研究。',
+    status: {
+      planning: '規劃中',
+      collecting: '方向定案',
+      'awaiting-user': '等你',
+      reviewing: '確認中',
+      building: '建圖中',
+      done: '已完成',
+      abandoned: '放棄了',
+    },
   },
 
   settings: {
@@ -1212,12 +1291,14 @@ export const t = {
       status: '狀態',
     },
     taskNames: {
+      plan: '規劃對話',
       'find-sources': '找候選來源',
       angles: '歸納切入角度',
       extract: '從正文抽實體與關係',
       embed: '算語意檢索的向量',
     },
     taskWhat: {
+      plan: '跟你來回談出這次研究要往哪幾個方向蒐集。Claude Code 與 OpenAI 相容 API 可以邊查邊談，Ollama 只能談。',
       'find-sources': '用網頁搜尋找出候選網址。它不抓網頁 —— 抓取一律走同一條擷取管線。',
       angles: '從專題裡已經有的內容歸納出幾條可以往下查的子問題。',
       extract: '把抓回來的正文變成實體與帶引文的關聯 —— 圖上長出什麼由這一步決定。',
@@ -1299,6 +1380,8 @@ export const t = {
     browseLabel: '上網搜尋',
     browse: {
       declared: '由參數保證（--tools WebSearch）',
+      /** 本機 Ollama 的規劃對話：**它就是不會上網查**，那不是量出來的，也不是壞掉。 */
+      declaredNo: '這個服務不會上網查 —— 它只能用你專題裡已經有的東西談',
       yes: '量過會搜尋',
       no: '量過不會搜尋',
       unchecked: '還沒量。開始擴展之前會先量一次，也可以按「儲存並測試」現在量。',

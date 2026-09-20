@@ -173,6 +173,7 @@ describe('v2 的形狀', () => {
         openai: { baseUrl: 'https://api.example.com/v1', apiKeyEnv: 'OPENAI_API_KEY' },
       },
       tasks: {
+        plan: { via: 'cli' as const, model: '' },
         'find-sources': { via: 'cli' as const, model: '' },
         angles: { via: 'ollama' as const, model: 'granite4.2:8b' },
         extract: { via: 'openai' as const, model: 'gpt-x' },

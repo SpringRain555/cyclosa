@@ -31,6 +31,7 @@ import {
   type HttpConnection,
   type ProvidersConfig,
 } from './config.js';
+import { createChatAgent } from './agent-chat.js';
 import { createClaudeAgent } from './agent-claude.js';
 import { createOpenAiAgent } from './agent-openai.js';
 import { createOllamaChat, listOllamaModels } from './chat-ollama.js';
@@ -125,6 +126,21 @@ export interface Providers {
    */
   readonly embed: EmbedProvider | null;
   agentFor(request: AgentRequest): AgentProvider | null;
+  /**
+   * 規劃對話（ADR-0033 D5）。**三個服務都可以，而且能力不同** ——
+   * Claude Code 與量過會搜尋的 OpenAI 相容 API 邊查邊談，本機 Ollama 只能談。
+   *
+   * 回的是 agent 的形狀（送一段字、拿一份 JSON），本機那條由 `createChatAgent` 包過來。
+   * `null` ＝ 這個任務的服務沒設定，或它需要模型而還沒選。
+   */
+  planFor(request: AgentRequest): AgentProvider | null;
+  /**
+   * 規劃對話走**本機 Ollama** 時的那一支對話 provider；走其他服務時是 `null`。
+   *
+   * 存在的理由只有一個：設定頁要說得出那一格的「格式保證是哪一種」（ADR-0030），
+   * 而那個問題只有 `ChatProvider` 答得出來 —— `planFor` 回的是 agent 的形狀，沒有這一支。
+   */
+  planChat(): ChatProvider | null;
   /** 這個任務走的連線與端點 —— 作業紀錄要寫「這一次呼叫打到哪」。 */
   connectionOf(task: ModelTask): { readonly via: ConnectionKind; readonly baseUrl: string | null };
 }
@@ -149,7 +165,11 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
    * 而設定頁一打開就會全部 probe —— 兩個任務用同一個模型是最常見的設定。
    */
   const built = new Map<string, ChatProvider>();
-  const chatFor = (task: ChatTask): ChatProvider | null => {
+  /**
+   * 任意任務的對話 provider。**`chatFor` 是它對外的那一半** ——
+   * 規劃對話走本機 Ollama 的時候也要走這裡（它不是 `ChatTask`，但它確實是一次對話）。
+   */
+  const chatOf = (task: ModelTask): ChatProvider | null => {
     const setting = config.tasks[task];
     const connection = httpConnectionFor(config, task);
     const model = setting.model.trim();
@@ -161,6 +181,7 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
     built.set(key, made);
     return made;
   };
+  const chatFor = (task: ChatTask): ChatProvider | null => chatOf(task);
   const cli = config.connections.cli;
   const agentSetting = config.tasks['find-sources'];
   const agentModel = agentSetting.model.trim();
@@ -190,9 +211,46 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
       ...request,
     });
   };
+  /**
+   * 規劃對話走哪一支（ADR-0033 D5）。三條路的差別只有一個地方看得到：**會不會上網查**。
+   * OpenAI 相容 API 那一條用 `search: 'optional'` —— 談方向不強迫每一輪都搜尋
+   * （找來源那一支才是 `required`）。
+   */
+  const planSetting = config.tasks.plan;
+  const planModel = planSetting.model.trim();
+  const planFor = (request: AgentRequest): AgentProvider | null => {
+    if (planSetting.via === 'openai') {
+      const openai = config.connections.openai;
+      if (openai === null || planModel.length === 0) return null;
+      return createOpenAiAgent({
+        baseUrl: openai.baseUrl,
+        model: planModel,
+        apiKeyEnv: openai.apiKeyEnv,
+        schema: request.schema,
+        systemPrompt: request.systemPrompt,
+        search: 'optional',
+        env,
+      });
+    }
+    if (planSetting.via === 'ollama') {
+      const chat = chatOf('plan');
+      return chat === null
+        ? null
+        : createChatAgent({ chat, systemPrompt: request.systemPrompt, schema: request.schema });
+    }
+    if (cli === null) return null;
+    return createClaudeAgent({
+      command: cli.command,
+      args: cli.args,
+      model: planModel,
+      ...request,
+    });
+  };
   return {
     config,
     chatFor,
+    planFor,
+    planChat: () => (planSetting.via === 'ollama' ? chatOf('plan') : null),
     embed:
       embedModel.length === 0
         ? null
@@ -290,8 +348,9 @@ export async function describeProviders(
   // ── 任務 ──
   // 同一條連線上的同一個模型只探一次（兩個任務用同一個模型是最常見的設定）。
   const probed = new Map<string, Promise<{ probe: ProbeResult; json: JsonModeReport }>>();
-  const probeChat = (task: ChatTask): Promise<{ probe: ProbeResult; json: JsonModeReport }> => {
-    const provider = providers.chatFor(task);
+  const probeChat = (task: ModelTask): Promise<{ probe: ProbeResult; json: JsonModeReport }> => {
+    // 規劃對話不是 `ChatTask`（它的服務有三種），但走本機 Ollama 的時候它確實是一次對話。
+    const provider = task === 'plan' ? providers.planChat() : providers.chatFor(task as ChatTask);
     if (provider === null) {
       return Promise.resolve({
         probe: { kind: 'not-configured' },
@@ -314,6 +373,37 @@ export async function describeProviders(
     MODEL_TASKS.map(async ({ task, role }): Promise<TaskStatus> => {
       const setting = config.tasks[task];
       const common = { task, role, via: setting.via, model: setting.model, browse: null };
+      /**
+       * 規劃對話自己一條路：**它的服務有三種，而畫面要說得出「這一條會不會上網查」**。
+       * 走本機 Ollama 的時候談得成、只是不會查 —— 那是宣告的（`checkedAt` 是 `null`），
+       * 跟 CLI 的搜尋一樣不是量出來的。
+       */
+      if (task === 'plan') {
+        if (setting.via === 'ollama') {
+          const { probe, json } = await probeChat('plan');
+          return {
+            ...common,
+            ...fromProbe(probe),
+            jsonMode: probe.kind === 'ready' ? json : null,
+            browse:
+              probe.kind === 'ready'
+                ? { state: 'no', checkedAt: null, detail: '這個服務不會上網查' }
+                : null,
+          };
+        }
+        const planner = providers.planFor({ schema: {}, systemPrompt: '', maxCostUsd: null });
+        if (planner === null) {
+          return { ...common, ...fromProbe({ kind: 'not-configured' }), jsonMode: null };
+        }
+        const probe = setting.via === 'cli' ? cliProbe : await planner.probe();
+        const browse: BrowseReport | null =
+          probe.kind !== 'ready'
+            ? null
+            : setting.via === 'cli'
+              ? { state: 'yes', checkedAt: null, detail: '' }
+              : ((await planner.browseReport?.()) ?? null);
+        return { ...common, ...fromProbe(probe), jsonMode: null, browse };
+      }
       if (role === 'agent') {
         if (setting.via === 'openai') {
           // 走 OpenAI 相容 API 的找來源：模型在不在清單上，以及「會不會搜尋」量過了沒。

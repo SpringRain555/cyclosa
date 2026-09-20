@@ -258,6 +258,94 @@ export interface ExpansionStart {
   seededFrom: number;
 }
 
+// ── 研究（v0.25.0，ADR-0033）─────────────────────
+//
+// server 的 `application/research-service.ts` 是定義，這裡是抄的
+// （`web/` 與 server 是兩份建置，型別跨不過去）。
+
+export type ResearchStatus =
+  'planning' | 'collecting' | 'awaiting-user' | 'reviewing' | 'building' | 'done' | 'abandoned';
+
+/** 全文檢索命中的一份資料（不花錢算出來的，R1）。 */
+export interface ResearchHit {
+  itemId: string;
+  title: string;
+  excerpt: string;
+}
+
+export interface Direction {
+  title: string;
+  what: string;
+  expect: string;
+  keywords: string[];
+  /** **`human` ＝ 你改過或自己加的**（畫面標「你改的」，R4）。 */
+  origin: 'model' | 'human';
+}
+
+/** 閘門一之後那張表；`adopted = false` 是模型提過、你刪掉的。 */
+export interface FrozenDirection extends Direction {
+  id: string;
+  adopted: boolean;
+}
+
+/** 改方向時送出去的形狀（只有 `title` 是必要的）。 */
+export interface DirectionInput {
+  title: string;
+  what?: string;
+  expect?: string;
+  keywords?: string[];
+}
+
+export interface ResearchPlan {
+  relation: string;
+  directions: Direction[];
+  outOfScope: string[];
+  /** 模型上一輪提的超過上限。**畫面照實說**，不靜默截掉（R6）。 */
+  overflow: boolean;
+}
+
+export interface ResearchMessage {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+  model: string | null;
+  via: string | null;
+  /** **`null` ＝ 不知道**，不是 0 */
+  costUsd: number | null;
+  elapsedMs: number | null;
+  /** 這一輪失敗的錯誤碼。**失敗的那一輪也留著。** */
+  code: string | null;
+  at: number;
+}
+
+/** 規劃對話走哪個服務 —— 閘門旁邊那句「會花錢嗎」用它。 */
+export interface PlanService {
+  via: ConnectionKind;
+  model: string;
+  /** 這條服務會不會上網查。**本機 Ollama 是 false，而那不是壞掉。** */
+  browses: boolean;
+  costs: boolean;
+}
+
+export interface Research {
+  id: string;
+  kind: 'research' | 'consolidate';
+  status: ResearchStatus;
+  topic: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 專題裡總共幾份 */
+  hitTotal: number;
+  hits: ResearchHit[];
+  plan: ResearchPlan;
+  messages: ResearchMessage[];
+  directions: FrozenDirection[];
+  costUsd: number;
+  /** 有幾輪沒回報花費。**跟金額分開**：全部沒回報的顯示成 $0.00 是一句謊。 */
+  unknownCost: number;
+  service: PlanService;
+}
+
 // ── provider ─────────────────────────────────────
 //
 // **v2（v0.24.0，ADR-0032）：任務 → 連線 ＋ 模型。** server 的
@@ -331,7 +419,7 @@ export type ChatTask = 'angles' | 'extract';
  * server 的 `domain/provider/capabilities.ts` 有 `MODEL_TASKS` 那一份定義，
  * 這裡是抄的 —— `tests/guards/chat-tasks.test.ts` 釘著兩邊一致。
  */
-export type ModelTask = 'find-sources' | ChatTask | 'embed';
+export type ModelTask = 'plan' | 'find-sources' | ChatTask | 'embed';
 
 /** 一個任務現在跑不跑得動 —— 設定頁那張表的一列。 */
 export interface TaskRow {
@@ -858,6 +946,35 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ angles }),
     }),
+
+  // ── 研究（Stage 19，ADR-0033）─────────────────────────
+  //
+  // **開一次研究不花錢** —— 那一支只跑全文檢索；花錢的是 `converse`。
+  // 閘門一（`startCollecting`）按下去之前，一次搜尋、一次擷取都沒有發生。
+  listResearch: (slug: string) => request<Research[]>(`/api/cases/${enc(slug)}/research`),
+  startResearch: (slug: string, topic: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research`, {
+      method: 'POST',
+      body: JSON.stringify({ topic }),
+    }),
+  getResearch: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}`),
+  converse: (slug: string, id: string, said: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ said }),
+    }),
+  editDirections: (slug: string, id: string, directions: DirectionInput[]) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/directions`, {
+      method: 'PUT',
+      body: JSON.stringify({ directions }),
+    }),
+  startCollecting: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/start`, { method: 'POST' }),
+  abandonResearch: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/abandon`, { method: 'POST' }),
+  deleteResearch: (slug: string, id: string) =>
+    request<{ id: string }>(`/api/cases/${enc(slug)}/research/${enc(id)}`, { method: 'DELETE' }),
 
   // ── provider ────────────────────────────────────────────
   providers: () => request<ProvidersPayload>('/api/providers'),

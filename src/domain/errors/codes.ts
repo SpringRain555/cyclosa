@@ -205,6 +205,29 @@ export const ERROR_CODES = {
   RUN_STILL_ACTIVE: 'error',
   RUN_UNEXPECTED: 'error',
 
+  // ── RESEARCH_* 研究（v0.25.0，ADR-0033）──────────────────
+  //
+  // **刻意不借用 `RUN_*`。** 研究與作業是兩件事（D3：研究停在「等你」的時候
+  // 沒有任何作業在跑），而借用的代價是使用者看到的那句話會在講另一件事 ——
+  // 「這次作業還在跑，沒辦法復原」對一個停在規劃中的研究完全不成立。
+  RESEARCH_NOT_FOUND: 'error',
+  /**
+   * 這個專題已經有一次研究或整理**還沒結束**（ADR-0033 D4）。
+   *
+   * 兩次研究同時建圖會同時寫實體對齊與關聯，而「這一次新增了什麼」就數不清了。
+   * 使用者要做的事很明確：**把那一次做完，或放棄它。**
+   */
+  RESEARCH_ALREADY_OPEN: 'error',
+  /**
+   * 這一步在現在這個階段做不了 —— 例如規劃已經定案了還要再談、
+   * 或者一條方向都沒有就按閘門一。
+   *
+   * 不是 `GRAPH_TRANSITION_INVALID`（那一條的訊息叫人交識別碼，因為圖的狀態轉移
+   * 走到那裡就是程式的錯）。**這一條多半是畫面舊了**：另一個分頁已經把它推到下一步。
+   */
+  RESEARCH_STEP_INVALID: 'error',
+  RESEARCH_UNEXPECTED: 'error',
+
   // ── GRAPH_* 圖與裁決 ─────────────────────────────────────
   GRAPH_EVIDENCE_REQUIRED: 'error',
   GRAPH_HUMAN_ROW_IMMUTABLE: 'error',

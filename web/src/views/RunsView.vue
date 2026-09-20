@@ -21,6 +21,7 @@ import {
 } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
+import ResearchPanel from '../components/ResearchPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -395,6 +396,13 @@ async function rebuild(): Promise<void> {
   -->
   <main class="scroll">
     <div class="page wide">
+      <!--
+        研究（Stage 19，ADR-0033）**排在最上面**：它是這一頁的主角，
+        而匯入與舊版擴展是旁邊那兩件事。第一版排在下面，實際看過之後改上來 ——
+        使用者要捲過三張卡才看得到現在正在做的那一次研究。
+      -->
+      <ResearchPanel :slug="slug" @error="error = $event" />
+
       <div class="top">
         <section class="card import" :class="{ dragging }">
           <h2>{{ t.runs.newImport }}</h2>
@@ -436,9 +444,13 @@ async function rebuild(): Promise<void> {
         <!--
       擴展。**兩階段之間有一個人**（REQ-0004）——
       第一步只產生子問題，畫面上要說出「還沒有開始抓」。
+
+      **這一塊是舊版流程**（v0.25.0 起「研究」取代它，ADR-0033）——
+      蒐集與建圖那幾步接上去之前它還是唯一走得完的一條路，所以留著、標明是舊的。
     -->
         <section class="card expand">
           <h2>{{ t.expand.title }}</h2>
+          <p class="card-what">{{ t.expand.legacy }}</p>
 
           <label class="field wide">
             <span>{{ t.expand.topicLabel }}</span>

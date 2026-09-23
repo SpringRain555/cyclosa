@@ -18,7 +18,7 @@
                          "document":  "data-model.md",
                          "index":  1,
                          "svg":  "data-model-1.svg",
-                         "sha256":  "bda603ebea31271104e085f026de3eda7069009f9c3d11851bcb6413b1622fe7"
+                         "sha256":  "ea614aa72a2f6deeaafa63e367e5d014d2df9c5de0eed00810103a1eb0f073d1"
                      },
                      {
                          "document":  "overview.md",
@@ -55,6 +55,18 @@
                          "index":  4,
                          "svg":  "state-machines-4.svg",
                          "sha256":  "a6685b0eaf9ea6b83bafc7e220544a9e27bebf7c093f242e1039b834a4341310"
+                     },
+                     {
+                         "document":  "state-machines.md",
+                         "index":  5,
+                         "svg":  "state-machines-5.svg",
+                         "sha256":  "b2f326fb682b0f1a65efc03fa0f7fb9b2f17fbe8ed5c95eea0e276cf8c6fcb5a"
+                     },
+                     {
+                         "document":  "state-machines.md",
+                         "index":  6,
+                         "svg":  "state-machines-6.svg",
+                         "sha256":  "ae97bd46fb17976e0f01485798d6823c61a05ef9310602eca1d06d7c5f9ab1e8"
                      }
                  ]
 }

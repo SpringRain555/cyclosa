@@ -359,7 +359,7 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /api/cases/:id/items` | cursor 分頁 ＋ 篩選 |
-| `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言 |
+| `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言；v0.25.0 多一欄 `candidacy`：這一份是**哪一次還沒結束的研究**的候選（閱讀器那一行「候選 · 還沒確認」，ADR-0033 D8）|
 | `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）。v0.24.0 起多一欄 `stale`：這份是舊版抽取器抽的，**而且那一版之後這一種資料的抽取真的改過**（`EXTRACTOR_CHANGES`）—— 閱讀器據此說一句「按重算全部正文會換成新的」 |
 | `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）。v0.24.1 起閱讀器的版面檢視也讀它：pdf.js 整份拿（不分段），在瀏覽器裡畫 |
 | `GET …/subgraph/focus` | 打開關聯圖時的起點。**回一個焦點，不回一張圖** |
@@ -392,7 +392,7 @@
 **顯示一個結構性的值，會讓它看起來像測量結果。**
 規則在 `domain/graph/render-rules.ts`，不在元件裡。
 
-### 研究（v0.25.0，ADR-0033；這一版只到閘門一）
+### 研究（v0.25.0，ADR-0033；規劃、閘門一、蒐集、閘門二）
 
 **每一支都寫得出它花不花錢** —— 這個流程存在的理由就是「花錢之前停下來」。
 
@@ -402,9 +402,14 @@
 | `GET …/research` ／ `…/research/:id` | 不 | 歷次紀錄與那一次的全部內容（對話、規劃、方向、花費）|
 | `POST …/research/:id/messages` | **會** | `{said}`。談一輪：使用者那句話先寫成一列，再帶著整段對話去問模型。**失敗的那一輪也留著**（`code` 有值），而且還可以再談 |
 | `PUT …/research/:id/directions` | 不 | `{directions: [{title, what, expect, keywords}]}`。**整份換掉**（改、加、刪、重排是同一件事）。跟模型那一份逐字一樣的仍然算模型提的，只有真的動過的標 `human`（R4）|
-| `POST …/research/:id/start` | 不 | **閘門一**：方向落成 `research_direction`（含模型提過、使用者刪掉的，`adopted=0`），狀態 → `collecting`。**按下去之前一次搜尋、一次擷取都沒有發生**（R5）|
-| `POST …/research/:id/abandon` | 不 | 放棄。**任何還沒結束的狀態都可以** |
-| `DELETE …/research/:id` | 不 | 刪紀錄。**只有終態刪得掉** —— 進行中的先放棄（`RESEARCH_STEP_INVALID`）|
+| `POST …/research/:id/start` | **會** | **閘門一**：先確定找來源那一支配得上（配不上就整支失敗，方向**還沒**落成），再把方向落成 `research_direction`（含模型提過、使用者刪掉的，`adopted=0`），狀態 → `collecting`，**開一筆蒐集作業**。按下去之前一次搜尋、一次擷取都沒有發生（R5）|
+| `POST …/research/:id/collect` | **會** | 「繼續蒐集」：開一筆**新的**作業，只做還沒做完的（R13）。只剩要抓的時候不檢查找來源那一支，也不花錢 |
+| `POST …/research/:id/finish` | 不 | **閘門二**「完成蒐集」：狀態 → `reviewing`，之後不再找、不再抓。作業還在跑的時候按不下去（`RESEARCH_STEP_INVALID`）|
+| `POST …/research/:id/candidates/:cid/upload` | 不 | 把你拿到的檔案對回一列候選（R10）。**跟 `import/file` 同一種請求**（body 是檔案、檔名走 `x-file-name`），走一般的匯入 |
+| `POST …/research/:id/candidates/:cid/unavailable` | 不 | `{reason, note}`：你說拿不到（`paywall`／`not-found`／`blocked`／`other`，R11）|
+| `POST …/research/:id/candidates/:cid/reopen` | 不 | 標錯了，改回「要你拿」|
+| `POST …/research/:id/abandon` | 不 | 放棄。**任何還沒結束的狀態都可以**；還在跑的蒐集會先被停下來 |
+| `DELETE …/research/:id` | 不 | 刪紀錄（含那一次的模型呼叫紀錄）。**只有終態刪得掉** —— 進行中的先放棄（`RESEARCH_STEP_INVALID`）|
 
 > **規劃對話走哪個服務由「模型分工」那張表決定**（`tasks.plan`），而**三個服務都可以**
 > （ADR-0033 D5）：Claude Code 與量過會搜尋的 OpenAI 相容 API 邊查邊談，本機 Ollama 只能談。
@@ -412,6 +417,15 @@
 >
 > **`RESEARCH_*` 不借用 `RUN_*`**：研究與作業是兩件事（D3），而借用的代價是使用者看到的
 > 那句話在講另一件事（「這次作業還在跑，沒辦法復原」對一個停在規劃中的研究完全不成立）。
+>
+> **每一支都回整份研究的畫面**（`ResearchView`：規劃、對話、方向與它們的數字、候選、`collect`、花費、
+> 走哪個服務），不是「成功了，請再讀一次」—— 後者在兩次請求之間留一個空隙，畫面會閃一下舊的狀態。
+>
+> **每一列候選帶著 `actions`**（上傳／標拿不到／改回要你拿按不按得下去，`mayActOnCandidate`）。
+> 畫面不自己判斷：兩邊各判一次的話，遲早會出現一顆按了就報錯的按鈕。
+>
+> **蒐集的進度走作業那一條 SSE**（`…/runs/:runId/events`，`collect.runId`）—— 研究自己沒有進度通道，
+> 做事的是那一筆作業（D3）。事件多一種 `direction`（一條方向搜完了）。
 
 ### 擴展作業（舊版流程，Stage 22 退場）
 
@@ -421,7 +435,7 @@
 | `POST …/runs/:runId/angles` | `{angles: [id]}`。使用者勾選要展開哪幾條，**這一步才真的開始**。一次最多 5 條 |
 | `GET …/runs/:runId/events` | **SSE**：逐項進度、節流狀態、**每條角度做完的 `angle` 事件** |
 | `POST …/runs/:runId/cancel` | 取消 ＝ 殺子程序 ＋ 標 `已取消`，**已寫入的保留**。**匯入與擴展走同一支** |
-| `GET …/runs` ／ `/runs/:runId` | 作業紀錄。詳細那一支另外回 `angles`（**含沒被勾的那幾條**）|
+| `GET …/runs` ／ `/runs/:runId` | 作業紀錄。詳細那一支另外回 `angles`（**含沒被勾的那幾條**）。v0.25.0 起每一列多 `heldByResearch`：屬於一次還沒結束的研究 → **不給「復原」那顆按鈕**，改說為什麼（`RUN_OWNED_BY_RESEARCH`）|
 
 > **`POST /runs` 不會直接開始抓。** 它回子問題讓使用者勾 ——
 > 那一步是 REQ-0004 的驗收條件（「不是黑箱一次跑完」），不是可以省略的 UI 糖。

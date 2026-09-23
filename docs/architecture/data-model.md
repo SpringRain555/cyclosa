@@ -3,10 +3,11 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v9`，已實作。**
+> **現況：`schema v10`，已實作。**
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
 > `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`、
-> `007-vector-scan-index.sql`、`008-run-ended-reason.sql`、`009-research.sql`），
+> `007-vector-scan-index.sql`、`008-run-ended-reason.sql`、`009-research.sql`、
+> `010-research-collect.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07）**：11 張表、18 個索引、3 條 trigger。
@@ -45,6 +46,11 @@
 >   （ADR-0033 的「研究」，Stage 19）。一條約束靠**產生欄位 ＋ 部分唯一索引**守：
 >   **同一個專題同時只有一次研究或整理沒結束**。`run` 一欄都沒動 ——
 >   這一版一筆研究作業都不會建，而放寬它的 CHECK 要重建資料表（見下面那一節）。
+> - **v10（2026-09-23）**：**這個專案第一次重建資料表** —— `run`（`kind` 多 `research`／`consolidate`，
+>   多 `research_id` 與 `unpriced`）與 `item`（`kind` 多 `reference`、拿掉從來沒建過的 `paper`）。
+>   另外**新增 `research_candidate`**、`research_direction` 補三欄（搜過了沒有）。
+>   重建要在外鍵關著的時候跑，而**交易裡的 `PRAGMA foreign_keys` 是 no-op** —— 所以 migration 檔頭有一行標記，
+>   由執行器在交易外面關、提交前跑 `foreign_key_check`（見下面「重建資料表」那一節）。
 >
 > **升級既有資料庫之前會先用 `VACUUM INTO` 留一份複本到 `<資料根>\backups\`**，
 > 而且**備份失敗就不 migrate** —— 沒有退路的 migration 是這個專案不該自己製造的風險。
@@ -71,7 +77,7 @@ erDiagram
   RUN ||--|{ RUN_ITEM : "一個輸入一列"
   RUN_ITEM |o--o| ITEM : "成功時才有"
 
-  ITEM { text kind "web|pdf|image|text|paper|note" text lang text sha256 text status int read_at int low_confidence text error_code }
+  ITEM { text kind "web|pdf|image|text|note|reference" text lang text sha256 text status int read_at int low_confidence text error_code }
   RUN_ITEM { text requested text host text outcome text code int waited_ms }
   ENTITY { text type "person|org|place|event|work|concept" text name_zh text aliases_json text wikidata_qid }
   EDGE { text layer "derived|named|comention|similarity" text rel text origin "machine|human" real confidence text status }
@@ -464,19 +470,20 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 翻譯要標記來源模型與時間。**不自建跨語言對照表** ——
 實體對齊靠 LLM 判定（要出處）與選填的 Wikidata QID 當權威錨點。
 
-## 研究：三張表，而工作流與作業分開（schema v9，ADR-0033）
+## 研究：四張表，而工作流與作業分開（schema v9／v10，ADR-0033）
 
-**真正做事的仍然是 `run`**：蒐集是一筆、建圖是另一筆（Stage 20／22）。
+**真正做事的仍然是 `run`**：蒐集是一筆（「繼續蒐集」會再開一筆）、建圖是另一筆（Stage 22）。
 `research` 記的是**工作流停在哪**，理由在 ADR-0033 D3：「等你上傳」可以等好幾天，
 而一個好幾天都標著「執行中」的作業，下次打開專題時會被 `run-sweep` 掃成「上次停在半路」。
 **研究停在 `awaiting-user` 的時候，沒有任何作業在跑。**
 
 | 欄 | 說明 |
 |---|---|
-| `research.status` | `planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned` |
+| `research.status` | `planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`（轉移表在 `state-machines.md`）|
 | `research.plan_json` | **最新的一份規劃**（方向、跟專題的關係、刻意不查的範圍）。閘門一之前每談一輪就換一次 |
 | `research.hits_json` | 輸入主題當下的全文檢索命中（R1）。**不花錢的那一份事實**，同時是給模型看的素材 |
-| `research.collect_run_id`／`build_run_id` | → `run.id`（Stage 20／22 才會有值）|
+| `research.collect_run_id` | → `run.id`，**最新的那一筆**蒐集作業（v10 起有值）。之前那幾筆靠 `run.research_id` 找得回來 |
+| `research.build_run_id` | → `run.id`（Stage 22）|
 | `research.open_key` | **產生欄位**：終態是 `NULL`，其餘是 1 |
 
 **「同一個專題同時只有一次研究或整理沒結束」由資料庫守**（ADR-0033 D4）：
@@ -486,24 +493,82 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 `research_direction` 是**閘門一那一刻的快照**，不是規劃期間的即時狀態：落成的時候，
 對話裡模型提過、而最後那一份規劃裡沒有的（被刪掉或被改名的）也各寫成一列（`adopted = 0`）——
 「模型提了哪些、你留了哪些」是這次研究的一部分，跟 `run_angle` 保留沒被勾的角度同一個理由。
+v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_code`、`searched_at`：
+「繼續蒐集」只做還沒做完的（R13），而**搜失敗的要能重來、搜過而找到 0 份的是做完了** —— 三種要分得開。
 
-> **`run.kind` 這一版還沒放寬**（仍然只有 `import`／`expand`）：Stage 19 一筆研究作業都不會建。
-> 放寬它要重建資料表，而重建 `run` 必須先關外鍵（`run_item`／`run_angle` 是 CASCADE，
-> `DROP TABLE` 會連帶刪掉它們），關外鍵又必須在交易外面 —— 而 migration runner 把整份檔案
-> 包在一個交易裡。**所以那件事排在真的需要它的那一版**（Stage 20 的 v10）。
+### `research_candidate`：找到、還沒確認要不要進專題的一個來源（v10）
 
-## ⬜ schema v9 起的草案：研究、候選、書目節點（Stage 19–24）
+**同一次研究裡同一個網址只有一列**（`UNIQUE (research_id, url)`，`url` 是正規化過的）：
+兩條方向找到同一篇，第二條記在 `also_directions_json`。分成兩列的話它會被抓兩次、
+在確認畫面上出現兩次，而「每條方向找到幾份」會數錯。
 
-> **這一段是設計，不是現況** —— 2026-09-19 寫，等使用者逐條確認（ADR-0033、REQ-0009）。
+| 欄 | 說明 |
+|---|---|
+| `direction_id` | 第一條找到它的方向（`SET NULL`）|
+| `title`、`why` | 搜尋結果上的標題（原文，不翻；模型沒給就是空字串，畫面退回網址）與一句為什麼 |
+| `bib_json` | 作者、年份、出處 —— **搜尋結果裡看得到才填**，不叫模型猜（D7）。年份只收四位數 |
+| `expected_access` | `open`／`login`／`blocked`／`unknown`：**抓之前依你的紀錄的預期**（來源網站那一頁的判斷），不是模型說的 |
+| `acquisition` | 取得狀態（下表）|
+| `code` | 抓不到的那一種（既有的擷取錯誤碼，R9）；抓到了的是通知級的碼（重複、抽取信心低）|
+| `unavailable_reason` ＋ `reason_note` | 你說拿不到的原因（`paywall`／`not-found`／`blocked`／`other`，R11）|
+| `item_id` | 抓到或上傳之後的那一份（`SET NULL`）—— **抓回來的候選就是資料節點**（D8）|
+
+| `acquisition` | 意思 |
+|---|---|
+| `found` | 找到了，還沒抓 |
+| `fetching` | 正在抓。**只在作業活著的時候有意義** —— 停在半路的那幾列讀起來是 `found`，作業開始與結束時也放回 `found` |
+| `fetched` | 抓到了（或專題裡本來就有）|
+| `needs-user` | 要你拿：抓了拿不到（`code` 是擷取的錯誤碼），**或依你的紀錄多半要登入、會出驗證頁，所以沒去試**（`code` 是 `NULL`，R8）|
+| `uploaded` | 你上傳的那一份（R10）|
+| `unavailable` | 你說拿不到，而且說了原因 |
+
+**「拿不到」一定帶原因、原因只跟「拿不到」一起出現**，由一條表級的 CHECK 守
+（`(acquisition = 'unavailable') = (unavailable_reason IS NOT NULL)`）—— 兩邊各自寫的話，
+會出現一列「要你拿」卻帶著「付費牆」的候選。**最終狀態**（進圖／只留書目／丟掉）與初讀的
+「有沒有關」是 Stage 21／22 的欄位，**這一版沒有建**（一個沒有畫面讀它的欄位只是一個要記得填的欄位）。
+
+**上傳的那一份出處指得回候選的網址**，而且研究的紀錄刪掉之後也一樣：它的 `requested_url` 就是那個網址，
+`source_url` 是檔名（那個網址我們沒有抓過，manifest 也照檔案匯入寫）。那個網址抓失敗留下的那一列
+**直接被上傳的檔案接手**（同一個 id，REQ-0003 的同一條規則），`run_id` 換成那一筆上傳。
+
+### `run` 的兩欄（v10）
+
+| 欄 | 說明 |
+|---|---|
+| `research_id` | 這一筆屬於哪一次研究（`SET NULL` —— 研究刪掉之後作業留著，ADR-0033 D15）。研究的花費加總它的每一筆作業 |
+| `unpriced` | 這一筆裡**有幾次呼叫沒回報花費**。`cost_usd` 只加總回報過的，光看它分不出「都回報了」與「一半沒回報」—— 研究畫面要說的是「花了 $0.12，另外 1 次不知道」|
+
+**研究還沒結束的時候，它的作業不能復原**（`RUN_OWNED_BY_RESEARCH`）：候選表記著那幾份資料，
+刪掉的話它會指著不存在的東西。
+
+### 重建資料表：外鍵關著跑（v10 是第一次）
+
+SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表 → **新表換名**」（反過來「舊表先換名」
+會把別的表指著它的外鍵一起改成指向舊名字）。兩個實測到的坑（2026-09-23，`node:sqlite` 上）：
+
+1. **外鍵開著的時候 `DROP TABLE` 會先隱含一次 `DELETE`** —— `run_item`／`run_angle` 是 `ON DELETE CASCADE`，
+   逐項紀錄會被刪光；而**交易裡的 `PRAGMA foreign_keys = OFF` 是 no-op**。所以 migration 檔頭寫一行
+   `-- cyclosa: foreign-keys-off`，執行器（`database.ts` 的 `applyMigration`）在交易**外面**關外鍵，
+   提交前比一次 `foreign_key_check` 的列數（**多了才退回** —— 舊資料庫本來就斷掉的不該讓你從此打不開專題）。
+   `tests/guards/migration-rebuild.test.ts` 釘著「會 `DROP TABLE` 的 migration 一定帶這行」
+2. **別的表上的 trigger 指著被刪掉的表，換名那一步會失敗**（`note` 上的 `trg_note_needs_item_node` 讀 `item`）——
+   先拆掉、重建完再裝回（另一個解法是 `legacy_alter_table = ON`，那會改變換名時外鍵的改寫規則）
+
+`tests/infrastructure/migration-v10.test.ts` 對著一個塞了資料的 v9 資料庫升級，逐條比對重建前後的
+列數、索引與 trigger，並驗外鍵、唯一索引、trigger、新的 CHECK 都照樣作用。
+
+## ⬜ schema v11 起的草案：初讀、確認、書目節點（Stage 21–24）
+
+> **這一段是設計，不是現況** —— 2026-09-19 寫、2026-09-20 使用者確認（ADR-0033、REQ-0009）。
 > 欄位名與值域是草案；實作時**每個 Stage 各自一個 migration**（下面最後一張表），
-> 做完的那一部分才從這一段搬進上面的正文。
+> 做完的那一部分才從這一段搬進上面的正文（v9、v10 已經搬了）。
 
 | 表 | 存什麼 | 關鍵約束 |
 |---|---|---|
 | `research` | 一次研究或整理 | `kind` ∈ `research`／`consolidate`；`status` ∈ `planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`；**同一專題同時只有一列不在 `done`／`abandoned`**（ADR-0033 D4，用部分唯一索引守）|
 | `research_message` | 規劃對話的一輪 | `role` ∈ `user`／`model`；模型那一輪記**實際跑的模型**、走哪一個服務、花了多少（`NULL` ＝ 不知道，不是 0）、交出的那一份規劃 |
 | `research_direction` | 閘門一那一刻落成的方向 | `origin` ∈ `model`／`human`；**沒被採用的也留著**（`adopted=0`）—— 跟 `run_angle` 同一個理由 |
-| `research_candidate` | 一條候選來源 | 取得狀態與最終狀態**分兩欄**（見下）；同一次研究裡同一個網址只有一列 |
+| `research_candidate` | 一條候選來源 | ✅ v10 建了取得狀態那一半（上面正文）；**最終狀態 `decision` 與初讀的 `relevance` 在 v11／v12 用 `ADD COLUMN` 補** |
 
 **`research` 的欄位**：`id`、`kind`、`status`、`topic`（整理是 `NULL`）、`plan_json`（最新的一份規劃；閘門一之前會一直換）、
 `collect_run_id`、`build_run_id`（→ `run.id`；**機器工作仍然是 `run`**，研究只記工作流停在哪 —— ADR-0033 D3）、
@@ -524,11 +589,11 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 
 | 表 | 改什麼 | 怎麼改 |
 |---|---|---|
-| `item` | `kind` 多 `reference`（書目節點）、拿掉從來沒建過的 `paper` | **重建資料表**（SQLite 改不了既有的 CHECK）—— 這個專案的第一次；先 `VACUUM INTO` 備份、先在複本上跑 |
+| `item` | ✅ v10：`kind` 多 `reference`（書目節點）、拿掉從來沒建過的 `paper` | 重建資料表（上面正文「重建資料表」那一節）|
 | `item` | `title_zh`、`summary_zh`、`digested_by`、`digested_at`（初讀，衍生物 —— **原文欄位永遠不被覆蓋**）| `ADD COLUMN` |
 | `item` | `extracted_at`、`extracted_by`（「抽過了」—— 現在分不出「抽過但 0 條」與「沒抽過」）| `ADD COLUMN` |
-| `item` | `bib_json`（書目節點的作者、年份、出處）| `ADD COLUMN` |
-| `run` | `kind` 多 `research`、`consolidate` | 重建資料表（同上）|
+| `item` | `bib_json`（書目節點的作者、年份、出處）| `ADD COLUMN`（**v12**：書目節點在建圖那一步才建；候選自己的書目在 `research_candidate.bib_json`）|
+| `run` | ✅ v10：`kind` 多 `research`、`consolidate`；多 `research_id`、`unpriced` | 重建資料表 |
 | `note` | **不用改** —— `md_path` 從 v1 就在；附上的筆記檔是 `selector_json='[]'`（整份）的一則點註 | —— |
 
 **書目節點**：`kind='reference'`、`sha256` 是 `NULL`、`status='included'`。之後使用者補上正文 → **同一個 id** 轉成一般的資料節點
@@ -537,9 +602,9 @@ ADR-0010 第 2 條寫著錨點釘在 `sources/` 的不可變快照上。
 | Stage | migration | 內容 |
 |---|---|---|
 | ✅ 19 | v9 | `research`、`research_message`、`research_direction`（**做完了，搬到上面正文**）|
-| 20 | v10 | `research_candidate`；`item` 重建（`reference`）＋ `bib_json`；**`run` 重建**（`kind` 多 `research`／`consolidate`）—— 原本排在 v9，但 Stage 19 一筆研究作業都不會建，而重建 `run` 要先關外鍵（見上面正文那一段）|
-| 21 | v11 | `item` 的初讀四欄 |
-| 22 | v12 | `item` 的 `extracted_at`／`extracted_by`；`run` 再重建一次拿掉 `expand`；**舊的擴展紀錄一次性清除**（ADR-0033 D17：備份 → 逐筆走既有的復原 → 刪紀錄 → `DROP TABLE run_angle`。復原是 app 層的邏輯，不是 SQL）|
+| ✅ 20 | v10 | `research_candidate`（取得狀態那一半）；`research_direction` 的搜尋狀態；`item` 重建（`reference`、拿掉 `paper`）；`run` 重建（`kind`、`research_id`、`unpriced`）。**`item.bib_json` 挪到 v12**（書目節點在那時才建）|
+| 21 | v11 | `item` 的初讀四欄；`research_candidate` 的 `relevance`／`relevance_why` |
+| 22 | v12 | `item` 的 `extracted_at`／`extracted_by`、`bib_json`；`research_candidate.decision`；`run` 再重建一次拿掉 `expand`（**要不要做再定** —— 留著那個值不礙事，而重建有它的風險）；**舊的擴展紀錄一次性清除**（ADR-0033 D17：備份 → 逐筆走既有的復原 → 刪紀錄 → `DROP TABLE run_angle`。復原是 app 層的邏輯，不是 SQL）|
 
 **清除排在最後一個 migration**，不是第一個：這樣萬一 Stage 19 先單獨出貨，舊的擴展流程還活著。
 

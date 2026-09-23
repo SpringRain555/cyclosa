@@ -146,7 +146,7 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 > 用 `tools/dev/apply-extraction.ts`（走 `applyExtraction`，規則一條都不繞）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-守門測試在 `tests/guards/`。資料庫是 **schema v9**。
+守門測試在 `tests/guards/`。資料庫是 **schema v10**。
 
 > **這一節每個版本收尾都要改，而它已經失守過一次。**
 > 2026-09-11 回頭看的時候它還停在「v0.5.0」，寫著
@@ -172,7 +172,7 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
    （墓碑有明文例外），其餘走 `machineMayUpdateStatus`（重跑只附加出處）。
    **問錯順序的症狀是安靜的** —— 不是報錯，是墓碑例外從此不觸發。
 
-**動擴展之前一定要知道的四件**：
+**動擴展（與研究的找來源）之前一定要知道的六件**：
 
 1. **引文的位置一律自己找**（`locateQuote`，ADR-0021）。模型回的 `char_start`／
    `char_end` 直接丟掉 —— **找不到就沒有這條邊**。
@@ -188,6 +188,14 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 4. **`shell: true` 不替命令那一段加引號。** `needsShell` 只對 `.cmd`／`.bat`
    回 true；改回「Windows 一律用 shell」的話，路徑有空白的子程序會起不來，
    而**畫面上的訊息會是「連不上這個模型」**。
+5. **spawn 一律走 `spawnPiped`，工作目錄一律短**（2026-09-23）。Windows 上工作目錄
+   **超過 258 字元**時 `spawn` 回 `ENOENT`（看起來像「找不到指令」），**而兩條 stdio 管線
+   各丟一個沒人接的 `read ENOTCONN` —— 整個伺服器會停掉**。所以：沙箱是
+   `<專題>\agent\runs\<作業>\<第幾條>\`（不要再往深裡放）、管線的錯誤一律接住、
+   真的太長回 `IO_PATH_TOO_LONG`。**測試的沙箱路徑比使用者的短**，所以短路徑的綠燈不算數。
+6. **子程序的工作目錄要自己先建**（`prepareSandbox`），而且**成功失敗都掃**（`scanSandbox`）。
+   沒建的話 `spawn` 失敗，畫面上寫的是「沒設定」—— Stage 19 的規劃對話就是這樣，
+   而驗收用的是本機 Ollama（它不看工作目錄），所以沒被看見。
 
 **動關聯圖之前一定要知道的三件**：
 

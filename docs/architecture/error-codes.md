@@ -63,6 +63,7 @@
 | `IO_DATA_ROOT_TARGET_INVALID` | error | 要搬過去的位置不能用。`detail.reason`：`same`（就是現在這個）、`nested`（在現在這個底下，等於搬進自己）、`not-empty`（那裡已經有東西，蓋過去會毀掉它）| 換一個空的資料夾 |
 | `IO_DATA_ROOT_MOVE_BLOCKED` | error | 資料根搬不動（有東西開著它），或跨磁碟區複製失敗 | **原本的資料完整留在原地，指標檔也沒有改。** 關掉開著那個資料夾的東西再試一次 |
 | `IO_DISK_FULL` | error | 寫入時磁碟空間不足 | 清出空間再重試。**已經寫進去的東西不會壞** —— 交易沒有完成就不會留下半筆 |
+| `IO_PATH_TOO_LONG` | error | 子程序的工作目錄（agent 的沙箱，在資料根底下）超過 Windows 的上限（`WINDOWS_CWD_LIMIT`，248 字元）。那時 `spawn` 回的是 `ENOENT`，**原本會被報成「沒設定」**（2026-09-23 實跑撞到，而且管線的錯誤讓整個伺服器停掉 —— 見 `spawn-piped.ts`）| 把資料根搬到短一點的位置（設定頁「資料位置」）|
 | `IO_SNAPSHOT_MISSING` | partial | `item.sha256` 對應的快照檔不見了 | 那一項的閱讀器打不開。可以重新擷取（會產生新快照），**但原有的點註會標成「找不到原文位置」** |
 | `IO_SNAPSHOT_CORRUPT` | error | 快照檔存在但雜湊對不上 —— **有人動過不可變的東西** | 這違反 ADR-0003。不要覆蓋它；把 `correlation_id` 交出來，並確認是不是同步軟體或防毒動過 `sources\` |
 | `IO_UNEXPECTED` | error | 檔案系統的未預期例外 | 把 `correlation_id` 交出來 |
@@ -125,6 +126,7 @@
 |---|:--:|---|---|
 | `RUN_NOT_FOUND` | error | 找不到那次作業 | 確認是不是在另一個專題底下 |
 | `RUN_STILL_ACTIVE` | error | 想復原一次**還在跑的**作業 | **先取消，或等它跑完** —— 一邊寫一邊刪會留下說不清楚的狀態 |
+| `RUN_OWNED_BY_RESEARCH` | error | 想復原的作業屬於一次**還沒結束的研究**（Stage 20）| **先把那次研究做完或放棄**。研究還在進行時，候選表記著這些資料；刪掉的話它會指著不存在的東西 |
 | `RUN_UNEXPECTED` | error | 作業處理的未預期例外 | 把 `correlation_id` 交出來 |
 
 ## `RESEARCH_*` —— 研究（v0.25.0，ADR-0033）
@@ -135,7 +137,9 @@
 |---|:--:|---|---|
 | `RESEARCH_NOT_FOUND` | error | 找不到這次研究 | 確認是不是在另一個專題底下 |
 | `RESEARCH_ALREADY_OPEN` | error | 這個專題已經有一次研究或整理**還沒結束**（ADR-0033 D4）| 把那一次做完或放棄它。**兩次同時建圖會讓「這一次新增了什麼」數不清** |
-| `RESEARCH_STEP_INVALID` | error | 這一步在現在這個階段做不了（規劃定案後還要再談、一條方向都沒有就按開始）| **多半是畫面舊了** —— 重新整理看看它現在停在哪 |
+| `RESEARCH_STEP_INVALID` | error | 這一步在現在這個階段做不了（規劃定案後還要再談、一條方向都沒有就按開始、蒐集還在跑就按「完成蒐集」、對一列已經抓到的候選上傳）| **多半是畫面舊了** —— 重新整理看看它現在停在哪 |
+| `RESEARCH_CANDIDATE_NOT_FOUND` | error | 找不到那一列候選（Stage 20）| 重新整理；它可能屬於另一次研究，或那次研究已經被刪掉 |
+| `RESEARCH_CANDIDATES_OVERFLOW` | notice | 一條方向找到的候選**超過上限**（`MAX_CANDIDATES_PER_DIRECTION`），只留了前面那幾個 | 不必做什麼 —— 那一條搜完了。**要說出來**是因為不說的話你不會知道模型其實找到更多（R6 的同一條規則）|
 | `RESEARCH_UNEXPECTED` | error | 研究處理的未預期例外 | 把 `correlation_id` 交出來 |
 
 ## `GRAPH_*` —— 圖與裁決

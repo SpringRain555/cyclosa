@@ -672,84 +672,162 @@ export async function importFile(
     if (caseRow === null) return err('CASE_NOT_FOUND', cid, { slug });
     if (caseRow.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
 
-    const runId = newId();
-    const runItemId = newId();
-    const now = Date.now();
-    runs.insertRun(db, {
-      id: runId,
-      kind: 'import',
-      label: fileName,
-      total: 1,
-      correlationId: cid,
-      now,
-    });
-    runs.insertRunItem(db, { id: runItemId, runId, requested: fileName, host: null });
-    runs.startRun(db, runId, now);
-
-    const media = classifyExtension(fileName);
-    if (media.kind !== 'ok') {
-      runs.updateRunItem(db, {
-        id: runItemId,
-        outcome: 'failed',
-        code: 'FETCH_UNSUPPORTED_TYPE',
-        now: Date.now(),
-      });
-      runs.settleRunRow(db, {
-        id: runId,
-        status: 'failed',
-        succeeded: 0,
-        failed: 1,
-        now: Date.now(),
-      });
-      return ok({ runId, itemId: null, code: 'FETCH_UNSUPPORTED_TYPE' }, cid);
-    }
-
-    const itemId = newId();
-    items.insertPendingItem(db, {
-      id: itemId,
-      kind: media.itemKind,
-      requestedUrl: null,
-      title: fileName,
-      runId,
-      now,
-    });
-
-    // **檔案匯入也要寫向量。** 這一條與 URL 那條走同一支 `ingestBytes`，
-    // 但 provider 要各自載入 —— 它們是兩個獨立的進入點。
-    let providers: Providers | null = null;
-    try {
-      providers = await loadProviders();
-    } catch (e) {
-      logger.warn('載入 provider 設定失敗，這一份不寫向量', { reason: String(e) });
-    }
-
-    const result = await ingestBytes(db, caseFolderOf(dataRoot, slug), {
-      runItemId,
-      itemId,
-      providers,
-      requestedUrl: null,
-      finalUrl: fileName,
-      bytes,
-      contentType: null,
+    const done = await importFileInto(db, caseFolderOf(dataRoot, slug), {
       fileName,
-      hops: [],
+      bytes,
+      correlationId: cid,
     });
-
-    const failed = result.counts === 'failed' ? 1 : 0;
-    runs.settleRunRow(db, {
-      id: runId,
-      status: failed === 1 ? 'failed' : 'done',
-      succeeded: failed === 1 ? 0 : 1,
-      failed,
-      now: Date.now(),
-    });
-    reindexTitleRank(db);
-    if (caseRow.status === 'new') updateCaseStatus(db, 'ready', Date.now());
-
-    return ok({ runId, itemId: result.itemId, code: result.code }, cid);
+    return ok({ runId: done.runId, itemId: done.itemId, code: done.code }, cid);
   } finally {
     db.close();
   }
+}
+
+export interface FileImported {
+  readonly runId: string;
+  /** 寫進去（或認出是重複）的那一份。型別不支援的時候是 `null` */
+  readonly itemId: string | null;
+  readonly code: string | null;
+  /** **這一份沒進得去**（型別不支援、抽不出東西）。重複不算失敗 */
+  readonly failed: boolean;
+}
+
+/**
+ * 在一個已經開著的專題資料庫上匯入一個檔案（一筆 `kind='import'` 的作業）。
+ *
+ * **研究的「對回候選上傳」也走這一支**（R10，ADR-0033 D3／D7）：`forUrl` 是那一條候選的網址，
+ * 它寫進這一份的 `requested_url` —— **出處指得回那個網址**，研究的紀錄刪掉之後也一樣。
+ * `source_url` 仍然是檔名（它說的是「這些位元組實際從哪來」），manifest 也照檔案匯入寫：
+ * 那個網址**我們沒有抓過**，寫成抓過就是一筆假的擷取紀錄。
+ *
+ * 那個網址之前抓失敗留下的那一列（`processOneUrl` 先建 `pending` 再抓）**直接拿來用** ——
+ * 同一個 id，不長第二個節點（REQ-0003 的同一條規則）。
+ */
+export async function importFileInto(
+  db: DatabaseSync,
+  folder: string,
+  input: {
+    readonly fileName: string;
+    readonly bytes: Uint8Array;
+    readonly correlationId: string;
+    readonly forUrl?: string;
+    readonly researchId?: string;
+  },
+): Promise<FileImported> {
+  const { fileName, bytes } = input;
+  const runId = newId();
+  const runItemId = newId();
+  const now = Date.now();
+  runs.insertRun(db, {
+    id: runId,
+    kind: 'import',
+    label: fileName,
+    total: 1,
+    correlationId: input.correlationId,
+    now,
+    researchId: input.researchId ?? null,
+  });
+  runs.insertRunItem(db, { id: runItemId, runId, requested: fileName, host: null });
+  runs.startRun(db, runId, now);
+
+  const media = classifyExtension(fileName);
+  if (media.kind !== 'ok') {
+    runs.updateRunItem(db, {
+      id: runItemId,
+      outcome: 'failed',
+      code: 'FETCH_UNSUPPORTED_TYPE',
+      now: Date.now(),
+    });
+    runs.settleRunRow(db, {
+      id: runId,
+      status: 'failed',
+      succeeded: 0,
+      failed: 1,
+      now: Date.now(),
+    });
+    return { runId, itemId: null, code: 'FETCH_UNSUPPORTED_TYPE', failed: true };
+  }
+
+  const itemId = claimItem(db, {
+    forUrl: input.forUrl,
+    fileName,
+    kind: media.itemKind,
+    runId,
+    now,
+  });
+
+  // **檔案匯入也要寫向量。** 這一條與 URL 那條走同一支 `ingestBytes`，
+  // 但 provider 要各自載入 —— 它們是兩個獨立的進入點。
+  let providers: Providers | null = null;
+  try {
+    providers = await loadProviders();
+  } catch (e) {
+    logger.warn('載入 provider 設定失敗，這一份不寫向量', { reason: String(e) });
+  }
+
+  const result = await ingestBytes(db, folder, {
+    runItemId,
+    itemId,
+    providers,
+    requestedUrl: null,
+    finalUrl: fileName,
+    bytes,
+    contentType: null,
+    fileName,
+    hops: [],
+  });
+
+  const failed = result.counts === 'failed' ? 1 : 0;
+  runs.settleRunRow(db, {
+    id: runId,
+    status: failed === 1 ? 'failed' : 'done',
+    succeeded: failed === 1 ? 0 : 1,
+    failed,
+    now: Date.now(),
+  });
+  reindexTitleRank(db);
+  if (readCase(db)?.status === 'new') updateCaseStatus(db, 'ready', Date.now());
+
+  return { runId, itemId: result.itemId, code: result.code, failed: failed === 1 };
+}
+
+/**
+ * 這一份要寫進哪一列。
+ *
+ * - 一般的檔案匯入：新的一列，`requested_url` 是 `null`
+ * - 替一個網址拿的（`forUrl`）：那個網址**抓失敗留下的那一列**直接拿來用；沒有的話新的一列，
+ *   `requested_url` 就是那個網址。**那個網址已經有一份好好的資料**（例如你後來自己貼過）的話，
+ *   唯一索引不允許第二列用同一個網址 —— 那就當一般的檔案匯入，出處由研究的紀錄指回去
+ */
+function claimItem(
+  db: DatabaseSync,
+  input: {
+    readonly forUrl: string | undefined;
+    readonly fileName: string;
+    readonly kind: IngestKind;
+    readonly runId: string;
+    readonly now: number;
+  },
+): string {
+  const normalized = input.forUrl === undefined ? null : normalizeUrl(input.forUrl);
+  const url = normalized?.kind === 'ok' ? normalized.url : null;
+  const existing = url === null ? null : items.findByRequestedUrl(db, url);
+  if (existing !== null && existing.status === 'failed') {
+    items.markPending(db, existing.id, input.now);
+    // 這一份現在是**你上傳的**，不是那一次沒抓到的作業寫的 —— 「復原那一次作業」不該拿走它。
+    items.setRunId(db, existing.id, input.runId);
+    return existing.id;
+  }
+  const id = newId();
+  items.insertPendingItem(db, {
+    id,
+    kind: input.kind,
+    requestedUrl: existing === null ? url : null,
+    title: input.fileName,
+    runId: input.runId,
+    now: input.now,
+  });
+  return id;
 }
 
 // ── 取消與重試 ─────────────────────────────────────────────

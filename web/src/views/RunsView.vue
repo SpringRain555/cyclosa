@@ -103,7 +103,12 @@ function subscribe(id: string): void {
     if (event['type'] === 'throttled') {
       throttleNow.value = { host: String(event['host']), ms: Number(event['waitedMs']) };
     }
-    if (event['type'] === 'item' || event['type'] === 'angle' || event['type'] === 'settled') {
+    if (
+      event['type'] === 'item' ||
+      event['type'] === 'angle' ||
+      event['type'] === 'direction' ||
+      event['type'] === 'settled'
+    ) {
       throttleNow.value = null;
       void refreshRun(id);
     }
@@ -281,6 +286,34 @@ function providerLabel(r: Run): string {
   }
 }
 
+/**
+ * 清單上那一列的標題。**研究的蒐集作業標成「研究 · 主題」**：它的 `label` 就是主題，
+ * 而同一個主題在清單上可能同時有一筆匯入（你上傳的那幾份）—— 不標的話分不出哪一筆是機器在找。
+ */
+function titleOf(r: Run): string {
+  return r.kind === 'research' ? fill(t.research.runLabel, { topic: r.label }) : r.label;
+}
+
+/** 研究那一筆的「一項」是一條方向（同擴展數角度）；抓了幾份另外數。 */
+const fetchedCount = computed(
+  () => runItems.value.filter((i) => i.outcome === 'ok' || i.outcome === 'duplicate').length,
+);
+
+function countsOf(r: Run): string {
+  if (r.kind === 'research') {
+    return fill(t.research.runCounts, {
+      succeeded: r.succeeded,
+      failed: r.failed,
+      fetched: fetchedCount.value,
+    });
+  }
+  return fill(r.kind === 'expand' ? t.expand.counts : t.runs.counts, {
+    succeeded: r.succeeded,
+    failed: r.failed,
+    total: r.total,
+  });
+}
+
 function costText(r: Run): string {
   if (r.costUsd === null) return t.expand.costUnknown;
   if (r.costUsd === 0) return t.expand.costLocal;
@@ -401,7 +434,7 @@ async function rebuild(): Promise<void> {
         而匯入與舊版擴展是旁邊那兩件事。第一版排在下面，實際看過之後改上來 ——
         使用者要捲過三張卡才看得到現在正在做的那一次研究。
       -->
-      <ResearchPanel :slug="slug" @error="error = $event" />
+      <ResearchPanel :slug="slug" @error="error = $event" @runs-changed="loadRuns" />
 
       <div class="top">
         <section class="card import" :class="{ dragging }">
@@ -594,7 +627,7 @@ async function rebuild(): Promise<void> {
           <ul v-else class="rows">
             <li v-for="r in runList" :key="r.id">
               <button class="row" :class="{ active: r.id === runId }" @click="openRun(r.id)">
-                <span class="row-title">{{ r.label }}</span>
+                <span class="row-title">{{ titleOf(r) }}</span>
                 <span class="row-meta">
                   <!-- 沒勾就走掉的擴展停在 queued。**它不是在排隊，是在等一個不會來的人** —— 標成草稿。 -->
                   <span v-if="isDraft(r)" class="badge draft">{{ t.runControl.draft }}</span>
@@ -617,7 +650,7 @@ async function rebuild(): Promise<void> {
 
         <section v-if="run" class="detail">
           <header class="detail-head">
-            <h2>{{ run.label }}</h2>
+            <h2>{{ titleOf(run) }}</h2>
             <!--
             **擴展數的是角度，匯入數的是網址** —— 兩種 run 的「一項」不一樣，
             所以句子也不一樣。共用一句的話，畫面上會出現「共 1 項」
@@ -625,13 +658,7 @@ async function rebuild(): Promise<void> {
           -->
             <p class="counts">
               <span :class="['badge', run.status]">{{ t.runStatus[run.status] }}</span>
-              {{
-                fill(run.kind === 'expand' ? t.expand.counts : t.runs.counts, {
-                  succeeded: run.succeeded,
-                  failed: run.failed,
-                  total: run.total,
-                })
-              }}
+              {{ countsOf(run) }}
             </p>
             <!--
             **「已取消」有三種來源，而使用者只按過其中一種。**
@@ -664,7 +691,11 @@ async function rebuild(): Promise<void> {
                 <button v-if="graphFocusId !== null" @click="showOnGraph">
                   {{ t.runs.showOnGraph }}
                 </button>
-                <button :disabled="busyControl" @click="undo">
+                <!-- 研究還沒結束的作業不能復原（`RUN_OWNED_BY_RESEARCH`）：**說為什麼，不給一顆按了必定報錯的按鈕**。 -->
+                <span v-if="run.heldByResearch" class="hint">{{
+                  t.runControl.heldByResearch
+                }}</span>
+                <button v-else :disabled="busyControl" @click="undo">
                   {{ t.runControl.undo }}
                 </button>
               </template>
@@ -681,7 +712,7 @@ async function rebuild(): Promise<void> {
           **主題不在這裡。** 擴展的 `label` 就是 `topic` ——
           上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
         -->
-          <p v-if="run.kind === 'expand'" class="budget">
+          <p v-if="run.kind === 'expand' || run.kind === 'research'" class="budget">
             <span>{{ fill(t.expand.requests, { n: run.requests }) }}</span>
             <span>{{ costText(run) }}</span>
             <span v-if="run.providers" class="mono">{{

@@ -104,10 +104,27 @@ describe('三種上限', () => {
     expect(after.costUsd).toBeCloseTo(0.18);
   });
 
+  /**
+   * **「花了 $0.18」與「花了 $0.18，另外 1 次不知道」是兩句話**（schema v10 的 `run.unpriced`）。
+   * 一次研究可能同時走回報金額的 Claude Code 與不回報的 OpenAI 相容 API，
+   * 只留加總的話，後者那幾次就安靜地變成了 0。
+   */
+  it('沒回報的那幾次另外數，回報過的不算進去', () => {
+    const after = charge(charge(charge(EMPTY_BUDGET_STATE, 0.18, 10), null, 20), 0, 30);
+    expect(after.requests).toBe(3);
+    expect(after.unpriced).toBe(1);
+    // 本機模型回報的 0 是真的 0 —— 不是「不知道」
+    expect(charge(EMPTY_BUDGET_STATE, 0, 5).unpriced).toBe(0);
+  });
+
   it('金額上限只在有實際值時才擋', () => {
     const budget = { ...DEFAULT_BUDGET, maxCostUsd: 0.5 };
-    expect(mayContinue({ requests: 1, costUsd: null, elapsedMs: 0 }, budget).kind).toBe('ok');
-    expect(mayContinue({ requests: 1, costUsd: 0.6, elapsedMs: 0 }, budget).kind).toBe('cost');
+    expect(
+      mayContinue({ requests: 1, costUsd: null, unpriced: 1, elapsedMs: 0 }, budget).kind,
+    ).toBe('ok');
+    expect(mayContinue({ requests: 1, costUsd: 0.6, unpriced: 0, elapsedMs: 0 }, budget).kind).toBe(
+      'cost',
+    );
   });
 });
 

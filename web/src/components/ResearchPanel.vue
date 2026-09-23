@@ -1,37 +1,76 @@
 <script setup lang="ts">
 /**
- * 「研究」的規劃那一半（Stage 19，ADR-0033 D2／D5，REQ-0009 R1–R6）。
+ * 「研究」：規劃（Stage 19）與蒐集（Stage 20）。ADR-0033 D2／D3／D5／D7，REQ-0009 R1–R13。
  *
- * ## 這個元件的每一塊都在回答「現在花了什麼」
+ * ## 這個元件的每一塊都在回答「現在花了什麼、機器在做什麼、輪到誰」
  *
  * 舊的擴展按下去就開始搜尋、抓取、抽取，而使用者看不到模型打算怎麼找
  * （2026-09-18 的第 12 點）。所以這裡：
  *
  * - 開一次研究之前先說「只會查你已經有的資料，不花錢」
- * - 談一輪的按鈕旁邊說走哪個服務、會不會花錢、會不會上網查
- * - 閘門一旁邊說「按下去之前，一次搜尋、一次擷取都還沒有發生」
+ * - 談一輪、閘門一、繼續蒐集的按鈕旁邊說走哪個服務、會不會花錢
+ * - 蒐集的時候照方向分組列出每一個候選：抓到了、要你拿（**而且說得出為什麼**）、拿不到
+ * - 蒐集停在半路（程式關掉了）、你按了取消、機器做完了輪到你 —— 三種說法不一樣
  *
  * ## 方向是可以直接改的（R4）
  *
  * 改動先留在本地（`draft`），按「存下改過的方向」才送出去 ——
  * 每打一個字就送一次的話，一次研究會在伺服器上留下幾十個版本，
  * 而使用者**看不出哪一版是他要的那一版**。
+ *
+ * ## 哪一列可以按什麼，不是這裡判斷的
+ *
+ * 每一列候選帶著 `actions`（伺服器的 `mayActOnCandidate`）。畫面自己判斷的話，
+ * 兩邊的規則遲早會不一樣 —— 而使用者看到的是一顆按了就報錯的按鈕。
  */
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
-import { api, type ApiError, type DirectionInput, type Research } from '../api';
-import { fill, t } from '../i18n/zh-TW';
+import {
+  api,
+  type ApiError,
+  type ApiResult,
+  type Candidate,
+  type DirectionInput,
+  type FrozenDirection,
+  type Research,
+  type UnavailableReason,
+} from '../api';
+import { errorMessages, fill, t } from '../i18n/zh-TW';
 
 const props = defineProps<{ slug: string }>();
-const emit = defineEmits<{ (e: 'error', error: ApiError | null): void }>();
+const emit = defineEmits<{
+  (e: 'error', error: ApiError | null): void;
+  /**
+   * 作業清單可能變了（閘門一、繼續蒐集、上傳、蒐集收尾、放棄）。**這一頁下面那張作業紀錄只在打開時讀一次**，
+   * 不通知的話，剛開出來的那幾筆要重新整理才看得到（D10 截圖看出來的）。
+   */
+  (e: 'runs-changed'): void;
+}>();
+const router = useRouter();
 
 const list = ref<Research[]>([]);
 const current = ref<Research | null>(null);
 const topic = ref('');
 const said = ref('');
 const busy = ref<'' | 'start' | 'say' | 'save' | 'gate' | 'other'>('');
+/** 正在處理的那一列候選（上傳、標拿不到）。**一次只動一列**，其餘的按鈕照常可以按。 */
+const busyRow = ref<string | null>(null);
 /** 方向的本地版本。**送出去之前不動伺服器上那一份。** */
 const draft = ref<DirectionInput[]>([]);
+/** 每一列「拿不到的原因」的選擇與那一句自由填的話。 */
+const reasonDraft = ref<Record<string, UnavailableReason>>({});
+const noteDraft = ref<Record<string, string>>({});
+const throttleNow = ref<{ host: string; ms: number } | null>(null);
+/** 哪一列的「拿不到的原因」攤開了。**一次一列** —— 每一列都攤開一個下拉選單太重。 */
+const reasonOpen = ref<string | null>(null);
+
+const UNAVAILABLE_REASONS: readonly UnavailableReason[] = [
+  'paywall',
+  'not-found',
+  'blocked',
+  'other',
+];
 
 const open = computed(() =>
   current.value !== null && current.value.status !== 'done' && current.value.status !== 'abandoned'
@@ -49,6 +88,12 @@ const modelName = computed(() =>
     ? serviceName.value
     : service.value.model,
 );
+const findServiceName = computed(() => {
+  const find = current.value?.findService;
+  if (find === undefined) return '';
+  const name = t.settings.connectionNames[find.via];
+  return find.model.length === 0 ? name : `${name} · ${find.model}`;
+});
 
 function report(error: ApiError | null): void {
   emit('error', error);
@@ -63,7 +108,12 @@ function syncDraft(): void {
   }));
 }
 
-watch(current, syncDraft);
+// **只在換了一次研究、或規劃真的變了的時候重排本地版本** —— 蒐集中每抓到一份就會重讀一次，
+// 那時候把使用者正在打的字蓋掉是最糟的一種「畫面自己在動」。
+watch(
+  () => [current.value?.id, JSON.stringify(current.value?.plan.directions ?? [])] as const,
+  syncDraft,
+);
 
 async function load(): Promise<void> {
   const res = await api.listResearch(props.slug);
@@ -77,6 +127,78 @@ async function load(): Promise<void> {
 }
 
 watch(() => props.slug, load, { immediate: true });
+
+// ── 蒐集中：接上作業的進度（SSE）───────────────────────────
+//
+// 研究本身沒有進度通道 —— 做事的是那一筆作業（D3）。所以接的是作業的那一條，
+// 而每一個「做完了一步」的事件都重讀一次整份研究：候選表、數字、按鈕都跟著它。
+
+let stream: EventSource | null = null;
+let streamRun: string | null = null;
+let refreshing = false;
+let refreshAgain = false;
+
+function closeStream(): void {
+  stream?.close();
+  stream = null;
+  streamRun = null;
+  throttleNow.value = null;
+}
+onUnmounted(closeStream);
+
+async function refresh(): Promise<void> {
+  const id = current.value?.id;
+  if (id === undefined) return;
+  // **同時只重讀一次**：抓得快的時候事件一秒好幾個，每一個都送一次請求沒有意義。
+  if (refreshing) {
+    refreshAgain = true;
+    return;
+  }
+  refreshing = true;
+  const res = await api.getResearch(props.slug, id);
+  refreshing = false;
+  if (res.ok && current.value?.id === id) current.value = res.data;
+  if (refreshAgain) {
+    refreshAgain = false;
+    await refresh();
+  }
+}
+
+watch(
+  () => [current.value?.collect.live, current.value?.collect.runId] as const,
+  ([live, runId]) => {
+    if (live !== true || runId === null || runId === undefined) {
+      closeStream();
+      return;
+    }
+    if (streamRun === runId) return;
+    closeStream();
+    streamRun = runId;
+    stream = new EventSource(api.runEventsUrl(props.slug, runId));
+    stream.onmessage = (message) => {
+      const event = JSON.parse(message.data as string) as Record<string, unknown>;
+      if (event['type'] === 'throttled') {
+        throttleNow.value = { host: String(event['host']), ms: Number(event['waitedMs']) };
+        return;
+      }
+      if (event['type'] === 'item' || event['type'] === 'direction') {
+        throttleNow.value = null;
+        void refresh();
+      }
+      if (event['type'] === 'settled') {
+        closeStream();
+        void refresh().then(load);
+        emit('runs-changed');
+      }
+    };
+    stream.onerror = () => {
+      closeStream();
+      void refresh();
+    };
+  },
+);
+
+// ── 規劃 ────────────────────────────────────────────────────
 
 async function start(): Promise<void> {
   if (topic.value.trim().length === 0) return;
@@ -151,34 +273,97 @@ async function saveDirections(): Promise<void> {
   current.value = res.data;
 }
 
-async function gateOne(): Promise<void> {
-  const id = open.value?.id;
-  if (id === undefined) return;
-  busy.value = 'gate';
+/** 一顆會改狀態的按鈕：按下去、換成回來的那一份、重讀清單。 */
+async function act(
+  kind: typeof busy.value,
+  call: () => Promise<ApiResult<Research>>,
+): Promise<void> {
+  busy.value = kind;
   report(null);
-  const res = await api.startCollecting(props.slug, id);
+  const res = await call();
   busy.value = '';
   if (!res.ok) {
     report(res.error);
+    await refresh();
     return;
   }
   current.value = res.data;
   await load();
+  emit('runs-changed');
 }
 
-async function abandon(): Promise<void> {
+function gateOne(): void {
   const id = open.value?.id;
-  if (id === undefined) return;
-  busy.value = 'other';
+  if (id !== undefined) void act('gate', () => api.startCollecting(props.slug, id));
+}
+
+function abandon(): void {
+  const id = open.value?.id;
+  if (id !== undefined) void act('other', () => api.abandonResearch(props.slug, id));
+}
+
+// ── 蒐集 ────────────────────────────────────────────────────
+
+function resumeCollecting(): void {
+  const id = open.value?.id;
+  if (id !== undefined) void act('gate', () => api.resumeCollecting(props.slug, id));
+}
+
+function gateTwo(): void {
+  const id = open.value?.id;
+  if (id !== undefined) void act('gate', () => api.finishCollecting(props.slug, id));
+}
+
+/** 暫停／繼續／取消。**這三顆是作業的**（同作業紀錄那一頁），不是研究的。 */
+async function control(what: 'pause' | 'resume' | 'cancel'): Promise<void> {
+  const runId = open.value?.collect.runId;
+  if (runId === null || runId === undefined) return;
   report(null);
-  const res = await api.abandonResearch(props.slug, id);
-  busy.value = '';
+  const res =
+    what === 'pause'
+      ? await api.pauseRun(props.slug, runId)
+      : what === 'resume'
+        ? await api.resumeRun(props.slug, runId)
+        : await api.cancelRun(props.slug, runId);
+  if (!res.ok) report(res.error);
+  await refresh();
+}
+
+async function onRow(c: Candidate, call: () => Promise<ApiResult<Research>>): Promise<void> {
+  busyRow.value = c.id;
+  report(null);
+  const res = await call();
+  busyRow.value = null;
   if (!res.ok) {
     report(res.error);
+    await refresh();
     return;
   }
   current.value = res.data;
-  await load();
+  emit('runs-changed');
+}
+
+function uploadFor(c: Candidate, event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = '';
+  const id = open.value?.id;
+  if (file === undefined || id === undefined) return;
+  void onRow(c, () => api.uploadCandidate(props.slug, id, c.id, file));
+}
+
+function markUnavailable(c: Candidate): void {
+  const id = open.value?.id;
+  if (id === undefined) return;
+  const reason = reasonDraft.value[c.id] ?? 'paywall';
+  const note = noteDraft.value[c.id] ?? '';
+  reasonOpen.value = null;
+  void onRow(c, () => api.markCandidateUnavailable(props.slug, id, c.id, reason, note));
+}
+
+function reopen(c: Candidate): void {
+  const id = open.value?.id;
+  if (id !== undefined) void onRow(c, () => api.reopenCandidate(props.slug, id, c.id));
 }
 
 async function remove(entry: Research): Promise<void> {
@@ -198,11 +383,131 @@ function openEntry(entry: Research): void {
   current.value = entry;
 }
 
+function readItem(itemId: string): void {
+  void router.push(`/case/${encodeURIComponent(props.slug)}/reader/${encodeURIComponent(itemId)}`);
+}
+
+/** 「其他」要寫一句 —— 那一格空著的時候按鈕不給按。 */
+function mayMark(c: Candidate): boolean {
+  const reason = reasonDraft.value[c.id] ?? 'paywall';
+  return reason !== 'other' || (noteDraft.value[c.id] ?? '').trim().length > 0;
+}
+
+/** 採用的方向照順序；沒採用的另外列在最後（劃掉）。 */
+const adopted = computed(() => open.value?.directions.filter((d) => d.adopted) ?? []);
+const dropped = computed(() => open.value?.directions.filter((d) => !d.adopted) ?? []);
+
+/** 列在這一條底下的：**第一條找到它的是這一條**。別的方向也找到的只列一次。 */
+function rowsOf(d: FrozenDirection): Candidate[] {
+  return (open.value?.candidates ?? []).filter((c) => c.directionIds[0] === d.id);
+}
+
+/** 作業活著的時候，第一條還沒搜的就是正在搜的那一條（它照順序搜）。 */
+const searchingId = computed(() => {
+  const r = open.value;
+  if (r === null || !r.collect.live || r.collect.paused) return null;
+  return adopted.value.find((d) => d.searchState === 'pending')?.id ?? null;
+});
+
+function directionState(d: FrozenDirection): string {
+  if (d.searchState === 'failed') {
+    const reason = d.searchCode === null ? '' : (errorMessages[d.searchCode] ?? d.searchCode);
+    return fill(t.research.directionFailed, { reason });
+  }
+  if (d.searchState === 'pending') {
+    if (searchingId.value === d.id) return t.research.directionSearching;
+    return open.value?.collect.live === true
+      ? t.research.directionQueued
+      : t.research.directionPending;
+  }
+  if (d.tally.found === 0) return t.research.noCandidates;
+  const parts = [fill(t.research.tally, { found: d.tally.found, acquired: d.tally.acquired })];
+  if (d.tally.needsUser > 0) parts.push(fill(t.research.tallyNeedsUser, { n: d.tally.needsUser }));
+  if (d.tally.unavailable > 0) {
+    parts.push(fill(t.research.tallyUnavailable, { n: d.tally.unavailable }));
+  }
+  if (d.tally.pending > 0) parts.push(fill(t.research.tallyPending, { n: d.tally.pending }));
+  return parts.join('、');
+}
+
+/**
+ * 那一句說明是「要你動手的原因」還是「順帶一提」。**前者醒目、後者淡** ——
+ * 抓到了的那幾列常常帶著「抽取信心較低」這種通知，跟「要你拿」的原因一樣醒目的話，
+ * 真正要你處理的那幾列就不顯眼了。
+ */
+function noteIsReason(c: Candidate): boolean {
+  return c.acquisition === 'needs-user' || c.acquisition === 'unavailable';
+}
+
+/** 一列候選的那一句說明：為什麼要你拿、拿不到的原因、抓到了但有話要說。 */
+function noteOf(c: Candidate): string {
+  if (c.acquisition === 'unavailable' && c.unavailableReason !== null) {
+    const reason = t.research.unavailableReasons[c.unavailableReason];
+    const said = c.reasonNote.length > 0 ? `（${c.reasonNote}）` : '';
+    return fill(t.research.unavailableShown, { reason: `${reason}${said}` });
+  }
+  if (c.skipped) {
+    return fill(
+      c.expectedAccess === 'blocked' ? t.research.skippedBlocked : t.research.skippedLogin,
+      {
+        host: c.host,
+      },
+    );
+  }
+  if (c.code === null) return '';
+  return errorMessages[c.code] ?? c.code;
+}
+
+function bibOf(c: Candidate): string {
+  return [c.bib.authors, c.bib.year, c.bib.venue].filter((s) => s.length > 0).join(' · ');
+}
+
+/** 蒐集那一段現在是哪一種情況。**三種「沒有在跑」要說成三句不同的話**（見檔頭）。 */
+const collectState = computed<
+  'live' | 'paused' | 'interrupted' | 'awaiting' | 'cancelled' | 'failed' | 'reviewing' | null
+>(() => {
+  const r = open.value;
+  if (r === null || r.status === 'planning') return null;
+  if (r.status === 'reviewing') return 'reviewing';
+  if (r.collect.live) return r.collect.paused ? 'paused' : 'live';
+  if (r.status === 'collecting') return 'interrupted';
+  if (r.collect.runStatus === 'cancelled') return 'cancelled';
+  if (r.collect.runStatus === 'failed' && r.collect.errorCode !== null) return 'failed';
+  return 'awaiting';
+});
+
+const collectMessage = computed(() => {
+  const r = open.value;
+  switch (collectState.value) {
+    case 'live':
+      return t.research.collectLive;
+    case 'paused':
+      return t.research.collectPaused;
+    case 'interrupted':
+      return t.research.collectInterrupted;
+    case 'cancelled':
+      return t.research.awaitingCancelled;
+    case 'failed':
+      return fill(t.research.awaitingFailed, {
+        reason:
+          r?.collect.errorCode === null || r?.collect.errorCode === undefined
+            ? ''
+            : (errorMessages[r.collect.errorCode] ?? r.collect.errorCode),
+      });
+    case 'awaiting':
+      return t.research.awaitingBody;
+    case 'reviewing':
+      return t.research.reviewingBody;
+    default:
+      return '';
+  }
+});
+
 function when(ms: number): string {
   return new Date(ms).toLocaleString('zh-TW', { hour12: false });
 }
 
-/** 花費：**沒回報的那幾輪單獨說** —— 合成一個數字對線上端點是一句謊。 */
+/** 花費：**沒回報的那幾次單獨說** —— 合成一個數字對線上端點是一句謊。 */
 const costText = computed(() => {
   const row = current.value;
   if (row === null) return '';
@@ -248,8 +553,12 @@ const hitsText = computed(() => {
         <span class="muted small">{{ costText }}</span>
       </header>
 
-      <p class="hits">{{ hitsText }}</p>
-      <ul v-if="open.hits.length > 0" class="hit-list">
+      <!--
+        命中那一行是**輸入主題那一刻**的事實（R1）。過了閘門一就不顯示：那時專題裡多了抓回來的幾份，
+        「你已有的 10 份裡，1 份提到它」會是兩個不同時間的數字湊成的一句錯話（第一版就是那樣）。
+      -->
+      <p v-if="planning" class="hits">{{ hitsText }}</p>
+      <ul v-if="open.hits.length > 0 && planning" class="hit-list">
         <li v-for="hit in open.hits" :key="hit.itemId">
           <span class="hit-title">{{ hit.title }}</span>
           <span class="excerpt muted">{{ hit.excerpt }}</span>
@@ -344,21 +653,183 @@ const hitsText = computed(() => {
         </div>
       </div>
 
-      <!-- 閘門一之後：方向定案了。**照實說蒐集還沒做進這一版。** -->
-      <div v-else class="frozen">
-        <h3>{{ t.research.collectingTitle }}</h3>
-        <p class="callout pending">
-          {{
-            fill(t.research.collectingBody, { n: open.directions.filter((d) => d.adopted).length })
-          }}
+      <!-- 閘門一之後：蒐集（Stage 20）。照方向分組，每一列候選說得出它現在是哪一種、為什麼。 -->
+      <div v-else class="collect">
+        <h3>
+          {{ collectState === 'reviewing' ? t.research.reviewingTitle : t.research.collectTitle }}
+        </h3>
+        <p
+          :class="[
+            'callout',
+            collectState === 'awaiting' || collectState === 'reviewing' ? '' : 'pending',
+          ]"
+        >
+          {{ collectMessage }}
         </p>
-        <ol class="frozen-list">
-          <li v-for="d in open.directions" :key="d.id" :class="{ dropped: !d.adopted }">
+
+        <!-- 作業活著：暫停／取消，以及節流（**只在真的在抓的時候出現**，ui-workflows §4）。 -->
+        <div v-if="open.collect.live" class="actions">
+          <button class="small" @click="control(open.collect.paused ? 'resume' : 'pause')">
+            {{ open.collect.paused ? t.runControl.resume : t.runControl.pause }}
+          </button>
+          <button class="small" @click="control('cancel')">{{ t.runs.cancel }}</button>
+          <span v-if="throttleNow" class="hint now">
+            {{ fill(t.runs.throttleNow, { host: throttleNow.host, ms: throttleNow.ms }) }}
+          </span>
+        </div>
+
+        <!-- 還有沒做完的：繼續蒐集（R13）。**搜尋那一段會花錢**，按鈕旁邊先說。 -->
+        <template v-if="open.collect.mayResume">
+          <p class="hint">
+            {{
+              fill(t.research.workLeft, {
+                searches: open.collect.work.searches,
+                fetches: open.collect.work.fetches,
+              })
+            }}
+          </p>
+          <div class="actions">
+            <button :disabled="busy !== ''" @click="resumeCollecting">
+              {{ t.research.resume }}
+            </button>
+            <span class="hint">
+              {{
+                open.collect.work.searches > 0
+                  ? fill(t.research.resumeCosts, { service: findServiceName })
+                  : t.research.resumeFree
+              }}
+            </span>
+          </div>
+        </template>
+
+        <ol class="collect-directions">
+          <li v-for="d in adopted" :key="d.id" class="collect-direction">
+            <div class="direction-line">
+              <strong>{{ d.title }}</strong>
+              <span v-if="d.origin === 'human'" class="badge human">{{ t.research.edited }}</span>
+              <span class="muted small">{{ directionState(d) }}</span>
+            </div>
+            <p v-if="d.searchState === 'done' && d.searchCode !== null" class="muted small notice">
+              {{ errorMessages[d.searchCode] ?? d.searchCode }}
+            </p>
+            <p v-if="d.tally.found > rowsOf(d).length" class="muted small">
+              {{ fill(t.research.sharedElsewhere, { n: d.tally.found - rowsOf(d).length }) }}
+            </p>
+
+            <ul v-if="rowsOf(d).length > 0" class="candidates">
+              <li v-for="c in rowsOf(d)" :key="c.id" :class="['candidate', c.acquisition]">
+                <div class="cand-head">
+                  <span :class="['badge', 'acq', c.acquisition]">
+                    {{ t.research.acquisition[c.acquisition] }}
+                  </span>
+                  <button
+                    v-if="
+                      c.itemId !== null &&
+                      (c.acquisition === 'fetched' || c.acquisition === 'uploaded')
+                    "
+                    class="link cand-title"
+                    :title="t.research.openInReader"
+                    @click="readItem(c.itemId)"
+                  >
+                    {{ c.title.length > 0 ? c.title : c.url }}
+                  </button>
+                  <a
+                    v-else
+                    class="cand-title"
+                    :href="c.url"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    {{ c.title.length > 0 ? c.title : c.url }}
+                  </a>
+                  <span class="muted small host">{{ c.host }}</span>
+                </div>
+                <p v-if="c.why.length > 0" class="muted small why">{{ c.why }}</p>
+                <p class="muted small meta">
+                  <span v-if="bibOf(c).length > 0">{{ bibOf(c) }} · </span>
+                  {{ t.research.expectedLabel }}：{{ t.research.expected[c.expectedAccess] }}
+                  <template v-if="c.directionIds.length > 1">
+                    · {{ fill(t.research.alsoFoundBy, { n: c.directionIds.length - 1 }) }}
+                  </template>
+                </p>
+                <p
+                  v-if="noteOf(c).length > 0"
+                  :class="['small', 'note', noteIsReason(c) ? 'reason' : 'muted']"
+                >
+                  {{ noteOf(c) }}
+                </p>
+
+                <!-- 這一列按得下去的動作（伺服器說了算，見檔頭）。 -->
+                <div
+                  v-if="c.actions.upload || c.actions.unavailable || c.actions.reopen"
+                  class="cand-actions"
+                >
+                  <label v-if="c.actions.upload" class="btn small" :title="t.research.uploadHint">
+                    {{ busyRow === c.id ? t.research.uploading : t.research.upload }}
+                    <input
+                      type="file"
+                      hidden
+                      :disabled="busyRow !== null"
+                      @change="uploadFor(c, $event)"
+                    />
+                  </label>
+                  <button
+                    v-if="c.actions.unavailable && reasonOpen !== c.id"
+                    class="small"
+                    :disabled="busyRow !== null"
+                    @click="reasonOpen = c.id"
+                  >
+                    {{ t.research.unavailableOpen }}
+                  </button>
+                  <template v-if="c.actions.unavailable && reasonOpen === c.id">
+                    <select
+                      :value="reasonDraft[c.id] ?? 'paywall'"
+                      :aria-label="t.research.unavailableLabel"
+                      @change="
+                        reasonDraft[c.id] = ($event.target as HTMLSelectElement)
+                          .value as UnavailableReason
+                      "
+                    >
+                      <option v-for="r in UNAVAILABLE_REASONS" :key="r" :value="r">
+                        {{ t.research.unavailableReasons[r] }}
+                      </option>
+                    </select>
+                    <input
+                      v-if="(reasonDraft[c.id] ?? 'paywall') === 'other'"
+                      v-model="noteDraft[c.id]"
+                      type="text"
+                      class="note-input"
+                      :placeholder="t.research.notePlaceholder"
+                    />
+                    <button
+                      class="small"
+                      :disabled="busyRow !== null || !mayMark(c)"
+                      @click="markUnavailable(c)"
+                    >
+                      {{ t.research.markUnavailable }}
+                    </button>
+                    <button class="quiet small" @click="reasonOpen = null">
+                      {{ t.research.unavailableClose }}
+                    </button>
+                  </template>
+                  <button
+                    v-if="c.actions.reopen"
+                    class="quiet small"
+                    :disabled="busyRow !== null"
+                    @click="reopen(c)"
+                  >
+                    {{ t.research.reopen }}
+                  </button>
+                </div>
+              </li>
+            </ul>
+          </li>
+        </ol>
+
+        <ol v-if="dropped.length > 0" class="frozen-list">
+          <li v-for="d in dropped" :key="d.id" class="dropped">
             {{ d.title }}
-            <span v-if="!d.adopted" class="badge">{{ t.research.frozenNotAdopted }}</span>
-            <span v-else-if="d.origin === 'human'" class="badge human">{{
-              t.research.edited
-            }}</span>
+            <span class="badge">{{ t.research.frozenNotAdopted }}</span>
           </li>
         </ol>
       </div>
@@ -368,6 +839,11 @@ const hitsText = computed(() => {
           <p class="hint">{{ t.research.gateOneHint }}</p>
           <p v-if="draft.length > 0" class="hint">
             {{ fill(t.research.gateOneNext, { n: draft.length }) }}
+            {{
+              open.findService.costs
+                ? fill(t.research.gateOneRunsCosts, { service: findServiceName })
+                : fill(t.research.gateOneRunsFree, { service: findServiceName })
+            }}
           </p>
           <div class="actions">
             <button
@@ -378,6 +854,23 @@ const hitsText = computed(() => {
               {{ t.research.gateOne }}
             </button>
             <span v-if="draft.length === 0" class="hint">{{ t.research.gateOneNotReady }}</span>
+            <button class="quiet" :disabled="busy !== ''" @click="abandon">
+              {{ t.research.abandon }}
+            </button>
+          </div>
+        </template>
+        <template v-else-if="collectState !== 'reviewing'">
+          <p class="hint">
+            {{ open.collect.live ? t.research.gateTwoLive : t.research.gateTwoHint }}
+          </p>
+          <div class="actions">
+            <button
+              class="primary"
+              :disabled="busy !== '' || !open.collect.mayFinish"
+              @click="gateTwo"
+            >
+              {{ t.research.gateTwo }}
+            </button>
             <button class="quiet" :disabled="busy !== ''" @click="abandon">
               {{ t.research.abandon }}
             </button>
@@ -526,6 +1019,101 @@ const hitsText = computed(() => {
   color: var(--text-tertiary);
   text-decoration: line-through;
 }
+
+/* ── 蒐集 ── */
+.collect .callout {
+  margin-bottom: var(--s3);
+}
+.now {
+  color: var(--edge-pending);
+}
+.collect-directions {
+  margin: var(--s3) 0;
+  padding-left: var(--s4);
+  display: grid;
+  gap: var(--s4);
+}
+.direction-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.notice {
+  margin: var(--s1) 0 0;
+}
+.candidates {
+  list-style: none;
+  margin: var(--s2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s2);
+}
+.candidate {
+  padding: var(--s2);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius);
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+/* 要你拿的那幾列要一眼找得到 —— 它們是這一段唯一要你動手的東西。 */
+.candidate.needs-user {
+  border-color: var(--edge-pending);
+}
+.cand-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+/* 標題可能是一整串網址 —— 讓它斷行，不要把整張卡撐寬。 */
+.cand-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+  font-weight: 400;
+}
+.host {
+  overflow-wrap: anywhere;
+}
+.why,
+.meta,
+.note {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.note.reason {
+  color: var(--text-secondary);
+}
+.cand-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  margin-top: var(--s1);
+}
+.note-input {
+  flex: 1 1 16ch;
+  min-width: 0;
+}
+/* 取得狀態的徽章。**狀態一律是文字，顏色只是輔助**（ADR-0018，同作業紀錄那一頁）。 */
+.badge.acq.fetched,
+.badge.acq.uploaded {
+  border-color: var(--ui-success);
+  color: var(--ui-success);
+}
+.badge.acq.needs-user,
+.badge.acq.fetching {
+  border-color: var(--edge-pending);
+  color: var(--edge-pending);
+}
+.badge.acq.unavailable {
+  border-color: var(--line-muted);
+  color: var(--text-tertiary);
+}
+
 .gate {
   margin-top: var(--s3);
   padding-top: var(--s3);

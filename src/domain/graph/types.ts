@@ -14,8 +14,13 @@
 /** 圖上有兩種節點。`node` 這個字不單獨用 —— 見 glossary 的「不可以叫什麼」。 */
 export type NodeKind = 'item' | 'entity';
 
-/** 資料節點的子型別。 */
-export type ItemKind = 'web' | 'pdf' | 'image' | 'text' | 'paper' | 'note';
+/**
+ * 資料節點的子型別。
+ *
+ * `reference` 是**只有書目、沒有正文**的資料節點（schema v10，ADR-0033 D12）：
+ * 研究裡拿不到、而你選了「只留書目」的那一份。v10 同時拿掉了從來沒建過的 `paper`。
+ */
+export type ItemKind = 'web' | 'pdf' | 'image' | 'text' | 'note' | 'reference';
 
 /**
  * 實體型別。**刻意只有六個。**

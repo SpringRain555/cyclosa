@@ -70,9 +70,31 @@ const NEXT: Readonly<Record<ResearchStatus, ResearchStatus | null>> = {
   abandoned: null,
 };
 
-/** 下一個狀態；終態回 `null`。 */
+/** 主線上的下一個狀態；終態回 `null`。 */
 export function nextStatus(status: ResearchStatus): ResearchStatus | null {
   return NEXT[status];
+}
+
+/**
+ * **主線以外的兩條路**（Stage 20 補上的，`state-machines.md` 有整張表）：
+ *
+ * | 從 | 到 | 什麼時候 |
+ * |---|---|---|
+ * | `awaiting-user` | `collecting` | 「繼續蒐集」：你按過取消，或有幾條方向搜失敗了 |
+ * | `collecting` | `reviewing` | 閘門二：蒐集停在半路（程式關掉了），而你決定不要剩下的 |
+ *
+ * 「停在半路之後繼續」是 `collecting → collecting`：狀態不變，換一筆新的作業。
+ */
+const DETOURS: readonly (readonly [ResearchStatus, ResearchStatus])[] = [
+  ['awaiting-user', 'collecting'],
+  ['collecting', 'reviewing'],
+];
+
+/** 這一步合不合法（主線、兩條岔路、或放棄）。 */
+export function mayMove(from: ResearchStatus, to: ResearchStatus): boolean {
+  if (to === 'abandoned') return mayAbandon(from);
+  if (NEXT[from] === to) return true;
+  return DETOURS.some(([a, b]) => a === from && b === to);
 }
 
 /**
@@ -120,3 +142,5 @@ export function statusOf(value: unknown): ResearchStatus {
 export function kindOf(value: unknown): ResearchKind {
   return value === 'consolidate' ? 'consolidate' : 'research';
 }
+
+export * from './collect.js';

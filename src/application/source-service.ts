@@ -334,10 +334,19 @@ const UNFETCHABLE: readonly SiteAccess[] = [
 export async function sourceHints(dataRoot: string | null): Promise<SourceHints> {
   const listed = await listSources(dataRoot);
   if (!listed.ok) return EMPTY_SOURCE_HINTS;
+  return hintsFrom(listed.data);
+}
+
+/**
+ * 同一份清單算出四段提示。**拆出來的理由是研究的蒐集要同一份清單做兩件事**
+ * （提示詞，以及每個候選抓之前的預期 —— `research-collect.ts`），
+ * 而 `listSources` 會逐一打開每個專題的資料庫，呼叫兩次就掃兩次。
+ */
+export function hintsFrom(listed: readonly SourceRow[]): SourceHints {
   const noRecord = (r: SourceRow): boolean => r.verdict.basis === 'none';
   /** 沒有紀錄的時候，唯一的起點是 `expected`。 */
   const usuallyWalled = (r: SourceRow): boolean => r.expected === 'login' || r.expected === 'mixed';
-  const rows = listed.data
+  const rows = listed
     .filter((r) => r.enabled && !r.discovered)
     .sort(
       (a, b) => Number(a.builtIn) - Number(b.builtIn) || Number(noRecord(a)) - Number(noRecord(b)),

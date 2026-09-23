@@ -85,6 +85,14 @@ export const ERROR_CODES = {
   /** 資料根搬不動 —— 有東西開著它。**資料完整留在原地。** */
   IO_DATA_ROOT_MOVE_BLOCKED: 'error',
   IO_DISK_FULL: 'error',
+  /**
+   * **路徑太長，Windows 開不了**（2026-09-23 實跑撞到的）。
+   *
+   * 子程序的工作目錄（agent 的沙箱）在資料根底下，資料根放得夠深就會超過 Windows 的上限；
+   * 那時 `spawn` 回的是 `ENOENT`，原本會被報成「沒設定」—— 叫人去改一個沒有壞的設定。
+   * 要改的是資料根的位置（設定頁「資料位置」）。`spawn-piped.ts` 的檔頭有完整的經過。
+   */
+  IO_PATH_TOO_LONG: 'error',
   IO_SNAPSHOT_MISSING: 'partial',
   IO_SNAPSHOT_CORRUPT: 'error',
   IO_UNEXPECTED: 'error',
@@ -203,6 +211,13 @@ export const ERROR_CODES = {
    * 而使用者要做的事很明確：**先取消，或等它跑完。**
    */
   RUN_STILL_ACTIVE: 'error',
+  /**
+   * 想復原的作業屬於一次**還沒結束的研究**（Stage 20）。
+   *
+   * 蒐集抓回來的候選就是資料節點，而候選表記著它們 —— 研究還在進行的時候刪掉它們，
+   * 候選表會指著不存在的資料。**先把研究做完或放棄**，那幾份就只是資料，照常可以復原。
+   */
+  RUN_OWNED_BY_RESEARCH: 'error',
   RUN_UNEXPECTED: 'error',
 
   // ── RESEARCH_* 研究（v0.25.0，ADR-0033）──────────────────
@@ -226,6 +241,15 @@ export const ERROR_CODES = {
    * 走到那裡就是程式的錯）。**這一條多半是畫面舊了**：另一個分頁已經把它推到下一步。
    */
   RESEARCH_STEP_INVALID: 'error',
+  /** 找不到那一列候選（Stage 20）—— 多半是畫面舊了，或它屬於另一次研究。 */
+  RESEARCH_CANDIDATE_NOT_FOUND: 'error',
+  /**
+   * 一條方向找到的候選**超過上限**，只留了前面那幾個（`MAX_CANDIDATES_PER_DIRECTION`）。
+   *
+   * 不是失敗 —— 那一條搜完了。**但要說**（R6 的同一條規則：超過上限不靜默截掉），
+   * 否則使用者不會知道模型其實找到更多。
+   */
+  RESEARCH_CANDIDATES_OVERFLOW: 'notice',
   RESEARCH_UNEXPECTED: 'error',
 
   // ── GRAPH_* 圖與裁決 ─────────────────────────────────────

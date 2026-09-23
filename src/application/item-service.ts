@@ -10,6 +10,7 @@ import { nextItemStatus, type ItemStatus } from '../domain/ingest/state.js';
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
+import * as research from '../infrastructure/db/repositories/research-repo.js';
 import { dropIndexFor } from '../infrastructure/index/writer.js';
 import {
   isStaleDerived,
@@ -87,6 +88,13 @@ export interface ItemDetail {
   /** 同一個排序下的前後兩份 —— 閱讀器的「312 份中的第 N 份」要用它。 */
   readonly neighbours: { readonly previous: string | null; readonly next: string | null };
   readonly position: { readonly index: number; readonly total: number };
+  /**
+   * 這一份是一次**還沒結束的研究**的候選（ADR-0033 D8，Stage 20）。
+   *
+   * 抓回來的候選就是資料節點，閱讀器裡可以先讀 —— **但它還沒被確認**，
+   * 而且閘門三之前一條關聯都不會從它抽出來。閱讀器頂部那一行「候選 · 研究『…』還沒確認」就讀這一欄。
+   */
+  readonly candidacy: { readonly researchId: string; readonly topic: string } | null;
 }
 
 export async function getItem(
@@ -118,6 +126,7 @@ export async function getItem(
           next: index >= 0 && index + 1 < ids.length ? (ids[index + 1] as string) : null,
         },
         position: { index: index < 0 ? 0 : index + 1, total: ids.length },
+        candidacy: research.openCandidacyOf(db, itemId),
       },
       cid,
     );

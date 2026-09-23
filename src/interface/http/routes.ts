@@ -59,6 +59,13 @@ import {
   type DirectionInput,
 } from '../../application/research-service.js';
 import {
+  finishCollecting,
+  markCandidateUnavailable,
+  reopenCandidate,
+  resumeCollecting,
+  uploadCandidate,
+} from '../../application/research-collect.js';
+import {
   listModelsFor,
   listProviders,
   saveProviders,
@@ -402,10 +409,10 @@ function registerExpandRoutes(app: FastifyInstance, ctx: AppContext): void {
 }
 
 /**
- * 研究（Stage 19，ADR-0033）。**這一版只到閘門一。**
+ * 研究（ADR-0033）：規劃與閘門一（Stage 19）、蒐集與閘門二（Stage 20）。
  *
  * 路由只做「解析請求 → 呼叫 service → 對映錯誤」—— 規則一條都不在這裡
- * （可不可以再談、閘門按不按得下去在 `domain/research`）。
+ * （可不可以再談、閘門按不按得下去、哪一列可以上傳在 `domain/research`）。
  */
 function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get<{ Params: { slug: string } }>('/api/cases/:slug/research', async (req, reply) => {
@@ -475,6 +482,98 @@ function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
       return send(reply, await abandonResearch(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  // ── 蒐集（Stage 20）──────────────────────────────────────
+
+  /** 繼續蒐集：開一筆新的作業，只做還沒做完的（R13）。**搜尋那一段會花錢。** */
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId/collect',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await resumeCollecting(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  /** 閘門二「完成蒐集」：之後不再找、不再抓（R12）。 */
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId/finish',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await finishCollecting(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  /**
+   * 把你拿到的檔案對回一列候選（R10）。**跟 `import/file` 同一種請求**：
+   * body 整個是檔案內容，檔名走 `x-file-name` 標頭。
+   */
+  app.post<{ Params: { slug: string; researchId: string; candidateId: string } }>(
+    '/api/cases/:slug/research/:researchId/candidates/:candidateId/upload',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const fileName = decodeFileName(req.headers['x-file-name']);
+      if (fileName.trim().length === 0) {
+        return reply.code(400).send({ ok: false, code: 'FETCH_BAD_URL' });
+      }
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.byteLength === 0) {
+        return reply.code(400).send({ ok: false, code: 'PARSE_EMPTY_CONTENT' });
+      }
+      return send(
+        reply,
+        await uploadCandidate(
+          dataRoot,
+          req.params.slug,
+          req.params.researchId,
+          req.params.candidateId,
+          { name: fileName, bytes: new Uint8Array(body) },
+        ),
+      );
+    },
+  );
+
+  /** 你說拿不到，而且說了原因（R11）。 */
+  app.post<{
+    Params: { slug: string; researchId: string; candidateId: string };
+    Body: { reason?: unknown; note?: unknown };
+  }>(
+    '/api/cases/:slug/research/:researchId/candidates/:candidateId/unavailable',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await markCandidateUnavailable(
+          dataRoot,
+          req.params.slug,
+          req.params.researchId,
+          req.params.candidateId,
+          { reason: req.body?.reason, note: req.body?.note },
+        ),
+      );
+    },
+  );
+
+  /** 標錯了 —— 改回「要你拿」。 */
+  app.post<{ Params: { slug: string; researchId: string; candidateId: string } }>(
+    '/api/cases/:slug/research/:researchId/candidates/:candidateId/reopen',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await reopenCandidate(
+          dataRoot,
+          req.params.slug,
+          req.params.researchId,
+          req.params.candidateId,
+        ),
+      );
     },
   );
 

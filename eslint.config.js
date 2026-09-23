@@ -12,7 +12,10 @@ import prettier from 'eslint-config-prettier';
  */
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'web/dist/**', 'node_modules/**', 'docs/**'],
+    // `tmp/` 是測試的沙箱根（`vitest.config.ts` 的 `SANDBOX_ROOT`，也在 `.gitignore` 裡）。
+    // 一條收尾失敗的 e2e 會把它的假 CLI（`.mjs`）留在那裡，而 lint 掃到它就整片紅 ——
+    // 2026-09-23 就是這樣：測試全綠，eslint 報了 255 個 `process is not defined`。
+    ignores: ['dist/**', 'web/dist/**', 'node_modules/**', 'docs/**', 'tmp/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

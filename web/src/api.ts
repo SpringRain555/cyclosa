@@ -122,7 +122,8 @@ export type ItemStatus = 'pending' | 'fetched' | 'parsed' | 'included' | 'exclud
 
 export interface Item {
   id: string;
-  kind: 'web' | 'pdf' | 'image' | 'text' | 'paper' | 'note';
+  /** `reference` ＝ 只有書目、沒有正文（研究裡拿不到、只留書目的那一份，schema v10） */
+  kind: 'web' | 'pdf' | 'image' | 'text' | 'note' | 'reference';
   title: string;
   requestedUrl: string | null;
   sourceUrl: string | null;
@@ -168,6 +169,8 @@ export interface ItemDetail {
   item: Item;
   neighbours: { previous: string | null; next: string | null };
   position: { index: number; total: number };
+  /** 這一份是一次**還沒結束的研究**的候選（閱讀器頂部「候選 · 研究『…』還沒確認」，D8） */
+  candidacy: { researchId: string; topic: string } | null;
 }
 
 export interface RunItem {
@@ -193,7 +196,8 @@ export interface ReadReset {
 
 export interface Run {
   id: string;
-  kind: 'import' | 'expand';
+  /** `research` ＝ 研究裡的機器工作（蒐集一筆、建圖一筆）；`expand` 是舊版擴展 */
+  kind: 'import' | 'expand' | 'research' | 'consolidate';
   status: 'queued' | 'running' | 'done' | 'partial' | 'cancelled' | 'failed';
   label: string;
   total: number;
@@ -222,6 +226,12 @@ export interface Run {
   requests: number;
   /** **`null` 與 0 是兩件事**：本機模型真的是 0，沒回報的是不知道 */
   costUsd: number | null;
+  /** 屬於哪一次研究（研究被刪掉之後是 `null`，作業留著） */
+  researchId: string | null;
+  /** 有幾次呼叫沒回報花費 —— `costUsd` 只加總回報過的那幾次 */
+  unpriced: number;
+  /** 屬於一次還沒結束的研究 —— 那時候不能復原（畫面換成一句為什麼） */
+  heldByResearch: boolean;
 }
 
 // ── 擴展──────────────────────────────────────────
@@ -282,10 +292,79 @@ export interface Direction {
   origin: 'model' | 'human';
 }
 
+/** 一條方向找到幾份、拿到幾份…… **數的，不叫模型說**（ADR-0033 D10）。 */
+export interface DirectionTally {
+  found: number;
+  acquired: number;
+  needsUser: number;
+  unavailable: number;
+  pending: number;
+}
+
 /** 閘門一之後那張表；`adopted = false` 是模型提過、你刪掉的。 */
 export interface FrozenDirection extends Direction {
   id: string;
   adopted: boolean;
+  /** 搜過了沒有。**搜過、找到 0 份的是 `done`**，搜失敗的是 `failed`（「繼續蒐集」會重來） */
+  searchState: 'pending' | 'done' | 'failed';
+  searchCode: string | null;
+  tally: DirectionTally;
+}
+
+/** 候選的取得狀態（跟 Stage 22 的「進圖／只留書目／丟掉」是兩件事）。 */
+export type Acquisition =
+  'found' | 'fetching' | 'fetched' | 'needs-user' | 'uploaded' | 'unavailable';
+
+/** 抓之前**依你的紀錄**的預期 —— 不是模型說的。 */
+export type ExpectedAccess = 'open' | 'login' | 'blocked' | 'unknown';
+
+export type UnavailableReason = 'paywall' | 'not-found' | 'blocked' | 'other';
+
+export interface Bibliography {
+  authors: string;
+  year: string;
+  venue: string;
+}
+
+export interface Candidate {
+  id: string;
+  /** 第一條找到它的方向在最前面 */
+  directionIds: string[];
+  url: string;
+  host: string;
+  /** 空的時候畫面退回網址 */
+  title: string;
+  why: string;
+  bib: Bibliography;
+  expectedAccess: ExpectedAccess;
+  acquisition: Acquisition;
+  code: string | null;
+  /** 依你的紀錄沒去試（要登入、會出驗證頁） */
+  skipped: boolean;
+  unavailableReason: UnavailableReason | null;
+  reasonNote: string;
+  itemId: string | null;
+  /** 這一列上現在按得下去的動作。**伺服器判斷，畫面照著顯示** */
+  actions: { upload: boolean; unavailable: boolean; reopen: boolean };
+}
+
+/** 一條服務：誰在做、會不會花錢。 */
+export interface ServiceView {
+  via: ConnectionKind;
+  model: string;
+  costs: boolean;
+}
+
+export interface CollectState {
+  runId: string | null;
+  live: boolean;
+  paused: boolean;
+  runStatus: Run['status'] | null;
+  endedReason: Run['endedReason'];
+  errorCode: string | null;
+  work: { searches: number; fetches: number };
+  mayResume: boolean;
+  mayFinish: boolean;
 }
 
 /** 改方向時送出去的形狀（只有 `title` 是必要的）。 */
@@ -319,12 +398,9 @@ export interface ResearchMessage {
 }
 
 /** 規劃對話走哪個服務 —— 閘門旁邊那句「會花錢嗎」用它。 */
-export interface PlanService {
-  via: ConnectionKind;
-  model: string;
+export interface PlanService extends ServiceView {
   /** 這條服務會不會上網查。**本機 Ollama 是 false，而那不是壞掉。** */
   browses: boolean;
-  costs: boolean;
 }
 
 export interface Research {
@@ -340,10 +416,14 @@ export interface Research {
   plan: ResearchPlan;
   messages: ResearchMessage[];
   directions: FrozenDirection[];
+  candidates: Candidate[];
+  collect: CollectState;
   costUsd: number;
-  /** 有幾輪沒回報花費。**跟金額分開**：全部沒回報的顯示成 $0.00 是一句謊。 */
+  /** 有幾次沒回報花費（對話與作業加起來）。**跟金額分開**：全部沒回報的顯示成 $0.00 是一句謊。 */
   unknownCost: number;
   service: PlanService;
+  /** 找候選來源走哪個服務（閘門一與「繼續蒐集」旁邊那句話） */
+  findService: ServiceView;
 }
 
 // ── provider ─────────────────────────────────────
@@ -947,7 +1027,7 @@ export const api = {
       body: JSON.stringify({ angles }),
     }),
 
-  // ── 研究（Stage 19，ADR-0033）─────────────────────────
+  // ── 研究（Stage 19–20，ADR-0033）──────────────────────
   //
   // **開一次研究不花錢** —— 那一支只跑全文檢索；花錢的是 `converse`。
   // 閘門一（`startCollecting`）按下去之前，一次搜尋、一次擷取都沒有發生。
@@ -973,6 +1053,42 @@ export const api = {
     request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/start`, { method: 'POST' }),
   abandonResearch: (slug: string, id: string) =>
     request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/abandon`, { method: 'POST' }),
+  // ── 蒐集（Stage 20）──
+  /** 繼續蒐集：只做還沒做完的。**搜尋那一段會花錢** */
+  resumeCollecting: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/collect`, { method: 'POST' }),
+  /** 閘門二「完成蒐集」 */
+  finishCollecting: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/finish`, { method: 'POST' }),
+  /** 把你拿到的檔案對回一列候選（跟匯入檔案同一種請求） */
+  uploadCandidate: (slug: string, id: string, candidateId: string, file: File) =>
+    request<Research>(
+      `/api/cases/${enc(slug)}/research/${enc(id)}/candidates/${enc(candidateId)}/upload`,
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-file-name': encodeURIComponent(file.name),
+        },
+        body: file,
+      },
+    ),
+  markCandidateUnavailable: (
+    slug: string,
+    id: string,
+    candidateId: string,
+    reason: UnavailableReason,
+    note: string,
+  ) =>
+    request<Research>(
+      `/api/cases/${enc(slug)}/research/${enc(id)}/candidates/${enc(candidateId)}/unavailable`,
+      { method: 'POST', body: JSON.stringify({ reason, note }) },
+    ),
+  reopenCandidate: (slug: string, id: string, candidateId: string) =>
+    request<Research>(
+      `/api/cases/${enc(slug)}/research/${enc(id)}/candidates/${enc(candidateId)}/reopen`,
+      { method: 'POST' },
+    ),
   deleteResearch: (slug: string, id: string) =>
     request<{ id: string }>(`/api/cases/${enc(slug)}/research/${enc(id)}`, { method: 'DELETE' }),
 

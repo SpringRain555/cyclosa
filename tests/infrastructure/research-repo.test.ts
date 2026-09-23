@@ -231,3 +231,168 @@ describe('對話與方向', () => {
     expect(research.listDirections(db, 'r1')).toEqual([]);
   });
 });
+
+// ══ v10：候選、方向的搜尋狀態、作業的花費 ═══════════════════
+
+function direction(id: string, researchId = 'r1', ord = 0): void {
+  research.insertDirection(db, {
+    id,
+    researchId,
+    ord,
+    title: `方向 ${id}`,
+    what: '',
+    expect: '',
+    keywords: [],
+    origin: 'model',
+    adopted: true,
+    now: NOW,
+  });
+}
+
+function add(id: string, url: string, directionId = 'd1'): boolean {
+  return research.addCandidate(db, {
+    id,
+    researchId: 'r1',
+    directionId,
+    url,
+    title: `標題 ${id}`,
+    why: '理由',
+    bib: { authors: '甲', year: '2024', venue: '' },
+    expectedAccess: 'unknown',
+    acquisition: 'found',
+    now: NOW,
+  });
+}
+
+describe('候選（v10）', () => {
+  it('同一次研究裡同一個網址只有一列；第二條方向找到的記在 also_directions', () => {
+    start('r1');
+    direction('d1');
+    direction('d2', 'r1', 1);
+    expect(add('c1', 'https://a.example/1')).toBe(true);
+    expect(add('c2', 'https://b.example/2')).toBe(true);
+    expect(add('c3', 'https://a.example/1', 'd2')).toBe(false);
+    // 同一條方向又找到一次 —— 不重複記。
+    expect(add('c4', 'https://a.example/1', 'd2')).toBe(false);
+
+    const rows = research.listCandidates(db, 'r1');
+    expect(rows.map((r) => [r.id, r.ord, r.alsoDirections])).toEqual([
+      ['c1', 0, ['d2']],
+      ['c2', 1, []],
+    ]);
+    expect(rows[0]?.bib).toEqual({ authors: '甲', year: '2024', venue: '' });
+  });
+
+  it('「拿不到」一定帶原因、原因只跟「拿不到」一起出現 —— 資料庫守著', () => {
+    start('r1');
+    direction('d1');
+    add('c1', 'https://a.example/1');
+    research.markUnavailable(db, { id: 'c1', reason: 'paywall', note: '沒有訂閱', now: NOW });
+    expect(research.getCandidate(db, 'c1')).toMatchObject({
+      acquisition: 'unavailable',
+      unavailableReason: 'paywall',
+      reasonNote: '沒有訂閱',
+    });
+    // 改回要你拿：原因一起清掉（不清的話 CHECK 會擋下來）。
+    research.setAcquisition(db, { id: 'c1', acquisition: 'needs-user', code: null, now: NOW });
+    expect(research.getCandidate(db, 'c1')).toMatchObject({
+      acquisition: 'needs-user',
+      unavailableReason: null,
+      reasonNote: '',
+    });
+    expect(() =>
+      db
+        .prepare(`UPDATE research_candidate SET unavailable_reason = 'paywall' WHERE id = 'c1'`)
+        .run(),
+    ).toThrow(/CHECK/);
+    expect(() =>
+      db.prepare(`UPDATE research_candidate SET acquisition = 'unavailable' WHERE id = 'c1'`).run(),
+    ).toThrow(/CHECK/);
+  });
+
+  it('停在半路的「抓取中」放回「還沒抓」', () => {
+    start('r1');
+    direction('d1');
+    add('c1', 'https://a.example/1');
+    research.setAcquisition(db, { id: 'c1', acquisition: 'fetching', code: null, now: NOW });
+    expect(research.resetFetching(db, 'r1', NOW)).toBe(1);
+    expect(research.getCandidate(db, 'c1')?.acquisition).toBe('found');
+  });
+
+  it('刪掉研究，候選跟著走', () => {
+    start('r1');
+    direction('d1');
+    add('c1', 'https://a.example/1');
+    research.updateResearchStatus(db, 'r1', 'abandoned', NOW);
+    expect(research.deleteResearch(db, 'r1')).toBe(true);
+    expect(research.listCandidates(db, 'r1')).toEqual([]);
+  });
+});
+
+describe('方向的搜尋狀態與研究的狀態（v10）', () => {
+  it('搜過、搜失敗分得開', () => {
+    start('r1');
+    direction('d1');
+    direction('d2', 'r1', 1);
+    research.markDirectionSearched(db, { id: 'd1', state: 'done', code: null, now: NOW });
+    research.markDirectionSearched(db, {
+      id: 'd2',
+      state: 'failed',
+      code: 'PROVIDER_TIMEOUT',
+      now: NOW,
+    });
+    expect(research.listDirections(db, 'r1').map((d) => [d.searchState, d.searchCode])).toEqual([
+      ['done', null],
+      ['failed', 'PROVIDER_TIMEOUT'],
+    ]);
+  });
+
+  it('**條件式換狀態**：已經不在那一步了就不換（放棄之後，蒐集收尾不會把它蓋回等你）', () => {
+    start('r1');
+    research.updateResearchStatus(db, 'r1', 'collecting', NOW);
+    research.updateResearchStatus(db, 'r1', 'abandoned', NOW);
+    expect(research.moveResearchIf(db, 'r1', 'collecting', 'awaiting-user', NOW)).toBe(false);
+    expect(research.getResearch(db, 'r1')?.status).toBe('abandoned');
+  });
+
+  it('花費把對話與作業加起來；作業裡沒回報的次數另外數', () => {
+    start('r1');
+    research.insertMessage(db, {
+      id: 'm1',
+      researchId: 'r1',
+      ord: 0,
+      role: 'model',
+      content: 'x',
+      costUsd: 0.02,
+      now: NOW,
+    });
+    db.prepare(
+      `INSERT INTO run (id, kind, status, correlation_id, created_at, research_id, cost_usd, unpriced)
+       VALUES ('run1', 'research', 'done', 'c', 1, 'r1', 0.3, 2),
+              ('run2', 'research', 'done', 'c', 2, 'r1', NULL, 1),
+              ('other', 'import', 'done', 'c', 3, NULL, 9, 5)`,
+    ).run();
+    expect(research.costSoFar(db, 'r1')).toEqual({ costUsd: 0.32, unknown: 3 });
+    expect(research.listResearchRunIds(db, 'r1')).toEqual(['run2', 'run1']);
+  });
+
+  it('閱讀器的候選標籤只認還沒結束的那一次研究', () => {
+    start('r1');
+    direction('d1');
+    db.prepare(
+      `INSERT INTO item (id, kind, title, status, created_at, updated_at)
+       VALUES ('i1', 'web', '一份', 'included', 1, 1)`,
+    ).run();
+    add('c1', 'https://a.example/1');
+    research.setAcquisition(db, {
+      id: 'c1',
+      acquisition: 'fetched',
+      code: null,
+      itemId: 'i1',
+      now: NOW,
+    });
+    expect(research.openCandidacyOf(db, 'i1')).toEqual({ researchId: 'r1', topic: '評測方法' });
+    research.updateResearchStatus(db, 'r1', 'abandoned', NOW);
+    expect(research.openCandidacyOf(db, 'i1')).toBeNull();
+  });
+});

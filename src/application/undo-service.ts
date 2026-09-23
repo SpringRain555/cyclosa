@@ -26,9 +26,11 @@
  */
 import { join } from 'node:path';
 
+import { isOpen } from '../domain/research/index.js';
 import { keptAnything, planUndo, type UndoPlan } from '../domain/run/index.js';
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
+import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { reindexTitleRank } from '../infrastructure/index/writer.js';
 import { removeDerived } from '../infrastructure/fs/case-files.js';
@@ -80,7 +82,21 @@ export async function undoRun(
   let deletedEntities: number;
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
-    if (runs.getRun(db, runId) === null) return err('RUN_NOT_FOUND', cid, { runId });
+    const run = runs.getRun(db, runId);
+    if (run === null) return err('RUN_NOT_FOUND', cid, { runId });
+    /**
+     * **一次還沒結束的研究，它的作業不能復原**（Stage 20）。
+     *
+     * 蒐集抓回來的候選就是資料節點（ADR-0033 D8），而候選表記著「這一列抓到了、是哪一份」。
+     * 研究還在等你、還沒確認的時候把那幾份刪掉，候選表就會寫著「抓到了」而指著一份不存在的資料 ——
+     * 確認那一步（Stage 22）會照著它去抽。研究做完或放棄之後，那幾份就只是資料，照常可以復原。
+     */
+    if (run.researchId !== null) {
+      const owner = research.getResearch(db, run.researchId);
+      if (owner !== null && isOpen(owner.status)) {
+        return err('RUN_OWNED_BY_RESEARCH', cid, { runId, researchId: owner.id });
+      }
+    }
 
     plan = planUndo(runs.runEdgeFacts(db, runId), runs.runItemFacts(db, runId));
 

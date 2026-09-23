@@ -7,17 +7,17 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
-import type { RunEndedReason, RunStatus } from '../../../domain/ingest/state.js';
+import type { RunEndedReason, RunKind, RunStatus } from '../../../domain/ingest/state.js';
 import type { RunEdgeFact, RunItemFact } from '../../../domain/run/index.js';
 
 export type RunItemOutcome =
   'queued' | 'running' | 'ok' | 'duplicate' | 'failed' | 'skipped' | 'cancelled';
 
-export type { RunEndedReason };
+export type { RunEndedReason, RunKind };
 
 export interface RunRow {
   readonly id: string;
-  readonly kind: 'import' | 'expand';
+  readonly kind: RunKind;
   readonly status: RunStatus;
   readonly label: string;
   readonly total: number;
@@ -45,6 +45,14 @@ export interface RunRow {
   readonly requests: number;
   /** **`null` 與 0 是兩件事**：本機模型真的是 0，沒回報的是不知道 */
   readonly costUsd: number | null;
+  // ── 研究才有的（schema v10）──────────────────────────────
+  /** 這一筆作業屬於哪一次研究。**研究被刪掉之後是 `null`**，作業本身留著（ADR-0033 D15） */
+  readonly researchId: string | null;
+  /**
+   * 有幾次呼叫**沒回報花費**。`costUsd` 只加總回報過的那幾次，
+   * 所以光看它分不出「全部都回報了」與「一半沒回報」。
+   */
+  readonly unpriced: number;
 }
 
 export interface RunItemRow {
@@ -68,7 +76,7 @@ const num = (v: unknown): number | null => (v === null || v === undefined ? null
 function toRun(row: Raw): RunRow {
   return {
     id: String(row['id']),
-    kind: String(row['kind']) as 'import' | 'expand',
+    kind: String(row['kind']) as RunKind,
     status: String(row['status']) as RunStatus,
     label: String(row['label'] ?? ''),
     total: Number(row['total'] ?? 0),
@@ -84,6 +92,8 @@ function toRun(row: Raw): RunRow {
     providers: str(row['providers_json']),
     requests: Number(row['requests'] ?? 0),
     costUsd: num(row['cost_usd']),
+    researchId: str(row['research_id']),
+    unpriced: Number(row['unpriced'] ?? 0),
   };
 }
 
@@ -107,18 +117,20 @@ export function insertRun(
   db: DatabaseSync,
   input: {
     readonly id: string;
-    readonly kind: 'import' | 'expand';
+    readonly kind: RunKind;
     readonly label: string;
     readonly total: number;
     readonly correlationId: string;
     readonly now: number;
     readonly topic?: string | null;
     readonly providers?: string | null;
+    /** 研究的作業才有（schema v10）。 */
+    readonly researchId?: string | null;
   },
 ): void {
   db.prepare(
-    `INSERT INTO run (id, kind, status, label, total, correlation_id, created_at, topic, providers_json)
-     VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO run (id, kind, status, label, total, correlation_id, created_at, topic, providers_json, research_id)
+     VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.kind,
@@ -128,6 +140,7 @@ export function insertRun(
     input.now,
     input.topic ?? null,
     input.providers ?? null,
+    input.researchId ?? null,
   );
 }
 
@@ -142,8 +155,15 @@ export function updateRunBudget(
   id: string,
   requests: number,
   costUsd: number | null,
+  /** 沒回報花費的次數（schema v10）。**跟 `costUsd` 一起寫**，分開寫會有一刻對不起來。 */
+  unpriced: number,
 ): void {
-  db.prepare('UPDATE run SET requests = ?, cost_usd = ? WHERE id = ?').run(requests, costUsd, id);
+  db.prepare('UPDATE run SET requests = ?, cost_usd = ?, unpriced = ? WHERE id = ?').run(
+    requests,
+    costUsd,
+    unpriced,
+    id,
+  );
 }
 
 /** 總項目數在擴展裡是「勾了幾條角度」，而那要等使用者勾完才知道。 */

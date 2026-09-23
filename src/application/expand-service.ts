@@ -412,7 +412,7 @@ export async function startExpansion(
       }),
     });
     const spent = charge(EMPTY_BUDGET_STATE, call.cost.costUsd, call.cost.elapsedMs);
-    runs.updateRunBudget(db, runId, spent.requests, spent.costUsd);
+    runs.updateRunBudget(db, runId, spent.requests, spent.costUsd, spent.unpriced);
 
     if (call.kind === 'error') {
       runs.settleRunRow(db, {
@@ -643,6 +643,7 @@ async function processExpansion(
       // **第一階段那次呼叫已經記在帳上了**，所以這裡是接著算不是從 0 開始。
       requests: before?.requests ?? 0,
       costUsd: before?.costUsd ?? null,
+      unpriced: before?.unpriced ?? 0,
       elapsedMs: 0,
     };
     /**
@@ -694,7 +695,7 @@ async function processExpansion(
         tally,
       });
       budget = outcome.budget;
-      runs.updateRunBudget(db, state.runId, budget.requests, budget.costUsd);
+      runs.updateRunBudget(db, state.runId, budget.requests, budget.costUsd, budget.unpriced);
       runs.finishAngle(db, {
         id: angle.id,
         foundUrls: tally.foundUrls,

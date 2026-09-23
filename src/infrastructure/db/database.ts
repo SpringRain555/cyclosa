@@ -13,7 +13,75 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, 'migrations');
 
 /** 這一版程式認得的 schema 版本。**比資料庫的版本小就代表資料庫被新版寫過。** */
-export const SUPPORTED_SCHEMA_VERSION = 9;
+export const SUPPORTED_SCHEMA_VERSION = 10;
+
+/**
+ * migration 檔裡單獨一行寫這個 ＝ **這一份要在外鍵關著的時候跑**（重建資料表）。
+ *
+ * ## 為什麼要有它（v10 是這個專案第一次重建資料表）
+ *
+ * SQLite 改不了既有的 CHECK，只能照官方那套做法重建：建新表 → 搬資料 → 刪舊表 → 新表換名。
+ * 而**刪舊表的時候外鍵要是開著，`DROP TABLE` 會先做一次隱含的 `DELETE`** ——
+ * `run_item` 指著 `run` 是 `ON DELETE CASCADE`，於是每一筆作業的逐項紀錄會跟著被刪光。
+ *
+ * 關外鍵又有一個限制：**`PRAGMA foreign_keys` 在交易裡面是 no-op**（2026-09-23 在
+ * `node:sqlite` 上實測：交易裡設成 OFF，讀回來仍然是 1）。這支執行器把每一份檔案包在
+ * 一個交易裡，所以「在檔案裡自己關」是關不掉的 —— 要由執行器在交易**外面**關。
+ *
+ * 關著跑完之後、提交之前跑一次 `PRAGMA foreign_key_check`：**多出來的斷掉的參照就整份退回**。
+ * 比的是「跑之前」與「跑之後」的列數，不是「有沒有」—— 一份舊資料庫裡本來就有的問題
+ * 不該讓使用者從此打不開自己的專題（那是另一件事，另外說）。
+ */
+export const FOREIGN_KEYS_OFF_MARKER = '-- cyclosa: foreign-keys-off';
+
+/** 這一份 migration 要不要在外鍵關著的時候跑。**只認單獨一行的標記**，不認出現在註解句子裡的。 */
+export function needsForeignKeysOff(sql: string): boolean {
+  return sql.split(/\r?\n/).some((line) => line.trim() === FOREIGN_KEYS_OFF_MARKER);
+}
+
+/** 斷掉的外鍵參照有幾列。**外鍵開不開都查得到**（它是一次掃描，不是約束）。 */
+function brokenReferences(db: DatabaseSync): number {
+  return db.prepare('PRAGMA foreign_key_check').all().length;
+}
+
+/**
+ * 跑一份 migration。**失敗丟例外，而資料庫留在跑之前的樣子**（呼叫端把它變成 `migrate-failed`）。
+ *
+ * - **整份包在一個交易裡**：中途失敗要回到 migration 前的狀態，而不是留下半套 schema
+ * - 帶 `FOREIGN_KEYS_OFF_MARKER` 的那幾份（重建資料表）：外鍵在交易**外面**關（交易裡面關不掉），
+ *   提交之前比一次斷掉的參照，多了就退回；不管成敗，外鍵都開回來
+ *
+ * 單獨 export 是為了讓「多了斷掉的參照就退回」這一條可以直接驗 —— 真的 migration 檔裡
+ * 不會有一份故意弄斷參照的（`tests/infrastructure/migration-v10.test.ts`）。
+ */
+export function applyMigration(db: DatabaseSync, sql: string, version: number): void {
+  const keysOff = needsForeignKeysOff(sql);
+  const brokenBefore = keysOff ? brokenReferences(db) : 0;
+  if (keysOff) db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec('BEGIN');
+    db.exec(sql);
+    if (keysOff) {
+      const brokenAfter = brokenReferences(db);
+      if (brokenAfter > brokenBefore) {
+        throw new Error(
+          `重建之後多了 ${String(brokenAfter - brokenBefore)} 列斷掉的外鍵參照（foreign_key_check）`,
+        );
+      }
+    }
+    db.exec(`PRAGMA user_version = ${String(version)}`);
+    db.exec('COMMIT');
+  } catch (e) {
+    try {
+      db.exec('ROLLBACK');
+    } catch {
+      // ROLLBACK 自己失敗的話沒有更好的辦法了 —— 讓原本的例外帶著原因出去
+    }
+    throw e;
+  } finally {
+    if (keysOff) db.exec('PRAGMA foreign_keys = ON');
+  }
+}
 
 export type OpenOutcome =
   | { readonly kind: 'ok'; readonly db: DatabaseSync }
@@ -132,18 +200,8 @@ export async function openCaseDatabase(
       if (version <= current) continue;
       const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8');
       try {
-        // **整份 migration 包在一個交易裡。**
-        // 中途失敗要回到 migration 前的狀態，而不是留下半套 schema。
-        db.exec('BEGIN');
-        db.exec(sql);
-        db.exec(`PRAGMA user_version = ${version}`);
-        db.exec('COMMIT');
+        applyMigration(db, sql, version);
       } catch (e) {
-        try {
-          db.exec('ROLLBACK');
-        } catch {
-          // ROLLBACK 自己失敗的話沒有更好的辦法了 —— 讓下面的訊息帶著原因出去
-        }
         db.close();
         return { kind: 'migrate-failed', at: file, reason: String((e as Error).message) };
       }

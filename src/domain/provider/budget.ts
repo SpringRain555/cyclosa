@@ -49,10 +49,23 @@ export interface BudgetState {
   readonly requests: number;
   /** provider 回報的實際金額總和。**沒有任何一次回報過就是 `null`** */
   readonly costUsd: number | null;
+  /**
+   * 其中**幾次沒回報金額**（schema v10 的 `run.unpriced`）。
+   *
+   * `costUsd` 只加總回報過的那幾次，所以光看它分不出「每一次都回報了」與「一半沒回報」——
+   * 而一次研究可能同時走 Claude Code（回報）與 OpenAI 相容 API（不回報）。
+   * 畫面要說的是「花了 $0.42，另外有 3 次不知道」，不是一個看起來很精確的 $0.42。
+   */
+  readonly unpriced: number;
   readonly elapsedMs: number;
 }
 
-export const EMPTY_BUDGET_STATE: BudgetState = { requests: 0, costUsd: null, elapsedMs: 0 };
+export const EMPTY_BUDGET_STATE: BudgetState = {
+  requests: 0,
+  costUsd: null,
+  unpriced: 0,
+  elapsedMs: 0,
+};
 
 /**
  * 記一次呼叫。**`reportedCostUsd` 是 `null` 就不要動 `costUsd`** ——
@@ -64,7 +77,8 @@ export function charge(
   elapsedMs: number,
 ): BudgetState {
   const costUsd = reportedCostUsd === null ? state.costUsd : (state.costUsd ?? 0) + reportedCostUsd;
-  return { requests: state.requests + 1, costUsd, elapsedMs };
+  const unpriced = reportedCostUsd === null ? state.unpriced + 1 : state.unpriced;
+  return { requests: state.requests + 1, costUsd, unpriced, elapsedMs };
 }
 
 export type BudgetVerdict =

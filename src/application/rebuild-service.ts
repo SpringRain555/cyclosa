@@ -175,8 +175,9 @@ export async function rebuildDerived(
         continue;
       }
 
-      const kind = item.kind === 'paper' ? 'pdf' : item.kind;
-      if (kind === 'note') continue;
+      // 點註與書目節點沒有快照可以重抽（上面的查詢已經濾掉，這一行讓型別也說得出來）。
+      const kind = item.kind;
+      if (kind === 'note' || kind === 'reference') continue;
       const outcome = await extract(bytes, kind, item.mime, item.sourceUrl ?? item.title);
       if (outcome.kind === 'failed') {
         failed++;

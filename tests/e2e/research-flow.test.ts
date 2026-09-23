@@ -3,19 +3,22 @@
  *
  * ## 什麼是假的、什麼是真的
  *
- * **假的只有模型本身**：一台起在 `127.0.0.1` 的假 Ollama。其餘全部是真的 ——
+ * **假的只有模型本身**：一台起在 `127.0.0.1` 的假 Ollama，與一支用 node 跑的假 `claude` CLI
+ * （閘門一之後要找來源；規劃對話走 Claude Code 的那兩條也用它）。其餘全部是真的 ——
  * `providers.json` 真的被讀、HTTP client 真的送出去、全文檢索真的跑（對著**範例專題**，
  * 它走的是真的匯入管線）、三張表真的寫進 SQLite、那條「同時只有一次」真的由索引擋。
  *
  * ## 這一份要證明的事
  *
  * 1. **開一次研究不花錢**：一次模型呼叫都沒有，而命中是全文檢索算的（R1）。
- * 2. **閘門一之前不會有任何搜尋或擷取**（R5）—— 這一版連蒐集都還沒接上，
- *    所以這裡驗的是狀態與方向表，而不是「沒有抓到東西」。
+ * 2. **閘門一之前不會有任何搜尋或擷取**（R5）；按下去之前先確定找來源那一支配得上 ——
+ *    配不上的話研究還停在規劃中、方向也還沒落成。蒐集本身在 `research-collect.test.ts`。
  * 3. **改方向不花錢，而且人改過的不會被模型改回去**（R4）。
  * 4. **超過上限要說**（R6）。
  * 5. **模型回垃圾不會弄壞這次研究** —— 記成失敗的一輪，還可以再談。
  * 6. **同一個專題同時只有一次研究**（D4）。
+ * 7. **規劃對話走 Claude Code 的時候，工作目錄先建好、事後掃沙箱** —— Stage 19 漏了前者，
+ *    而驗收時用的是本機 Ollama（它不看工作目錄），所以沒被看見（2026-09-23 補）。
  */
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -24,6 +27,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { initDataRoot } from '../../src/application/bootstrap-service.js';
+import { activeCount } from '../../src/application/run-registry.js';
 import { createSampleCase } from '../../src/application/sample-service.js';
 import {
   abandonResearch,
@@ -35,6 +39,7 @@ import {
   startResearch,
 } from '../../src/application/research-service.js';
 import { MAX_DIRECTIONS } from '../../src/domain/provider/plan.js';
+import { clearFakeClaudeEnv, writeFakeClaude } from './fake-claude.js';
 
 /** 假 Ollama 這一次要回什麼。每個測試自己換。 */
 let reply: unknown = {};
@@ -49,6 +54,7 @@ let sandbox = '';
 let dataRoot = '';
 let slug = '';
 let saved: string | undefined;
+let claudeScript = '';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve) => {
@@ -73,7 +79,10 @@ const plan = (titles: readonly string[], extra: Record<string, unknown> = {}): u
   ...extra,
 });
 
-async function writeProvidersFile(model = 'fake-model'): Promise<void> {
+async function writeProvidersFile(
+  model = 'fake-model',
+  options: { readonly cli?: boolean; readonly planVia?: 'ollama' | 'cli' } = {},
+): Promise<void> {
   const dir = join(sandbox, 'LocalAppData', 'Cyclosa');
   await mkdir(dir, { recursive: true });
   await writeFile(
@@ -81,13 +90,14 @@ async function writeProvidersFile(model = 'fake-model'): Promise<void> {
     JSON.stringify({
       version: 2,
       connections: {
-        cli: null,
+        // **用 node 跑一支假的 CLI**（`fake-claude.ts`）：閘門一之後找來源要它。
+        cli: options.cli === false ? null : { command: process.execPath, args: [claudeScript] },
         ollama: { baseUrl: ollamaBase, apiKeyEnv: null },
         openai: null,
       },
       tasks: {
-        // **規劃對話走本機 Ollama** —— 三條路裡唯一不用外部程序或金鑰就跑得起來的。
-        plan: { via: 'ollama', model },
+        // **規劃對話預設走本機 Ollama** —— 不用外部程序就跑得起來；走 Claude Code 的那兩條另外測。
+        plan: { via: options.planVia ?? 'ollama', model: options.planVia === 'cli' ? '' : model },
         'find-sources': { via: 'cli', model: '' },
         angles: { via: 'ollama', model },
         extract: { via: 'ollama', model },
@@ -148,6 +158,10 @@ beforeEach(async () => {
   prompts.length = 0;
   contextTokens = 128_000;
   reply = plan(['條文原文能不能重製', '合理使用的判斷基準']);
+  claudeScript = await writeFakeClaude(sandbox);
+  // 找來源預設什麼都找不到 —— 這一份驗的是規劃與閘門，蒐集在 `research-collect.test.ts`。
+  process.env['CYCLOSA_FAKE_CLAUDE_CANDIDATES'] = '{}';
+  process.env['CYCLOSA_FAKE_CLAUDE_LOG'] = join(sandbox, 'claude-calls.jsonl');
   await writeProvidersFile();
 
   const root = await initDataRoot(dataRoot);
@@ -157,10 +171,24 @@ beforeEach(async () => {
   slug = made.data.slug;
 });
 
+/** 閘門一會開一筆在背景跑的蒐集作業 —— **等它收尾再清沙箱**，不然它會寫進一個已經刪掉的資料夾。 */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 300 && activeCount() > 0; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 afterEach(async () => {
-  if (saved === undefined) delete process.env['LOCALAPPDATA'];
-  else process.env['LOCALAPPDATA'] = saved;
-  await rm(sandbox, { recursive: true, force: true });
+  // **等背景作業收尾再清沙箱**（它還開著那個專題的資料庫）；等不到也要清 —— 一條收尾失敗的測試
+  // 不該把它的沙箱留在 `tmp/` 裡給下一次 lint 掃到。
+  try {
+    await settle();
+  } finally {
+    clearFakeClaudeEnv();
+    if (saved === undefined) delete process.env['LOCALAPPDATA'];
+    else process.env['LOCALAPPDATA'] = saved;
+    await rm(sandbox, { recursive: true, force: true }).catch(() => undefined);
+  }
 });
 
 describe('開一次研究', () => {
@@ -324,6 +352,9 @@ describe('改方向、閘門一', () => {
       ['條文原文能不能重製', true],
       ['合理使用的判斷基準', false],
     ]);
+    // 按下去之後**蒐集真的開始了**：有一筆作業，而它正在跑。
+    expect(gate.data.collect.runId).not.toBeNull();
+    await settle();
 
     // 過了閘門一就不能再談、也不能再改方向。
     const late = await converse(dataRoot, slug, started.data.id, '等一下');
@@ -334,6 +365,26 @@ describe('改方向、閘門一', () => {
     expect(edit.ok).toBe(false);
   });
 
+  it('閘門一：找來源那一支配不上就停手 —— 研究還在規劃中，方向沒有落成（ADR-0006）', async () => {
+    await writeProvidersFile('fake-model', { cli: false });
+    const started = await startResearch(dataRoot, slug, { topic: '合理使用' });
+    if (!started.ok) return;
+    await editDirections(dataRoot, slug, started.data.id, [{ title: '條文原文能不能重製' }]);
+
+    const gate = await startCollecting(dataRoot, slug, started.data.id);
+    expect(gate.ok).toBe(false);
+    if (gate.ok) return;
+    expect(gate.code).toBe('PROVIDER_NOT_CONFIGURED');
+
+    // **先檢查、再落成**：失敗的這一次沒有留下一張「定案了卻沒有開始」的方向表。
+    const after = await listResearchViews(dataRoot, slug);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.data[0]?.status).toBe('planning');
+    expect(after.data[0]?.directions).toEqual([]);
+    expect(after.data[0]?.collect.runId).toBeNull();
+  });
+
   it('一條方向都沒有的時候，閘門一按不下去（R5）', async () => {
     const started = await startResearch(dataRoot, slug, { topic: '合理使用' });
     if (!started.ok) return;
@@ -341,6 +392,55 @@ describe('改方向、閘門一', () => {
     expect(gate.ok).toBe(false);
     if (gate.ok) return;
     expect(gate.code).toBe('RESEARCH_STEP_INVALID');
+  });
+});
+
+describe('規劃對話走 Claude Code', () => {
+  /**
+   * **Stage 19 漏掉的那一步**：子程序的工作目錄沒有先建出來，`spawn` 直接失敗，
+   * 而 Claude Code 那一支把它報成 `PROVIDER_NOT_CONFIGURED`（「沒設定」）。
+   */
+  it('工作目錄先建好：談一輪走得通，子程序跑在這次研究的沙箱裡', async () => {
+    await writeProvidersFile('fake-model', { planVia: 'cli' });
+    process.env['CYCLOSA_FAKE_CLAUDE_PLAN'] = JSON.stringify(plan(['條文原文能不能重製']));
+
+    const started = await startResearch(dataRoot, slug, { topic: '合理使用' });
+    if (!started.ok) return;
+    const said = await converse(dataRoot, slug, started.data.id, '先給我方向');
+    expect(said.ok, JSON.stringify(said)).toBe(true);
+    if (!said.ok) return;
+    expect(said.data.plan.directions.map((d) => d.title)).toEqual(['條文原文能不能重製']);
+    // Claude Code 會回報花費 —— 那一輪花了多少看得到（R29）。
+    expect(said.data.messages[1]?.costUsd).toBeCloseTo(0.05);
+    expect(said.data.service).toMatchObject({ via: 'cli', costs: true, browses: true });
+
+    const calls = (await readFile(join(sandbox, 'claude-calls.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { cwd: string; prompt: string });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd).toBe(
+      join(dataRoot, 'cases', slug, 'agent', 'research', started.data.id, 'plan'),
+    );
+    expect(calls[0]?.prompt).toContain('先給我方向');
+  });
+
+  it('沙箱裡出現檔案：那一輪記成違規，不採用它交回的規劃', async () => {
+    await writeProvidersFile('fake-model', { planVia: 'cli' });
+    process.env['CYCLOSA_FAKE_CLAUDE_PLAN'] = JSON.stringify(plan(['不該被採用的方向']));
+    process.env['CYCLOSA_FAKE_CLAUDE_MODE'] = 'sandbox';
+
+    const started = await startResearch(dataRoot, slug, { topic: '合理使用' });
+    if (!started.ok) return;
+    const said = await converse(dataRoot, slug, started.data.id, '先給我方向');
+    expect(said.ok).toBe(false);
+    if (said.ok) return;
+    expect(said.code).toBe('PROVIDER_SANDBOX_VIOLATION');
+
+    const after = await listResearchViews(dataRoot, slug);
+    if (!after.ok) return;
+    expect(after.data[0]?.plan.directions).toEqual([]);
+    expect(after.data[0]?.messages.at(-1)?.code).toBe('PROVIDER_SANDBOX_VIOLATION');
   });
 });
 

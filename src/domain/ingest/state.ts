@@ -10,8 +10,9 @@
  *
  * `note` 在這裡是因為點註也是圖上的節點（ADR-0010），
  * 但它不走擷取管線 —— 它沒有 snapshot，也不會有 `kind='note'` 的 fetch。
+ * `reference`（書目節點，schema v10）也一樣沒有快照：研究裡拿不到、只留書目的那一份。
  */
-export type ItemKind = 'web' | 'pdf' | 'image' | 'text' | 'paper' | 'note';
+export type ItemKind = 'web' | 'pdf' | 'image' | 'text' | 'note' | 'reference';
 
 export type ItemStatus = 'pending' | 'fetched' | 'parsed' | 'included' | 'excluded' | 'failed';
 
@@ -74,6 +75,14 @@ export const READ_IS_NOT_A_STATUS = true;
 // ── 擴展作業 Run ───────────────────────────────────────────
 
 export type RunStatus = 'queued' | 'running' | 'done' | 'partial' | 'cancelled' | 'failed';
+
+/**
+ * 作業的種類。值域與 `run.kind` 的 CHECK 一致（schema v10）。
+ *
+ * `research` 是一次研究裡的機器工作（蒐集一筆、建圖一筆 —— ADR-0033 D3）；
+ * `consolidate` 是整理（Stage 24）。`expand` 是舊版擴展，Stage 22 退場。
+ */
+export type RunKind = 'import' | 'expand' | 'research' | 'consolidate';
 
 /**
  * **不是狀態，是「這次取消是誰按的」。**

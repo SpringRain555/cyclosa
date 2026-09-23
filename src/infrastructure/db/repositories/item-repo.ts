@@ -276,6 +276,14 @@ export function markPending(db: DatabaseSync, id: string, now: number): void {
   ).run(now, id);
 }
 
+/**
+ * 換這一份是哪一筆作業寫的。**只有「替一個網址上傳」會用到**：那個網址抓失敗留下的那一列
+ * 被你上傳的檔案接手之後，它屬於那一筆上傳，不屬於當初沒抓到的那一筆（「復原」看的是這一欄）。
+ */
+export function setRunId(db: DatabaseSync, id: string, runId: string): void {
+  db.prepare('UPDATE item SET run_id = ? WHERE id = ?').run(runId, id);
+}
+
 export function setStatus(db: DatabaseSync, id: string, status: ItemStatus, now: number): void {
   db.prepare('UPDATE item SET status = ?, updated_at = ? WHERE id = ?').run(status, now, id);
 }

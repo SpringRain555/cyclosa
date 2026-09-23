@@ -19,6 +19,7 @@ import {
   EXTRACT_SCHEMA,
   SOURCES_SCHEMA,
 } from '../../src/application/expansion-prompts.js';
+import { CANDIDATES_SCHEMA, PLAN_SCHEMA } from '../../src/application/research-prompts.js';
 import { SUPPORTED_KEYWORDS } from '../../src/domain/provider/schema-check.js';
 import { PROBE_SCHEMA } from '../../src/infrastructure/providers/chat-openai.js';
 
@@ -52,6 +53,9 @@ describe('送給模型的 schema 只用 conformsTo 認得的關鍵字', () => {
     ['ANGLES_SCHEMA', ANGLES_SCHEMA],
     ['SOURCES_SCHEMA', SOURCES_SCHEMA],
     ['EXTRACT_SCHEMA', EXTRACT_SCHEMA],
+    // 研究的兩份。**規劃那一份 Stage 19 漏了** —— 走只到 json_object 的端點時，它也是 conformsTo 在驗。
+    ['PLAN_SCHEMA（規劃對話）', PLAN_SCHEMA],
+    ['CANDIDATES_SCHEMA（研究的找候選來源）', CANDIDATES_SCHEMA],
     ['PROBE_SCHEMA（格式探針）', PROBE_SCHEMA],
   ])('%s', (_name, schema) => {
     expect(keywordsOf(schema).size, '一個關鍵字都掃不到代表走訪壞了').toBeGreaterThan(2);

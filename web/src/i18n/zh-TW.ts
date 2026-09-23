@@ -49,6 +49,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   IO_DATA_ROOT_MOVE_BLOCKED:
     '資料搬不過去 —— 原本的資料完整留在原地，設定也沒有改。先讓執行中的作業跑完，或關掉開著那個資料夾的視窗，再試一次。',
   IO_DISK_FULL: '磁碟空間不足。清出空間再試一次 —— 已經寫進去的資料不會壞。',
+  IO_PATH_TOO_LONG:
+    '資料夾的路徑太長，Windows 開不了裡面的工作目錄。到設定頁「資料位置」把資料根搬到短一點的位置。',
   IO_SNAPSHOT_MISSING:
     '這一項的原始快照檔不見了，閱讀器打不開它。可以重新擷取，但原有的點註會標成「找不到原文位置」。',
   IO_SNAPSHOT_CORRUPT:
@@ -121,11 +123,16 @@ export const errorMessages: Readonly<Record<string, string>> = {
   // ── 圖與裁決 ──────────────────────────────────────────
   RUN_NOT_FOUND: '找不到這次作業。它可能屬於另一個專題。',
   RUN_STILL_ACTIVE: '這次作業還在跑，沒辦法復原。先按取消，或等它跑完再試。',
+  RUN_OWNED_BY_RESEARCH:
+    '這一筆作業屬於一次還沒結束的研究。先在「匯入與研究」把那次研究做完或放棄，再復原它。',
   RUN_UNEXPECTED: '處理這次作業時出了預期外的問題。請把下面的識別碼交出來。',
   RESEARCH_NOT_FOUND: '找不到這次研究。它可能屬於另一個專題，或是已經被刪掉了。',
   RESEARCH_ALREADY_OPEN:
     '這個專題已經有一次研究還沒結束。先把它做完，或在那一筆上按「放棄這次研究」，才能再開一次。',
   RESEARCH_STEP_INVALID: '這一步在目前這個階段做不了。重新整理這一頁，看看它現在停在哪一步。',
+  RESEARCH_CANDIDATE_NOT_FOUND:
+    '找不到這一筆候選。重新整理這一頁 —— 它可能屬於另一次研究，或那次研究已經被刪掉了。',
+  RESEARCH_CANDIDATES_OVERFLOW: '這條方向找到的超過一次留得下的上限，只留了前面那幾份。',
   RESEARCH_UNEXPECTED: '處理這次研究時出了預期外的問題。請把下面的識別碼交出來。',
   GRAPH_EVIDENCE_REQUIRED:
     '這條關聯沒有任何引文，不能標成已確認。請先補一筆出處，或改成自己手動建立一條。',
@@ -383,6 +390,10 @@ export const t = {
     filterUnread: '只看未讀',
     loadMore: '載入更多',
     source: '來源',
+    /** 你上傳的那一份是替哪個網址拿的（研究的「對回候選上傳」，R10）。 */
+    uploadedFor: '對應網址',
+    /** 研究的候選還沒確認（ADR-0033 D8）。**確認之前不會從它抽任何關聯** —— 那句話要在。 */
+    candidateOf: '候選 · 研究「{topic}」還沒確認。確認之前，不會從這一份抽出任何關聯。',
     fetchedAt: '快照時間',
     language: '語言',
     unknownLanguage: '判不出來',
@@ -667,7 +678,7 @@ export const t = {
       pdf: 'PDF',
       image: '圖片',
       text: '純文字',
-      paper: '論文',
+      reference: '書目',
       note: '筆記',
     },
     /** 三種模式。**每次搜尋都可能想換**，所以是三顆並排的按鈕 */
@@ -766,6 +777,9 @@ export const t = {
     /** 留下來的東西要解釋，不然使用者會問「為什麼圖上還有」。 */
     undoKept: '留下 {items} 份資料與 {edges} 條關聯 —— 你動過它們。',
     undoKeptEvidence: '其中 {n} 份是因為有一條留下來的關聯靠它當出處。',
+    /** 研究還沒結束的作業不能復原（`RUN_OWNED_BY_RESEARCH`）—— **不給一顆按了必定報錯的按鈕**，說為什麼。 */
+    heldByResearch:
+      '這一筆屬於一次還沒結束的研究 ——「匯入與研究」上面那一次做完或放棄之後，才能復原它。',
     undoNothing: '這次作業沒有東西可以刪了。',
     /** 產生了角度、還沒勾的那種。**它什麼都沒抓、什麼都沒寫**，所以可以直接丟。 */
     draft: '草稿 · 還沒開始',
@@ -1089,7 +1103,7 @@ export const t = {
       pdf: 'PDF',
       image: '圖片',
       text: '純文字',
-      paper: '論文',
+      reference: '書目',
       note: '筆記',
     },
   },
@@ -1188,26 +1202,108 @@ export const t = {
     /** 閘門一。**按下去之前什麼都還沒抓** —— 這句話是 REQ-0009 R5 的驗收條件。 */
     gateOne: '照這份規劃開始',
     gateOneHint: '按下去之前，一次搜尋、一次擷取都還沒有發生。',
-    gateOneNext: '按下去之後會照這 {n} 條方向去找來源、抓回來、讀一次。',
+    gateOneNext: '按下去之後會照這 {n} 條方向去找來源，再把找到的抓回來。',
+    /** 閘門旁邊先說接下來哪幾步花錢、走哪個服務（ADR-0033 D2）。 */
+    gateOneRunsCosts: '接下來會跑：找來源（「{service}」· 會花錢）、抓取（不花錢）。',
+    gateOneRunsFree: '接下來會跑：找來源（「{service}」· 不花錢）、抓取（不花錢）。',
     gateOneNotReady: '至少要有一條方向。',
-    /** 蒐集還沒接上（Stage 20）。**照實說**，不要假裝它在跑。 */
-    collectingTitle: '方向定案了',
-    collectingBody:
-      '這 {n} 條方向已經定下來。去找來源、抓回來、讀一次那幾步還沒做進這一版 —— 它們是下一步。',
     frozenNotAdopted: '沒採用',
+
+    // ── 蒐集（Stage 20）──────────────────────────────────
+    collectTitle: '蒐集',
+    collectLive: '正在照方向找來源，找到的會一份一份抓回來。抓到的現在就可以在閱讀器裡讀。',
+    collectPaused: '暫停中 —— 正在做的那一步做完就停在這裡。',
+    /** 程式關掉的時候蒐集還沒做完（D3、R13）。**已抓的都還在**，這句話要說出來。 */
+    collectInterrupted:
+      '蒐集停在半路 —— 上次關掉程式的時候它還沒做完。已經抓到的都還在，按「繼續蒐集」會接著做，不會重抓。',
+    awaitingTitle: '輪到你',
+    awaitingBody:
+      '能抓的都抓了。「要你拿」的那幾份，拿到了就在那一列上傳；拿不到就標原因。都處理好（或決定不處理）就按「完成蒐集」。',
+    awaitingCancelled: '你按了取消 —— 還沒做的那幾步，按「繼續蒐集」會接著做。',
+    awaitingFailed: '蒐集這一筆作業停下來了：{reason}',
+    workLeft: '還沒做完：{searches} 條方向還沒搜成、{fetches} 份還沒抓。',
+    resume: '繼續蒐集',
+    resumeCosts: '還沒搜成的那幾條會用「{service}」再搜一次，會花錢；只剩要抓的不花錢。',
+    resumeFree: '只剩要抓的，不花錢。',
+    /** 閘門二（R12）。 */
+    gateTwo: '完成蒐集',
+    gateTwoHint:
+      '按下去之後不再找、不再抓新的。還沒拿到的那幾份，下一步（確認）會預設成「只留書目」。',
+    gateTwoLive: '蒐集還在跑 —— 等它做完，或先按「取消這次作業」。',
+    /** 閘門二之後：確認與建圖還沒接上（Stage 22）。**照實說**。 */
+    reviewingTitle: '蒐集完成',
+    reviewingBody:
+      '確認每一份要不要進圖、以及建圖那兩步還沒做進這一版 —— 它們是下一步。抓回來、上傳進來的現在都可以在閱讀器裡讀。',
+
+    // 一條方向那一列（**數的，不叫模型說**，ADR-0033 D10）
+    directionPending: '還沒搜',
+    directionQueued: '等著搜',
+    directionSearching: '搜尋中…',
+    directionFailed: '沒搜成：{reason}',
+    tally: '找到 {found}、拿到 {acquired}',
+    tallyNeedsUser: '要你拿 {n}',
+    tallyUnavailable: '拿不到 {n}',
+    tallyPending: '還沒抓 {n}',
+    noCandidates: '這條方向沒有找到任何來源。',
+    sharedElsewhere: '另外 {n} 份也被別的方向找到，列在那一條底下。',
+
+    // 一列候選
+    acquisition: {
+      found: '還沒抓',
+      fetching: '抓取中',
+      fetched: '抓到了',
+      'needs-user': '要你拿',
+      uploaded: '你上傳了',
+      unavailable: '拿不到',
+    },
+    /** 抓之前的預期 —— **依你的紀錄**，不是模型說的。 */
+    expectedLabel: '預期',
+    expected: {
+      open: '公開',
+      login: '多半要登入',
+      blocked: '工具多半抓不到',
+      unknown: '不知道',
+    },
+    /** R8：依你的紀錄沒去試。**說得出為什麼沒試**，不是一個安靜的「要你拿」。 */
+    skippedLogin: '沒去抓：依你的紀錄，{host} 多半要登入。',
+    skippedBlocked: '沒去抓：依你的紀錄，{host} 會出驗證頁。',
+    alsoFoundBy: '另外 {n} 條方向也找到它',
+    openInReader: '在閱讀器裡讀',
+    upload: '上傳',
+    uploading: '上傳中…',
+    uploadHint: '你自己拿到的那一份對回這一列。出處仍然指得回這個網址。',
+    unavailableLabel: '拿不到的原因',
+    /** 原因收在這顆按鈕後面（設計稿的「拿不到 ▾」）—— 每一列都攤開一個下拉選單太重。 */
+    unavailableOpen: '拿不到…',
+    unavailableClose: '收起來',
+    unavailableReasons: {
+      paywall: '付費牆／沒帳號',
+      'not-found': '找不到這一份（可能是模型編的）',
+      blocked: '被擋',
+      other: '其他',
+    },
+    notePlaceholder: '寫一句為什麼',
+    markUnavailable: '標成拿不到',
+    unavailableShown: '拿不到：{reason}',
+    reopen: '改回要你拿',
+
     abandon: '放棄這次研究',
     abandoned: '放棄了',
     remove: '刪掉這次研究',
-    removeHint: '刪的是對話、規劃與方向。這一版還沒有任何東西寫進圖。',
+    removeHint:
+      '刪的是對話、規劃、方向與候選的紀錄，以及那一次的模型呼叫紀錄。抓回來、上傳進來的資料留在專題裡。',
     costSoFar: '到目前為止花了 {usd} 美元',
-    costUnknown: '有 {n} 輪沒有回報金額',
+    costUnknown: '有 {n} 次沒有回報金額',
     costNone: '目前還沒有花錢',
+    /** 作業紀錄那一頁：研究的蒐集作業那一列。 */
+    runLabel: '研究 · {topic}',
+    runCounts: '方向搜成 {succeeded} 條、沒搜成 {failed} 條；抓了 {fetched} 份',
     /** 歷次紀錄那一欄。 */
     listTitle: '歷次研究',
     listEmpty: '還沒有任何研究。',
     status: {
       planning: '規劃中',
-      collecting: '方向定案',
+      collecting: '蒐集中',
       'awaiting-user': '等你',
       reviewing: '確認中',
       building: '建圖中',

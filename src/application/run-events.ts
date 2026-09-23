@@ -34,6 +34,18 @@ export type RunEvent =
       readonly newEdges: number;
       readonly code: string | null;
     }
+  /**
+   * 研究的一條方向搜完了（Stage 20）。**跟 `angle` 分開**：那一種是舊的擴展，
+   * 一條角度會「找 → 抓 → 抽」一路做完；方向只搜，抓是全部搜完之後的另一段。
+   */
+  | {
+      readonly type: 'direction';
+      readonly directionId: string;
+      readonly title: string;
+      /** 這一次搜到幾個（**含別的方向也找到的**）*/
+      readonly found: number;
+      readonly code: string | null;
+    }
   | { readonly type: 'progress'; readonly done: number; readonly total: number }
   | {
       readonly type: 'settled';

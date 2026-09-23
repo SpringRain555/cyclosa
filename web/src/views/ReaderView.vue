@@ -454,6 +454,23 @@ watch(
   { immediate: true },
 );
 
+/**
+ * 來源是不是一個網址。**檔案匯入的來源是檔名**（`source_url` 記的是「這些位元組實際從哪來」），
+ * 做成連結的話會指到這個 app 自己的一個不存在的頁面。
+ */
+const WEB_URL = /^https?:\/\//i;
+const sourceIsUrl = computed(() => WEB_URL.test(detail.value?.item.sourceUrl ?? ''));
+
+/**
+ * 你上傳的那一份是替哪個網址拿的（研究的「對回候選上傳」，R10）：來源是檔名、
+ * 而 `requested_url` 是一個網址。**出處指得回那個網址**，研究的紀錄刪掉之後也一樣。
+ */
+const uploadedFor = computed(() => {
+  const item = detail.value?.item;
+  if (item === undefined || item.requestedUrl === null || sourceIsUrl.value) return null;
+  return WEB_URL.test(item.requestedUrl) ? item.requestedUrl : null;
+});
+
 const snapshotUrl = computed(() =>
   detail.value === null ? '' : api.snapshotUrl(slug.value, detail.value.item.id),
 );
@@ -547,6 +564,10 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
             }}
           </p>
           <h1>{{ detail.item.title }}</h1>
+          <!-- 研究的候選還沒確認（D8）：可以先讀，但確認之前不會從它抽任何關聯。 -->
+          <p v-if="detail.candidacy" class="callout pending candidacy">
+            {{ fill(t.reader.candidateOf, { topic: detail.candidacy.topic }) }}
+          </p>
 
           <!-- 表頭資料一列一組，不逐行（v0.24.0）：來源那一格可能很長，放最後、可以縮。 -->
           <dl class="facts-row">
@@ -571,8 +592,22 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
             <div v-if="detail.item.sourceUrl" class="fact source">
               <dt>{{ t.reader.source }}</dt>
               <dd>
-                <a :href="detail.item.sourceUrl" target="_blank" rel="noreferrer noopener">
+                <a
+                  v-if="sourceIsUrl"
+                  :href="detail.item.sourceUrl"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
                   {{ detail.item.sourceUrl }}
+                </a>
+                <template v-else>{{ detail.item.sourceUrl }}</template>
+              </dd>
+            </div>
+            <div v-if="uploadedFor" class="fact source">
+              <dt>{{ t.reader.uploadedFor }}</dt>
+              <dd>
+                <a :href="uploadedFor" target="_blank" rel="noreferrer noopener">
+                  {{ uploadedFor }}
                 </a>
               </dd>
             </div>

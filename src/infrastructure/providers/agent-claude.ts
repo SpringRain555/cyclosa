@@ -35,8 +35,8 @@
  * 一個對方自己會擋的上限比我們自己數的可靠）。
  * 我們仍然把 `total_cost_usd` 加起來，因為那是要顯示的實際花費。
  */
-import { spawn } from 'node:child_process';
 
+import { cwdTooLong, spawnPiped, WINDOWS_CWD_LIMIT } from './spawn-piped.js';
 import type { AgentProvider, CallOutcome, ProbeResult } from './types.js';
 import { logger } from '../../shared/log.js';
 
@@ -59,9 +59,7 @@ const CLAUDE_CAPABILITIES = {
  *
  * 第一版是那樣寫的，而它**在路徑有空白的時候會壞掉**：
  * `shell: true` 時 Node 把命令與參數接成一個字串交給 `cmd.exe`，
- * 而**命令那一段不會被加引號** —— `C:\Program Files
-odejs
-ode.exe`
+ * 而**命令那一段不會被加引號** —— `C:\Program Files\nodejs\node.exe`
  * 於是被拆成兩個詞。症狀是子程序回一個非 0 的結束碼，
  * 而畫面上寫的是「連不上這個模型」。
  *
@@ -165,8 +163,8 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
      */
     async probe(): Promise<ProbeResult> {
       return await new Promise<ProbeResult>((resolve) => {
-        const child = spawn(options.command, [...options.args, '--version'], {
-          stdio: ['ignore', 'pipe', 'pipe'],
+        // **管線的錯誤一律接住**（`spawn-piped.ts` 的檔頭：子程序起不來不該把伺服器帶走）。
+        const child = spawnPiped(options.command, [...options.args, '--version'], {
           shell: needsShell(options.command),
         });
         let stdout = '';
@@ -191,6 +189,32 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
 
     async run(input, signal): Promise<CallOutcome<string>> {
       const started = Date.now();
+      /**
+       * **已經取消了就不要 spawn。** 對一個已經 aborted 的 signal 掛 `abort` 監聽**不會觸發**，
+       * 所以「取消落在 spawn 之前那一刻」的話，子程序會照樣跑滿逾時 —— 2026-09-23 蒐集的
+       * 端對端測試撞到的（一次搜尋在取消之後又跑了一分鐘）。
+       */
+      if (signal?.aborted === true) {
+        return {
+          kind: 'error',
+          code: 'PROVIDER_TIMEOUT',
+          detail: '已取消',
+          cost: { costUsd: null, elapsedMs: 0 },
+        };
+      }
+      /**
+       * **工作目錄太長就不要 spawn，而且說實話。** Windows 在那個長度上回的是 `ENOENT` ——
+       * 照原本的處理會變成 `PROVIDER_NOT_CONFIGURED`（「沒設定」），叫人去改一個沒有壞的設定。
+       * 要改的是資料根的位置（`spawn-piped.ts` 的檔頭）。
+       */
+      if (cwdTooLong(input.cwd)) {
+        return {
+          kind: 'error',
+          code: 'IO_PATH_TOO_LONG',
+          detail: `工作目錄 ${String(input.cwd.length)} 字元，上限 ${String(WINDOWS_CWD_LIMIT)}`,
+          cost: { costUsd: null, elapsedMs: 0 },
+        };
+      }
       const args = [
         ...options.args,
         '-p',
@@ -217,10 +241,9 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
       }
 
       return await new Promise<CallOutcome<string>>((resolve) => {
-        const child = spawn(options.command, args, {
+        const child = spawnPiped(options.command, args, {
           // **這就是沙箱**（ADR-0006 第 4 條）。
           cwd: input.cwd,
-          stdio: ['ignore', 'pipe', 'pipe'],
           shell: needsShell(options.command),
         });
 

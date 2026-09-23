@@ -20,6 +20,7 @@ import {
   EXTRACT_SCHEMA,
   SOURCES_SCHEMA,
 } from '../../src/application/expansion-prompts.js';
+import { CANDIDATES_SCHEMA, PLAN_SCHEMA } from '../../src/application/research-prompts.js';
 
 type Node = Readonly<Record<string, unknown>>;
 
@@ -51,6 +52,10 @@ const REAL_SCHEMAS = [
   ['角度', ANGLES_SCHEMA],
   ['抽取', EXTRACT_SCHEMA],
   ['找來源', SOURCES_SCHEMA],
+  // 研究的兩份（Stage 19／20）。**規劃那一份 Stage 19 漏了** —— 它走 OpenAI 相容 API 的時候
+  // 一樣會被嚴格模式檢查。
+  ['規劃', PLAN_SCHEMA],
+  ['研究的候選', CANDIDATES_SCHEMA],
 ] as const;
 
 describe('三份真的 schema 直接送出去會被嚴格模式擋下來', () => {

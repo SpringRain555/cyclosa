@@ -1,15 +1,26 @@
 /**
- * 研究的讀寫（schema v9）。
+ * 研究的讀寫（schema v9／v10）。
  *
- * **三張表各管一件事**：`research` 是工作流停在哪、`research_message` 是規劃對話的每一輪、
- * `research_direction` 是閘門一那一刻落成的方向表。
+ * **四張表各管一件事**：`research` 是工作流停在哪、`research_message` 是規劃對話的每一輪、
+ * `research_direction` 是閘門一那一刻落成的方向表（v10 起記得搜過了沒有）、
+ * `research_candidate` 是蒐集找到的每一個來源（v10）。
  *
  * 規則（可不可以再談一輪、閘門一按不按得下去）**不在這裡** ——
  * 那是 `domain/research` 的純函式。這一層只負責把它們變成資料列。
  */
 import type { DatabaseSync } from 'node:sqlite';
 
-import type { ResearchKind, ResearchStatus } from '../../../domain/research/index.js';
+import type { Bibliography } from '../../../domain/provider/index.js';
+import {
+  acquisitionOf,
+  expectedAccessOf,
+  unavailableReasonOf,
+  type Acquisition,
+  type ExpectedAccess,
+  type ResearchKind,
+  type ResearchStatus,
+  type UnavailableReason,
+} from '../../../domain/research/index.js';
 
 export interface ResearchRow {
   readonly id: string;
@@ -55,6 +66,33 @@ export interface ResearchDirectionRow {
   readonly keywords: readonly string[];
   readonly origin: 'model' | 'human';
   readonly adopted: boolean;
+  /** 搜過了沒有（v10）。**搜過、找到 0 份的是 `done`**，搜失敗的是 `failed`（可以重來）*/
+  readonly searchState: 'pending' | 'done' | 'failed';
+  readonly searchCode: string | null;
+  readonly searchedAt: number | null;
+}
+
+export interface ResearchCandidateRow {
+  readonly id: string;
+  readonly researchId: string;
+  /** 第一條找到它的方向 */
+  readonly directionId: string | null;
+  /** 之後也找到它的方向（**同一個網址只有一列**）*/
+  readonly alsoDirections: readonly string[];
+  readonly ord: number;
+  readonly url: string;
+  readonly title: string;
+  readonly why: string;
+  readonly bib: Bibliography;
+  readonly expectedAccess: ExpectedAccess;
+  readonly acquisition: Acquisition;
+  /** 抓不到的那一種（擷取的錯誤碼）。**`needs-user` 而 `code` 是 null ＝ 依你的紀錄沒去試** */
+  readonly code: string | null;
+  readonly unavailableReason: UnavailableReason | null;
+  readonly reasonNote: string;
+  readonly itemId: string | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
 }
 
 type Raw = Record<string, unknown>;
@@ -114,6 +152,49 @@ function toDirection(row: Raw): ResearchDirectionRow {
     keywords,
     origin: String(row['origin']) === 'human' ? 'human' : 'model',
     adopted: Number(row['adopted'] ?? 1) === 1,
+    searchState: stateOf(row['search_state']),
+    searchCode: str(row['search_code']),
+    searchedAt: num(row['searched_at']),
+  };
+}
+
+function stateOf(value: unknown): 'pending' | 'done' | 'failed' {
+  return value === 'done' || value === 'failed' ? value : 'pending';
+}
+
+function jsonOf(raw: unknown, fallback: unknown): unknown {
+  try {
+    const parsed: unknown = JSON.parse(String(raw ?? ''));
+    return parsed ?? fallback;
+  } catch {
+    // **這幾欄是說明，不是規則** —— 壞掉的一欄不該讓整次研究打不開（同 `keywords_json`）。
+    return fallback;
+  }
+}
+
+function toCandidate(row: Raw): ResearchCandidateRow {
+  const also = jsonOf(row['also_directions_json'], []);
+  const rawBib = jsonOf(row['bib_json'], {});
+  const bib = (typeof rawBib === 'object' && rawBib !== null ? rawBib : {}) as Raw;
+  const field = (v: unknown): string => (typeof v === 'string' ? v : '');
+  return {
+    id: String(row['id']),
+    researchId: String(row['research_id']),
+    directionId: str(row['direction_id']),
+    alsoDirections: Array.isArray(also) ? also.map((d) => String(d)) : [],
+    ord: Number(row['ord'] ?? 0),
+    url: String(row['url'] ?? ''),
+    title: String(row['title'] ?? ''),
+    why: String(row['why'] ?? ''),
+    bib: { authors: field(bib['authors']), year: field(bib['year']), venue: field(bib['venue']) },
+    expectedAccess: expectedAccessOf(row['expected_access']),
+    acquisition: acquisitionOf(row['acquisition']),
+    code: str(row['code']),
+    unavailableReason: unavailableReasonOf(row['unavailable_reason']),
+    reasonNote: String(row['reason_note'] ?? ''),
+    itemId: str(row['item_id']),
+    createdAt: Number(row['created_at']),
+    updatedAt: Number(row['updated_at']),
   };
 }
 
@@ -188,6 +269,37 @@ export function updateResearchPlan(
 }
 
 /**
+ * **只有還停在 `from` 的時候才換**，回傳換了沒有。
+ *
+ * 蒐集那一筆作業在背景跑，而它跑完的那一刻，使用者可能已經在另一個請求裡按了「放棄」——
+ * 不帶條件的寫入會把「放棄了」蓋回「等你」。這一支讓後到的那一個輸。
+ */
+export function moveResearchIf(
+  db: DatabaseSync,
+  id: string,
+  from: ResearchStatus,
+  to: ResearchStatus,
+  now: number,
+): boolean {
+  const final = to === 'done' || to === 'abandoned';
+  const result = db
+    .prepare(
+      'UPDATE research SET status = ?, updated_at = ?, ended_at = ? WHERE id = ? AND status = ?',
+    )
+    .run(to, now, final ? now : null, id, from);
+  return Number(result.changes) === 1;
+}
+
+/** 這次研究現在（最新）的那一筆蒐集作業。 */
+export function setCollectRun(db: DatabaseSync, id: string, runId: string, now: number): void {
+  db.prepare('UPDATE research SET collect_run_id = ?, updated_at = ? WHERE id = ?').run(
+    runId,
+    now,
+    id,
+  );
+}
+
+/**
  * 換狀態。**終態同時寫 `ended_at`** —— 兩者分開寫的話，
  * 會出現一筆「已完成但沒有結束時間」的研究，而那種列讀得到卻說不出它什麼時候結束。
  */
@@ -206,7 +318,12 @@ export function updateResearchStatus(
   );
 }
 
-/** 刪一次研究（`research_message` 與 `research_direction` 跟著 CASCADE 走）。 */
+/**
+ * 刪一次研究（`research_message`、`research_direction`、`research_candidate` 跟著 CASCADE 走）。
+ *
+ * **作業不刪**：`run.research_id` 是 `SET NULL` —— 它們是「圖上這些東西來自哪裡」的唯一紀錄
+ * （ADR-0033 D15）。
+ */
 export function deleteResearch(db: DatabaseSync, id: string): boolean {
   return Number(db.prepare('DELETE FROM research WHERE id = ?').run(id).changes) === 1;
 }
@@ -277,14 +394,33 @@ export function costSoFar(
   db: DatabaseSync,
   researchId: string,
 ): { readonly costUsd: number; readonly unknown: number } {
-  const row = db
+  const talk = db
     .prepare(
       `SELECT COALESCE(SUM(cost_usd), 0) AS total,
               SUM(CASE WHEN role = 'model' AND cost_usd IS NULL THEN 1 ELSE 0 END) AS unknown
          FROM research_message WHERE research_id = ?`,
     )
     .get(researchId) as Raw | undefined;
-  return { costUsd: Number(row?.['total'] ?? 0), unknown: Number(row?.['unknown'] ?? 0) };
+  // **作業那一半**（v10）：蒐集的每一筆，「繼續蒐集」開出來的也算。
+  // `unpriced` 是那一筆裡沒回報花費的次數 —— 加總只加得到回報過的那幾次。
+  const work = db
+    .prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) AS total, COALESCE(SUM(unpriced), 0) AS unknown
+         FROM run WHERE research_id = ?`,
+    )
+    .get(researchId) as Raw | undefined;
+  return {
+    costUsd: Number(talk?.['total'] ?? 0) + Number(work?.['total'] ?? 0),
+    unknown: Number(talk?.['unknown'] ?? 0) + Number(work?.['unknown'] ?? 0),
+  };
+}
+
+/** 這次研究的每一筆作業（新的在前）。刪研究時要連它們的模型呼叫紀錄一起刪（D15）。 */
+export function listResearchRunIds(db: DatabaseSync, researchId: string): readonly string[] {
+  const rows = db
+    .prepare('SELECT id FROM run WHERE research_id = ? ORDER BY created_at DESC, rowid DESC')
+    .all(researchId) as Raw[];
+  return rows.map((r) => String(r['id']));
 }
 
 // ── 方向 ──────────────────────────────────────────────────
@@ -330,4 +466,179 @@ export function listDirections(
     .prepare('SELECT * FROM research_direction WHERE research_id = ? ORDER BY ord')
     .all(researchId) as Raw[];
   return rows.map(toDirection);
+}
+
+/** 一條方向搜完了（或搜失敗了）。 */
+export function markDirectionSearched(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly state: 'done' | 'failed';
+    readonly code: string | null;
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    'UPDATE research_direction SET search_state = ?, search_code = ?, searched_at = ? WHERE id = ?',
+  ).run(input.state, input.code, input.now, input.id);
+}
+
+// ── 候選（v10）────────────────────────────────────────────
+
+export function listCandidates(
+  db: DatabaseSync,
+  researchId: string,
+): readonly ResearchCandidateRow[] {
+  const rows = db
+    .prepare('SELECT * FROM research_candidate WHERE research_id = ? ORDER BY ord')
+    .all(researchId) as Raw[];
+  return rows.map(toCandidate);
+}
+
+export function getCandidate(db: DatabaseSync, id: string): ResearchCandidateRow | null {
+  const row = db.prepare('SELECT * FROM research_candidate WHERE id = ?').get(id) as
+    Raw | undefined;
+  return row === undefined ? null : toCandidate(row);
+}
+
+/**
+ * 寫一個找到的候選。**同一次研究裡同一個網址只有一列**（資料表的 UNIQUE）：
+ * 已經有了的話，把這條方向記進 `also_directions_json`，回傳 `false`（不是新的）。
+ */
+export function addCandidate(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly researchId: string;
+    readonly directionId: string;
+    readonly url: string;
+    readonly title: string;
+    readonly why: string;
+    readonly bib: Bibliography;
+    readonly expectedAccess: ExpectedAccess;
+    readonly acquisition: Exclude<Acquisition, 'unavailable'>;
+    readonly now: number;
+  },
+): boolean {
+  const existing = db
+    .prepare('SELECT * FROM research_candidate WHERE research_id = ? AND url = ?')
+    .get(input.researchId, input.url) as Raw | undefined;
+  if (existing !== undefined) {
+    const row = toCandidate(existing);
+    if (row.directionId !== input.directionId && !row.alsoDirections.includes(input.directionId)) {
+      db.prepare(
+        'UPDATE research_candidate SET also_directions_json = ?, updated_at = ? WHERE id = ?',
+      ).run(JSON.stringify([...row.alsoDirections, input.directionId]), input.now, row.id);
+    }
+    return false;
+  }
+  const top = db
+    .prepare('SELECT MAX(ord) AS top FROM research_candidate WHERE research_id = ?')
+    .get(input.researchId) as Raw | undefined;
+  const ord = num(top?.['top']);
+  db.prepare(
+    `INSERT INTO research_candidate
+       (id, research_id, direction_id, ord, url, title, why, bib_json, expected_access, acquisition,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.researchId,
+    input.directionId,
+    ord === null ? 0 : ord + 1,
+    input.url,
+    input.title,
+    input.why,
+    JSON.stringify(input.bib),
+    input.expectedAccess,
+    input.acquisition,
+    input.now,
+    input.now,
+  );
+  return true;
+}
+
+/**
+ * 換一個候選的取得狀態。**`unavailable` 不走這一支**（它要帶原因，見 `markUnavailable`）——
+ * 資料表的 CHECK 守著「拿不到一定帶原因、原因只跟拿不到一起出現」，這一支一律把原因清掉。
+ */
+export function setAcquisition(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly acquisition: Exclude<Acquisition, 'unavailable'>;
+    readonly code: string | null;
+    /** `undefined` ＝ 不動 `item_id` */
+    readonly itemId?: string | null;
+    readonly now: number;
+  },
+): void {
+  if (input.itemId === undefined) {
+    db.prepare(
+      `UPDATE research_candidate
+          SET acquisition = ?, code = ?, unavailable_reason = NULL, reason_note = '', updated_at = ?
+        WHERE id = ?`,
+    ).run(input.acquisition, input.code, input.now, input.id);
+    return;
+  }
+  db.prepare(
+    `UPDATE research_candidate
+        SET acquisition = ?, code = ?, item_id = ?, unavailable_reason = NULL, reason_note = '',
+            updated_at = ?
+      WHERE id = ?`,
+  ).run(input.acquisition, input.code, input.itemId, input.now, input.id);
+}
+
+/** 你說拿不到，而且說了原因（R11）。**抓過的錯誤碼留著** —— 那是「你為什麼這樣判斷」的一半。 */
+export function markUnavailable(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly reason: UnavailableReason;
+    readonly note: string;
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    `UPDATE research_candidate
+        SET acquisition = 'unavailable', unavailable_reason = ?, reason_note = ?, updated_at = ?
+      WHERE id = ?`,
+  ).run(input.reason, input.note, input.now, input.id);
+}
+
+/**
+ * 停在半路的那幾列（`fetching`）放回「還沒抓」。
+ *
+ * 程式在抓的時候停了（關掉、當掉），那一列會一直寫著「抓取中」—— 而沒有任何作業在抓它。
+ * 蒐集作業開始與結束時各呼叫一次。
+ */
+export function resetFetching(db: DatabaseSync, researchId: string, now: number): number {
+  const result = db
+    .prepare(
+      `UPDATE research_candidate SET acquisition = 'found', updated_at = ?
+        WHERE research_id = ? AND acquisition = 'fetching'`,
+    )
+    .run(now, researchId);
+  return Number(result.changes);
+}
+
+/**
+ * 這一份資料是哪一次研究的候選（閱讀器那一行「候選 · 研究『…』還沒確認」，ADR-0033 D8）。
+ *
+ * **只回還沒結束的那一次**：確認過（Stage 22）或放棄了的研究，它就只是一份資料。
+ */
+export function openCandidacyOf(
+  db: DatabaseSync,
+  itemId: string,
+): { readonly researchId: string; readonly topic: string } | null {
+  const row = db
+    .prepare(
+      `SELECT r.id AS id, r.topic AS topic
+         FROM research_candidate c JOIN research r ON r.id = c.research_id
+        WHERE c.item_id = ? AND r.open_key = 1
+        LIMIT 1`,
+    )
+    .get(itemId) as Raw | undefined;
+  if (row === undefined) return null;
+  return { researchId: String(row['id']), topic: String(row['topic'] ?? '') };
 }

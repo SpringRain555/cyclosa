@@ -5,8 +5,10 @@
  */
 import { join } from 'node:path';
 
-import { openCaseDatabase } from '../infrastructure/db/database.js';
+import { isOpen } from '../domain/research/index.js';
+import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
+import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
@@ -49,6 +51,23 @@ export interface RunSummary extends runs.RunRow {
    * （`run-registry.ts` 寫了為什麼不存進 `run.status`）。
    */
   readonly paused: boolean;
+  /**
+   * 這一筆屬於一次**還沒結束的研究**（Stage 20）—— 那時候不能復原（`RUN_OWNED_BY_RESEARCH`）。
+   *
+   * 畫面靠它把「復原這次作業」換成一句為什麼，而不是給一顆按了必定報錯的按鈕。
+   */
+  readonly heldByResearch: boolean;
+}
+
+/** 資料庫的一列 → 清單上的一列（加上三個執行時或跨表的事實）。 */
+function summarize(db: DatabaseSync, row: runs.RunRow): RunSummary {
+  const owner = row.researchId === null ? null : research.getResearch(db, row.researchId);
+  return {
+    ...row,
+    live: isActive(row.id),
+    paused: isPaused(row.id),
+    heldByResearch: owner !== null && isOpen(owner.status),
+  };
 }
 
 export async function listRuns(
@@ -61,7 +80,7 @@ export async function listRuns(
   if ('ok' in db) return db;
   try {
     return ok(
-      runs.listRuns(db, limit).map((r) => ({ ...r, live: isActive(r.id), paused: isPaused(r.id) })),
+      runs.listRuns(db, limit).map((r) => summarize(db, r)),
       cid,
     );
   } finally {
@@ -127,7 +146,7 @@ export async function getRun(
     if (row === null) return err('RUN_NOT_FOUND', cid, { runId });
     return ok(
       {
-        run: { ...row, live: isActive(runId), paused: isPaused(runId) },
+        run: summarize(db, row),
         items: runs.listRunItems(db, runId),
         angles: viewAngles(db, runId),
       },

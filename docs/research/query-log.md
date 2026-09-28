@@ -397,9 +397,9 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 那些句子會被讀者拿去對照，所以在寫之前把 09-06 的判讀逐條重查 —— 另外 Stage 21–24 是大功能，
 本來就在 `index.md` 的門檻內。結論寫在 `market-scan.md` 的〈2026-09-28 重查〉。
 
-**拆題**：不是照賽道查，是**照 Cyclosa 的功能模組**查「誰解過、怎麼解、授權、借什麼、差在哪」
+**拆題**：不是照產品類別查，是**照 Cyclosa 的功能模組**查「誰解過、怎麼解、授權、借什麼、差在哪」
 （規劃、蒐集與候選、擷取保存、閱讀點註、抽取建圖、人工裁決、可信度、圖瀏覽、檢索、匯出、多語、本機與模型），
-另外一題是「有沒有端到端的同類」。**飽和判準**：一個賽道連續三個新項目都沒有帶來新的設計樣式就停。
+另外一題是「有沒有端到端的同類」。**飽和判準**：一個類別連續三個新項目都沒有帶來新的設計樣式就停。
 
 **紀律**：搜尋結果只當線索（C），每一條要寫進結論的都回到產品自己的頁面或 README（A）；
 原始回應存在 agent 沙箱（不進 repo），**雜湊進 `sources/manifest.jsonl`（40 列，全部有 SHA-256）**；
@@ -409,7 +409,7 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
 | 批次 | 檢索詞／目標 | 擷取方式 | 結果 | 失敗或限制 |
 |---|---|---|---|---|
 | W1–W12 | NotebookLM 心智圖、Neo4j Graph Builder、InfraNodus、Co-STORM、Gemini Deep Research 編輯規劃、開源 NotebookLM 替代品、LightRAG WebUI、人機協作知識圖譜、Recall、Memorwise、GRACE、Heptabase | WebSearch | 找出新候選：Memorwise、Open Notebook、SurfSense、Kotaemon、GRACE、CleanGraph | 搜尋摘要只當線索（C）；結論一律回到下面 A1／G1 |
-| W13–W20 | Maltego AI、System、Hunchly、MindSearch、Kotaemon、台灣事實查核與資訊操弄、Obsidian 外掛、文獻圖譜、INCEpTION、CleanGraph、Elicit／Undermind、資策會標記工具、Heptabase 創辦團隊 | WebSearch | 補齊調查、證據圖、人機協作、在地四個賽道 | Heptabase 的台灣背景、Cofacts.ai、Taiwan AI Labs、資策會工具只有 C 級 |
+| W13–W20 | Maltego AI、System、Hunchly、MindSearch、Kotaemon、台灣事實查核與資訊操弄、Obsidian 外掛、文獻圖譜、INCEpTION、CleanGraph、Elicit／Undermind、資策會標記工具、Heptabase 創辦團隊 | WebSearch | 補齊調查、證據圖、人機協作、在地四個類別 | Heptabase 的台灣背景、Cofacts.ai、Taiwan AI Labs、資策會工具只有 C 級 |
 | A1 | 15 個產品自己的頁面（Gemini Notebook 與 Deep Research 說明、Neo4j Labs、InfraNodus、Recall 文件、Memorwise、Heptabase changelog、Maltego、Hunchly、System、arXiv 2609.04442 與 2405.03932、INCEpTION、Cofacts.ai、Undermind）| `bulk-fetch`（robots 依 RFC 9309、同網域 4 秒）＋ trafilatura 抽正文 | 15／15 回 200；NotebookLM 說明頁轉址到 `support.google.com/gemininotebook/…`（manifest 記了 `final_url`）| **cofacts.ai 是 JS 殼**（抽出 138 字），沒有用；Undermind 頁上的比較數字是廠商自己的評測，不引用 |
 | G1 | 12 個 repo 的 `repos/{o}/{r}` ＋ README；SurfSense 另讀 `license` | `gh api`（已登入，間隔 1 秒）| 授權、建立與最後 push 時間、星數、README 全部拿到 | **超過每網域 8 個請求**，使用者同意後才跑；SurfSense 的 API 授權是 `NOASSERTION`，讀 `LICENSE` 才知道是混合授權（BSL 1.1 ＋ Apache-2.0）|
 | L1 | 本 repo `node_modules` 每個套件的 `package.json` `license` 欄 | 本機腳本，沒有網路 | 321 個套件，GPL 系 0 | 只看套件自己宣告的欄位，沒有逐一開 `LICENSE` 檔 |

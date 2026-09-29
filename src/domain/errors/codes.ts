@@ -166,7 +166,7 @@ export const ERROR_CODES = {
    */
   PROVIDER_QUOTE_NOT_FOUND: 'partial',
   PROVIDER_SANDBOX_VIOLATION: 'error',
-  // **notice，不是 error**（2026-09-30）：比對本來就只拿同一個模型的向量（`vector-reader.ts`），
+  // **notice，不是 error**（2026-09-29）：比對本來就只拿同一個模型的向量（`vector-reader.ts`），
   // 所以沒有什麼要「停」—— 要做的是說出來：這個專題有一部分是別的模型算的，現在的模型比不到它們。
   PROVIDER_EMBED_MODEL_MISMATCH: 'notice',
   /**

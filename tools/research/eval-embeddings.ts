@@ -38,7 +38,7 @@ import { bigrams } from '../../src/domain/search/tokenize.js';
 const rawHost = process.env['OLLAMA_HOST'] ?? '127.0.0.1:11434';
 const OLLAMA = /^https?:\/\//.test(rawHost) ? rawHost : `http://${rawHost}`;
 const TOP_K = 10;
-/** 一次送幾段。2026-09-30 從 16 降到 8：Ollama 一批裡的每一段各撥一次本機連線，一批越大、同一瞬間撥得越多（見 `embed()`）。 */
+/** 一次送幾段。2026-09-29 從 16 降到 8：Ollama 一批裡的每一段各撥一次本機連線，一批越大、同一瞬間撥得越多（見 `embed()`）。 */
 const BATCH = 8;
 
 interface Passage {
@@ -59,7 +59,7 @@ interface Query {
 /**
  * 前綴照各模型自己的 model card —— **讀的是出貨那一張表**（`domain/search/embed-prefix.ts`）。
  *
- * 2026-09-30 之前這裡有自己的一份，而它跟出貨的那一份已經分岔過一次
+ * 2026-09-29 之前這裡有自己的一份，而它跟出貨的那一份已經分岔過一次
  * （`qwen3-embedding` 的 `Query:` 後面有沒有空白）。量測用一份、出貨用另一份的話，
  * 量出來的分數對出貨的東西不成立 —— 跟 `fetch-eval-corpus.ts` 改用出貨的切段是同一個理由。
  */
@@ -77,7 +77,7 @@ function specOf(name: string): ModelSpec {
 }
 
 /**
- * 這一輪的候選（2026-09-30，**先登記再跑**：`research/embedding-choice.md`「2026-09-30 重量」那一節）。
+ * 這一輪的候選（2026-09-29，**先登記再跑**：`research/embedding-choice.md`「2026-09-29 重量」那一節）。
  *
  * 建議值只從非中國來源的模型挑，**底座或蒸餾來源是中國模型的也算**（ADR-0035）——
  * 所以 `bge-m3`、`qwen3-embedding:0.6b`、`snowflake-arctic-embed2`（card 寫明 builds on `BAAI/bge-m3-retromae`）
@@ -249,7 +249,7 @@ function summarize(
 // ── 主流程 ──────────────────────────────────────────────────
 
 /**
- * `--pause <秒>` ＝ 每跑完一個模型先停這麼久（2026-09-30 加）。
+ * `--pause <秒>` ＝ 每跑完一個模型先停這麼久（2026-09-29 加）。
  *
  * Ollama 0.34.4 在 Windows 上**每嵌入一段文字，就在本機迴路留下約 3 個 TIME_WAIT**
  * （2026-09-29 實測：一次請求 16 段 → 多 50 個、1 段 → 多 4 個）。1957 段一個模型就是六千個上下，

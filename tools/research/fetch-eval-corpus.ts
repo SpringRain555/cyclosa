@@ -118,7 +118,7 @@ async function fetchPage(host: string, prefix: string, title: string): Promise<P
       ? (/"wgCurRevisionId"\s*:\s*(\d+)/.exec(decoded.text)?.[1] ?? null)
       : null;
   /**
-   * **版本編號寫進 manifest**（2026-09-30 補）。
+   * **版本編號寫進 manifest**（2026-09-29 補）。
    *
    * `embedding-choice.md` 寫「重現靠頁面清單 ＋ `wgCurRevisionId` ＋ SHA-256」，而 09-09 那一輪的版本編號
    * 只寫進了 `pages.json` —— 那一份跟語料一起留在暫存目錄、沒有留下來。**manifest 是唯一進版控的那一份**，

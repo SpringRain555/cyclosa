@@ -276,7 +276,7 @@ export async function searchCase(
         : semanticCandidates(db, queryVector, { model: embedModel, limit: CANDIDATE_CAP });
 
     /**
-     * **換過嵌入模型、還沒重算完的專題，語意那一路會安靜地變少**（2026-09-30 補）。
+     * **換過嵌入模型、還沒重算完的專題，語意那一路會安靜地變少**（2026-09-29 補）。
      *
      * 比對只拿同一個模型算的向量（兩個模型的向量拿來比，餘弦照樣算得出一個數字 —— ADR-0009），
      * 所以舊模型算的那幾份**根本不參與**。在 `semantic` 模式裡那就是「一筆都查不到」，

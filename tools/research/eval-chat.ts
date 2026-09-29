@@ -61,7 +61,7 @@ const REPEATS = 3;
 /**
  * 角度之間的相似度用它算（只有跑角度的時候用得到）。
  *
- * 09-09 那一輪寫死成當時的嵌入建議值 `qwen3-embedding:4b`。2026-09-30 起建議值只從非中國來源挑
+ * 09-09 那一輪寫死成當時的嵌入建議值 `qwen3-embedding:4b`。2026-09-29 起建議值只從非中國來源挑
  * （ADR-0035），這一支工具也不再預設任何一個 —— **換了嵌入模型，「彼此」「離題目」那幾欄就跟 09-09 不可比**，
  * 所以要跑角度的人自己指定、自己在文件裡寫下用的是哪一個。角度在 Stage 22 退場，抽取用不到它（`--extract-only`）。
  */
@@ -465,7 +465,7 @@ const noThink = argv.includes('--no-think');
 /** `--angles-only` ＝ 只跑角度。補一欄指標時不必把抽取那一輪重跑一次。 */
 const anglesOnly = argv.includes('--angles-only');
 /**
- * `--extract-only` ＝ 只跑抽取（2026-09-30 加）。角度在 Stage 22 退場，它的建議值 `granite4.2:8b`
+ * `--extract-only` ＝ 只跑抽取（2026-09-29 加）。角度在 Stage 22 退場，它的建議值 `granite4.2:8b`
  * 本來就不是中國來源，換模型那一輪只需要重量抽取 —— 而跑角度要一個嵌入模型算相似度（見 `EMBED_MODEL`）。
  */
 const extractOnly = argv.includes('--extract-only');

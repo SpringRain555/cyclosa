@@ -14,8 +14,14 @@
  * 用法：
  *   npx tsx tools/research/probe-models.ts            # 跑內建那一批
  *   npx tsx tools/research/probe-models.ts hf:<repo>  # 只查某一個
+ *   npx tsx tools/research/probe-models.ts ollama-tags:<name>  # ollama.com 上這個模型有哪些 tag
+ *   npx tsx tools/research/probe-models.ts hf-search:<作者>:<字>  # 先找到正確的 repo 名
  *
  * 每一次請求都會**接一列進 `docs/research/sources/manifest.jsonl`**。
+ *
+ * **`base_model` 要一起看**（2026-09-29 起）：建議值只從非中國來源的模型挑，而**底座或蒸餾來源是中國模型的也算**
+ * （ADR-0035）。發布者是哪一家只回答了一半 —— `snowflake-arctic-embed2` 跟 `bge-m3` 架構、參數完全一致，
+ * 就是那一半的反例。`cardData.base_model` 是模型作者自己宣告的欄位（A 級）；**沒宣告不等於沒有底座**，要去讀 card。
  */
 import { appendFile } from 'node:fs/promises';
 
@@ -112,6 +118,7 @@ async function probeHf(repo: string): Promise<void> {
     JSON.stringify({
       repo,
       license: m['license'] ?? card['license'] ?? null,
+      baseModel: card['base_model'] ?? null,
       lastModified: m['lastModified'] ?? null,
       downloads: m['downloads'] ?? null,
       likes: m['likes'] ?? null,
@@ -121,6 +128,52 @@ async function probeHf(repo: string): Promise<void> {
       onnxCount: onnx.length,
     }),
   );
+}
+
+/**
+ * ollama.com 上一個模型有哪些 tag（與頁面上寫的大小）。
+ *
+ * **tag 名要實查，不憑印象**（`model-tasks-review.md` §6 的做法）：同一個家族每一代的 tag 寫法都不一樣
+ * （`phi4` 與 `phi4-mini`、`mistral-small3.2`），猜錯的症狀是 `ollama pull` 404，猜對一個不存在的舊 tag 更糟。
+ * 讀的是 HTML，所以只抓「`/library/<name>:<tag>`」這種連結與它後面最近的一個大小字串 —— 頁面改版就會抓不到，
+ * **抓不到時照實說 0 個**，不回一份看起來完整的空清單。
+ */
+async function probeOllamaTags(name: string): Promise<void> {
+  const url = `https://ollama.com/library/${name}/tags`;
+  const { outcome } = await crawler.fetch(url);
+  if (outcome.kind !== 'ok') {
+    await appendFile(
+      MANIFEST,
+      `${JSON.stringify({ url, fetched_at: new Date().toISOString(), status: null, error: outcome.code })}\n`,
+      'utf8',
+    );
+    console.log(`TAGS ${name} → ${outcome.code}`);
+    return;
+  }
+  await appendFile(
+    MANIFEST,
+    `${JSON.stringify({
+      url,
+      fetched_at: new Date().toISOString(),
+      status: outcome.status,
+      content_type: outcome.contentType,
+      sha256: sha256Of(outcome.bytes),
+      bytes: outcome.bytes.byteLength,
+    })}\n`,
+    'utf8',
+  );
+  const html = new TextDecoder().decode(outcome.bytes);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const link = new RegExp(`/library/${escaped}:([A-Za-z0-9._-]+)`, 'g');
+  const tags = new Map<string, string | null>();
+  for (const match of html.matchAll(link)) {
+    const tag = match[1];
+    if (tag === undefined || tags.has(tag)) continue;
+    const after = html.slice(match.index, match.index + 600);
+    const size = /(\d+(?:\.\d+)?\s?[KMG]B)/.exec(after);
+    tags.set(tag, size?.[1] ?? null);
+  }
+  console.log(JSON.stringify({ name, count: tags.size, tags: Object.fromEntries(tags) }));
 }
 
 async function probeOllama(tag: string): Promise<void> {
@@ -163,11 +216,38 @@ async function findGguf(term: string): Promise<void> {
   );
 }
 
+/**
+ * 一個作者底下名字裡有某個字的 repo（`hf-search:<author>:<字>`）。
+ *
+ * 為了**找到正確的 repo 名**再去查授權與底座 —— 家族名跟 repo 名常常差一截
+ * （Ollama 的 `granite4.2` 對 HF 的 `granite-4.2-…`），憑印象拼 repo 名會 404，或拿到同名的另一個模型。
+ */
+async function searchHf(author: string, term: string): Promise<void> {
+  const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&search=${encodeURIComponent(term)}&sort=downloads&direction=-1&limit=20`;
+  const r = await getJson(url);
+  if (!r.ok) {
+    console.log(`SEARCH ${author}:${term} → ${r.why}`);
+    return;
+  }
+  const rows = Array.isArray(r.body) ? r.body : [];
+  console.log(
+    JSON.stringify({
+      author,
+      term,
+      hits: rows.map((x) => asRec(x)['id']),
+    }),
+  );
+}
+
 const args = process.argv.slice(2);
 if (args.length > 0) {
   for (const a of args) {
     if (a.startsWith('hf:')) await probeHf(a.slice(3));
-    else if (a.startsWith('ollama:')) await probeOllama(a.slice(7));
+    else if (a.startsWith('ollama-tags:')) await probeOllamaTags(a.slice(12));
+    else if (a.startsWith('hf-search:')) {
+      const [author = '', term = ''] = a.slice(10).split(':');
+      await searchHf(author, term);
+    } else if (a.startsWith('ollama:')) await probeOllama(a.slice(7));
     else if (a.startsWith('find:')) await findGguf(a.slice(5));
   }
 } else {

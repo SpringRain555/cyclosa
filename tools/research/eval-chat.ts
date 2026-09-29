@@ -58,8 +58,14 @@ const OLLAMA = /^https?:\/\//.test(rawHost) ? rawHost : `http://${rawHost}`;
 /** 每個任務重複幾次。**一次跑不出「穩不穩定」**，而穩定性正是這裡要問的。 */
 const REPEATS = 3;
 
-/** 角度之間的相似度用它算。**就是剛選定的那一個**（v0.10.1）。 */
-const EMBED_MODEL = 'qwen3-embedding:4b';
+/**
+ * 角度之間的相似度用它算（只有跑角度的時候用得到）。
+ *
+ * 09-09 那一輪寫死成當時的嵌入建議值 `qwen3-embedding:4b`。2026-09-30 起建議值只從非中國來源挑
+ * （ADR-0035），這一支工具也不再預設任何一個 —— **換了嵌入模型，「彼此」「離題目」那幾欄就跟 09-09 不可比**，
+ * 所以要跑角度的人自己指定、自己在文件裡寫下用的是哪一個。角度在 Stage 22 退場，抽取用不到它（`--extract-only`）。
+ */
+const EMBED_MODEL = process.env['EVAL_EMBED_MODEL'] ?? '';
 
 const MODELS_DEFAULT = [
   'gemma4:31b',
@@ -188,6 +194,9 @@ async function askJson(
 }
 
 async function embed(input: readonly string[]): Promise<Float32Array[]> {
+  if (EMBED_MODEL.length === 0) {
+    throw new Error('角度那幾欄要一個嵌入模型：設 EVAL_EMBED_MODEL，或加 --extract-only 只量抽取');
+  }
   const res = await fetch(`${OLLAMA}/api/embed`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -455,12 +464,17 @@ const argv = process.argv.slice(2);
 const noThink = argv.includes('--no-think');
 /** `--angles-only` ＝ 只跑角度。補一欄指標時不必把抽取那一輪重跑一次。 */
 const anglesOnly = argv.includes('--angles-only');
+/**
+ * `--extract-only` ＝ 只跑抽取（2026-09-30 加）。角度在 Stage 22 退場，它的建議值 `granite4.2:8b`
+ * 本來就不是中國來源，換模型那一輪只需要重量抽取 —— 而跑角度要一個嵌入模型算相似度（見 `EMBED_MODEL`）。
+ */
+const extractOnly = argv.includes('--extract-only');
 const [corpusDir, outDir, ...only] = argv.filter(
-  (a) => a !== '--no-think' && a !== '--angles-only',
+  (a) => a !== '--no-think' && a !== '--angles-only' && a !== '--extract-only',
 );
 if (corpusDir === undefined || outDir === undefined) {
   console.error(
-    '用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [--no-think] [模型 ...]',
+    '用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [--no-think] [--extract-only | --angles-only] [模型 ...]',
   );
   process.exit(2);
 }
@@ -548,7 +562,7 @@ for (const model of models) {
   const label = think === false ? `${model} (think:off)` : model;
   console.error(`\n── ${model}`);
   const angles: AnglesRun[] = [];
-  for (let i = 0; i < REPEATS; i++) {
+  for (let i = 0; i < (extractOnly ? 0 : REPEATS); i++) {
     const r = await runAngles(model, TOPIC, seeds, think);
     angles.push(r);
     console.error(
@@ -581,7 +595,8 @@ for (const model of models) {
   results.push({
     model: label,
     angles: {
-      schemaOkRate: angles.filter((a) => a.schemaOk).length / angles.length,
+      schemaOkRate:
+        angles.length === 0 ? null : angles.filter((a) => a.schemaOk).length / angles.length,
       keptMean: mean(okAngles.map((a) => a.kept)),
       seedRefValidRate:
         okAngles.reduce((s, a) => s + a.seedRefsTotal, 0) === 0

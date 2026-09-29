@@ -96,17 +96,21 @@ for (const f of files) {
 
 console.log(`記分線：${CHAT_TIMEOUT_MS / 1000} 秒（出貨的 CHAT_TIMEOUT_MS）\n`);
 
-console.log(
-  pad('model', 26) +
-    pad('角度', 8) +
-    pad('條數', 7) +
-    pad('彼此', 8) +
-    pad('離題目', 9) +
-    pad('飄走', 7) +
-    pad('seed有效', 11) +
-    '秒',
-);
-for (const e of entries) {
+/** 用 `--extract-only` 跑的結果檔沒有角度 —— 那一張表整張不印，而不是印一排「0/0」。 */
+const hasAngles = entries.some((e) => e.raw.angles.length > 0);
+if (hasAngles) {
+  console.log(
+    pad('model', 26) +
+      pad('角度', 8) +
+      pad('條數', 7) +
+      pad('彼此', 8) +
+      pad('離題目', 9) +
+      pad('飄走', 7) +
+      pad('seed有效', 11) +
+      '秒',
+  );
+}
+for (const e of hasAngles ? entries : []) {
   const runs = e.raw.angles;
   const ok = runs.filter(inBudget);
   const refsTotal = ok.reduce((s, a) => s + a.seedRefsTotal, 0);
@@ -214,8 +218,10 @@ for (const e of entries) {
   );
 }
 
-console.log('\n=== 角度樣本 ===');
-for (const e of entries) {
-  console.log(`[${e.model}]`);
-  for (const q of e.angles.samples) console.log(`  · ${q}`);
+if (hasAngles) {
+  console.log('\n=== 角度樣本 ===');
+  for (const e of entries) {
+    console.log(`[${e.model}]`);
+    for (const q of e.angles.samples) console.log(`  · ${q}`);
+  }
 }

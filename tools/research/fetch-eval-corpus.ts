@@ -112,6 +112,18 @@ async function fetchPage(host: string, prefix: string, title: string): Promise<P
     console.error(`  ✗ ${title} → ${outcome.code}`);
     return null;
   }
+  const decoded = decodeHtml(outcome.bytes, charsetOf(outcome.contentType));
+  const revid =
+    decoded.kind === 'ok'
+      ? (/"wgCurRevisionId"\s*:\s*(\d+)/.exec(decoded.text)?.[1] ?? null)
+      : null;
+  /**
+   * **版本編號寫進 manifest**（2026-09-30 補）。
+   *
+   * `embedding-choice.md` 寫「重現靠頁面清單 ＋ `wgCurRevisionId` ＋ SHA-256」，而 09-09 那一輪的版本編號
+   * 只寫進了 `pages.json` —— 那一份跟語料一起留在暫存目錄、沒有留下來。**manifest 是唯一進版控的那一份**，
+   * 所以版本編號要在這裡；沒有它，下一輪就釘不回同一版頁面（HTML 每次都不同，雜湊比不了）。
+   */
   await appendFile(
     MANIFEST,
     `${JSON.stringify({
@@ -121,16 +133,15 @@ async function fetchPage(host: string, prefix: string, title: string): Promise<P
       content_type: outcome.contentType,
       sha256: sha256Of(outcome.bytes),
       bytes: outcome.bytes.byteLength,
+      revid,
     })}\n`,
     'utf8',
   );
 
-  const decoded = decodeHtml(outcome.bytes, charsetOf(outcome.contentType));
   if (decoded.kind !== 'ok') {
     console.error(`  ✗ ${title} → 解碼失敗`);
     return null;
   }
-  const revid = /"wgCurRevisionId"\s*:\s*(\d+)/.exec(decoded.text)?.[1] ?? null;
   const extracted = extractHtml(decoded.text, outcome.finalUrl);
   if (extracted.text.length < 500) {
     console.error(`  ✗ ${title} → 正文只有 ${extracted.text.length} 字`);

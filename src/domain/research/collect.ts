@@ -10,6 +10,8 @@
  * 資料表在 `infrastructure/db`，用例編排在 `application/research-collect.ts`。
  */
 import type { SiteVerdict } from '../sources/status.js';
+import { MAX_CANDIDATES_PER_DIRECTION } from '../provider/candidates.js';
+import type { Relevance } from '../provider/digest.js';
 import { MAX_DIRECTIONS } from '../provider/plan.js';
 import type { ResearchStatus } from './index.js';
 
@@ -111,6 +113,11 @@ export interface DirectionWork {
 export interface CandidateWork {
   readonly acquisition: Acquisition;
   readonly code: string | null;
+  /** 抓到或上傳之後的那一份。初讀讀的是它 */
+  readonly itemId: string | null;
+  /** 初讀的判斷（Stage 21）。`null` ＝ 還沒讀，或讀過但失敗（看 `digestCode`）*/
+  readonly relevance: Relevance | null;
+  readonly digestCode: string | null;
 }
 
 export interface CollectWork {
@@ -118,12 +125,48 @@ export interface CollectWork {
   readonly searches: number;
   /** 還沒抓的候選，加上被限流、這一輪沒抓的 */
   readonly fetches: number;
+  /** 拿到了、還沒讀（或讀失敗、可以再讀）的候選（Stage 21）*/
+  readonly digests: number;
 }
 
 /** 候選還要機器去抓嗎。`fetching` 在作業沒有活著的時候就是「停在半路」，當成還沒抓。 */
 export function needsFetch(candidate: CandidateWork): boolean {
   if (candidate.acquisition === 'found' || candidate.acquisition === 'fetching') return true;
   return candidate.acquisition === 'needs-user' && retryableFetch(candidate.code);
+}
+
+/**
+ * **這幾種初讀失敗，再讀一次也一樣**，所以「繼續蒐集」不再讀：那一份沒有正文可讀
+ * （掃描的 PDF、抽不出字的圖）。其餘（模型沒回、回的不是 JSON、超過上限、連不上）都再讀。
+ *
+ * 不排除的話它會讓「還有事可以做」永遠是真的 —— 「繼續蒐集」那顆鈕永遠亮著，按下去什麼都沒變。
+ */
+const FINAL_DIGEST_CODES: readonly string[] = ['PARSE_EMPTY_CONTENT'];
+
+/**
+ * **這幾種初讀失敗代表「接下來每一份都會一樣」**：被限流、金鑰被拒、連不上。
+ * 這一筆作業就不再讀下去 —— 剩下的留在「還沒讀」，「繼續蒐集」會接著讀。
+ * 繼續讀的話，被限流的端點會被一份一份地再敲（ADR-0031 的同一個道理），
+ * 另外兩種則是每一份都白白失敗一次、畫面上多出一整排一樣的錯。
+ */
+const STOP_DIGESTING_CODES: readonly string[] = [
+  'PROVIDER_RATE_LIMITED',
+  'PROVIDER_AUTH_REJECTED',
+  'PROVIDER_UNREACHABLE',
+];
+
+export function stopsDigesting(code: string | null): boolean {
+  return code !== null && STOP_DIGESTING_CODES.includes(code);
+}
+
+/**
+ * 候選還要初讀嗎（Stage 21，R14）：**拿到了**（抓到或你上傳的）、而且還沒有判斷。
+ * 讀好的不重讀（R13 的同一條）；讀失敗的再讀，除非是 `FINAL_DIGEST_CODES` 那幾種。
+ */
+export function needsDigest(candidate: CandidateWork): boolean {
+  const acquired = candidate.acquisition === 'fetched' || candidate.acquisition === 'uploaded';
+  if (!acquired || candidate.itemId === null || candidate.relevance !== null) return false;
+  return candidate.digestCode === null || !FINAL_DIGEST_CODES.includes(candidate.digestCode);
 }
 
 /** 方向還要搜嗎。**沒被採用的不搜**（它們是「模型提過、你刪掉的」那幾條）。 */
@@ -138,11 +181,12 @@ export function collectWork(
   return {
     searches: directions.filter(needsSearch).length,
     fetches: candidates.filter(needsFetch).length,
+    digests: candidates.filter(needsDigest).length,
   };
 }
 
 export function hasWork(work: CollectWork): boolean {
-  return work.searches > 0 || work.fetches > 0;
+  return work.searches > 0 || work.fetches > 0 || work.digests > 0;
 }
 
 // ── 現在可以按哪幾顆 ─────────────────────────────────────────
@@ -225,14 +269,16 @@ export function statusAfterCollectRun(cancelReason: 'shutdown' | 'stale' | null)
 /**
  * 一筆蒐集作業的上限（ADR-0006 的三種）。
  *
- * - **請求數 ＝ 方向數**：每條方向搜一次（`MAX_DIRECTIONS`）。初讀（Stage 21）接上來的時候
- *   這個數字要跟著改 —— 它是「這一次作業最多打幾次模型」，不是「最多搜幾次」
+ * - **請求數 ＝ 方向數 ＋ 候選的上限**：每條方向搜一次，**每一份拿到的讀一次**（初讀，Stage 21）。
+ *   它是「這一次作業最多打幾次模型」，不是「最多搜幾次」—— 一份候選最多來自
+ *   `MAX_DIRECTIONS × MAX_CANDIDATES_PER_DIRECTION` 那麼多列，所以這樣算擋不住的只有「重讀」，而重讀不會發生
+ *   （讀好的不重讀）
  * - **牆鐘 60 分鐘**：一次搜尋走 Claude Code 常常要一兩分鐘，十二條就是二十分鐘上下，
- *   再加上同網域間隔的擷取。超過的那幾條標「超過上限」，「繼續蒐集」會接著做
+ *   再加上同網域間隔的擷取與每一份十幾秒的初讀。超過的那幾條標「超過上限」，「繼續蒐集」會接著做
  * - **金額不設**：provider 不一定回報（同 `DEFAULT_BUDGET`）
  */
 export const COLLECT_BUDGET = {
-  maxRequests: MAX_DIRECTIONS,
+  maxRequests: MAX_DIRECTIONS + MAX_DIRECTIONS * MAX_CANDIDATES_PER_DIRECTION,
   timeoutMs: 60 * 60 * 1000,
   maxCostUsd: null,
 } as const;

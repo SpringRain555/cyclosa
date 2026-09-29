@@ -8,6 +8,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 
 import type { RunEndedReason, RunKind, RunStatus } from '../../../domain/ingest/state.js';
+import type { TaskCosts } from '../../../domain/provider/budget.js';
 import type { RunEdgeFact, RunItemFact } from '../../../domain/run/index.js';
 
 export type RunItemOutcome =
@@ -157,13 +158,24 @@ export function updateRunBudget(
   costUsd: number | null,
   /** 沒回報花費的次數（schema v10）。**跟 `costUsd` 一起寫**，分開寫會有一刻對不起來。 */
   unpriced: number,
+  /**
+   * 逐任務的那一份（schema v11，`task_costs_json`）。**同一句 UPDATE 寫** —— 總數與拆開的那一份
+   * 分兩次寫的話，中間那一刻畫面會讀到加不起來的兩個數字。不給就不動那一欄（舊的擴展不拆）。
+   */
+  taskCosts?: TaskCosts,
 ): void {
-  db.prepare('UPDATE run SET requests = ?, cost_usd = ?, unpriced = ? WHERE id = ?').run(
-    requests,
-    costUsd,
-    unpriced,
-    id,
-  );
+  if (taskCosts === undefined) {
+    db.prepare('UPDATE run SET requests = ?, cost_usd = ?, unpriced = ? WHERE id = ?').run(
+      requests,
+      costUsd,
+      unpriced,
+      id,
+    );
+    return;
+  }
+  db.prepare(
+    'UPDATE run SET requests = ?, cost_usd = ?, unpriced = ?, task_costs_json = ? WHERE id = ?',
+  ).run(requests, costUsd, unpriced, JSON.stringify(taskCosts), id);
 }
 
 /** 總項目數在擴展裡是「勾了幾條角度」，而那要等使用者勾完才知道。 */

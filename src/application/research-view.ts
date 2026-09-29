@@ -20,6 +20,8 @@ import {
   normalizeDirection,
   type Bibliography,
   type DirectionDraft,
+  type Relevance,
+  type TaskCosts,
 } from '../domain/provider/index.js';
 import {
   collectWork,
@@ -135,6 +137,21 @@ export interface CandidateView {
   readonly unavailableReason: UnavailableReason | null;
   readonly reasonNote: string;
   readonly itemId: string | null;
+  /**
+   * 初讀（Stage 21）。`relevance` 是 `null` 而 `digestCode` 也是 `null` ＝ 還沒讀；
+   * 有碼 ＝ 讀過但失敗（`PARSE_EMPTY_CONTENT` 以外的，「繼續蒐集」會再讀）。
+   */
+  readonly relevance: Relevance | null;
+  readonly relevanceWhy: string;
+  readonly digestCode: string | null;
+  /**
+   * 那一份資料的繁中標題與摘要（`item.title_zh`／`summary_zh`）。**衍生物，原文是上面的 `title`** ——
+   * 畫面兩個都顯示，而且說得出是誰、什麼時候產生的（`digestedBy`／`digestedAt`，R15）。
+   */
+  readonly titleZh: string | null;
+  readonly summaryZh: string | null;
+  readonly digestedBy: string | null;
+  readonly digestedAt: number | null;
   /** 這一列上現在按得下去的動作（`mayActOnCandidate`）。**畫面不自己判斷** */
   readonly actions: {
     readonly upload: boolean;
@@ -193,9 +210,16 @@ export interface ResearchView {
   /** 到目前為止花了多少；`unknownCost` 是「有幾次沒回報」（R29）—— 對話與作業加起來。 */
   readonly costUsd: number;
   readonly unknownCost: number;
+  /**
+   * 逐任務的那一份（v11，R29）：規劃對話、找來源、初讀……各自花了多少、幾次沒回報。
+   * **沒出現的任務就是還沒跑過**，不是 0。加起來等於上面兩個數字。
+   */
+  readonly costByTask: TaskCosts;
   readonly service: PlanService;
   /** 找候選來源走哪個服務（閘門一與「繼續蒐集」旁邊那句話）。 */
   readonly findService: ServiceView;
+  /** 初讀走哪個服務（Stage 21）：同一句話的後半 ——「拿到的每一份由 {服務} 讀一次」。 */
+  readonly digestService: ServiceView;
 }
 
 const EMPTY_PLAN_VIEW: PlanView = {
@@ -263,6 +287,11 @@ function findServiceOf(providers: Providers): ServiceView {
   return { via: setting.via, model: setting.model, costs: setting.via !== 'ollama' };
 }
 
+function digestServiceOf(providers: Providers): ServiceView {
+  const setting = providers.config.tasks.digest;
+  return { via: setting.via, model: setting.model, costs: setting.via !== 'ollama' };
+}
+
 function collectOf(
   row: research.ResearchRow,
   run: runs.RunRow | null,
@@ -293,11 +322,21 @@ export function viewOf(
   const directions = research.listDirections(db, row.id);
   const candidates = research.listCandidates(db, row.id);
   const work = collectWork(directions, candidates);
+  // 初讀的繁中住在資料上（v11）。**一次撈完**，不是每一列各查一次。
+  const itemsById = new Map(
+    items
+      .loadItems(
+        db,
+        candidates.flatMap((c) => (c.itemId === null ? [] : [c.itemId])),
+      )
+      .map((i) => [i.id, i]),
+  );
 
   const candidateViews: CandidateView[] = candidates.map((c) => {
     // 作業沒有在跑，就沒有東西「正在抓」—— 停在半路的那幾列是還沒抓（見 `CandidateView`）。
     const acquisition: Acquisition =
       c.acquisition === 'fetching' && !live ? 'found' : c.acquisition;
+    const item = c.itemId === null ? undefined : itemsById.get(c.itemId);
     return {
       id: c.id,
       directionIds: [...(c.directionId === null ? [] : [c.directionId]), ...c.alsoDirections],
@@ -313,6 +352,13 @@ export function viewOf(
       unavailableReason: c.unavailableReason,
       reasonNote: c.reasonNote,
       itemId: c.itemId,
+      relevance: c.relevance,
+      relevanceWhy: c.relevanceWhy,
+      digestCode: c.digestCode,
+      titleZh: item?.titleZh ?? null,
+      summaryZh: item?.summaryZh ?? null,
+      digestedBy: item?.digestedBy ?? null,
+      digestedAt: item?.digestedAt ?? null,
       actions: {
         upload: mayActOnCandidate('upload', row.status, acquisition, live),
         unavailable: mayActOnCandidate('unavailable', row.status, acquisition, live),
@@ -358,7 +404,9 @@ export function viewOf(
     collect: collectOf(row, run, work),
     costUsd: cost.costUsd,
     unknownCost: cost.unknown,
+    costByTask: cost.byTask,
     service: planServiceOf(providers),
     findService: findServiceOf(providers),
+    digestService: digestServiceOf(providers),
   };
 }

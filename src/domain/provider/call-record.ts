@@ -33,6 +33,7 @@ import type { ModelTask } from './capabilities.js';
  * | `extract` | ✅ | **圖上長出什麼由它決定。** 它的失敗是最難查的那一種：引文是真的、關係是編的 —— 只有原始輸入與輸出對得起來時才看得出來 |
  * | `angles` | ✅ | 題目本身已經進 `run_angle`（含沒被勾的），**但提示詞沒有** —— 「它為什麼問這一條」要看當時給了哪幾份種子 |
  * | `find-sources` | ✅ | agent 的回覆是原始文字（`CallOutcome<string>`），裡面有它自己的推理。候選品質從來沒有量過，這是第一份素材 |
+ * | `digest` | ✅ | **初讀**（v0.25.0，Stage 21）。它的判斷會變成確認畫面上「進圖」的預設值 —— 一份被判成「沒關」的資料，要回頭看得到當時送了哪一段正文、模型怎麼說 |
  * | `plan` | ✅ | **規劃對話的每一輪**（v0.25.0，REQ-0009 R29）。這一步決定了這次研究去查什麼，而它的輸入是攤平的整段對話 —— 「模型為什麼漏了那個面向」只有連著當時的對話看才答得出來 |
  * | `embed` | ❌ | **輸入是已經存著的正文，輸出是一串 2560 個浮點數。** 當文字看它又大又不可讀；當 XAI 素材看，單一向量離開了它的向量空間沒有意義。它真正該記的（模型、維度、筆數、耗時）已經在資料庫裡 |
  *
@@ -41,6 +42,7 @@ import type { ModelTask } from './capabilities.js';
 export const LOGGED_MODEL_TASKS: readonly ModelTask[] = [
   'plan',
   'find-sources',
+  'digest',
   'angles',
   'extract',
 ];

@@ -304,6 +304,12 @@ export const t = {
     unknown: '發生了未知的錯誤。請把下面的識別碼交出來。',
     pointerPath: '設定檔位置',
     dataRoot: '它指到',
+    /**
+     * 模型那一類的錯誤帶著「是哪一個任務」（閘門一同時檢查找來源與初讀兩個）。
+     * **說得出是哪一列、去哪裡改**，不是只說「模型還沒有設定」。
+     */
+    task: '哪一個任務',
+    taskWhere: '到設定頁「模型分工」那一列改',
   },
   itemStatus: {
     pending: '待處理',
@@ -1204,16 +1210,19 @@ export const t = {
     /** 閘門一。**按下去之前什麼都還沒抓** —— 這句話是 REQ-0009 R5 的驗收條件。 */
     gateOne: '照這份規劃開始',
     gateOneHint: '按下去之前，一次搜尋、一次擷取都還沒有發生。',
-    gateOneNext: '按下去之後會照這 {n} 條方向去找來源，再把找到的抓回來。',
+    gateOneNext:
+      '按下去之後會照這 {n} 條方向去找來源，把找到的抓回來，再把拿到的每一份初讀一次（有沒有關、繁中標題與摘要）。',
     /** 閘門旁邊先說接下來哪幾步花錢、走哪個服務（ADR-0033 D2）。 */
-    gateOneRunsCosts: '接下來會跑：找來源（「{service}」· 會花錢）、抓取（不花錢）。',
-    gateOneRunsFree: '接下來會跑：找來源（「{service}」· 不花錢）、抓取（不花錢）。',
+    gateOneRuns: '接下來會跑：找來源（{find}）、抓取（不花錢）、初讀（{digest}）。',
+    serviceCosts: '「{service}」· 會花錢',
+    serviceFree: '「{service}」· 不花錢',
     gateOneNotReady: '至少要有一條方向。',
     frozenNotAdopted: '沒採用',
 
     // ── 蒐集（Stage 20）──────────────────────────────────
     collectTitle: '蒐集',
-    collectLive: '正在照方向找來源，找到的會一份一份抓回來。抓到的現在就可以在閱讀器裡讀。',
+    collectLive:
+      '正在照方向找來源，找到的一份一份抓回來，拿到的每一份讀一次。抓到的現在就可以在閱讀器裡讀。',
     collectPaused: '暫停中 —— 正在做的那一步做完就停在這裡。',
     /** 程式關掉的時候蒐集還沒做完（D3、R13）。**已抓的都還在**，這句話要說出來。 */
     collectInterrupted:
@@ -1223,10 +1232,17 @@ export const t = {
       '能抓的都抓了。「要你拿」的那幾份，拿到了就在那一列上傳；拿不到就標原因。都處理好（或決定不處理）就按「完成蒐集」。',
     awaitingCancelled: '你按了取消 —— 還沒做的那幾步，按「繼續蒐集」會接著做。',
     awaitingFailed: '蒐集這一筆作業停下來了：{reason}',
-    workLeft: '還沒做完：{searches} 條方向還沒搜成、{fetches} 份還沒抓。',
+    /** 還沒做完的那幾種，**只列不是 0 的**（「0 條方向還沒搜成」是一句沒有用的話）。 */
+    workLeft: '還沒做完：{parts}。',
+    workSearches: '{n} 條方向還沒搜成',
+    workFetches: '{n} 份還沒抓',
+    workDigests: '{n} 份還沒讀',
     resume: '繼續蒐集',
-    resumeCosts: '還沒搜成的那幾條會用「{service}」再搜一次，會花錢；只剩要抓的不花錢。',
-    resumeFree: '只剩要抓的，不花錢。',
+    /** 「繼續蒐集」旁邊那句：**會做的每一步各自說走哪個服務、花不花錢**。 */
+    resumeSearch: '沒搜成的那幾條再搜一次（{service}）',
+    resumeFetch: '要抓的照舊抓（不花錢）',
+    resumeDigest: '拿到的讀一次（{service}）',
+    resumeParts: '按下去：{parts}。',
     /** 閘門二（R12）。 */
     gateTwo: '完成蒐集',
     gateTwoHint:
@@ -1270,6 +1286,17 @@ export const t = {
     skippedLogin: '沒去抓：依你的紀錄，{host} 多半要登入。',
     skippedBlocked: '沒去抓：依你的紀錄，{host} 會出驗證頁。',
     alsoFoundBy: '另外 {n} 條方向也找到它',
+    /** 初讀（Stage 21）。判斷是模型的意見 —— 畫面上說「初讀」而不是「有關」兩個字單獨站著。 */
+    relevance: {
+      yes: '初讀：有關',
+      no: '初讀：沒關',
+      unsure: '初讀：說不準',
+    },
+    digestPending: '還沒讀',
+    digestQueued: '等著讀',
+    digestFailed: '沒讀成：{reason}',
+    /** R15：繁中是衍生物，**說得出是誰、什麼時候產生的**。 */
+    digestBy: '繁中由 {model} 於 {date} 產生',
     openInReader: '在閱讀器裡讀',
     upload: '上傳',
     uploading: '上傳中…',
@@ -1297,9 +1324,20 @@ export const t = {
     costSoFar: '到目前為止花了 {usd} 美元',
     costUnknown: '有 {n} 次沒有回報金額',
     costNone: '目前還沒有花錢',
+    /** 逐任務（R29）：「規劃 0.02、找來源 0.10、初讀 0.00」。沒回報過的寫「不知道」，不寫 0。 */
+    costTasks: {
+      plan: '規劃',
+      'find-sources': '找來源',
+      digest: '初讀',
+      extract: '抽取',
+    },
+    costTaskItem: '{task} {usd}',
+    costTaskUnknown: '{task} 不知道',
+    costBreakdown: '（{parts}）',
     /** 作業紀錄那一頁：研究的蒐集作業那一列。 */
     runLabel: '研究 · {topic}',
-    runCounts: '方向搜成 {succeeded} 條、沒搜成 {failed} 條；抓了 {fetched} 份',
+    /** 這一筆的「一項」是一次模型呼叫：一條方向的搜尋，或一份的初讀（Stage 21）。 */
+    runCounts: '搜尋與初讀做成 {succeeded} 次、沒做成 {failed} 次；抓了 {fetched} 份',
     /** 歷次紀錄那一欄。 */
     listTitle: '歷次研究',
     listEmpty: '還沒有任何研究。',
@@ -1391,6 +1429,7 @@ export const t = {
     taskNames: {
       plan: '規劃對話',
       'find-sources': '找候選來源',
+      digest: '初讀抓回來的資料',
       angles: '歸納切入角度',
       extract: '從正文抽實體與關係',
       embed: '算語意檢索的向量',
@@ -1398,6 +1437,8 @@ export const t = {
     taskWhat: {
       plan: '跟你來回談出這次研究要往哪幾個方向蒐集。Claude Code 與 OpenAI 相容 API 可以邊查邊談，Ollama 只能談。',
       'find-sources': '用網頁搜尋找出候選網址。它不抓網頁 —— 抓取一律走同一條擷取管線。',
+      digest:
+        '研究抓回來（或你上傳）的每一份讀一次：跟這次研究有沒有關、繁中標題與兩三句繁中摘要。只讀正文開頭，不翻全文，原文不動。',
       angles: '從專題裡已經有的內容歸納出幾條可以往下查的子問題。',
       extract: '把抓回來的正文變成實體與帶引文的關聯 —— 圖上長出什麼由這一步決定。',
       embed: '把正文與問句都變成向量，讓用字不同的東西也找得到。換掉要全部重算。',
@@ -1433,6 +1474,8 @@ export const t = {
     /** 建議值是量出來的，而畫面上要說得出「量了什麼」。**只對走本機 Ollama 的任務顯示** */
     taskRecommend: '建議 {model}',
     taskRecommendWhy: {
+      digest:
+        '跟抽取的建議值同一個模型，一個常駐就夠 —— 抽取那一輪它照格式交回、不捏造原文沒有的字（引文命中 93%）。初讀本身讀得準不準、繁中順不順，還沒有單獨量過。',
       angles:
         '2026-09-09 同一輪量測裡它給滿六條角度（多數模型只給四條），而且角度彼此的相似度最低（0.712）—— 那一欄量的是「多視角有沒有真的多視角」。5.3 GB，跟抽取的建議值是同一個模型。',
       extract:

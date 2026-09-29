@@ -1,12 +1,14 @@
 /**
- * 研究的蒐集那一段（Stage 20，ADR-0033 D3／D7／D8、REQ-0009 R7–R13）。
+ * 研究的蒐集那一段（Stage 20–21，ADR-0033 D3／D7／D8／D9、REQ-0009 R7–R16）。
  *
  * ```
  * 閘門一（research-service.startCollecting）→ launchCollect：一筆 kind='research' 的作業
  *     ① 每條方向各搜一次 → 候選表（同一個網址只有一列）
  *     ② 能抓的走唯一的擷取管線；依你的紀錄多半要登入的不去試 → 「要你拿」
+ *     ③ 拿到的每一份初讀一次（Stage 21）：跟這次研究有沒有關、繁中標題與兩三句摘要
  * 作業結束 → 研究停在「等你」（沒有任何作業在跑）
- *     上傳對回候選（uploadCandidate）、標拿不到（markCandidateUnavailable）、繼續蒐集（resumeCollecting）
+ *     上傳對回候選（uploadCandidate → 自動開一筆只讀的作業）、標拿不到（markCandidateUnavailable）、
+ *     繼續蒐集（resumeCollecting）
  * 閘門二「完成蒐集」（finishCollecting）→ 不再找、不再抓
  * ```
  *
@@ -34,13 +36,18 @@ import { settleRun, type RunStatus } from '../domain/ingest/state.js';
 import { displayHost, normalizeUrl } from '../domain/ingest/url.js';
 import {
   charge,
+  chargeTask,
   EMPTY_BUDGET_STATE,
+  EMPTY_TASK_COSTS,
   mayContinue,
   missingFor,
+  normalizeDigest,
   normalizeResearchCandidates,
+  TASK_DIGEST,
   TASK_FIND_SOURCES,
   type BudgetState,
   type SourceHints,
+  type TaskCosts,
 } from '../domain/provider/index.js';
 import {
   accessPlan,
@@ -49,23 +56,27 @@ import {
   mayActOnCandidate,
   mayFinishCollecting,
   mayResumeCollecting,
+  needsDigest,
   needsFetch,
   needsSearch,
   SEARCH_TIMEOUT_MS,
   statusAfterCollectRun,
+  stopsDigesting,
   unavailableReasonOf,
   type AccessPlan,
   type CandidateAction,
 } from '../domain/research/index.js';
-import type { DatabaseSync } from '../infrastructure/db/database.js';
+import { withTransaction, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase, updateCaseStatus } from '../infrastructure/db/repositories/case-repo.js';
+import { setItemDigest } from '../infrastructure/db/repositories/item-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
+import { readDerived } from '../infrastructure/fs/case-files.js';
 import { casesDir } from '../infrastructure/fs/paths.js';
 import { reindexTitleRank } from '../infrastructure/index/writer.js';
 import { Crawler } from '../infrastructure/fetch/crawler.js';
 import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
-import type { AgentProvider } from '../infrastructure/providers/types.js';
+import type { AgentProvider, ChatProvider } from '../infrastructure/providers/types.js';
 import { normaliseHost } from '../infrastructure/sources/catalog.js';
 import { correlationId, newId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
@@ -74,7 +85,14 @@ import { prepareSandbox, scanSandbox } from './agent-sandbox.js';
 import { configuredIntervalMs } from './fetch-policy.js';
 import { importFileInto, processOneUrl } from './ingest-service.js';
 import { recordModelCall } from './model-call-log.js';
-import { CANDIDATES_SCHEMA, CANDIDATES_SYSTEM, candidatesUser } from './research-prompts.js';
+import {
+  CANDIDATES_SCHEMA,
+  CANDIDATES_SYSTEM,
+  candidatesUser,
+  DIGEST_SCHEMA,
+  DIGEST_SYSTEM,
+  digestUser,
+} from './research-prompts.js';
 import {
   openResearchCase,
   planOf,
@@ -114,23 +132,25 @@ export async function checkFindSources(
   providers: Providers,
   cid: string,
 ): Promise<Result<AgentProvider>> {
+  // `task` 跟著每一個錯誤走：**畫面要說得出是哪一個任務沒設定、去哪裡改**（ErrorPanel）——
+  // 閘門一同時檢查兩個任務，只說「模型還沒有設定」的話，使用者不知道該改哪一列。
+  const who = { role: 'agent', task: 'find-sources' } as const;
   const agent = providers.agentFor({
     schema: CANDIDATES_SCHEMA,
     systemPrompt: CANDIDATES_SYSTEM,
     maxCostUsd: COLLECT_BUDGET.maxCostUsd,
   });
-  if (agent === null) return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'agent' });
+  if (agent === null) return err('PROVIDER_NOT_CONFIGURED', cid, who);
 
   const probe = await agent.probe();
-  if (probe.kind === 'not-configured')
-    return err('PROVIDER_NOT_CONFIGURED', cid, { role: 'agent' });
+  if (probe.kind === 'not-configured') return err('PROVIDER_NOT_CONFIGURED', cid, who);
   if (probe.kind === 'unreachable') {
-    return err('PROVIDER_UNREACHABLE', cid, { role: 'agent', at: probe.detail });
+    return err('PROVIDER_UNREACHABLE', cid, { ...who, at: probe.detail });
   }
   const match = missingFor(TASK_FIND_SOURCES, probe.capabilities);
   if (match.kind === 'missing') {
     return err('PROVIDER_CAPABILITY_MISSING', cid, {
-      role: 'agent',
+      ...who,
       missing: match.flags,
       ...(match.context === null
         ? {}
@@ -142,14 +162,58 @@ export async function checkFindSources(
     let browse = await agent.browseReport();
     if (browse.state === 'unchecked') {
       const measured = await agent.checkBrowse();
-      if (measured.kind === 'error') return err(measured.code, cid, { role: 'agent' });
+      if (measured.kind === 'error') return err(measured.code, cid, who);
       browse = measured.value;
     }
     if (browse.state === 'no') {
-      return err('PROVIDER_CAPABILITY_MISSING', cid, { role: 'agent', missing: ['browse'] });
+      return err('PROVIDER_CAPABILITY_MISSING', cid, { ...who, missing: ['browse'] });
     }
   }
   return ok(agent, cid);
+}
+
+// ── 初讀那一支配不配得上（Stage 21）─────────────────────────
+
+/**
+ * 初讀那一支**也在開始之前**確定配得上 —— 跟抽取同一套檢查（`expand-service.ts` 的閘門）：
+ * 有沒有設定、連不連得上、能力夠不夠（`json_schema`、context），格式保證是哪一種
+ * （線上端點沒量過就在這裡量一次 —— 一到兩個很小的請求；量出 `none` 就停）。
+ *
+ * **沒設定就擋下來、說是這一個任務**（ADR-0033「你定的」）：初讀每一份候選都讀，
+ * 不能等到全部抓完才發現沒有東西可以讀它們。
+ */
+export async function checkDigest(
+  providers: Providers,
+  cid: string,
+): Promise<Result<ChatProvider>> {
+  const who = { role: 'chat', task: 'digest' } as const;
+  const chat = providers.chatFor('digest');
+  if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, who);
+  const probe = await chat.probe();
+  if (probe.kind === 'not-configured') return err('PROVIDER_NOT_CONFIGURED', cid, who);
+  if (probe.kind === 'unreachable') {
+    return err('PROVIDER_UNREACHABLE', cid, { ...who, at: probe.detail });
+  }
+  const match = missingFor(TASK_DIGEST, probe.capabilities);
+  if (match.kind === 'missing') {
+    return err('PROVIDER_CAPABILITY_MISSING', cid, {
+      ...who,
+      missing: match.flags,
+      ...(match.context === null
+        ? {}
+        : { needContextTokens: match.context[0], haveContextTokens: match.context[1] }),
+    });
+  }
+  let json = await chat.jsonMode();
+  if (json.mode === 'unchecked' && chat.checkJson !== undefined) {
+    const measured = await chat.checkJson();
+    if (measured.kind === 'error') return err(measured.code, cid, who);
+    json = measured.value;
+  }
+  if (json.mode === 'none') {
+    return err('PROVIDER_JSON_UNSUPPORTED', cid, { ...who, detail: json.detail });
+  }
+  return ok(chat, cid);
 }
 
 // ── 開一筆蒐集作業 ──────────────────────────────────────────
@@ -172,6 +236,16 @@ export interface LaunchInput {
   readonly providers: Providers;
   /** `null` ＝ 這一次只剩要抓的（「繼續蒐集」而方向都搜完了）—— 那不需要找來源的服務 */
   readonly agent: AgentProvider | null;
+  /**
+   * 初讀的那一支（Stage 21，`checkDigest` 過了的）。**`null` 的時候不讀** —— 目前只有測試會這樣開；
+   * 閘門一與「繼續蒐集」都先檢查過它。
+   */
+  readonly digest: ChatProvider | null;
+  /**
+   * `'digest'` ＝ **只讀，不搜、不抓**：你上傳一份之後自動開的那一筆。
+   * 分開的理由是花費：順手重試一條失敗的搜尋會花 Claude Code 的額度，而你按的是「上傳」。
+   */
+  readonly only?: 'digest';
   readonly correlationId: string;
 }
 
@@ -183,7 +257,10 @@ export interface LaunchInput {
 export async function launchCollect(db: DatabaseSync, input: LaunchInput): Promise<string> {
   const row = research.getResearch(db, input.researchId);
   const topic = row?.topic ?? '';
-  const pending = research.listDirections(db, input.researchId).filter(needsSearch);
+  const pending =
+    input.only === 'digest'
+      ? []
+      : research.listDirections(db, input.researchId).filter(needsSearch);
 
   /**
    * 來源清單**一次作業讀一次**：`listSources` 會逐一打開每個專題的資料庫。
@@ -198,12 +275,16 @@ export async function launchCollect(db: DatabaseSync, input: LaunchInput): Promi
     id: runId,
     kind: 'research',
     label: topic,
-    // **這一筆的「一項」是一條方向**（同舊的擴展數角度）。抓了幾份在逐項表與候選表上。
+    // **這一筆的「一項」是一條方向或一份初讀**。初讀有幾份要等抓完才知道 —— 那時候再補（`updateRunTotal`）。
+    // 抓了幾份在逐項表與候選表上。
     total: pending.length,
     correlationId: input.correlationId,
     now,
     topic,
-    providers: JSON.stringify({ agent: input.agent?.name ?? null }),
+    providers: JSON.stringify({
+      agent: input.agent?.name ?? null,
+      digest: input.digest?.name ?? null,
+    }),
     researchId: input.researchId,
   });
   research.setCollectRun(db, input.researchId, runId, now);
@@ -219,6 +300,8 @@ export async function launchCollect(db: DatabaseSync, input: LaunchInput): Promi
     state,
     providers: input.providers,
     agent: input.agent,
+    digest: input.digest,
+    only: input.only ?? null,
     hints: hintsFrom(rows),
     accessOf: accessFrom(rows),
   }).catch((e: unknown) => {
@@ -240,6 +323,8 @@ interface CollectContext {
   readonly state: registry.ActiveRun;
   readonly providers: Providers;
   readonly agent: AgentProvider | null;
+  readonly digest: ChatProvider | null;
+  readonly only: 'digest' | null;
   readonly hints: SourceHints;
   readonly accessOf: AccessOf;
 }
@@ -277,10 +362,13 @@ async function processCollect(ctx: CollectContext): Promise<void> {
     runs.startRun(db, state.runId, startedAt);
     const row = research.getResearch(db, ctx.researchId);
     const plan = planOf(row?.planJson ?? '{}');
-    const pending = research.listDirections(db, ctx.researchId).filter(needsSearch);
+    const pending =
+      ctx.only === 'digest' ? [] : research.listDirections(db, ctx.researchId).filter(needsSearch);
     state.channel.emit({ type: 'started', runId: state.runId, total: pending.length });
 
     let budget: BudgetState = EMPTY_BUDGET_STATE;
+    // 逐任務的那一份（v11）：總數還是 `budget`（上限只看總數），這一份拆開給人看（R29）。
+    let taskCosts: TaskCosts = EMPTY_TASK_COSTS;
     let searched = 0;
     let searchFailed = 0;
     let fatal: ErrorCode | null = null;
@@ -323,9 +411,18 @@ async function processCollect(ctx: CollectContext): Promise<void> {
         abort,
         startedAt,
         budget,
+        taskCosts,
       });
       budget = outcome.budget;
-      runs.updateRunBudget(db, state.runId, budget.requests, budget.costUsd, budget.unpriced);
+      taskCosts = outcome.taskCosts;
+      runs.updateRunBudget(
+        db,
+        state.runId,
+        budget.requests,
+        budget.costUsd,
+        budget.unpriced,
+        taskCosts,
+      );
 
       if (outcome.interrupted) {
         // 你按了取消、子程序被殺掉 —— **這一條沒有搜完**，留在「還沒搜」，下一次接著做。
@@ -355,7 +452,7 @@ async function processCollect(ctx: CollectContext): Promise<void> {
     }
 
     // ② 能抓的抓。**已抓的不重抓**（R13）：只挑還沒抓的與被限流的。
-    if (!state.cancelled && fatal === null) {
+    if (!state.cancelled && fatal === null && ctx.only !== 'digest') {
       for (const candidate of research.listCandidates(db, ctx.researchId).filter(needsFetch)) {
         if (state.cancelled || crawler.isStopped) break;
         await state.gate();
@@ -364,12 +461,97 @@ async function processCollect(ctx: CollectContext): Promise<void> {
       }
     }
 
+    // ③ 初讀（Stage 21）：拿到的每一份讀一次。**讀好的不重讀**（`needsDigest`）。
+    let digested = 0;
+    let digestFailed = 0;
+    if (ctx.digest !== null && !state.cancelled && fatal === null) {
+      const directions = research
+        .listDirections(db, ctx.researchId)
+        .filter((d) => d.adopted)
+        .map((d) => d.title);
+      const tried = new Set<string>();
+      let stop = false;
+      // **讀完一輪再查一次**：作業跑著的時候你上傳的那幾份，也在這一筆裡讀掉。
+      // `tried` 讓一份讀失敗的不會在同一筆裡被重讀（那要等「繼續蒐集」）。
+      while (!stop && !state.cancelled) {
+        const batch = research
+          .listCandidates(db, ctx.researchId)
+          .filter((c) => needsDigest(c) && !tried.has(c.id));
+        if (batch.length === 0) break;
+        runs.updateRunTotal(db, state.runId, pending.length + tried.size + batch.length);
+        for (const candidate of batch) {
+          if (state.cancelled) break;
+          // **暫停與取消停在兩份之間** —— 一次讀到一半砍掉的話，花掉的那一次就白花了。
+          await state.gate();
+          if (state.cancelled) break;
+          tried.add(candidate.id);
+
+          budget = { ...budget, elapsedMs: Date.now() - startedAt };
+          if (mayContinue(budget, COLLECT_BUDGET).kind !== 'ok') {
+            // **沒有被嘗試過**，所以是可以重來的失敗 —— 「繼續蒐集」會接著讀。
+            research.setCandidateDigest(db, {
+              id: candidate.id,
+              relevance: null,
+              why: '',
+              code: 'PROVIDER_BUDGET_EXCEEDED',
+              now: Date.now(),
+            });
+            digestFailed += 1;
+            state.channel.emit({
+              type: 'digest',
+              candidateId: candidate.id,
+              itemId: candidate.itemId,
+              relevance: null,
+              code: 'PROVIDER_BUDGET_EXCEEDED',
+            });
+            continue;
+          }
+
+          const outcome = await digestCandidate(db, {
+            ctx,
+            chat: ctx.digest,
+            candidate,
+            folder,
+            topic: row?.topic ?? '',
+            relation: plan.relation,
+            directions,
+            abort,
+            startedAt,
+            budget,
+            taskCosts,
+          });
+          budget = outcome.budget;
+          taskCosts = outcome.taskCosts;
+          runs.updateRunBudget(
+            db,
+            state.runId,
+            budget.requests,
+            budget.costUsd,
+            budget.unpriced,
+            taskCosts,
+          );
+          // 你按了取消、請求被中斷 —— **這一份沒讀完**，留在「還沒讀」，下一次接著讀。
+          if (outcome.interrupted) break;
+          if (outcome.code === null) digested += 1;
+          else digestFailed += 1;
+          // 被限流、金鑰被拒、連不上：接下來每一份都會一樣，這一筆不再讀下去。
+          if (stopsDigesting(outcome.code)) {
+            stop = true;
+            break;
+          }
+        }
+      }
+    }
+
     const now = Date.now();
     research.resetFetching(db, ctx.researchId, now);
     runs.cancelPendingItems(db, state.runId, now);
 
-    // **這一筆的成敗看方向搜得怎樣**：抓不到的候選不是失敗，是「要你拿」—— 那是研究的日常。
-    const settled = settleRun(searched, searchFailed);
+    // **這一筆的成敗看模型那兩件事做得怎樣**：方向搜得怎樣、拿到的讀得怎樣。
+    // 抓不到的候選不是失敗，是「要你拿」—— 那是研究的日常。
+    const succeeded = searched + digested;
+    const failedCount = searchFailed + digestFailed;
+    const settled = settleRun(succeeded, failedCount);
     const status: RunStatus = state.cancelled
       ? 'cancelled'
       : fatal !== null
@@ -383,8 +565,8 @@ async function processCollect(ctx: CollectContext): Promise<void> {
     runs.settleRunRow(db, {
       id: state.runId,
       status,
-      succeeded: searched,
-      failed: searchFailed,
+      succeeded,
+      failed: failedCount,
       errorCode: fatal,
       endedReason,
       now,
@@ -396,7 +578,7 @@ async function processCollect(ctx: CollectContext): Promise<void> {
 
     reindexTitleRank(db);
     if (readCase(db)?.status === 'collecting') updateCaseStatus(db, 'ready', now);
-    state.channel.emit({ type: 'settled', status, succeeded: searched, failed: searchFailed });
+    state.channel.emit({ type: 'settled', status, succeeded, failed: failedCount });
   } finally {
     registry.unregister(state.runId);
     db.close();
@@ -413,10 +595,12 @@ interface SearchInput {
   readonly abort: AbortController;
   readonly startedAt: number;
   readonly budget: BudgetState;
+  readonly taskCosts: TaskCosts;
 }
 
 interface SearchOutcome {
   readonly budget: BudgetState;
+  readonly taskCosts: TaskCosts;
   /** 這一次搜到幾個（**含別的方向也找到的**） */
   readonly found: number;
   /** `null` ＝ 乾淨；通知級（超過上限）＝ 搜完了但要說一聲；其餘 ＝ 這一條搜失敗 */
@@ -447,7 +631,14 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
   // 建沙箱是一次 await —— 你可能正好在這時候按了取消。**那就不要開始這一次搜尋**：
   // 它還沒花錢，而這一條留在「還沒搜」，下一次接著做。
   if (ctx.state.cancelled) {
-    return { budget: input.budget, found: 0, code: null, fatal: false, interrupted: true };
+    return {
+      budget: input.budget,
+      taskCosts: input.taskCosts,
+      found: 0,
+      code: null,
+      fatal: false,
+      interrupted: true,
+    };
   }
   const remaining = input.startedAt + COLLECT_BUDGET.timeoutMs - Date.now();
   const call = await input.agent.run(
@@ -477,6 +668,7 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
     costUsd: call.cost.costUsd,
   });
   const budget = charge(input.budget, call.cost.costUsd, Date.now() - input.startedAt);
+  const taskCosts = chargeTask(input.taskCosts, 'find-sources', call.cost.costUsd);
 
   // **沙箱一定要掃，成功失敗都掃**（`agent-sandbox.ts` 的檔頭）。
   const violations = await scanSandbox(sandbox);
@@ -488,6 +680,7 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
     });
     return {
       budget,
+      taskCosts,
       found: 0,
       code: 'PROVIDER_SANDBOX_VIOLATION',
       fatal: true,
@@ -496,7 +689,14 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
   }
 
   if (call.kind === 'error') {
-    return { budget, found: 0, code: call.code, fatal: false, interrupted: ctx.state.cancelled };
+    return {
+      budget,
+      taskCosts,
+      found: 0,
+      code: call.code,
+      fatal: false,
+      interrupted: ctx.state.cancelled,
+    };
   }
 
   let raw: unknown;
@@ -505,6 +705,7 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
   } catch {
     return {
       budget,
+      taskCosts,
       found: 0,
       code: 'PROVIDER_OUTPUT_UNPARSEABLE',
       fatal: false,
@@ -537,6 +738,7 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
   }
   return {
     budget,
+    taskCosts,
     found,
     code: batch.overflow ? 'RESEARCH_CANDIDATES_OVERFLOW' : null,
     fatal: false,
@@ -615,6 +817,135 @@ async function fetchCandidate(
     itemId: outcome.itemId,
     now,
   });
+}
+
+interface DigestInput {
+  readonly ctx: CollectContext;
+  readonly chat: ChatProvider;
+  readonly candidate: research.ResearchCandidateRow;
+  readonly folder: string;
+  readonly topic: string;
+  readonly relation: string;
+  /** 這次研究採用的方向標題（讓模型說得出「跟哪一條有關」）*/
+  readonly directions: readonly string[];
+  readonly abort: AbortController;
+  readonly startedAt: number;
+  readonly budget: BudgetState;
+  readonly taskCosts: TaskCosts;
+}
+
+interface DigestOutcome {
+  readonly budget: BudgetState;
+  readonly taskCosts: TaskCosts;
+  /** `null` ＝ 讀好了；其餘是這一份讀失敗的原因（已經寫進候選那一列）*/
+  readonly code: ErrorCode | null;
+  /** 被取消打斷 —— 這一份不算讀過，也沒有寫任何東西 */
+  readonly interrupted: boolean;
+}
+
+/**
+ * 一份候選：讀正文開頭 → 問模型 → 判斷寫進候選、繁中寫進那一份資料（Stage 21，R14–R16）。
+ *
+ * **正文是別人網站上的文字**：提示詞把它夾在標記裡、明說是資料不是指令，輸出走 schema，
+ * 而且這一步**什麼都不寫進圖** —— 它的結果只是確認畫面上的預設值與一段給人看的繁中（`DIGEST_SYSTEM`）。
+ * 模型回的東西一律先過 `normalizeDigest`（外部輸入）。
+ */
+async function digestCandidate(db: DatabaseSync, input: DigestInput): Promise<DigestOutcome> {
+  const { ctx, candidate } = input;
+  const itemId = candidate.itemId;
+  const failWith = (code: ErrorCode, budget: BudgetState, taskCosts: TaskCosts): DigestOutcome => {
+    research.setCandidateDigest(db, {
+      id: candidate.id,
+      relevance: null,
+      why: '',
+      code,
+      now: Date.now(),
+    });
+    ctx.state.channel.emit({
+      type: 'digest',
+      candidateId: candidate.id,
+      itemId,
+      relevance: null,
+      code,
+    });
+    return { budget, taskCosts, code, interrupted: false };
+  };
+
+  // 沒有正文可讀（掃描的 PDF、抽不出字的圖）：**不花一次呼叫**，而且「繼續蒐集」不再讀它（`needsDigest`）。
+  const derived = itemId === null ? null : await readDerived(input.folder, itemId);
+  if (itemId === null || derived === null || derived.text.trim().length === 0) {
+    return failWith('PARSE_EMPTY_CONTENT', input.budget, input.taskCosts);
+  }
+
+  const user = digestUser({
+    topic: input.topic,
+    relation: input.relation,
+    directions: input.directions,
+    // 抽取出來的標題比搜尋結果上的準（那是這一份自己說它叫什麼）；抽不到才用搜尋結果上的。
+    title: derived.title.trim().length > 0 ? derived.title : candidate.title,
+    url: candidate.url,
+    excerpt: derived.text,
+  });
+  const call = await input.chat.json(
+    { system: DIGEST_SYSTEM, user, schema: DIGEST_SCHEMA },
+    input.abort.signal,
+  );
+  await recordModelCall(ctx.providers, input.folder, {
+    task: 'digest',
+    role: 'chat',
+    model: input.chat.name,
+    runId: ctx.state.runId,
+    correlationId: ctx.state.runId,
+    itemId,
+    system: DIGEST_SYSTEM,
+    user,
+    text: call.kind === 'ok' ? JSON.stringify(call.value) : null,
+    errorDetail: call.kind === 'error' ? call.detail : null,
+    ok: call.kind === 'ok',
+    code: call.kind === 'error' ? call.code : null,
+    elapsedMs: call.cost.elapsedMs,
+    costUsd: call.cost.costUsd,
+  });
+  const budget = charge(input.budget, call.cost.costUsd, Date.now() - input.startedAt);
+  const taskCosts = chargeTask(input.taskCosts, 'digest', call.cost.costUsd);
+
+  if (call.kind === 'error') {
+    // 你按了取消、請求被中斷 —— **這一份沒讀完**，什麼都不寫，留在「還沒讀」。
+    if (ctx.state.cancelled) return { budget, taskCosts, code: null, interrupted: true };
+    return failWith(call.code, budget, taskCosts);
+  }
+
+  const digest = normalizeDigest(call.value);
+  // 形狀對不上（`relevance` 不是三個值之一、標題與摘要都空）：**整份不採用** ——
+  // 一個猜出來的「有關」會變成確認畫面上「進圖」的預設值（`digest.ts` 檔頭）。
+  if (digest === null) return failWith('PROVIDER_OUTPUT_SCHEMA_MISMATCH', budget, taskCosts);
+
+  const now = Date.now();
+  // 兩列一起寫：判斷在候選上、繁中在資料上（v11）。分兩次的話中間那一刻畫面會讀到「有判斷、沒有繁中」。
+  withTransaction(db, () => {
+    setItemDigest(db, {
+      id: itemId,
+      titleZh: digest.titleZh,
+      summaryZh: digest.summaryZh,
+      digestedBy: input.chat.name,
+      now,
+    });
+    research.setCandidateDigest(db, {
+      id: candidate.id,
+      relevance: digest.relevance,
+      why: digest.why,
+      code: null,
+      now,
+    });
+  });
+  ctx.state.channel.emit({
+    type: 'digest',
+    candidateId: candidate.id,
+    itemId,
+    relevance: digest.relevance,
+    code: null,
+  });
+  return { budget, taskCosts, code: null, interrupted: false };
 }
 
 // ── 你這一邊的動作 ──────────────────────────────────────────
@@ -712,6 +1043,34 @@ export async function uploadCandidate(
       itemId: imported.itemId,
       now: Date.now(),
     });
+
+    /**
+     * **上傳之後自動讀這一份**（R14）：開一筆只讀、不搜不抓的作業（`only: 'digest'`）——
+     * 順手重試一條失敗的搜尋會花 Claude Code 的額度，而你按的是「上傳」。
+     * 已經有一筆在跑的話不另外開：它讀完一輪會再查一次（`processCollect` 的 ③）。
+     *
+     * 初讀配不上（閘門一之後設定被改掉了）的話**上傳照樣成功**：那一份留在「還沒讀」，
+     * 「繼續蒐集」按下去的時候會說是哪一個任務沒設定。
+     */
+    if (!liveOf(row)) {
+      const providers = await load();
+      const digest = await checkDigest(providers, cid);
+      if (digest.ok) {
+        if (row.status === 'awaiting-user') {
+          research.moveResearchIf(db, researchId, 'awaiting-user', 'collecting', Date.now());
+        }
+        await launchCollect(db, {
+          dataRoot,
+          slug,
+          researchId,
+          providers,
+          agent: null,
+          digest: digest.data,
+          only: 'digest',
+          correlationId: cid,
+        });
+      }
+    }
     return null;
   });
 }
@@ -789,10 +1148,21 @@ export async function resumeCollecting(
       if (!checked.ok) return checked;
       agent = checked.data;
     }
+    // **初讀每一次都檢查**：這一筆要讀的不只是上一次沒讀完的，還有這一筆新抓到的。
+    const digest = await checkDigest(providers, cid);
+    if (!digest.ok) return digest;
     if (row.status === 'awaiting-user') {
       research.moveResearchIf(db, researchId, 'awaiting-user', 'collecting', Date.now());
     }
-    await launchCollect(db, { dataRoot, slug, researchId, providers, agent, correlationId: cid });
+    await launchCollect(db, {
+      dataRoot,
+      slug,
+      researchId,
+      providers,
+      agent,
+      digest: digest.data,
+      correlationId: cid,
+    });
     return null;
   });
 }

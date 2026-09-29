@@ -214,13 +214,19 @@ describe('各任務模型那張表', () => {
       'utf8',
     );
 
-    const chatTasks = (await tasks()).filter((r) => r.role === 'chat');
+    const rows = await tasks();
+    const chatTasks = rows.filter((r) => r.role === 'chat' && r.task !== 'digest');
 
     // 位址是通不了的，所以兩個任務都不 ok、都說連不上。
     // **它不能拿別列的能力算** —— 那樣一個覆寫成小模型的抽取
     // 會顯示成綠的，而設定頁上那個欄位裡寫的是預設模型的名字。
     expect(chatTasks.length).toBe(2);
     expect(chatTasks.every((r) => !r.ok && r.state === 'unreachable')).toBe(true);
+
+    // **初讀是 v0.25.0 才有的，v1 的檔案升上來它是「還沒設定」** —— 不從 chat 那一格抄：
+    // 抽取可能走會花錢的端點，而初讀每一份候選都讀（`upgradeV1` 的註解）。
+    const digest = rows.find((r) => r.task === 'digest');
+    expect(digest?.state).toBe('not-configured');
   });
 
   /**

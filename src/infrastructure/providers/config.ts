@@ -129,7 +129,7 @@ export interface TaskSetting {
  *
  * - 找來源要 `browse`：CLI 有（`--tools WebSearch`），OpenAI 相容 API 走 Responses API 的
  *   搜尋工具也有 —— **後者是量的**（`agent-openai.ts`，v0.24.2，ADR-0034）。本機 Ollama 沒有。
- * - 歸納與抽取是對話模型，本機或線上都行。
+ * - 初讀、歸納與抽取是對話模型，本機或線上都行。
  * - 嵌入只准本機（ADR-0009）：向量會被寫進資料庫並長期保存，
  *   一個雲端端點隨時可能換掉背後的權重，**而那些變化不會報錯，只會讓比對安靜地變爛**。
  */
@@ -216,6 +216,9 @@ export const RECOMMENDED_CHAT_MODEL = 'granite4.2:8b';
 export const RECOMMENDED_TASK_MODELS: Readonly<Record<ChatTask, string>> = {
   angles: 'granite4.2:8b',
   extract: RECOMMENDED_CHAT_MODEL,
+  // 初讀（Stage 21）先跟抽取同一個：一個常駐就夠，而抽取那一輪量到的「照 schema 交回、引文不編」
+  // 是初讀也要的兩件事。**初讀本身讀得準不準、繁中順不順是另一個問題** —— 量在 chat-choice.md「初讀」。
+  digest: RECOMMENDED_CHAT_MODEL,
 };
 
 /**
@@ -237,6 +240,9 @@ export const DEFAULT_CONFIG: ProvidersConfig = {
     // 而且它會邊查邊談（ADR-0033 D16）。使用者可以在設定頁換成別的服務。
     plan: { via: 'cli', model: '' },
     'find-sources': { via: 'cli', model: '' },
+    // 初讀預設本機、還沒選模型：它每一份候選都讀一次，**不該在使用者沒說的時候走會花錢的那一條**。
+    // 沒選的話閘門一擋下來、說是這一個任務（ADR-0033「你定的」）。
+    digest: { via: 'ollama', model: '' },
     angles: { via: 'ollama', model: '' },
     extract: { via: 'ollama', model: '' },
     embed: { via: 'ollama', model: '' },
@@ -376,6 +382,9 @@ export function upgradeV1(raw: Record<string, unknown>): ProvidersConfig {
       // v1 沒有規劃對話這個任務（它是 v0.25.0 才有的），所以升上來的一律是預設值。
       plan: { via: 'cli', model: '' },
       'find-sources': { via: 'cli', model: str(agent?.['model']) },
+      // 初讀也是 v0.25.0 才有的。**不從抽取那一格抄** —— 抽取可能走會花錢的端點，
+      // 而初讀每一份都讀；使用者沒選之前閘門一會說是這一格沒設定。
+      digest: { via: 'ollama', model: '' },
       angles: chatTask('angles'),
       extract: chatTask('extract'),
       embed: { via: 'ollama', model: str(embed?.['model']) },

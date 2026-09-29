@@ -29,12 +29,28 @@ function detailString(key: string): string | null {
   const v = props.error.detail?.[key];
   return typeof v === 'string' ? v : null;
 }
+
+/**
+ * 模型那一類的錯誤帶著 `task`（例如閘門一的初讀沒設定）。**認得的任務才顯示** ——
+ * 一個認不得的字串顯示出來只是一段看不懂的英文。
+ */
+function taskName(): string | null {
+  const task = detailString('task');
+  if (task === null) return null;
+  const names: Record<string, string> = t.settings.taskNames;
+  return names[task] ?? null;
+}
 </script>
 
 <template>
   <div class="panel">
     <div class="head">{{ t.error.title }}</div>
     <p class="msg">{{ error.message }}</p>
+
+    <dl v-if="taskName()" class="detail">
+      <dt>{{ t.error.task }}</dt>
+      <dd>{{ taskName() }} —— {{ t.error.taskWhere }}</dd>
+    </dl>
 
     <dl v-if="detailString('pointerPath') || detailString('dataRoot')" class="detail">
       <template v-if="detailString('pointerPath')">

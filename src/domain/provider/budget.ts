@@ -81,6 +81,72 @@ export function charge(
   return { requests: state.requests + 1, costUsd, unpriced, elapsedMs };
 }
 
+/**
+ * 一個任務在這一筆作業裡花了多少（schema v11 的 `run.task_costs_json`，R29）。
+ *
+ * **總數還是 `BudgetState`**（上限只看總數），這一份是拆開給人看的：研究畫面要說
+ * 「花了 $0.42（初讀 $0.31、找來源 $0.11），另外 3 次不知道」。同一個 `null` 規則：沒回報過就是 `null`。
+ */
+export interface TaskCost {
+  readonly requests: number;
+  readonly costUsd: number | null;
+  readonly unpriced: number;
+}
+
+/** 鍵是任務名（`find-sources`、`digest`……）。**沒出現的任務就是這一筆沒跑它**，不是 0。 */
+export type TaskCosts = Readonly<Record<string, TaskCost>>;
+
+export const EMPTY_TASK_COSTS: TaskCosts = {};
+
+/** 記一次呼叫到某個任務底下（跟 `charge` 同一條規則：沒回報的不加 0）。 */
+export function chargeTask(
+  costs: TaskCosts,
+  task: string,
+  reportedCostUsd: number | null,
+): TaskCosts {
+  const before = costs[task] ?? { requests: 0, costUsd: null, unpriced: 0 };
+  return {
+    ...costs,
+    [task]: {
+      requests: before.requests + 1,
+      costUsd: reportedCostUsd === null ? before.costUsd : (before.costUsd ?? 0) + reportedCostUsd,
+      unpriced: reportedCostUsd === null ? before.unpriced + 1 : before.unpriced,
+    },
+  };
+}
+
+/**
+ * 把幾筆作業的逐任務花費加起來（一次研究的每一筆蒐集作業）。
+ * **讀進來的是外部資料**（資料庫裡的 JSON），形狀不對的那一格略過，不讓整份加總失敗。
+ */
+export function sumTaskCosts(all: readonly unknown[]): TaskCosts {
+  let total: Record<string, TaskCost> = {};
+  for (const raw of all) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    for (const [task, value] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof value !== 'object' || value === null) continue;
+      const v = value as Record<string, unknown>;
+      const requests = Number(v['requests']);
+      const unpriced = Number(v['unpriced']);
+      const cost = v['costUsd'];
+      if (!Number.isFinite(requests) || !Number.isFinite(unpriced)) continue;
+      const before = total[task] ?? { requests: 0, costUsd: null, unpriced: 0 };
+      total = {
+        ...total,
+        [task]: {
+          requests: before.requests + requests,
+          costUsd:
+            typeof cost === 'number' && Number.isFinite(cost)
+              ? (before.costUsd ?? 0) + cost
+              : before.costUsd,
+          unpriced: before.unpriced + unpriced,
+        },
+      };
+    }
+  }
+  return total;
+}
+
 export type BudgetVerdict =
   | { readonly kind: 'ok' }
   | { readonly kind: 'requests'; readonly limit: number }

@@ -26,6 +26,7 @@ import {
   missingFor,
   requirementOfTask,
   MODEL_TASKS,
+  type ChatTask,
   type MatchResult,
   type ModelTask,
 } from '../domain/provider/index.js';
@@ -218,7 +219,7 @@ export async function testProvider(
   }
 
   if (entry.role === 'chat') {
-    const chat = providers.chatFor(entry.task as 'angles' | 'extract');
+    const chat = providers.chatFor(entry.task as ChatTask);
     if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task });
 
     /**

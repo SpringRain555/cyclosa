@@ -23,12 +23,34 @@ import { describe, expect, it } from 'vitest';
 
 import {
   TASK_ANGLES,
+  TASK_DIGEST,
   TASK_EXTRACT,
+  TASK_PLAN,
   REQUIRED_CONTEXT_TOKENS,
   WORST_TOKENS_PER_CHAR,
   missingFor,
   NO_CAPABILITIES,
 } from '../../src/domain/provider/capabilities.js';
+import {
+  DIGEST_SOURCE_TITLE_CHARS,
+  DIGEST_TEXT_CHARS,
+  DIGEST_TOPIC_CHARS,
+  DIGEST_URL_CHARS,
+  MAX_DIGEST_SUMMARY_CHARS,
+  MAX_DIGEST_TITLE_CHARS,
+  MAX_DIGEST_WHY_CHARS,
+} from '../../src/domain/provider/digest.js';
+import {
+  MAX_DIRECTIONS,
+  MAX_DIRECTION_TITLE_CHARS,
+  MAX_RELATION_CHARS,
+} from '../../src/domain/provider/plan.js';
+import {
+  DIGEST_SCHEMA,
+  DIGEST_SYSTEM,
+  digestUser,
+  MAX_PLAN_PROMPT_CHARS,
+} from '../../src/application/research-prompts.js';
 import {
   MAX_ENTITIES,
   MAX_NAME_CHARS,
@@ -71,9 +93,74 @@ describe('抽取的 context 門檻要蓋得住實際送出去的正文', () => {
   });
 });
 
+/**
+ * **規劃對話與初讀是同一種關係**（Stage 19、21）：送出去的字數在 application，要求對方的 context 在 domain。
+ *
+ * 規劃那一條 2026-09-30 才補上 —— `TASK_PLAN` 與 `MAX_PLAN_PROMPT_CHARS` 的註解都寫「這個守門釘著」，
+ * 而這份檔案裡從來沒有它。**一句「有守門」的註解，跟一條不存在的守門長得一模一樣。**
+ */
+describe('規劃對話與初讀的 context 門檻，也要蓋得住實際送出去的提示詞', () => {
+  it('規劃：攤平的整段對話 ＋ 輸出', () => {
+    // 輸出那一側 8,000：12 條方向各帶標題、要找什麼、預期來源、關鍵詞 ＋ reply 等，照 PLAN_SCHEMA 算滿約 6,000 字元。
+    const need = MAX_PLAN_PROMPT_CHARS * WORST_TOKENS_PER_CHAR + 8000;
+    expect(TASK_PLAN.minContextTokens ?? 0).toBeGreaterThanOrEqual(need);
+  });
+
+  it('初讀：正文開頭 ＋ 其餘每一行的上限 ＋ 輸出', () => {
+    // 「研究主題：」「<資料>」這些固定的字，加上每條方向前面的「12. 」，抓 200。
+    const labels = 200;
+    const promptChars =
+      DIGEST_SYSTEM.length +
+      DIGEST_TEXT_CHARS +
+      DIGEST_TOPIC_CHARS +
+      MAX_RELATION_CHARS +
+      MAX_DIRECTIONS * MAX_DIRECTION_TITLE_CHARS +
+      DIGEST_SOURCE_TITLE_CHARS +
+      DIGEST_URL_CHARS +
+      labels;
+    // 輸出照 schema 的上界算滿，再留一倍給 JSON 的鍵與引號 —— 取 2,000 跟它比大的那一個。
+    const outputChars = MAX_DIGEST_WHY_CHARS + MAX_DIGEST_TITLE_CHARS + MAX_DIGEST_SUMMARY_CHARS;
+    const output = Math.max(2000, outputChars * WORST_TOKENS_PER_CHAR * 2);
+    const need = promptChars * WORST_TOKENS_PER_CHAR + output;
+    expect(TASK_DIGEST.minContextTokens ?? 0).toBeGreaterThanOrEqual(need);
+  });
+
+  it('初讀的提示詞真的切在那些上限 —— 每一格都塞超長的也一樣', () => {
+    const long = '字'.repeat(20_000);
+    const prompt = digestUser({
+      topic: long,
+      relation: long,
+      directions: Array.from({ length: 30 }, () => long),
+      title: long,
+      url: long,
+      excerpt: long,
+    });
+    const ceiling =
+      DIGEST_TEXT_CHARS +
+      DIGEST_TOPIC_CHARS +
+      MAX_RELATION_CHARS +
+      MAX_DIRECTIONS * (MAX_DIRECTION_TITLE_CHARS + 6) +
+      DIGEST_SOURCE_TITLE_CHARS +
+      DIGEST_URL_CHARS +
+      200;
+    expect(prompt.length).toBeLessThanOrEqual(ceiling);
+  });
+
+  it('初讀需要 json_schema —— 它跟抽取一樣把別人網站上的文字放進提示詞', () => {
+    expect(TASK_DIGEST.needs).toContain('json_schema');
+  });
+
+  it('初讀 schema 的長度上限等於正規化切的長度', () => {
+    const p = DIGEST_SCHEMA.properties;
+    expect(p.why.maxLength).toBe(MAX_DIGEST_WHY_CHARS);
+    expect(p.title_zh.maxLength).toBe(MAX_DIGEST_TITLE_CHARS);
+    expect(p.summary_zh.maxLength).toBe(MAX_DIGEST_SUMMARY_CHARS);
+  });
+});
+
 describe('送出去的請求要自己指定 context，不吃 Ollama 的預設', () => {
   it('`REQUIRED_CONTEXT_TOKENS` 蓋得住每一個任務', () => {
-    for (const task of [TASK_ANGLES, TASK_EXTRACT]) {
+    for (const task of [TASK_ANGLES, TASK_EXTRACT, TASK_PLAN, TASK_DIGEST]) {
       expect(REQUIRED_CONTEXT_TOKENS).toBeGreaterThanOrEqual(task.minContextTokens ?? 0);
     }
   });

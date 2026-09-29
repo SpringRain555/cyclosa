@@ -10,7 +10,13 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
-import { isRelevance, type Bibliography, type Relevance } from '../../../domain/provider/index.js';
+import {
+  isRelevance,
+  sumTaskCosts,
+  type Bibliography,
+  type Relevance,
+  type TaskCosts,
+} from '../../../domain/provider/index.js';
 import {
   acquisitionOf,
   expectedAccessOf,
@@ -404,11 +410,13 @@ export function nextOrd(db: DatabaseSync, researchId: string): number {
 export function costSoFar(
   db: DatabaseSync,
   researchId: string,
-): { readonly costUsd: number; readonly unknown: number } {
+): { readonly costUsd: number; readonly unknown: number; readonly byTask: TaskCosts } {
   const talk = db
     .prepare(
       `SELECT COALESCE(SUM(cost_usd), 0) AS total,
-              SUM(CASE WHEN role = 'model' AND cost_usd IS NULL THEN 1 ELSE 0 END) AS unknown
+              SUM(CASE WHEN role = 'model' AND cost_usd IS NULL THEN 1 ELSE 0 END) AS unknown,
+              SUM(CASE WHEN role = 'model' THEN 1 ELSE 0 END) AS turns,
+              SUM(CASE WHEN role = 'model' AND cost_usd IS NOT NULL THEN 1 ELSE 0 END) AS priced
          FROM research_message WHERE research_id = ?`,
     )
     .get(researchId) as Raw | undefined;
@@ -420,9 +428,47 @@ export function costSoFar(
          FROM run WHERE research_id = ?`,
     )
     .get(researchId) as Raw | undefined;
+
+  // **逐任務的那一份**（v11，R29）。v11 以前的蒐集作業沒有拆 —— 那時候它只做一件事（找來源），
+  // 所以它的總數整份算在找來源底下；不這樣的話，拆開的那幾格加起來會比總數少。
+  const runs = db
+    .prepare(
+      `SELECT kind, requests, cost_usd, unpriced, task_costs_json FROM run WHERE research_id = ?`,
+    )
+    .all(researchId) as Raw[];
+  const perRun: unknown[] = runs.map((r) => {
+    const json = str(r['task_costs_json']);
+    if (json !== null) {
+      try {
+        return JSON.parse(json) as unknown;
+      } catch {
+        return null;
+      }
+    }
+    if (r['kind'] !== 'research') return null;
+    return {
+      'find-sources': {
+        requests: Number(r['requests'] ?? 0),
+        costUsd: num(r['cost_usd']),
+        unpriced: Number(r['unpriced'] ?? 0),
+      },
+    };
+  });
+  const turns = Number(talk?.['turns'] ?? 0);
+  if (turns > 0) {
+    perRun.push({
+      plan: {
+        requests: turns,
+        costUsd: Number(talk?.['priced'] ?? 0) > 0 ? Number(talk?.['total'] ?? 0) : null,
+        unpriced: Number(talk?.['unknown'] ?? 0),
+      },
+    });
+  }
+
   return {
     costUsd: Number(talk?.['total'] ?? 0) + Number(work?.['total'] ?? 0),
     unknown: Number(talk?.['unknown'] ?? 0) + Number(work?.['unknown'] ?? 0),
+    byTask: sumTaskCosts(perRun),
   };
 }
 

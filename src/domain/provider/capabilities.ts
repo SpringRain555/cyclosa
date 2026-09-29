@@ -252,6 +252,27 @@ export const TASK_EXTRACT: TaskRequirement = {
 };
 
 /**
+ * 初讀：一份抓回來（或上傳）的候選讀一次 —— 跟這次研究有沒有關、繁中標題、兩三句繁中摘要
+ * （Stage 21，ADR-0033 D9、REQ-0009 R14–R16）。
+ *
+ * **需要 `json_schema`**，理由跟抽取一樣兩個：回來的判斷會變成確認畫面上的預設值（D10）、
+ * 摘要會出現在閱讀器與節點面板上 —— 從散文裡撈會在模型換一種寫法時安靜地讀錯；
+ * 而且**別人網站上的文字進了提示詞**，schema 是三層防護的第二層（`expansion-prompts.ts` 檔頭）。
+ *
+ * ## context 為什麼是 12000
+ *
+ * 送出去的正文上限是 `DIGEST_TEXT_CHARS`（6,000 字元，只讀開頭 —— `digest.ts`），
+ * 最壞 1.2 token／字元（`WORST_TOKENS_PER_CHAR`）→ 7,200。
+ * 提示詞其餘部分各自有上限（系統提示、主題、跟專題的關係、12 條方向的標題、標題、網址），
+ * 加起來約 2,300 字元 → 約 2,700。輸出照 `DIGEST_SCHEMA` 的上界是 680 字元，留到 2,000。
+ * 合計 11,900，取 **12,000**。`tests/guards/extract-context.test.ts` 用真的常數把這個關係算一次。
+ */
+export const TASK_DIGEST: TaskRequirement = {
+  needs: ['json_schema'],
+  minContextTokens: 12_000,
+};
+
+/**
  * **`chat` 這個角色底下有兩個任務，而它們可以跑在不同的模型上。**
  *
  * 這組鍵住在 domain，因為設定檔、設定頁與 `expand-service` 三邊都要用同一組
@@ -275,8 +296,14 @@ export const TASK_EXTRACT: TaskRequirement = {
  *
  * 這件事做得到的前提也是量出來的：3.4 GB ＋ 5.3 GB ＝ 8.7 GB，
  * **兩個可以同時常駐**，換任務不必把對方擠出顯示記憶體。
+ *
+ * （上表是 2026-09-09 那一輪。2026-09-29 起建議值只從非中國來源挑，抽取的建議值也是 `granite4.2:8b`
+ * —— ADR-0035。）
+ *
+ * **`digest`（初讀）是第三個**（Stage 21）：它讀的是研究抓回來的每一份，而且每一份都讀，
+ * 所以「走哪一條、花不花錢」要能跟抽取分開挑 —— 抽取走線上端點、初讀留在本機是很自然的組合。
  */
-export const CHAT_TASKS = ['angles', 'extract'] as const;
+export const CHAT_TASKS = ['angles', 'extract', 'digest'] as const;
 export type ChatTask = (typeof CHAT_TASKS)[number];
 
 /**
@@ -296,7 +323,7 @@ export const TASK_EMBED: TaskRequirement = {
 };
 
 /**
- * **這個工具會用到模型的全部四個地方，以及各自跑在哪個角色上。**
+ * **這個工具會用到模型的每一個地方，以及各自跑在哪個角色上。**
  *
  * ## 為什麼要有這一份，而不是讓畫面自己列
  *
@@ -313,11 +340,12 @@ export const TASK_EMBED: TaskRequirement = {
  */
 /**
  * 順序就是設定頁「模型分工」那張表的列順序（守門釘著兩邊一樣）。
- * **照流程排**：先談出方向、再找來源、（角度是舊流程，Stage 22 退場）、抽取、向量。
+ * **照流程排**：先談出方向、再找來源、初讀抓回來的、（角度是舊流程，Stage 22 退場）、抽取、向量。
  */
 export const MODEL_TASKS = [
   { task: 'plan', role: 'agent', requirement: TASK_PLAN },
   { task: 'find-sources', role: 'agent', requirement: TASK_FIND_SOURCES },
+  { task: 'digest', role: 'chat', requirement: TASK_DIGEST },
   { task: 'angles', role: 'chat', requirement: TASK_ANGLES },
   { task: 'extract', role: 'chat', requirement: TASK_EXTRACT },
   { task: 'embed', role: 'embed', requirement: TASK_EMBED },
@@ -345,6 +373,7 @@ export function requirementOfTask(task: ModelTask): TaskRequirement {
 export const CHAT_TASK_REQUIREMENTS: Readonly<Record<ChatTask, TaskRequirement>> = {
   angles: TASK_ANGLES,
   extract: TASK_EXTRACT,
+  digest: TASK_DIGEST,
 };
 
 /**
@@ -394,4 +423,5 @@ export const REQUIRED_CONTEXT_TOKENS = Math.max(
   // 規劃對話也可以走本機 Ollama（ADR-0033 D5），而它送的是攤平的整段對話 ——
   // 漏掉它的話，`num_ctx` 會比這個任務真正需要的小，而症狀是對話前半被安靜截掉。
   TASK_PLAN.minContextTokens ?? 0,
+  TASK_DIGEST.minContextTokens ?? 0,
 );

@@ -17,10 +17,13 @@ import {
   mayFinishCollecting,
   mayMove,
   mayResumeCollecting,
+  needsDigest,
   needsFetch,
   statusAfterCollectRun,
+  stopsDigesting,
   tallyDirection,
   type Acquisition,
+  type CandidateWork,
 } from '../../src/domain/research/index.js';
 import type { SiteVerdict } from '../../src/domain/sources/status.js';
 
@@ -30,6 +33,14 @@ const recorded = (access: SiteVerdict['access']): SiteVerdict => ({
   at: 1,
   attempts: 3,
 });
+
+function candidate(
+  acquisition: Acquisition,
+  code: string | null,
+  more: Partial<Pick<CandidateWork, 'itemId' | 'relevance' | 'digestCode'>> = {},
+): CandidateWork {
+  return { acquisition, code, itemId: null, relevance: null, digestCode: null, ...more };
+}
 
 describe('抓之前的預期：依你的紀錄（R8）', () => {
   it('紀錄說要登入、會出驗證頁 —— 不去試，直接要你拿', () => {
@@ -70,29 +81,59 @@ describe('還有什麼可以做（R13：已抓的不重抓）', () => {
       ],
       [],
     );
-    expect(work).toEqual({ searches: 2, fetches: 0 });
+    expect(work).toEqual({ searches: 2, fetches: 0, digests: 0 });
   });
 
   it('還沒抓的、停在半路的、被限流的要再抓；其餘交給人', () => {
-    const rows: { acquisition: Acquisition; code: string | null }[] = [
-      { acquisition: 'found', code: null },
-      { acquisition: 'fetching', code: null },
-      { acquisition: 'needs-user', code: 'FETCH_RATE_LIMITED' },
-      { acquisition: 'needs-user', code: 'FETCH_LOGIN_REQUIRED' },
-      { acquisition: 'needs-user', code: null },
-      { acquisition: 'fetched', code: null },
-      { acquisition: 'uploaded', code: null },
-      { acquisition: 'unavailable', code: 'FETCH_HTTP_4XX' },
+    const rows: CandidateWork[] = [
+      candidate('found', null),
+      candidate('fetching', null),
+      candidate('needs-user', 'FETCH_RATE_LIMITED'),
+      candidate('needs-user', 'FETCH_LOGIN_REQUIRED'),
+      candidate('needs-user', null),
+      candidate('fetched', null, { itemId: 'i1', relevance: 'yes' }),
+      candidate('uploaded', null, { itemId: 'i2', relevance: 'no' }),
+      candidate('unavailable', 'FETCH_HTTP_4XX'),
     ];
     expect(rows.filter(needsFetch)).toHaveLength(3);
-    expect(collectWork([], rows)).toEqual({ searches: 0, fetches: 3 });
+    expect(collectWork([], rows)).toEqual({ searches: 0, fetches: 3, digests: 0 });
+  });
+
+  it('初讀：拿到的、還沒讀或讀失敗的要讀；讀好的不重讀；沒有正文可讀的不再讀（Stage 21）', () => {
+    const rows: CandidateWork[] = [
+      candidate('fetched', null, { itemId: 'a' }),
+      candidate('uploaded', null, { itemId: 'b' }),
+      candidate('fetched', null, { itemId: 'c', digestCode: 'PROVIDER_OUTPUT_SCHEMA_MISMATCH' }),
+      candidate('fetched', null, { itemId: 'd', digestCode: 'PROVIDER_BUDGET_EXCEEDED' }),
+      // 讀好的 —— 不管判斷是哪一種都不重讀
+      candidate('fetched', null, { itemId: 'e', relevance: 'unsure' }),
+      // 沒有正文可讀：再讀一次也一樣。不排除的話「繼續蒐集」那顆鈕永遠亮著
+      candidate('fetched', null, { itemId: 'f', digestCode: 'PARSE_EMPTY_CONTENT' }),
+      // 還沒拿到的沒有東西可讀
+      candidate('found', null),
+      candidate('needs-user', 'FETCH_LOGIN_REQUIRED'),
+      // 拿到了卻沒有那一份資料（被刪掉了）
+      candidate('fetched', null, { itemId: null }),
+    ];
+    expect(rows.filter(needsDigest).map((r) => r.itemId)).toEqual(['a', 'b', 'c', 'd']);
+    expect(collectWork([], rows).digests).toBe(4);
+  });
+
+  it('被限流、金鑰被拒、連不上：這一筆不再讀下去（其餘的讀失敗照樣往下讀）', () => {
+    expect(stopsDigesting('PROVIDER_RATE_LIMITED')).toBe(true);
+    expect(stopsDigesting('PROVIDER_AUTH_REJECTED')).toBe(true);
+    expect(stopsDigesting('PROVIDER_UNREACHABLE')).toBe(true);
+    expect(stopsDigesting('PROVIDER_OUTPUT_SCHEMA_MISMATCH')).toBe(false);
+    expect(stopsDigesting(null)).toBe(false);
   });
 });
 
 describe('現在可以按哪幾顆', () => {
   it('繼續蒐集：沒有作業在跑、而且還有事可以做', () => {
-    const some = { searches: 1, fetches: 0 };
-    const none = { searches: 0, fetches: 0 };
+    const some = { searches: 1, fetches: 0, digests: 0 };
+    const none = { searches: 0, fetches: 0, digests: 0 };
+    // 只剩初讀也算「還有事可以做」（Stage 21）
+    expect(mayResumeCollecting('awaiting-user', false, { ...none, digests: 2 })).toBe(true);
     expect(mayResumeCollecting('collecting', false, some)).toBe(true);
     expect(mayResumeCollecting('awaiting-user', false, some)).toBe(true);
     expect(mayResumeCollecting('collecting', true, some)).toBe(false);

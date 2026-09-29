@@ -344,8 +344,30 @@ export interface Candidate {
   unavailableReason: UnavailableReason | null;
   reasonNote: string;
   itemId: string | null;
+  /**
+   * 初讀（Stage 21）。`relevance` 與 `digestCode` 都是 `null` ＝ 還沒讀；有碼 ＝ 讀過但失敗。
+   * **判斷是這一次研究的**，所以在候選上；繁中標題與摘要是那一份資料的，原文是上面的 `title`。
+   */
+  relevance: Relevance | null;
+  relevanceWhy: string;
+  digestCode: string | null;
+  titleZh: string | null;
+  summaryZh: string | null;
+  /** 實際跑的那一個模型（連同服務）與時間 —— 畫面要說得出繁中是誰、什麼時候產生的（R15） */
+  digestedBy: string | null;
+  digestedAt: number | null;
   /** 這一列上現在按得下去的動作。**伺服器判斷，畫面照著顯示** */
   actions: { upload: boolean; unavailable: boolean; reopen: boolean };
+}
+
+/** 初讀的判斷：跟這次研究有關、沒關、說不準。 */
+export type Relevance = 'yes' | 'no' | 'unsure';
+
+/** 一個任務花了多少（`costUsd` 是 `null` ＝ 沒回報過，不是 0）。 */
+export interface TaskCost {
+  requests: number;
+  costUsd: number | null;
+  unpriced: number;
 }
 
 /** 一條服務：誰在做、會不會花錢。 */
@@ -362,7 +384,7 @@ export interface CollectState {
   runStatus: Run['status'] | null;
   endedReason: Run['endedReason'];
   errorCode: string | null;
-  work: { searches: number; fetches: number };
+  work: { searches: number; fetches: number; digests: number };
   mayResume: boolean;
   mayFinish: boolean;
 }
@@ -421,9 +443,13 @@ export interface Research {
   costUsd: number;
   /** 有幾次沒回報花費（對話與作業加起來）。**跟金額分開**：全部沒回報的顯示成 $0.00 是一句謊。 */
   unknownCost: number;
+  /** 逐任務（`plan`、`find-sources`、`digest`……）。**沒出現的任務就是還沒跑過**，不是 0 */
+  costByTask: Record<string, TaskCost>;
   service: PlanService;
   /** 找候選來源走哪個服務（閘門一與「繼續蒐集」旁邊那句話） */
   findService: ServiceView;
+  /** 初讀走哪個服務（同一句話的後半） */
+  digestService: ServiceView;
 }
 
 // ── provider ─────────────────────────────────────
@@ -488,13 +514,13 @@ export interface ConnectionStatus {
 }
 
 /**
- * `chat` 底下的兩個任務。**這一組字串在 server 的 `domain/provider` 也有一份** ——
+ * `chat` 底下的任務。**這一組字串在 server 的 `domain/provider` 也有一份** ——
  * `tests/guards/chat-tasks.test.ts` 釘著兩邊一致（`web/` 與 server 是兩份建置）。
  */
-export type ChatTask = 'angles' | 'extract';
+export type ChatTask = 'angles' | 'digest' | 'extract';
 
 /**
- * **這個工具會用到模型的全部四個地方。**
+ * **這個工具會用到模型的每一個地方。**
  *
  * server 的 `domain/provider/capabilities.ts` 有 `MODEL_TASKS` 那一份定義，
  * 這裡是抄的 —— `tests/guards/chat-tasks.test.ts` 釘著兩邊一致。

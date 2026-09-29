@@ -46,6 +46,17 @@ export type RunEvent =
       readonly found: number;
       readonly code: string | null;
     }
+  /**
+   * 研究的一份候選初讀完了（Stage 21）。`relevance` 是 `null` 而 `code` 有值 ＝ 讀失敗
+   * （原因已經寫在候選那一列上，「繼續蒐集」會再讀 —— 沒有正文可讀的除外）。
+   */
+  | {
+      readonly type: 'digest';
+      readonly candidateId: string;
+      readonly itemId: string | null;
+      readonly relevance: string | null;
+      readonly code: string | null;
+    }
   | { readonly type: 'progress'; readonly done: number; readonly total: number }
   | {
       readonly type: 'settled';

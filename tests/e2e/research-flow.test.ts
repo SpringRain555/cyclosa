@@ -99,6 +99,8 @@ async function writeProvidersFile(
         // **規劃對話預設走本機 Ollama** —— 不用外部程序就跑得起來；走 Claude Code 的那兩條另外測。
         plan: { via: options.planVia ?? 'ollama', model: options.planVia === 'cli' ? '' : model },
         'find-sources': { via: 'cli', model: '' },
+        // 閘門一也檢查初讀（Stage 21）。這一份的找來源什麼都找不到，所以它不會真的被叫到。
+        digest: { via: 'ollama', model },
         angles: { via: 'ollama', model },
         extract: { via: 'ollama', model },
         embed: { via: 'ollama', model: '' },

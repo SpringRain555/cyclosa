@@ -58,7 +58,7 @@ import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { prepareSandbox, scanSandbox } from './agent-sandbox.js';
 import { recordModelCall } from './model-call-log.js';
-import { checkFindSources, launchCollect } from './research-collect.js';
+import { checkDigest, checkFindSources, launchCollect } from './research-collect.js';
 import {
   hitsOf,
   openResearchCase,
@@ -453,7 +453,7 @@ export async function editDirections(
  *
  * 順序是刻意的：
  *
- * 1. **先確定找來源那一支配得上**（`checkFindSources`）—— 配不上的話研究還停在規劃中，
+ * 1. **先確定找來源與初讀兩支都配得上**（`checkFindSources`、`checkDigest`）—— 配不上的話研究還停在規劃中，
  *    方向也還沒落成，改完設定再按一次就好。先落成再檢查的話，一次失敗會留下一張
  *    「已經定案、卻沒有開始」的方向表
  * 2. 當時的規劃落成方向表（模型提過、你刪掉的也各一列）
@@ -482,6 +482,10 @@ export async function startCollecting(
     const providers = await load();
     const agent = await checkFindSources(providers, cid);
     if (!agent.ok) return agent;
+    // 初讀也在這裡確定（Stage 21）：**沒設定就擋下來、說是這一個任務**（ADR-0033「你定的」）——
+    // 不能等到全部搜完、抓完才發現沒有東西可以讀它們。
+    const digest = await checkDigest(providers, cid);
+    if (!digest.ok) return digest;
 
     const now = Date.now();
     plan.directions.forEach((direction, i) => {
@@ -536,6 +540,7 @@ export async function startCollecting(
       researchId,
       providers,
       agent: agent.data,
+      digest: digest.data,
       correlationId: cid,
     });
     const updated = research.getResearch(db, researchId);

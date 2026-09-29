@@ -73,11 +73,19 @@ const ollamaUrl = ref(OLLAMA_DEFAULT_URL);
 const openaiUrl = ref('');
 /** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
 const openaiKeyEnv = ref('');
-const TASK_ORDER: readonly ModelTask[] = ['plan', 'find-sources', 'angles', 'extract', 'embed'];
+const TASK_ORDER: readonly ModelTask[] = [
+  'plan',
+  'find-sources',
+  'digest',
+  'angles',
+  'extract',
+  'embed',
+];
 function emptyTasks(): Record<ModelTask, TaskSetting> {
   return {
     plan: { via: 'cli', model: '' },
     'find-sources': { via: 'cli', model: '' },
+    digest: { via: 'ollama', model: '' },
     angles: { via: 'ollama', model: '' },
     extract: { via: 'ollama', model: '' },
     embed: { via: 'ollama', model: '' },
@@ -126,9 +134,10 @@ const RECOMMENDED_CHAT = 'granite4.2:8b';
 const RECOMMENDED_TASK: Record<ChatTask, string> = {
   angles: 'granite4.2:8b',
   extract: RECOMMENDED_CHAT,
+  digest: RECOMMENDED_CHAT,
 };
 /**
- * 表格那一欄用的建議值，**四個任務都有一格**。
+ * 表格那一欄用的建議值，**每個任務都有一格**。
  * `find-sources` 是空字串 —— **那不是「沒有建議」，是「建議不要帶」**：
  * agent 的模型由 CLI 自己的設定決定，而我們沒有量過在那一邊換模型的效果。
  */

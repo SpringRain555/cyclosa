@@ -34,6 +34,7 @@ import {
   type DirectionInput,
   type FrozenDirection,
   type Research,
+  type ServiceView,
   type UnavailableReason,
 } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
@@ -88,11 +89,46 @@ const modelName = computed(() =>
     ? serviceName.value
     : service.value.model,
 );
-const findServiceName = computed(() => {
-  const find = current.value?.findService;
-  if (find === undefined) return '';
-  const name = t.settings.connectionNames[find.via];
-  return find.model.length === 0 ? name : `${name} · ${find.model}`;
+/** 「Claude Code · 模型」—— 模型名空著代表走那個服務自己的預設，只寫服務。 */
+function serviceNameOf(s: ServiceView): string {
+  const name = t.settings.connectionNames[s.via];
+  return s.model.length === 0 ? name : `${name} · ${s.model}`;
+}
+/** 「「服務」· 會花錢」—— 閘門與「繼續蒐集」旁邊，每一步各自說（ADR-0033 D2）。 */
+function costLabelOf(s: ServiceView): string {
+  return fill(s.costs ? t.research.serviceCosts : t.research.serviceFree, {
+    service: serviceNameOf(s),
+  });
+}
+
+/** 還沒做完的那幾種 —— **只列不是 0 的**。 */
+const workLeftText = computed(() => {
+  const work = open.value?.collect.work;
+  if (work === undefined) return '';
+  const parts: string[] = [];
+  if (work.searches > 0) parts.push(fill(t.research.workSearches, { n: work.searches }));
+  if (work.fetches > 0) parts.push(fill(t.research.workFetches, { n: work.fetches }));
+  if (work.digests > 0) parts.push(fill(t.research.workDigests, { n: work.digests }));
+  return parts.length === 0 ? '' : fill(t.research.workLeft, { parts: parts.join('、') });
+});
+
+/**
+ * 「繼續蒐集」按下去會做哪幾步、各走哪個服務。**新抓到的也會被讀** ——
+ * 所以只要還有要抓的，初讀那一句就要在。
+ */
+const resumeText = computed(() => {
+  const r = open.value;
+  if (r === null) return '';
+  const { searches, fetches, digests } = r.collect.work;
+  const parts: string[] = [];
+  if (searches > 0) {
+    parts.push(fill(t.research.resumeSearch, { service: costLabelOf(r.findService) }));
+  }
+  if (fetches > 0) parts.push(t.research.resumeFetch);
+  if (digests > 0 || fetches > 0 || searches > 0) {
+    parts.push(fill(t.research.resumeDigest, { service: costLabelOf(r.digestService) }));
+  }
+  return parts.length === 0 ? '' : fill(t.research.resumeParts, { parts: parts.join('；') });
 });
 
 function report(error: ApiError | null): void {
@@ -515,8 +551,51 @@ const costText = computed(() => {
   if (row.costUsd > 0) parts.push(fill(t.research.costSoFar, { usd: row.costUsd.toFixed(2) }));
   if (row.unknownCost > 0) parts.push(fill(t.research.costUnknown, { n: row.unknownCost }));
   if (parts.length === 0) parts.push(t.research.costNone);
-  return parts.join(' · ');
+  return parts.join(' · ') + costBreakdown(row.costByTask);
 });
+
+/**
+ * 逐任務（R29）：「（規劃 0.02、找來源 0.10、初讀 0.00）」。**跑過的任務才列**；
+ * 一次都沒回報過的寫「不知道」—— 不是 0。只有一個任務跑過的時候不拆（那就是總數）。
+ */
+function costBreakdown(byTask: Research['costByTask']): string {
+  const order = Object.keys(t.research.costTasks) as (keyof typeof t.research.costTasks)[];
+  const parts: string[] = [];
+  for (const task of order) {
+    const cost = byTask[task];
+    if (cost === undefined) continue;
+    if (cost.requests === 0 && cost.unpriced === 0 && (cost.costUsd ?? 0) === 0) continue;
+    const name = t.research.costTasks[task];
+    parts.push(
+      cost.costUsd === null
+        ? fill(t.research.costTaskUnknown, { task: name })
+        : fill(t.research.costTaskItem, { task: name, usd: cost.costUsd.toFixed(2) }),
+    );
+  }
+  return parts.length < 2 ? '' : fill(t.research.costBreakdown, { parts: parts.join('、') });
+}
+
+/** 一列候選的初讀那一行：判斷 ＋ 理由；還沒讀、讀失敗的照實說。 */
+function digestLineOf(c: Candidate): string {
+  if (c.relevance !== null) {
+    const label = t.research.relevance[c.relevance];
+    return c.relevanceWhy.length > 0 ? `${label} —— ${c.relevanceWhy}` : label;
+  }
+  if (c.digestCode !== null) {
+    return fill(t.research.digestFailed, { reason: errorMessages[c.digestCode] ?? c.digestCode });
+  }
+  const acquired = c.acquisition === 'fetched' || c.acquisition === 'uploaded';
+  if (!acquired || c.itemId === null) return '';
+  return open.value?.collect.live === true ? t.research.digestQueued : t.research.digestPending;
+}
+
+function digestByOf(c: Candidate): string {
+  if (c.digestedBy === null || c.digestedAt === null) return '';
+  return fill(t.research.digestBy, {
+    model: c.digestedBy,
+    date: new Date(c.digestedAt).toLocaleDateString('zh-TW'),
+  });
+}
 
 const hitsText = computed(() => {
   const row = current.value;
@@ -680,25 +759,12 @@ const hitsText = computed(() => {
 
         <!-- 還有沒做完的：繼續蒐集（R13）。**搜尋那一段會花錢**，按鈕旁邊先說。 -->
         <template v-if="open.collect.mayResume">
-          <p class="hint">
-            {{
-              fill(t.research.workLeft, {
-                searches: open.collect.work.searches,
-                fetches: open.collect.work.fetches,
-              })
-            }}
-          </p>
+          <p class="hint">{{ workLeftText }}</p>
           <div class="actions">
             <button :disabled="busy !== ''" @click="resumeCollecting">
               {{ t.research.resume }}
             </button>
-            <span class="hint">
-              {{
-                open.collect.work.searches > 0
-                  ? fill(t.research.resumeCosts, { service: findServiceName })
-                  : t.research.resumeFree
-              }}
-            </span>
+            <span class="hint">{{ resumeText }}</span>
           </div>
         </template>
 
@@ -744,6 +810,20 @@ const hitsText = computed(() => {
                   </a>
                   <span class="muted small host">{{ c.host }}</span>
                 </div>
+                <!-- 初讀（Stage 21）：繁中標題是衍生物，原文在上面那一行（R15）。 -->
+                <p
+                  v-if="c.titleZh !== null && c.titleZh !== c.title"
+                  class="small zh-title"
+                  :title="digestByOf(c)"
+                >
+                  {{ c.titleZh }}
+                </p>
+                <p
+                  v-if="digestLineOf(c).length > 0"
+                  :class="['small', 'digest', c.relevance ?? 'none']"
+                >
+                  {{ digestLineOf(c) }}
+                </p>
                 <p v-if="c.why.length > 0" class="muted small why">{{ c.why }}</p>
                 <p class="muted small meta">
                   <span v-if="bibOf(c).length > 0">{{ bibOf(c) }} · </span>
@@ -840,9 +920,10 @@ const hitsText = computed(() => {
           <p v-if="draft.length > 0" class="hint">
             {{ fill(t.research.gateOneNext, { n: draft.length }) }}
             {{
-              open.findService.costs
-                ? fill(t.research.gateOneRunsCosts, { service: findServiceName })
-                : fill(t.research.gateOneRunsFree, { service: findServiceName })
+              fill(t.research.gateOneRuns, {
+                find: costLabelOf(open.findService),
+                digest: costLabelOf(open.digestService),
+              })
             }}
           </p>
           <div class="actions">
@@ -1111,6 +1192,25 @@ const hitsText = computed(() => {
 }
 .badge.acq.unavailable {
   border-color: var(--line-muted);
+  color: var(--text-tertiary);
+}
+/* 初讀（Stage 21）。**判斷一律是文字**（「初讀：有關」），顏色只是輔助 —— 同上面的徽章（ADR-0018）。 */
+.zh-title,
+.digest {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.zh-title {
+  color: var(--text-secondary);
+}
+.digest.yes {
+  color: var(--ui-success);
+}
+.digest.unsure {
+  color: var(--edge-pending);
+}
+.digest.no,
+.digest.none {
   color: var(--text-tertiary);
 }
 

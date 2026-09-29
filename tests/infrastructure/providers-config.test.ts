@@ -175,6 +175,7 @@ describe('v2 的形狀', () => {
       tasks: {
         plan: { via: 'cli' as const, model: '' },
         'find-sources': { via: 'cli' as const, model: '' },
+        digest: { via: 'ollama' as const, model: 'granite4.2:8b' },
         angles: { via: 'ollama' as const, model: 'granite4.2:8b' },
         extract: { via: 'openai' as const, model: 'gpt-x' },
         embed: { via: 'ollama' as const, model: 'qwen3-embedding:4b' },

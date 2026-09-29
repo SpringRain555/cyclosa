@@ -217,7 +217,7 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /healthz` | 回 `{"app":"cyclosa","version":"…"}`。**單一實例偵測靠它**（ADR-0020）—— 只看有沒有回 200 會把別人的服務誤認成自己 |
-| `GET /api/providers` | **v0.24.0 起（ADR-0032）回三樣**：`connections`（CLI／本機 Ollama／OpenAI 相容端點各一列：連不連得上、金鑰變數有沒有設、**這條連線上有哪些模型** —— `null` 代表列不出來，不是「一個都沒有」；CLI 永遠 `null`）、`tasks`（四個任務各一列：走哪一條連線、哪個模型、`state`、版本、能力宣告、`jsonMode`〔只有對話任務有，ADR-0030；v0.24.2 起多 `protocol`〕、`browse`〔只有找來源有，ADR-0034〕、`ok`、**缺哪幾樣**）、`config`（v2 的設定檔）。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
+| `GET /api/providers` | **v0.24.0 起（ADR-0032）回三樣**：`connections`（CLI／本機 Ollama／OpenAI 相容端點各一列：連不連得上、金鑰變數有沒有設、**這條連線上有哪些模型** —— `null` 代表列不出來，不是「一個都沒有」；CLI 永遠 `null`）、`tasks`（每個任務各一列 —— v0.25.0 起有規劃對話與初讀：走哪一條連線、哪個模型、`state`、版本、能力宣告、`jsonMode`〔只有對話任務有，ADR-0030；v0.24.2 起多 `protocol`〕、`browse`〔只有找來源有，ADR-0034〕、`ok`、**缺哪幾樣**）、`config`（v2 的設定檔）。**這一支不送任何一次對話請求** —— 格式量測只讀已經記下的結果 |
 | `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。**收 v1 或 v2 的形狀都行**，讀檔與收請求走同一支解析（`parseConfig`），存進去的永遠是 v2。每個任務的 `via` 不在它准許的清單裡就退回第一個准許的；金鑰欄位形狀不對就當沒設定 |
 | `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode, browse}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求。找來源走 OpenAI 相容 API 時，量的是「會不會上網搜尋」（一個帶搜尋的小請求，v0.24.2）。設定頁的「儲存並測試」逐任務叫它 |
 | `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型。回 `{kind, models, auth}`。v0.24.1 起設定頁改了就存，按這顆之前會先存；這一支本身仍然不寫檔 |
@@ -392,7 +392,7 @@
 **顯示一個結構性的值，會讓它看起來像測量結果。**
 規則在 `domain/graph/render-rules.ts`，不在元件裡。
 
-### 研究（v0.25.0，ADR-0033；規劃、閘門一、蒐集、閘門二）
+### 研究（v0.25.0，ADR-0033；規劃、閘門一、蒐集與初讀、閘門二）
 
 **每一支都寫得出它花不花錢** —— 這個流程存在的理由就是「花錢之前停下來」。
 
@@ -402,10 +402,10 @@
 | `GET …/research` ／ `…/research/:id` | 不 | 歷次紀錄與那一次的全部內容（對話、規劃、方向、花費）|
 | `POST …/research/:id/messages` | **會** | `{said}`。談一輪：使用者那句話先寫成一列，再帶著整段對話去問模型。**失敗的那一輪也留著**（`code` 有值），而且還可以再談 |
 | `PUT …/research/:id/directions` | 不 | `{directions: [{title, what, expect, keywords}]}`。**整份換掉**（改、加、刪、重排是同一件事）。跟模型那一份逐字一樣的仍然算模型提的，只有真的動過的標 `human`（R4）|
-| `POST …/research/:id/start` | **會** | **閘門一**：先確定找來源那一支配得上（配不上就整支失敗，方向**還沒**落成），再把方向落成 `research_direction`（含模型提過、使用者刪掉的，`adopted=0`），狀態 → `collecting`，**開一筆蒐集作業**。按下去之前一次搜尋、一次擷取都沒有發生（R5）|
-| `POST …/research/:id/collect` | **會** | 「繼續蒐集」：開一筆**新的**作業，只做還沒做完的（R13）。只剩要抓的時候不檢查找來源那一支，也不花錢 |
+| `POST …/research/:id/start` | **會** | **閘門一**：先確定**找來源與初讀兩支**都配得上（配不上就整支失敗、`detail.task` 說是哪一個，方向**還沒**落成），再把方向落成 `research_direction`（含模型提過、使用者刪掉的，`adopted=0`），狀態 → `collecting`，**開一筆蒐集作業**：搜 → 抓 → 拿到的每一份初讀一次（Stage 21）。按下去之前一次搜尋、一次擷取都沒有發生（R5）|
+| `POST …/research/:id/collect` | **會** | 「繼續蒐集」：開一筆**新的**作業，只做還沒做完的（R13）：沒搜成的方向、沒抓的、**沒讀或讀失敗的**（沒有正文可讀的不再讀）。只剩要抓的時候不檢查找來源那一支；初讀那一支每一次都檢查（新抓到的也要讀）|
 | `POST …/research/:id/finish` | 不 | **閘門二**「完成蒐集」：狀態 → `reviewing`，之後不再找、不再抓。作業還在跑的時候按不下去（`RESEARCH_STEP_INVALID`）|
-| `POST …/research/:id/candidates/:cid/upload` | 不 | 把你拿到的檔案對回一列候選（R10）。**跟 `import/file` 同一種請求**（body 是檔案、檔名走 `x-file-name`），走一般的匯入 |
+| `POST …/research/:id/candidates/:cid/upload` | 看初讀走哪一條 | 把你拿到的檔案對回一列候選（R10）。**跟 `import/file` 同一種請求**（body 是檔案、檔名走 `x-file-name`），走一般的匯入。**之後自動開一筆只讀、不搜不抓的作業**讀這一份（R14；已經有一筆在跑的話由它讀）|
 | `POST …/research/:id/candidates/:cid/unavailable` | 不 | `{reason, note}`：你說拿不到（`paywall`／`not-found`／`blocked`／`other`，R11）|
 | `POST …/research/:id/candidates/:cid/reopen` | 不 | 標錯了，改回「要你拿」|
 | `POST …/research/:id/abandon` | 不 | 放棄。**任何還沒結束的狀態都可以**；還在跑的蒐集會先被停下來 |
@@ -424,8 +424,13 @@
 > **每一列候選帶著 `actions`**（上傳／標拿不到／改回要你拿按不按得下去，`mayActOnCandidate`）。
 > 畫面不自己判斷：兩邊各判一次的話，遲早會出現一顆按了就報錯的按鈕。
 >
+> **初讀的欄位**（Stage 21）：每一列候選多 `relevance`（`yes`／`no`／`unsure`／`null`）、`relevanceWhy`、
+> `digestCode`（讀失敗的原因），以及那一份資料的 `titleZh`、`summaryZh`、`digestedBy`、`digestedAt`（衍生物，原文是 `title`）。
+> `collect.work` 多 `digests`；研究多 `digestService`（閘門一那句話的後半）與 `costByTask`
+> （逐任務：`plan`、`find-sources`、`digest`……各自 `requests`／`costUsd`／`unpriced`，沒跑過的任務不出現）。
+>
 > **蒐集的進度走作業那一條 SSE**（`…/runs/:runId/events`，`collect.runId`）—— 研究自己沒有進度通道，
-> 做事的是那一筆作業（D3）。事件多一種 `direction`（一條方向搜完了）。
+> 做事的是那一筆作業（D3）。事件多兩種：`direction`（一條方向搜完了）、`digest`（一份讀完了，Stage 21）。
 
 ### 擴展作業（舊版流程，Stage 22 退場）
 

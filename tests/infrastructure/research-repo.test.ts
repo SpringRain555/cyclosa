@@ -367,13 +367,24 @@ describe('方向的搜尋狀態與研究的狀態（v10）', () => {
       now: NOW,
     });
     db.prepare(
-      `INSERT INTO run (id, kind, status, correlation_id, created_at, research_id, cost_usd, unpriced)
-       VALUES ('run1', 'research', 'done', 'c', 1, 'r1', 0.3, 2),
-              ('run2', 'research', 'done', 'c', 2, 'r1', NULL, 1),
-              ('other', 'import', 'done', 'c', 3, NULL, 9, 5)`,
+      `INSERT INTO run (id, kind, status, correlation_id, created_at, research_id, cost_usd, unpriced,
+                        requests, task_costs_json)
+       VALUES ('run1', 'research', 'done', 'c', 1, 'r1', 0.3, 2, 3, NULL),
+              ('run2', 'research', 'done', 'c', 2, 'r1', NULL, 1, 1, NULL),
+              ('other', 'import', 'done', 'c', 3, NULL, 9, 5, 0, NULL),
+              ('run3', 'research', 'done', 'c', 4, 'r1', 0.05, 0, 3,
+               '{"find-sources":{"requests":1,"costUsd":0.05,"unpriced":0},"digest":{"requests":2,"costUsd":0,"unpriced":0}}')`,
     ).run();
-    expect(research.costSoFar(db, 'r1')).toEqual({ costUsd: 0.32, unknown: 3 });
-    expect(research.listResearchRunIds(db, 'r1')).toEqual(['run2', 'run1']);
+    const cost = research.costSoFar(db, 'r1');
+    expect(cost.costUsd).toBeCloseTo(0.37);
+    expect(cost.unknown).toBe(3);
+    // **逐任務（v11）**：拆開的那幾格加起來等於總數。v11 以前的蒐集作業沒有拆 ——
+    // 那時候它只做找來源，所以整份算在找來源底下（不然拆開的會比總數少）。
+    expect(cost.byTask['plan']).toEqual({ requests: 1, costUsd: 0.02, unpriced: 0 });
+    expect(cost.byTask['find-sources']).toMatchObject({ requests: 5, unpriced: 3 });
+    expect(cost.byTask['find-sources']?.costUsd).toBeCloseTo(0.35);
+    expect(cost.byTask['digest']).toEqual({ requests: 2, costUsd: 0, unpriced: 0 });
+    expect(research.listResearchRunIds(db, 'r1')).toEqual(['run3', 'run2', 'run1']);
   });
 
   it('閱讀器的候選標籤只認還沒結束的那一次研究', () => {

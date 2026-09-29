@@ -90,6 +90,11 @@
 >
 > 整棵樹重掃：**299 個套件（+41），仍然 0 個 GPL／AGPL／SSPL／BUSL。**
 >
+> **2026-09-28 再重盤一次**（市場調查重查的同一天，讀 `node_modules` 裡每個套件的 `package.json`）：
+> **321 個套件**，MIT 244、ISC 26、Apache-2.0 19、BSD-2-Clause 19、BSD-3-Clause 10、MPL-2.0 2、BlueOak-1.0.0 1；
+> **GPL／AGPL／BSL／未宣告：0**。MPL-2.0 是 `lightningcss`（由 `vite` 帶進來、只在建置時用），
+> BlueOak 是 `minimatch`（`eslint` 帶進來）。明細在 `../research/market-scan.md` 的「相依授權重盤」。
+>
 > **`pdfjs-dist` 是動態載入的**（`await import`），只有真的遇到 PDF 才會被讀進來。
 > 它不小，而啟動時間是一鍵啟動體驗的一部分。
 
@@ -168,12 +173,19 @@ peer 範圍 —— 那不是「以後可能會壞」，是宣告上就已經不�
 
 ## 授權紅線
 
-**AGPL-3.0 的專案（Datashare、SingleFile、Karakeep、Linkwarden、Zotero）
+**AGPL-3.0 的專案（Datashare、SingleFile、Karakeep、Linkwarden、Zotero、InfraNodus 的 Obsidian 外掛、Reor）
 一行程式碼都不抄、也不當依賴。** 只讀概念。
 這個專案採 MIT，混進 AGPL 程式碼會讓整份授權失效。
 
 > **Linkwarden 是 2026-09-06 補進這張名單的** —— 它一直在市場調查的賽道表裡，
 > 卻沒進授權盤點表。**在賽道表裡出現而不在紅線上，比完全沒提到更危險。**
+>
+> **InfraNodus 的 Obsidian 外掛與 Reor 是 2026-09-28 重查新增的**（`../research/market-scan.md` 的授權盤點）——
+> 同一條教訓，這次是 09-28 寫進市場調查、09-29 才補進這裡。
+>
+> **SurfSense 是混合授權**：GitHub API 回 `NOASSERTION`，讀 `LICENSE` 才知道
+> `surfsense_backend/app/proprietary/` 是 **Business Source License 1.1**、其餘 Apache-2.0。
+> 借之前先看是哪一個資料夾 —— 跟 Zotero 同一個教訓的第二個實例。
 
 加任何新依賴之前**實查它的 `LICENSE`** —— 「我記得它是 MIT」不算
 （見 `../research/index.md` 的可信度分級）。

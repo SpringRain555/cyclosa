@@ -45,8 +45,8 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 
 | # | 檢查 | 現況 |
 |:--:|---|---|
-| B1 | **`package.json` 的每一個相依都實查過 `LICENSE`**，結果記在 `docs/environment/versions.md` | ✅ 現在就能查（2026-09-07 掃過整棵相依樹：258 個套件、0 個 GPL 系）|
-| B2 | **沒有任何 AGPL-3.0 的程式碼或依賴**（Datashare／SingleFile／Karakeep／Linkwarden／Zotero） | ✅ 現在就能查 |
+| B1 | **`package.json` 的每一個相依都實查過 `LICENSE`**，結果記在 `docs/environment/versions.md` | ✅ 現在就能查（最近一次 2026-09-28：321 個套件、0 個 GPL／AGPL／BSL 系；2026-09-07 是 258 個）|
+| B2 | **沒有任何 AGPL-3.0 的程式碼或依賴**（Datashare／SingleFile／Karakeep／Linkwarden／Zotero／InfraNodus 的 Obsidian 外掛／Reor；SurfSense 的 `proprietary/` 是 BSL 1.1） | ✅ 現在就能查 |
 | B3 | **不能只信 GitHub API 的 `license` 欄** —— Zotero 就是反例（API 回 `NOASSERTION`，要開 `COPYING`）。**API 說「不知道」的時候，答案不是「沒有授權」** | ✅ 規則已成文 |
 | B4 | **借來的概念都標明「借的是概念還是程式碼」**（`docs/research/market-scan.md`） | ✅ 現在就能查 |
 | B5 | **從別的專案複製過來的檔案**（例如 CSS token）**在複製的 commit 訊息裡寫明它是複本** | ✅ **到目前為止沒有複製任何檔案** —— `tokens.css` 是照 ADR-0018 自己寫的，不是 `rubricator` 的複本 |

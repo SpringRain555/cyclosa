@@ -270,10 +270,10 @@ embed 刻意只接本機（線上端點換掉背後的權重不會報錯，只�
 **MIT。** 見 `LICENSE`。
 
 > 市場調查裡有幾個 **AGPL-3.0** 的專案（Datashare、SingleFile、Karakeep、
-> Linkwarden、Zotero）—— **只讀概念，一行程式碼都不抄、也不當依賴。**
+> Linkwarden、Zotero、InfraNodus 的 Obsidian 外掛、Reor）—— **只讀概念，一行程式碼都不抄、也不當依賴。**
 > 每條判讀都要標明「借的是概念還是程式碼」。
 >
-> 授權是 2026-09-06 逐一實查的（`docs/research/query-log.md`）。
+> 授權是 2026-09-06 逐一實查的、2026-09-28 重查過一次（`docs/research/query-log.md`）。
 > **不能只信 GitHub API 的 `license` 欄** —— Zotero 就是反例，它回 `NOASSERTION`，
 > 要開 `COPYING` 才看得到 AGPLv3。
 

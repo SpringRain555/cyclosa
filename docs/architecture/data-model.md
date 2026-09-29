@@ -560,7 +560,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 ## ⬜ schema v11 起的草案：初讀、確認、書目節點（Stage 21–24）
 
 > **這一段是設計，不是現況** —— 2026-09-19 寫、2026-09-20 使用者確認（ADR-0033、REQ-0009）。
-> 欄位名與值域是草案；實作時**每個 Stage 各自一個 migration**（下面最後一張表），
+> 欄位名與值域是草案；實作時**每個 Stage 各自一個 migration**（下面最後一張表；Stage 22 例外，理由在表下），
 > 做完的那一部分才從這一段搬進上面的正文（v9、v10 已經搬了）。
 
 | 表 | 存什麼 | 關鍵約束 |
@@ -579,7 +579,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | 欄 | 值 | 誰改它 |
 |---|---|---|
 | `acquisition` | `found` → `fetching` → `fetched`；`needs-user`（帶 `code`：既有的擷取錯誤碼）；`uploaded`；`unavailable`（帶 `unavailable_reason` ∈ `paywall`／`not-found`／`blocked`／`other` ＋ `reason_note`）| 擷取管線、使用者 |
-| `decision` | `include`／`reference`／`discard`；確認之前是 `NULL` | 使用者（預設值由事實決定，ADR-0033 D10）|
+| `decision` | `include`／`reference`／`discard`；確認之前是 `NULL`。**已經有正文的候選選 `reference` ＝「只留著，不抽」**：不建書目節點，那一份資料本身留著（ADR-0033 Q12）| 使用者（預設值由事實決定，ADR-0033 D10）|
 
 其餘欄位：`direction_id`（第一條找到它的方向；別的方向也找到時記在 `also_directions_json`）、`url`、`title`（必填 ——
 書目節點要有名字）、`why`、`bib_json`（作者、年份、出處：搜尋結果裡有才填）、`expected_access` ∈ `open`／`login`／`unknown`、
@@ -594,6 +594,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | `item` | `extracted_at`、`extracted_by`（「抽過了」—— 現在分不出「抽過但 0 條」與「沒抽過」）| `ADD COLUMN` |
 | `item` | `bib_json`（書目節點的作者、年份、出處）| `ADD COLUMN`（**v12**：書目節點在建圖那一步才建；候選自己的書目在 `research_candidate.bib_json`）|
 | `run` | ✅ v10：`kind` 多 `research`、`consolidate`；多 `research_id`、`unpriced` | 重建資料表 |
+| `run` | v11：逐任務的花費；**v13：`kind` 拿掉 `expand`、多 `extract`**（手動抽取，Q15）| v11 `ADD COLUMN`；v13 重建資料表 |
 | `note` | **不用改** —— `md_path` 從 v1 就在；附上的筆記檔是 `selector_json='[]'`（整份）的一則點註 | —— |
 
 **書目節點**：`kind='reference'`、`sha256` 是 `NULL`、`status='included'`。之後使用者補上正文 → **同一個 id** 轉成一般的資料節點
@@ -603,10 +604,18 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 |---|---|---|
 | ✅ 19 | v9 | `research`、`research_message`、`research_direction`（**做完了，搬到上面正文**）|
 | ✅ 20 | v10 | `research_candidate`（取得狀態那一半）；`research_direction` 的搜尋狀態；`item` 重建（`reference`、拿掉 `paper`）；`run` 重建（`kind`、`research_id`、`unpriced`）。**`item.bib_json` 挪到 v12**（書目節點在那時才建）|
-| 21 | v11 | `item` 的初讀四欄；`research_candidate` 的 `relevance`／`relevance_why` |
-| 22 | v12 | `item` 的 `extracted_at`／`extracted_by`、`bib_json`；`research_candidate.decision`；`run` 再重建一次拿掉 `expand`（**要不要做再定** —— 留著那個值不礙事，而重建有它的風險）；**舊的擴展紀錄一次性清除**（ADR-0033 D17：備份 → 逐筆走既有的復原 → 刪紀錄 → `DROP TABLE run_angle`。復原是 app 層的邏輯，不是 SQL）|
+| 21 | v11 | `item` 的初讀四欄；`research_candidate` 的 `relevance`／`relevance_why`／初讀失敗的碼；**每一筆作業逐任務的花費**（設計畫面要「初讀 0.31、找來源 0.11」，`run` 現在只有總數）|
+| 22 | **v12** | 只加欄位（外鍵開著）：`item` 的 `extracted_at`／`extracted_by`、`bib_json`；`research_candidate` 的 `decision`、「被哪幾份引用」、建圖狀態與碼（「繼續建圖」只做沒做完的）；`research` 的缺口評估；一張 `case_notice`（升級時要跟使用者說一次的話）|
+| 22 | （v13 之前的一段程式）| **舊的擴展紀錄一次性清除**（ADR-0033 D17）：自己一個交易、**外鍵開著**（復原靠連帶刪除），挑出真的舊擴展 —— **`providers_json` 的 `chat` 是 `manual:…` 的是手動抽取，保留**（Q15）—— 用既有的復原規則一次算完，**還被任何留下來的邊當出處或端點的資料一律留下**；寫一則 `case_notice`。冪等：再跑一次沒東西可清，不重寫通知 |
+| 22 | **v13** | 重建 `run`（`-- cyclosa: foreign-keys-off`）：`kind` 只剩 `import`／`extract`／`research`／`consolidate`，**剩下的 `expand`（＝手動抽取）轉 `extract`**；`DROP TABLE run_angle` |
 
-**清除排在最後一個 migration**，不是第一個：這樣萬一 Stage 19 先單獨出貨，舊的擴展流程還活著。
+**為什麼 Stage 22 是兩個 migration 夾一段程式**（2026-09-29 定，原本寫「v12 一份、`run` 要不要重建再定」）：
+重建資料表必須**外鍵關著**跑（「重建資料表」那一節：外鍵開著的 `DROP TABLE` 會先隱含一次 `DELETE`），
+而清除舊擴展靠的正是**外鍵開著**的連帶刪除（刪邊帶走出處與稽核、刪作業帶走逐項紀錄）。兩件事不能放在同一個交易裡。
+`run` 決定要重建，是因為手動抽取要保留（Q15）—— 它需要一個不是 `expand` 的名字，而 SQLite 改不了既有的 CHECK。
+
+**清除排在最後**，不是第一個：這樣萬一 Stage 19 先單獨出貨，舊的擴展流程還活著。**v13 那一步一定要有備份**
+（`openCaseDatabase` 的 `VACUUM INTO`）：每一條開檔的路都要給 `backupDir`。
 
 ## 實體型別的值域
 

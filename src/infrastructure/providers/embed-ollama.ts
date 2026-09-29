@@ -83,10 +83,49 @@ function costOf(started: number): CallCost {
   return { costUsd: 0, elapsedMs: Date.now() - started };
 }
 
-export function createOllamaEmbed(baseUrl: string, model: string): EmbedProvider {
+/**
+ * Ollama 連不上**它自己的**執行程序 —— 那一批等一下再送就好（2026-09-30 加）。
+ *
+ * 2026-09-29 量嵌入模型時撞到的：Ollama 0.34.4 在 Windows 上處理一批嵌入，會對它的執行程序連續撥好幾條
+ * 本機連線，其中一條偶爾在 `bind` 就失敗，回 HTTP 400、內文是 `dial tcp 127.0.0.1:<埠>: bind: …`。
+ * 一次送幾百段的時候（「建立語意索引」）就碰得到，而原本這裡把它當成「連不上」直接結束 ——
+ * **畫面上會說 Ollama 連不上，而它明明開著**。只對這一種內文重試，其餘照舊一次就回報。
+ */
+const TRANSIENT_OLLAMA = /dial tcp 127\.0\.0\.1:\d+: (bind|connectex)/;
+export const EMBED_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000, 8_000];
+
+export function createOllamaEmbed(
+  baseUrl: string,
+  model: string,
+  retryDelaysMs: readonly number[] = EMBED_RETRY_DELAYS_MS,
+): EmbedProvider {
   const root = baseUrl.replace(/\/$/, '');
   // 認不得的模型兩邊都是空字串：「不知道就不動手」，不是「這個模型不用加」（`embed-prefix.ts`）。
   const prefixes = embedPrefixesFor(model);
+
+  /** 送一次；**只有 Ollama 自己撥不通執行程序的那一種**才等一下再送（見 `TRANSIENT_OLLAMA`）。 */
+  async function post(input: readonly string[], signal: AbortSignal): Promise<Response> {
+    let res = await fetch(`${root}/api/embed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model, input }),
+      signal,
+    });
+    for (const delay of retryDelaysMs) {
+      if (res.ok || res.status !== 400) return res;
+      const text = await res.clone().text();
+      if (!TRANSIENT_OLLAMA.test(text)) return res;
+      await new Promise((r) => setTimeout(r, delay));
+      if (signal.aborted) return res;
+      res = await fetch(`${root}/api/embed`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model, input }),
+        signal,
+      });
+    }
+    return res;
+  }
 
   async function call(
     input: readonly string[],
@@ -95,12 +134,7 @@ export function createOllamaEmbed(baseUrl: string, model: string): EmbedProvider
   ): Promise<CallOutcome<EmbedBatch>> {
     const t = withTimeout(EMBED_TIMEOUT_MS, signal);
     try {
-      const res = await fetch(`${root}/api/embed`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model, input }),
-        signal: t.signal,
-      });
+      const res = await post(input, t.signal);
       if (!res.ok) {
         return {
           kind: 'error',

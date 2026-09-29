@@ -19,7 +19,7 @@
  * 兩個都報。只報 recall 會讓一個把答案排第 9 的模型看起來跟排第 1 的一樣好。
  *
  * 用法：
- *   npx tsx tools/research/eval-embeddings.ts <語料目錄> <查詢檔> <輸出目錄> [模型 ...]
+ *   npx tsx tools/research/eval-embeddings.ts <語料目錄> <查詢檔> <輸出目錄> [--pause <秒>] [模型 ...]
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -38,7 +38,8 @@ import { bigrams } from '../../src/domain/search/tokenize.js';
 const rawHost = process.env['OLLAMA_HOST'] ?? '127.0.0.1:11434';
 const OLLAMA = /^https?:\/\//.test(rawHost) ? rawHost : `http://${rawHost}`;
 const TOP_K = 10;
-const BATCH = 16;
+/** 一次送幾段。2026-09-30 從 16 降到 8：Ollama 一批裡的每一段各撥一次本機連線，一批越大、同一瞬間撥得越多（見 `embed()`）。 */
+const BATCH = 8;
 
 interface Passage {
   readonly id: string;
@@ -91,13 +92,38 @@ const MODELS: readonly ModelSpec[] = [
   specOf('hf.co/nomic-ai/nomic-embed-text-v2-moe-GGUF:F16'),
 ];
 
+/**
+ * Ollama 連不上**它自己的**執行程序（`dial tcp 127.0.0.1:<埠>: bind: …`）的時候重試。
+ *
+ * 2026-09-29 實測：Ollama 0.34.4 在 Windows 上處理一批嵌入，會對它的執行程序連續撥好幾條本機連線，
+ * 其中一條偶爾在 `bind` 就失敗（`…lacked sufficient buffer space or because a queue was full`）——
+ * **那一次 1957 段跑到第 320～640 段之間失敗，而當時全機的 TIME_WAIT 只有兩千個**，不是埠用完那麼單純。
+ * 那不是模型的錯：同一批等幾秒再送就好。所以只對這一種訊息重試，**重試幾次寫進結果檔** ——
+ * 一次安靜的重試跟一次沒發生過的失敗，在結果表上不該長得一樣。
+ */
+const TRANSIENT_OLLAMA = /dial tcp 127\.0\.0\.1:\d+: (bind|connectex)/;
+const RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
+const retriesByModel = new Map<string, number>();
+
 async function embed(model: string, input: readonly string[]): Promise<Float32Array[]> {
-  const res = await fetch(`${OLLAMA}/api/embed`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model, input }),
-  });
-  if (!res.ok) throw new Error(`${model}: HTTP ${res.status} ${await res.text()}`);
+  let res: Response | null = null;
+  let lastText = '';
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    res = await fetch(`${OLLAMA}/api/embed`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model, input }),
+    });
+    if (res.ok) break;
+    lastText = await res.text();
+    const delay = RETRY_DELAYS_MS[attempt];
+    if (!TRANSIENT_OLLAMA.test(lastText) || delay === undefined) break;
+    retriesByModel.set(model, (retriesByModel.get(model) ?? 0) + 1);
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  if (res === null || !res.ok) {
+    throw new Error(`${model}: HTTP ${res?.status ?? '?'} ${lastText}`);
+  }
   const body = (await res.json()) as { embeddings?: number[][] };
   const rows = body.embeddings ?? [];
   if (rows.length !== input.length) {
@@ -222,7 +248,21 @@ function summarize(
 
 // ── 主流程 ──────────────────────────────────────────────────
 
-const [corpusDir, queriesFile, outDir, ...only] = process.argv.slice(2);
+/**
+ * `--pause <秒>` ＝ 每跑完一個模型先停這麼久（2026-09-30 加）。
+ *
+ * Ollama 0.34.4 在 Windows 上**每嵌入一段文字，就在本機迴路留下約 3 個 TIME_WAIT**
+ * （2026-09-29 實測：一次請求 16 段 → 多 50 個、1 段 → 多 4 個）。1957 段一個模型就是六千個上下，
+ * 連著跑幾個模型會把 16,384 個動態埠用完，Ollama 連自己的執行程序時 `bind` 失敗 ——
+ * **結果表上那個模型是「失敗」，而原因跟模型無關**。09-09 那一輪（Ollama 0.33.2）沒有這個現象。
+ * TIME_WAIT 在這台機器上兩分鐘左右過期，所以模型之間停一下就夠了。
+ */
+const rawArgs = process.argv.slice(2);
+const pauseAt = rawArgs.indexOf('--pause');
+const pauseSeconds = pauseAt >= 0 ? Number(rawArgs[pauseAt + 1] ?? '0') : 0;
+const positional =
+  pauseAt >= 0 ? rawArgs.filter((_, i) => i !== pauseAt && i !== pauseAt + 1) : rawArgs;
+const [corpusDir, queriesFile, outDir, ...only] = positional;
 if (corpusDir === undefined || queriesFile === undefined || outDir === undefined) {
   console.error(
     '用法：npx tsx tools/research/eval-embeddings.ts <語料目錄> <查詢檔> <輸出目錄> [模型 ...]',
@@ -312,9 +352,15 @@ const pool: Record<string, Record<string, string[]>> = {};
 }
 
 // —— 各模型 ——
+let firstModel = true;
 for (const spec of MODELS) {
   const label = spec.name;
   if (only.length > 0 && !only.includes(spec.name)) continue;
+  if (!firstModel && pauseSeconds > 0) {
+    process.stderr.write(`  （停 ${pauseSeconds} 秒，等本機的 TIME_WAIT 過期）\n`);
+    await new Promise((r) => setTimeout(r, pauseSeconds * 1000));
+  }
+  firstModel = false;
 
   try {
     const t0 = performance.now();
@@ -357,6 +403,8 @@ for (const spec of MODELS) {
       passagesPerSec: Number((passages.length / (buildMs / 1000)).toFixed(1)),
       queryEmbedMsMedian: Number(median(times).toFixed(1)),
       prefixSource: spec.prefixSource,
+      // 見 `embed()` 那一段：Ollama 連不上自己的執行程序而重送的次數。建索引的秒數含這些等待。
+      transientRetries: retriesByModel.get(spec.name) ?? 0,
       metrics: m,
       rows,
     });

@@ -33,6 +33,7 @@ import { join } from 'node:path';
 import { createCase } from '../../src/application/case-service.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import { casesDir } from '../../src/infrastructure/fs/paths.js';
+import { RECOMMENDED_EMBED_MODEL } from '../../src/infrastructure/providers/config.js';
 import { writeScaleFixture } from './scale-fixture.js';
 
 function arg(name: string): string | null {
@@ -119,8 +120,10 @@ async function main(): Promise<number> {
       seed: num('seed', 20260910),
       vocabSize: num('vocab', 6_000),
       maxChunks: num('max-chunks', 6),
-      embedModel: arg('embed-model') ?? 'qwen3-embedding:4b',
-      embedDim: num('embed-dim', 2_560),
+      // 預設跟著嵌入的建議值走（ADR-0035 之後是 768 維）。**維度是暴力比對時間的主要變數**（ADR-0028），
+      // 所以量 5 萬筆的時候要用出貨的那一個；2026-09-10 那一輪是 `qwen3-embedding:4b` 的 2560 維。
+      embedModel: arg('embed-model') ?? RECOMMENDED_EMBED_MODEL,
+      embedDim: num('embed-dim', 768),
     };
 
     console.log('規格：' + JSON.stringify(spec));

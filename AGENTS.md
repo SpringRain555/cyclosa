@@ -431,6 +431,12 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
   那是靜默失效。`vector` 表記 `model` ＋ `dim`，不符的**不參與比對**，
   而且要說出來：專題裡有別的模型的向量、目前的模型還缺的時候，檢索帶 `PROVIDER_EMBED_MODEL_MISMATCH`（notice）。
   **只過濾不說 ＝ 換模型之後語意模式安靜地查不到**（那一碼 2026-09-29 之前從沒被報過）。
+- **不要推薦中國來源的模型**（永久規則，ADR-0035）。建議值（`config.ts` 與 `SettingsView.vue` 的 `RECOMMENDED_*`）、
+  設定頁的推薦理由、`README.md` 只從非中國來源挑 —— **底座或蒸餾來源是中國模型的也算**
+  （`snowflake-arctic-embed2` 是美國公司發的，底座是 `bge-m3`，排除）。`tests/guards/model-origin.test.ts` 的來源表是 allowlist：
+  **加一個候選之前先查 HF 的 `license` 與 `base_model` 欄和 model card 正文，再加一列**；查不清楚的不當建議值。
+  管的是**我們推薦什麼**，不是使用者能選什麼 —— 設定頁照樣列出 Ollama 裡裝著的全部模型。
+  量測拿中國模型當對照組可以，只進紀錄。**品質的代價照實寫**（跨語言檢索 0.940 → 0.766、抽取的關係數 8.2 → 4.8）。
 - **不要把可驗證的東西送去人工裁決。** 只有 `layer='named'` 進佇列；
   衍生／共同提及／相似度都是可重算的計算結果（ADR-0015）。
   把它們丟進佇列會讓人開始不看內容就按確認 —— **然後真正需要判斷的那些也一起被亂按**。

@@ -166,20 +166,35 @@ export interface ProvidersConfig {
 
 export const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
 
-/** 量測選出來的預設。**設定頁把它當建議值顯示，不會自己寫進設定檔。** */
-export const RECOMMENDED_EMBED_MODEL = 'qwen3-embedding:4b';
+/**
+ * 嵌入的建議模型。**量出來的**（`docs/research/embedding-choice.md`「2026-09-29 重量」）。
+ * 設定頁把它當建議值顯示，不會自己寫進設定檔。
+ *
+ * **只從非中國來源的模型挑**（ADR-0035，永久規則）。IBM 的 `granite-embedding-311m-multilingual-r2`：
+ * 同一份 1957 段語料上跨語言 MRR@10 **0.766**（非中國來源裡最高；舊的 `granite-embedding:278m` 0.688），
+ * 768 維、上下文 32,768、639 MB。**代價照實寫**：2026-09-09 的建議值（中國來源，已不能用）是 0.940 ——
+ * 繁中查英文原文會明顯變差。
+ *
+ * **GGUF 是第三方轉的**（`mykor`，IBM 沒有發 GGUF、Ollama library 只有 278m）。這個名字就是 `ollama pull` 的名字；
+ * 那個 repo 不見了的話，退路是 `granite-embedding:278m`（同一家、library 上的）。
+ */
+export const RECOMMENDED_EMBED_MODEL =
+  'hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16';
 
 /**
- * `chat` 的建議模型。**量出來的**（`docs/research/chat-choice.md`，2026-09-09）。
+ * `chat` 的建議模型。**量出來的**（`docs/research/chat-choice.md`「2026-09-29 重量」）。
  *
- * 八個本機模型、兩個任務、每個任務三次而且每次換一份文件。
- * `qwen3.5:4b` 抽取六次全過、引文命中 **98%**、平均 **5 秒**（第二名 17 秒），
- * 而它只有 3.4 GB —— **比三個 30B 與第一輪評測（v0.10.3）的最佳都好。**
+ * **只從非中國來源的模型挑**（ADR-0035，永久規則），而且照使用者定的「普通機器優先」：
+ * 模型檔 ≤ 6 GB 的那一層裡，引文命中 ≥ 90% 的只剩 IBM 的 `granite4.2:8b`（5.3 GB）——
+ * 抽取六次全過、實體 18.0、關係 **4.8**、引文 93%、14 秒。
  *
- * **這個建議有一半在別的地方**：`chat-ollama.ts` 必須送 `think: false`。
- * 沒有那一欄的話同一個模型是 4/6、63 秒。
+ * **代價照實寫**：2026-09-09 的建議值（中國來源，已不能用）同一份語料上是關係 8.2、引文 100%、7 秒。
+ * 記憶體夠的話 `gemma4:12b`（7.6 GB）是關係 12.0、引文 93%、15 秒 —— 設定頁的推薦理由寫著它。
+ *
+ * **這個建議有一半在別的地方**：`chat-ollama.ts` 必須送 `think: false`（`granite4.2:8b` 不宣告 thinking
+ * 卻會思考：同一份正文開著是 22,545 個輸出 token、157 秒）。
  */
-export const RECOMMENDED_CHAT_MODEL = 'qwen3.5:4b';
+export const RECOMMENDED_CHAT_MODEL = 'granite4.2:8b';
 
 /**
  * 逐任務的建議值。**同一輪量測的另一半**（`docs/research/chat-choice.md` 發現六）。
@@ -187,8 +202,8 @@ export const RECOMMENDED_CHAT_MODEL = 'qwen3.5:4b';
  * `angles` 建議 `granite4.2:8b` 而不是 `nemotron-cascade-2:30b`，
  * 雖然後者的 `seeds` 有效率是 100%（前者 83%）。三個理由，按重要性排：
  *
- * 1. **5.3 GB 對 24 GB。** 加上 `qwen3.5:4b` 的 3.4 GB 還是同時常駐得下，
- *    而 24 GB 那一個換任務就要把對方擠出顯示記憶體。
+ * 1. **5.3 GB 對 24 GB。** 24 GB 那一個換任務就要把抽取的模型擠出顯示記憶體。
+ *    （2026-09-29 起抽取的建議值也是 `granite4.2:8b`，兩個任務同一個模型，一個常駐就夠。）
  * 2. **`seeds` 那一欄自己還不可信**（同一份文件的「還沒做」第三條）。
  * 3. 角度彼此的相似度 0.712 是全場最低（`nemotron` 0.735）——
  *    **那一欄才是「多視角有沒有真的多視角」。**

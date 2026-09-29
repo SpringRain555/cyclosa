@@ -121,8 +121,8 @@ watch(openaiKeyEnv, (value) => {
  * web 與 server 是兩份建置，所以只能各抄一份 ——
  * tests/guards/recommended-models.test.ts 釘著它們一致。
  */
-const RECOMMENDED_EMBED = 'qwen3-embedding:4b';
-const RECOMMENDED_CHAT = 'qwen3.5:4b';
+const RECOMMENDED_EMBED = 'hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16';
+const RECOMMENDED_CHAT = 'granite4.2:8b';
 const RECOMMENDED_TASK: Record<ChatTask, string> = {
   angles: 'granite4.2:8b',
   extract: RECOMMENDED_CHAT,

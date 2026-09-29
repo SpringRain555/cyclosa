@@ -225,8 +225,10 @@ build 出來的 server 走完一次真實的匯入 —— 4 個網址（其中�
 擴展與語意檢索用兩個**外部**的東西（都不是 npm 套件）：
 `claude` CLI 當 agent、本機 Ollama 當 chat 與 embed —— **chat 也可以換成 OpenAI 相容端點**，
 embed 刻意只接本機（線上端點換掉背後的權重不會報錯，只會讓比對安靜地變爛）
-（embed 的建議值是 **`qwen3-embedding:4b`** —— 2026-09-09 量過七個候選才定的，
-**`bge-m3` 是原本照計畫書帶過來的那個，而它沒有贏**）。
+（**建議值只從非中國來源的模型挑**（ADR-0035）：embed 是 IBM 的 `granite-embedding-311m-multilingual-r2`，
+本機 chat 是 IBM 的 `granite4.2:8b`（記憶體夠的話 Google 的 `gemma4:12b`）。2026-09-29 拿 1957 段真實網頁量過 ——
+**繁中查英文原文、每份抽得到的關聯數，都比 2026-09-09 的建議值差**，差多少寫在 `docs/research/` 的
+`embedding-choice.md` 與 `chat-choice.md`，不寫得比量到的好）。
 **兩個都可以沒有** —— 沒有的話那些功能會明確報「能力不足」並停手，
 其餘照常（全文檢索是純 SQLite，完全不需要模型）。
 

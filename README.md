@@ -191,7 +191,7 @@ Cyclosa 照它說的等、最多再試兩次；還是不行就那個網站這一
 
 > **那個視窗不是 Cyclosa 的開關**（ADR-0025）：它是一張檢查清單，
 > 做完就退場，server 在背景繼續跑。**要結束用畫面右上角的「結束 Cyclosa」。**
-> 開不起來的時候，紀錄在 `%LOCALAPPDATA%<<B>>Cyclosa<<B>>logs<<B>>server.log`，
+> 開不起來的時候，紀錄在 `%LOCALAPPDATA%\Cyclosa\logs\server.log`（原生層的中止在旁邊的 `server.err.log`），
 > 或用 `.\tools\Launch.ps1 -Foreground` 看它印了什麼。
 
 > **不要雙擊 `tools\Launch.ps1`。** Windows 對 `.ps1` 的預設動作是「編輯」——

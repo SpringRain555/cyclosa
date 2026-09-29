@@ -14,6 +14,7 @@ export * from './budget.js';
 export * from './angles.js';
 export * from './plan.js';
 export * from './candidates.js';
+export * from './digest.js';
 export * from './quote.js';
 export * from './relations.js';
 export * from './sandbox.js';

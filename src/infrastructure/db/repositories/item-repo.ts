@@ -33,6 +33,14 @@ export interface ItemRow {
   readonly runId: string | null;
   readonly createdAt: number;
   readonly updatedAt: number;
+  /**
+   * 初讀給的繁中標題與摘要（schema v11，Stage 21）。**衍生物，原文欄位永遠不被覆蓋**（R15）——
+   * `title` 還是原文那一個。`digestedBy` 是實際跑的那一個模型，`digestedAt` 是什麼時候。
+   */
+  readonly titleZh: string | null;
+  readonly summaryZh: string | null;
+  readonly digestedBy: string | null;
+  readonly digestedAt: number | null;
 }
 
 type Raw = Record<string, unknown>;
@@ -75,7 +83,38 @@ function toItem(row: Raw): ItemRow {
     runId: str(row['run_id']),
     createdAt: Number(row['created_at']),
     updatedAt: Number(row['updated_at']),
+    titleZh: str(row['title_zh']),
+    summaryZh: str(row['summary_zh']),
+    digestedBy: str(row['digested_by']),
+    digestedAt: num(row['digested_at']),
   };
+}
+
+/**
+ * 寫一份初讀的繁中標題與摘要（Stage 21）。**只動那四欄** —— `title` 與正文一個字都不碰（R15）。
+ *
+ * **不動 `updated_at`**：那一欄是「這份資料本身變了」（重新抽取、狀態改變），而初讀是它旁邊多一段衍生的說明；
+ * 把它算成「資料變了」，清單的排序與「最近更新」都會被一次初讀打亂。
+ */
+export function setItemDigest(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly titleZh: string;
+    readonly summaryZh: string;
+    readonly digestedBy: string;
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    'UPDATE item SET title_zh = ?, summary_zh = ?, digested_by = ?, digested_at = ? WHERE id = ?',
+  ).run(
+    input.titleZh.length > 0 ? input.titleZh : null,
+    input.summaryZh.length > 0 ? input.summaryZh : null,
+    input.digestedBy,
+    input.now,
+    input.id,
+  );
 }
 
 export function insertPendingItem(

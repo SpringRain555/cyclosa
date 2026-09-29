@@ -10,7 +10,7 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
-import type { Bibliography } from '../../../domain/provider/index.js';
+import { isRelevance, type Bibliography, type Relevance } from '../../../domain/provider/index.js';
 import {
   acquisitionOf,
   expectedAccessOf,
@@ -93,6 +93,14 @@ export interface ResearchCandidateRow {
   readonly itemId: string | null;
   readonly createdAt: number;
   readonly updatedAt: number;
+  /**
+   * 初讀的判斷（schema v11，Stage 21）：跟**這一次研究**有沒有關（同一份資料對別的主題可能無關，
+   * 所以住在候選上、不在 item 上）。`null` 而 `digestCode` 也是 `null` ＝ 還沒讀。
+   */
+  readonly relevance: Relevance | null;
+  readonly relevanceWhy: string;
+  /** 初讀失敗的原因。**有碼 ＝ 讀過但失敗** —— 「繼續蒐集」會再讀一次 */
+  readonly digestCode: string | null;
 }
 
 type Raw = Record<string, unknown>;
@@ -195,6 +203,9 @@ function toCandidate(row: Raw): ResearchCandidateRow {
     itemId: str(row['item_id']),
     createdAt: Number(row['created_at']),
     updatedAt: Number(row['updated_at']),
+    relevance: isRelevance(row['relevance']) ? row['relevance'] : null,
+    relevanceWhy: String(row['relevance_why'] ?? ''),
+    digestCode: str(row['digest_code']),
   };
 }
 
@@ -604,6 +615,35 @@ export function markUnavailable(
         SET acquisition = 'unavailable', unavailable_reason = ?, reason_note = ?, updated_at = ?
       WHERE id = ?`,
   ).run(input.reason, input.note, input.now, input.id);
+}
+
+/**
+ * 一份候選的初讀結果（schema v11，Stage 21）。**判斷寫在候選上，繁中寫在 item 上**
+ * （`item-repo.ts` 的 `setItemDigest`）—— 前者是「跟這一次研究有沒有關」，後者是那一份資料本身的衍生物。
+ *
+ * `relevance` 是 `null` 而 `code` 有值 ＝ 讀過但失敗（「繼續蒐集」會再讀）；兩個都有值不會發生
+ * （成功的那一次把碼清掉）。
+ */
+export function setCandidateDigest(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly relevance: Relevance | null;
+    readonly why: string;
+    readonly code: string | null;
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    `UPDATE research_candidate SET relevance = ?, relevance_why = ?, digest_code = ?, updated_at = ?
+      WHERE id = ?`,
+  ).run(
+    input.relevance,
+    input.why,
+    input.relevance === null ? input.code : null,
+    input.now,
+    input.id,
+  );
 }
 
 /**

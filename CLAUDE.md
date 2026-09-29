@@ -58,7 +58,7 @@ Chat Completions，走的協定記在量測裡、畫面上看得到。
 （`domain/annotation/layer-map.ts`，ADR-0019 後續），所以點註兩種檢視通用。設定頁**改了就存**、沒有儲存鈕，
 存的狀態在最上面那一行；頂列的狀態點跟著一起更新（`web/src/stores/model-state-store.ts`）。
 **「研究」的設計**（`REQ-0009`、`ADR-0033`）使用者 2026-09-20 逐條看過、**已採納**；
-**Stage 19（規劃、閘門一）與 20（蒐集、閘門二）做完了、還沒出貨**（main 上是 schema v10，版本號仍是 0.24.3）。
+**Stage 19（規劃、閘門一）與 20（蒐集、閘門二）做完了、還沒出貨**（main 上是 schema v11 —— 21 初讀的欄位先進來了 —— 版本號仍是 0.24.3）。
 21 初讀、22 確認與建圖接著做，**19–22 一次出貨成 v0.25.0**（少任何一段這條流程就走不完）。
 
 **v0.24.0 做了十四點裡設計的三塊。** 版面基礎在 `web/src/styles/base.css`（字級五級、按鈕／輸入框／表格
@@ -148,7 +148,7 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
 > 用 `tools/dev/apply-extraction.ts`（走 `applyExtraction`，規則一條都不繞）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
-守門測試在 `tests/guards/`。資料庫是 **schema v10**。
+守門測試在 `tests/guards/`。資料庫是 **schema v11**。
 
 > **這一節每個版本收尾都要改，而它已經失守過一次。**
 > 2026-09-11 回頭看的時候它還停在「v0.5.0」，寫著

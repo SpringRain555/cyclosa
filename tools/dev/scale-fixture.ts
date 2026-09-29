@@ -192,7 +192,12 @@ export interface ScaleStats {
   readonly elapsedMs: Readonly<Record<string, number>>;
 }
 
-const ITEM_KINDS = ['web', 'web', 'web', 'pdf', 'text', 'paper'] as const;
+/**
+ * 六格是刻意的：**抽哪一格用掉一次亂數**，格數變了，後面每一份的正文就跟 2026-09-10 那一份不一樣。
+ * 第六格原本是 `'paper'`，schema v10 把它換成 `'reference'`（沒有正文的書目）之後寫不進去 ——
+ * 改成 `'web'`（寫 `derived/` 的那一段本來就把 `paper` 當 `web`），同一個種子仍是同一份語料。
+ */
+const ITEM_KINDS = ['web', 'web', 'web', 'pdf', 'text', 'web'] as const;
 const ENTITY_TYPES = ['person', 'org', 'place', 'event', 'work', 'concept'] as const;
 const NAMED_RELS = ['收購', '任職於', '出資', '控告', '引用', '反駁', '合作', '監管'] as const;
 
@@ -276,7 +281,7 @@ export async function writeScaleFixture(
       pending.map((p) =>
         writeDerived(caseFolder, p.id, {
           extractorVersion: 1,
-          kind: (p.kind === 'paper' ? 'web' : p.kind) as 'web' | 'pdf' | 'image' | 'text',
+          kind: p.kind as 'web' | 'pdf' | 'image' | 'text',
           title: p.title,
           text: p.text,
           html: null,

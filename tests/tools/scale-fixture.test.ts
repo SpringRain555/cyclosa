@@ -17,16 +17,22 @@
  * 切不出段落 → 向量數遠少於預期 → 「掃 N 條要多久」的 N 是錯的；
  * 詞太分散 → 任何查詢詞的貼文串都很短 → 全文那一項量到的是最好走的那條路。
  */
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { chunkText, MAX_CHUNKS_PER_ITEM } from '../../src/domain/search/chunk.js';
 import { bigrams, cjkRatio } from '../../src/domain/search/tokenize.js';
+import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import {
   buildVocab,
   makeText,
   pickZipf,
   rng,
   textLength,
+  writeScaleFixture,
   zipfCdf,
 } from '../../tools/dev/scale-fixture.js';
 
@@ -102,5 +108,41 @@ describe('規模合成語料', () => {
   it('同一個種子產生同一份語料', () => {
     // 「沒有量測條件的數字不算數」—— **語料本身就是量測條件的一部分。**
     expect(corpus(3)).toEqual(corpus(3));
+  });
+
+  it('寫得進現在的 schema —— migration 改了，這支要跟著改', async () => {
+    // 2026-09-30 要用 768 維重量 ADR-0028 的時候才發現：schema v10 把 item 的 `paper` 換成 `reference`，
+    // 而這支還在寫 `paper`，**寫到第一批就被 CHECK 擋下**。上面幾條只測產生正文的函式，
+    // 從來沒有往一個真的資料庫寫過 —— 所以 v10 出貨之後它就寫不進去，而沒有任何一條測試紅。
+    const sandbox = await mkdtemp(join(tmpdir(), 'cyclosa-scale-fixture-'));
+    try {
+      const opened = await openCaseDatabase(join(sandbox, 'case.sqlite'), { create: true });
+      if (opened.kind !== 'ok') throw new Error('開不了資料庫：' + opened.kind);
+      try {
+        const stats = await writeScaleFixture(
+          opened.db,
+          sandbox,
+          {
+            items: 36,
+            entities: 12,
+            edges: 60,
+            seed: 20260910,
+            vocabSize: 400,
+            maxChunks: 2,
+            embedModel: 'fake-embed',
+            embedDim: 8,
+          },
+          () => {},
+        );
+        expect(stats.items).toBe(36);
+        expect(stats.vectors).toBeGreaterThan(0);
+        const rows = opened.db.prepare('SELECT COUNT(*) AS n FROM item').get() as { n: number };
+        expect(Number(rows.n)).toBe(36);
+      } finally {
+        opened.db.close();
+      }
+    } finally {
+      await rm(sandbox, { recursive: true, force: true });
+    }
   });
 });

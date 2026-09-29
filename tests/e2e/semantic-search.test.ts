@@ -107,7 +107,15 @@ beforeAll(async () => {
     const path = (req.url ?? '/').split('?')[0] ?? '/';
     if (path === '/api/tags') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ models: [{ name: 'fake-embed', details: {} }] }));
+      res.end(
+        JSON.stringify({
+          models: [
+            { name: 'fake-embed', details: {} },
+            // 換模型那一條用的第二個。**向量的算法一樣** —— 要測的是「按模型分開」，不是向量不同。
+            { name: 'fake-embed-2', details: {} },
+          ],
+        }),
+      );
       return;
     }
     if (path === '/api/embed') {
@@ -212,6 +220,44 @@ describe('匯入時就寫向量', () => {
       document: '',
       verified: false,
     });
+  });
+});
+
+describe('換了嵌入模型之後', () => {
+  /**
+   * **舊模型的向量不參與比對，而且要說出來**（2026-09-30）。
+   *
+   * 只過濾不說的話，語意模式在換模型之後是「一筆都查不到」，而畫面上什麼都沒寫 ——
+   * `PROVIDER_EMBED_MODEL_MISMATCH` 從 v0.11.0 就寫在文件裡，這之前一次都沒被報過。
+   * 重算完之後那句話要消失：一句永遠掛著的提醒，跟沒有提醒一樣。
+   */
+  it('重算之前說「有一部分是別的模型算的」，重算完就不說', async () => {
+    await writeProvidersFile('fake-embed-2');
+    const q = '織巢與天擇';
+
+    const before = await searchCase(dataRoot, slug, { q, mode: 'semantic' });
+    expect(before.ok).toBe(true);
+    if (!before.ok) return;
+    expect(before.data.notices).toContain('PROVIDER_EMBED_MODEL_MISMATCH');
+    // 舊模型的向量**不參與** —— 這是那條規則本身，不是副作用。
+    expect(before.data.hits.map((h) => h.id)).not.toContain(spiderId);
+
+    const filled = await backfillVectors(dataRoot, slug);
+    expect(filled.ok).toBe(true);
+
+    const after = await searchCase(dataRoot, slug, { q, mode: 'semantic' });
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.data.notices).not.toContain('PROVIDER_EMBED_MODEL_MISMATCH');
+    expect(after.data.hits.map((h) => h.id)).toContain(spiderId);
+  });
+
+  it('全文模式不說這件事 —— 它根本沒用到向量', async () => {
+    await writeProvidersFile('fake-embed-2');
+    const r = await searchCase(dataRoot, slug, { q: '結網', mode: 'text' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.notices).not.toContain('PROVIDER_EMBED_MODEL_MISMATCH');
   });
 });
 

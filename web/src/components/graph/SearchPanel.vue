@@ -206,6 +206,11 @@ function parts(hit: SearchHit): { before: string; match: string; after: string }
       <p v-if="result.notices.includes('SEARCH_EMBED_UNAVAILABLE')" class="notice">
         {{ t.search.embedUnavailable }}
       </p>
+      <!-- 換過嵌入模型、還沒重算完：舊模型算的那幾份比不到（兩個模型的向量不能拿來比）。
+         不說的話，語意模式看起來只是「這次剛好查不到」。 -->
+      <p v-if="result.notices.includes('PROVIDER_EMBED_MODEL_MISMATCH')" class="notice">
+        {{ t.search.embedOtherModel }}
+      </p>
 
       <p v-if="result.hits.length === 0" class="hint">{{ t.search.empty }}</p>
 

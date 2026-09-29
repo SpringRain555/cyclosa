@@ -52,6 +52,10 @@ import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/databa
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import { loadItems, type ItemRow } from '../infrastructure/db/repositories/item-repo.js';
 import {
+  countItemsMissingVectors,
+  vectorModels,
+} from '../infrastructure/db/repositories/vector-repo.js';
+import {
   bigramCandidates,
   entityCandidates,
   ftsCandidates,
@@ -249,6 +253,8 @@ export async function searchCase(
   let incomplete: boolean;
   /** 語意那一路命中的是第幾段。**只有從那一路來的才有值。** */
   let semanticOrd: ReadonlyMap<string, number>;
+  /** 這個專題有一部分的向量是別的嵌入模型算的，現在的模型比不到它們。 */
+  let otherModelGap: boolean;
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
 
@@ -268,6 +274,20 @@ export async function searchCase(
       queryVector === null || embedModel === null
         ? []
         : semanticCandidates(db, queryVector, { model: embedModel, limit: CANDIDATE_CAP });
+
+    /**
+     * **換過嵌入模型、還沒重算完的專題，語意那一路會安靜地變少**（2026-09-30 補）。
+     *
+     * 比對只拿同一個模型算的向量（兩個模型的向量拿來比，餘弦照樣算得出一個數字 —— ADR-0009），
+     * 所以舊模型算的那幾份**根本不參與**。在 `semantic` 模式裡那就是「一筆都查不到」，
+     * 而畫面上什麼都沒說：`PROVIDER_EMBED_MODEL_MISMATCH` 從 v0.11.0 就寫在文件裡，一次都沒有被報過。
+     * 條件是「目前的模型還缺幾份」**而且**「這個專題裡有別的模型的向量」—— 只有前者的話，
+     * 那是還沒建索引，搜尋面板那顆「建立語意索引」本來就攤開著。
+     */
+    otherModelGap =
+      embedModel !== null &&
+      countItemsMissingVectors(db, embedModel) > 0 &&
+      vectorModels(db).some((m) => m.model !== embedModel);
 
     scores = interleave([fromBigram, fromFts, fromVector], CANDIDATE_CAP);
     semanticOrd = new Map(fromVector.map((h) => [h.id, h.ord]));
@@ -397,6 +417,7 @@ export async function searchCase(
   // 全文照常回，並且說出語意沒跑（`api-contract.md`）。
   // 沒設定模型、Ollama 沒開、模型拉掉了 —— 三種都走這一條。
   if (mode !== 'text' && queryVector === null) notices.push('SEARCH_EMBED_UNAVAILABLE');
+  if (mode !== 'text' && otherModelGap) notices.push('PROVIDER_EMBED_MODEL_MISMATCH');
 
   return ok(
     {

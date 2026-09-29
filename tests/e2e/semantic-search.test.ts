@@ -28,7 +28,7 @@ import { createCase } from '../../src/application/case-service.js';
 import { importFile } from '../../src/application/ingest-service.js';
 import { backfillVectors } from '../../src/application/embed-service.js';
 import { searchCase } from '../../src/application/search-service.js';
-import { queryPrefixFor } from '../../src/infrastructure/providers/embed-ollama.js';
+import { embedPrefixesFor } from '../../src/domain/search/embed-prefix.js';
 
 /**
  * 假向量的「概念」維度。
@@ -194,10 +194,24 @@ describe('匯入時就寫向量', () => {
     }
   });
 
-  it('`qwen3-embedding` 才加前綴，別的家族不加 —— **不知道就不動手**', () => {
-    expect(queryPrefixFor('qwen3-embedding:4b')).toContain('Query: ');
-    expect(queryPrefixFor('bge-m3')).toBe('');
-    expect(queryPrefixFor('fake-embed')).toBe('');
+  it('前綴照表加，認不得的模型不加而且說它沒查證過 —— **不知道就不動手**', () => {
+    // card 上的字一個都不改：qwen 的 `Query:` 後面沒有空白，e5-instruct 的有。
+    expect(embedPrefixesFor('qwen3-embedding:4b').query.endsWith('\nQuery:')).toBe(true);
+    const e5 = embedPrefixesFor('hf.co/Ralriki/multilingual-e5-large-instruct-GGUF:F16');
+    expect(e5.query.endsWith('\nQuery: ')).toBe(true);
+    expect(e5.document).toBe('');
+    expect(embedPrefixesFor('hf.co/nomic-ai/nomic-embed-text-v2-moe-GGUF:F16').document).toBe(
+      'search_document: ',
+    );
+    const granite = embedPrefixesFor(
+      'hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16',
+    );
+    expect(granite).toMatchObject({ query: '', document: '', verified: true });
+    expect(embedPrefixesFor('fake-embed')).toMatchObject({
+      query: '',
+      document: '',
+      verified: false,
+    });
   });
 });
 

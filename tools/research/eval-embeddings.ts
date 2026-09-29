@@ -24,6 +24,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { embedPrefixesFor } from '../../src/domain/search/embed-prefix.js';
 import { parseQuery, checkText, rankHits } from '../../src/domain/search/query.js';
 import { bigrams } from '../../src/domain/search/tokenize.js';
 
@@ -55,10 +56,11 @@ interface Query {
 }
 
 /**
- * 前綴照各模型自己的 model card。
+ * 前綴照各模型自己的 model card —— **讀的是出貨那一張表**（`domain/search/embed-prefix.ts`）。
  *
- * `qwen3-embedding` 的指令字串直接抄 card 上那一行（`Query:` 後面沒有空白，
- * 那是它自己寫的）。**照抄比「看起來比較整齊」重要** —— 這一段是模型訓練時看到的形狀。
+ * 2026-09-30 之前這裡有自己的一份，而它跟出貨的那一份已經分岔過一次
+ * （`qwen3-embedding` 的 `Query:` 後面有沒有空白）。量測用一份、出貨用另一份的話，
+ * 量出來的分數對出貨的東西不成立 —— 跟 `fetch-eval-corpus.ts` 改用出貨的切段是同一個理由。
  */
 interface ModelSpec {
   readonly name: string;
@@ -68,54 +70,25 @@ interface ModelSpec {
   readonly prefixSource: string;
 }
 
-const TASK = 'Given a web search query, retrieve relevant passages that answer the query';
+function specOf(name: string): ModelSpec {
+  const p = embedPrefixesFor(name);
+  return { name, queryPrefix: p.query, docPrefix: p.document, prefixSource: p.source };
+}
 
+/**
+ * 這一輪的候選（2026-09-30，**先登記再跑**：`research/embedding-choice.md`「2026-09-30 重量」那一節）。
+ *
+ * 建議值只從非中國來源的模型挑，**底座或蒸餾來源是中國模型的也算**（ADR-0035）——
+ * 所以 `bge-m3`、`qwen3-embedding:0.6b`、`snowflake-arctic-embed2`（card 寫明 builds on `BAAI/bge-m3-retromae`）
+ * 不再是候選。`qwen3-embedding:4b` 留著當**對照組**：語料是重抓的，沒有它就不知道「差多少」是模型還是語料。
+ */
 const MODELS: readonly ModelSpec[] = [
-  { name: 'bge-m3', queryPrefix: '', docPrefix: '', prefixSource: 'BAAI/bge-m3 README：沒有前綴' },
-  {
-    name: 'qwen3-embedding:0.6b',
-    queryPrefix: `Instruct: ${TASK}\nQuery:`,
-    docPrefix: '',
-    prefixSource: 'Qwen/Qwen3-Embedding-0.6B README get_detailed_instruct()',
-  },
-  {
-    name: 'qwen3-embedding:4b',
-    queryPrefix: `Instruct: ${TASK}\nQuery:`,
-    docPrefix: '',
-    prefixSource: '同 0.6B（同一個系列）',
-  },
-  {
-    name: 'snowflake-arctic-embed2',
-    queryPrefix: 'query: ',
-    docPrefix: '',
-    prefixSource: 'Snowflake/snowflake-arctic-embed-l-v2.0 README：query_prefix，只加在查詢上',
-  },
-  {
-    name: 'granite-embedding:278m',
-    queryPrefix: '',
-    docPrefix: '',
-    prefixSource: 'ibm-granite/granite-embedding-278m-multilingual README：沒有前綴',
-  },
-  {
-    name: 'paraphrase-multilingual',
-    queryPrefix: '',
-    docPrefix: '',
-    prefixSource: 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2 README：沒有前綴',
-  },
-  {
-    name: 'hf.co/nomic-ai/nomic-embed-text-v2-moe-GGUF:F16',
-    queryPrefix: 'search_query: ',
-    docPrefix: 'search_document: ',
-    prefixSource:
-      'nomic-ai/nomic-embed-text-v2-moe README：「The text prompt *must* include a task instruction prefix」',
-  },
-  // 對照組：同一個模型**不加前綴**。前綴到底值多少分，這一列回答。
-  {
-    name: 'hf.co/nomic-ai/nomic-embed-text-v2-moe-GGUF:F16',
-    queryPrefix: '',
-    docPrefix: '',
-    prefixSource: '（對照組：刻意不加前綴）',
-  },
+  specOf('qwen3-embedding:4b'),
+  specOf('granite-embedding:278m'),
+  specOf('hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16'),
+  specOf('hf.co/Ralriki/multilingual-e5-large-instruct-GGUF:F16'),
+  specOf('paraphrase-multilingual'),
+  specOf('hf.co/nomic-ai/nomic-embed-text-v2-moe-GGUF:F16'),
 ];
 
 async function embed(model: string, input: readonly string[]): Promise<Float32Array[]> {
@@ -258,6 +231,14 @@ if (corpusDir === undefined || queriesFile === undefined || outDir === undefined
 }
 await mkdir(outDir, { recursive: true });
 
+// **不在候選表上的名字要報錯**，不是安靜地跳過 —— 打錯一個 tag 的症狀原本是「那個模型沒有出現在結果裡」，
+// 而一張少了一列的結果表看起來跟完整的一模一樣。
+const unknownModels = only.filter((name) => !MODELS.some((m) => m.name === name));
+if (unknownModels.length > 0) {
+  console.error(`不在候選表上：${unknownModels.join('、')}（候選表在這支檔案的 MODELS）`);
+  process.exit(2);
+}
+
 const passages: Passage[] = (await readFile(join(corpusDir, 'corpus.jsonl'), 'utf8'))
   .trim()
   .split('\n')
@@ -332,10 +313,7 @@ const pool: Record<string, Record<string, string[]>> = {};
 
 // —— 各模型 ——
 for (const spec of MODELS) {
-  const label =
-    spec.queryPrefix === '' && spec.docPrefix === '' && spec.name.includes('nomic')
-      ? `${spec.name}（無前綴對照）`
-      : spec.name;
+  const label = spec.name;
   if (only.length > 0 && !only.includes(spec.name)) continue;
 
   try {

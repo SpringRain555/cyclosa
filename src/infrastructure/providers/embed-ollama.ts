@@ -5,16 +5,16 @@
  *
  * 2026-09-09 實測確認：`/api/embed` **不會**自動套用 model card 上的前綴
  * （`research/embedding-choice.md`「三件事決定這份量測算不算數」第 2 條）。
- * `qwen3-embedding` 的 model card 要求查詢那一側加 `Instruct: …\nQuery: `，
- * 而文件那一側**不加**。
+ * 每個模型各加什麼，查 `domain/search/embed-prefix.ts` 那一張表 —— **量測工具讀的也是那一張**，
+ * 所以量出來的分數對出貨的東西成立（2026-09-30 之前兩邊各有一份，而且已經分岔過一次）。
  *
  * **少加前綴不會報錯，只會讓命中率安靜地變低** —— 那是這一層最像
- * 「設定錯了但看起來正常」的一件事，所以它寫死在這裡而不是設定項。
+ * 「設定錯了但看起來正常」的一件事，所以它是程式裡的一張表而不是設定項。
  *
  * ## 為什麼查詢與文件走不同的路徑
  *
  * 因為它們**不對稱**：查詢是一句問句，文件是一段陳述。
- * 非對稱模型（`qwen3-embedding`、`arctic-embed`、`nomic-v2`）就是為這件事訓練的。
+ * 非對稱模型（`multilingual-e5-*-instruct`、`nomic-v2`、`qwen3-embedding`）就是為這件事訓練的。
  * 用同一支函式送兩者，等於把那個訓練丟掉一半。
  *
  * ## 沒有金鑰
@@ -23,6 +23,7 @@
  * 向量會被長期保存，換模型要全部重算，而一個雲端端點隨時可能換掉背後的權重 ——
  * **那不會報錯，只會讓比對安靜地變爛**（ADR-0009）。
  */
+import { embedPrefixesFor } from '../../domain/search/embed-prefix.js';
 import { normalized } from '../../domain/search/similarity.js';
 import type { CallCost, CallOutcome, ProbeResult } from './types.js';
 
@@ -39,30 +40,13 @@ const PROBE_TIMEOUT_MS = 5_000;
  */
 export const EMBED_BATCH = 32;
 
-/**
- * `qwen3-embedding` 系列的查詢前綴。
- *
- * **這是模型 card 上寫的字串，不是我們的措辭** —— 改它等於換一個模型。
- * 其餘家族的前綴不同（`arctic-embed` 是 `query: `、
- * `nomic-v2` 是 `search_query: `／`search_document: `），
- * 而**我們只出貨 `qwen3-embedding`**，所以這裡只有一組。
- * 換家族的時候這一段要跟著換 —— `prefixFor` 認不得的模型不加前綴，
- * 那是「不知道就不動手」，不是「預設就是不用加」。
- */
-const QWEN_QUERY_PREFIX =
-  'Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: ';
-
-export function queryPrefixFor(model: string): string {
-  return model.toLowerCase().startsWith('qwen3-embedding') ? QWEN_QUERY_PREFIX : '';
-}
-
 export interface EmbedProvider {
   readonly name: string;
   readonly model: string;
   probe(signal?: AbortSignal): Promise<ProbeResult>;
-  /** 文件那一側。**不加前綴。** */
+  /** 文件那一側。**加文件那一側的前綴**（多數模型是空字串）。 */
   embedDocuments(texts: readonly string[], signal?: AbortSignal): Promise<CallOutcome<EmbedBatch>>;
-  /** 查詢那一側。**加前綴。** */
+  /** 查詢那一側。**加查詢那一側的前綴。** */
   embedQuery(text: string, signal?: AbortSignal): Promise<CallOutcome<Float32Array>>;
 }
 
@@ -101,6 +85,8 @@ function costOf(started: number): CallCost {
 
 export function createOllamaEmbed(baseUrl: string, model: string): EmbedProvider {
   const root = baseUrl.replace(/\/$/, '');
+  // 認不得的模型兩邊都是空字串：「不知道就不動手」，不是「這個模型不用加」（`embed-prefix.ts`）。
+  const prefixes = embedPrefixesFor(model);
 
   async function call(
     input: readonly string[],
@@ -211,7 +197,7 @@ export function createOllamaEmbed(baseUrl: string, model: string): EmbedProvider
       const vectors: Float32Array[] = [];
       let dim = 0;
       for (let i = 0; i < texts.length; i += EMBED_BATCH) {
-        const slice = texts.slice(i, i + EMBED_BATCH);
+        const slice = texts.slice(i, i + EMBED_BATCH).map((t) => `${prefixes.document}${t}`);
         const out = await call(slice, signal, started);
         if (out.kind === 'error') return out;
         vectors.push(...out.value.vectors);
@@ -222,7 +208,7 @@ export function createOllamaEmbed(baseUrl: string, model: string): EmbedProvider
 
     async embedQuery(text, signal): Promise<CallOutcome<Float32Array>> {
       const started = Date.now();
-      const out = await call([`${queryPrefixFor(model)}${text}`], signal, started);
+      const out = await call([`${prefixes.query}${text}`], signal, started);
       if (out.kind === 'error') return out;
       const first = out.value.vectors[0];
       if (first === undefined) {

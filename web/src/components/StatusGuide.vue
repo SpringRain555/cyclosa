@@ -30,14 +30,6 @@ void api.fetchPolicy().then((result) => {
     :class="{ 'reference-filled': referenceStyle() === 'b' }"
     :style="{ '--reference-fill-opacity': REFERENCE_FILL_OPACITY }"
   >
-    <section>
-      <h2 class="group">{{ t.runs.throttleTitle }}</h2>
-      <p v-if="policy">
-        {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
-      </p>
-      <p v-if="policy">{{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}</p>
-      <p>{{ t.runs.throttleRobots }}</p>
-    </section>
     <h2 class="group">{{ t.graph.guide.title }}</h2>
     <p class="group-what">{{ t.graph.guide.what }}</p>
 
@@ -52,6 +44,17 @@ void api.fetchPolicy().then((result) => {
           <dd>{{ guideItem(item.key).long }}</dd>
         </template>
       </dl>
+    </section>
+
+    <!-- 「匯入與研究」只在真的在等的時候顯示節流；完整的規矩放這裡，數字從程式讀（ADR-0031）。
+         排在圖例之後：這一頁的標題與開頭那句講的是圖上的記號，放在最前面會讓那句話像是在講它。 -->
+    <section>
+      <h2 class="group">{{ t.runs.throttleTitle }}</h2>
+      <p v-if="policy">
+        {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
+      </p>
+      <p v-if="policy">{{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}</p>
+      <p>{{ t.runs.throttleRobots }}</p>
     </section>
   </div>
 </template>

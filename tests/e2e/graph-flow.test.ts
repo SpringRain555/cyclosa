@@ -111,6 +111,56 @@ describe('節點預算：只數不拉資料', () => {
 });
 
 describe('投影三段', () => {
+  it('初讀欄位隨子圖與詳情回傳，子圖不帶摘要、原題不變', async () => {
+    const opened = await openCaseDatabase(join(dataRoot, 'cases', slug, 'case.sqlite'));
+    if (opened.kind !== 'ok') throw new Error(opened.kind);
+    try {
+      opened.db
+        .prepare(
+          'UPDATE item SET title_zh = ?, summary_zh = ?, digested_by = ?, digested_at = ? WHERE id = ?',
+        )
+        .run('合成譯題', '合成繁中摘要', 'ollama:synthetic', 1234567890000, FIXTURE.focus);
+    } finally {
+      opened.db.close();
+    }
+    const body = await get(`/api/cases/${slug}/subgraph?focus=${FIXTURE.focus}&hops=2`);
+    expect(body.ok).toBe(true);
+    const nodes = (
+      body.data as { nodes: import('../../src/application/graph-service.js').SubgraphNode[] }
+    ).nodes;
+    const translated = nodes.find((entry) => entry.id === FIXTURE.focus);
+    expect(translated).toMatchObject({
+      titleZh: '合成譯題',
+      digestedBy: 'ollama:synthetic',
+      digestedAt: 1234567890000,
+    });
+    expect(translated?.title).not.toBe('合成譯題');
+    const untranslated = nodes.find((entry) => entry.kind === 'item' && entry.id !== FIXTURE.focus);
+    expect(untranslated).toMatchObject({ titleZh: null, digestedBy: null, digestedAt: null });
+    expect(nodes.find((entry) => entry.kind === 'entity')).toMatchObject({
+      titleZh: null,
+      digestedBy: null,
+      digestedAt: null,
+    });
+    for (const entry of nodes) expect(entry).not.toHaveProperty('summaryZh');
+    const detail = await get(`/api/cases/${slug}/items/${FIXTURE.focus}`);
+    expect(detail.ok).toBe(true);
+    expect(detail.data).toMatchObject({
+      item: {
+        title: translated?.title,
+        titleZh: '合成譯題',
+        summaryZh: '合成繁中摘要',
+        digestedBy: 'ollama:synthetic',
+        digestedAt: 1234567890000,
+      },
+    });
+    const original = await get(`/api/cases/${slug}/items/${untranslated?.id}`);
+    expect(original.ok).toBe(true);
+    expect(original.data).toMatchObject({
+      item: { titleZh: null, summaryZh: null, digestedBy: null, digestedAt: null },
+    });
+  });
+
   it('被 4 份提到的實體展開成空心節點', async () => {
     const body = await get(`/api/cases/${slug}/subgraph?focus=${FIXTURE.focus}&hops=2`);
     const nodes = (body.data as { nodes: { id: string; hollow: boolean; mentionCount: number }[] })

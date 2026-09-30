@@ -417,6 +417,8 @@ export const t = {
     original: '原文',
     translated: '繁體中文',
     noTranslation: '這一份還沒有譯文。',
+    translationLabel: '標題與摘要用哪一種語言',
+    translationNotice: '這是譯文，由 {model} 於 {date} 產生。原文永遠保留，點註錨在原文上。',
     markRead: '標記為已讀',
     markUnread: '標記為未讀',
     read: '已讀',

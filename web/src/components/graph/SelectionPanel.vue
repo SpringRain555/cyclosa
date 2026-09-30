@@ -16,10 +16,15 @@
  */
 import { computed, ref, watch } from 'vue';
 
-import type { EdgeLayer, SubgraphEdge, SubgraphNode } from '../../api';
+import type { ApiError, EdgeLayer, Item, SubgraphEdge, SubgraphNode } from '../../api';
 import { fill, guideItem, t } from '../../i18n/zh-TW';
+import { useTranslationStore } from '../../stores/translation-store';
+import TranslationSwitch from '../TranslationSwitch.vue';
+import TranslationNotice from '../TranslationNotice.vue';
+import ErrorPanel from '../ErrorPanel.vue';
 
 const props = defineProps<{
+  slug: string;
   node: SubgraphNode | null;
   edges: SubgraphEdge[];
   nodes: SubgraphNode[];
@@ -38,6 +43,39 @@ const emit = defineEmits<{
 
 const rel = ref('');
 const layer = ref<EdgeLayer>('named');
+const translation = useTranslationStore();
+const translatedItem = ref<Item | null>(null);
+const translationError = ref<ApiError | null>(null);
+const hasTranslation = computed(() => {
+  if (props.node?.kind !== 'item') return false;
+  if (translatedItem.value !== null)
+    return Boolean(translatedItem.value.titleZh || translatedItem.value.summaryZh);
+  return Boolean(props.node.titleZh || props.node.digestedAt !== null);
+});
+const showTranslation = computed(() => translation.translated && hasTranslation.value);
+
+watch(
+  [() => props.slug, () => props.node, () => translation.translated],
+  async ([slug, selected, translated], _previous, onCleanup) => {
+    let active = true;
+    onCleanup(() => {
+      active = false;
+    });
+    translatedItem.value = null;
+    translationError.value = null;
+    if (
+      !translated ||
+      selected?.kind !== 'item' ||
+      !(selected.titleZh || selected.digestedAt !== null)
+    )
+      return;
+    const result = await translation.item(slug, selected.id, selected.digestedAt);
+    if (!active) return;
+    if (result.ok) translatedItem.value = result.data.item;
+    else translationError.value = result.error;
+  },
+  { immediate: true },
+);
 
 /** 換了一個終點就把輸入清掉 —— 留著上一次打的字只會被誤送出去。 */
 watch(
@@ -94,7 +132,21 @@ function relLabel(edge: SubgraphEdge): string {
     <p v-if="node === null" class="hint">{{ t.graph.selection.none }}</p>
 
     <template v-else>
-      <h3 class="title">{{ node.title }}</h3>
+      <!-- 沒有譯文就不放切換：面板上每一份手動匯入的都多一行「還沒有譯文」只是雜訊。 -->
+      <div v-if="node.kind === 'item' && hasTranslation" class="translation-switch">
+        <TranslationSwitch :available="hasTranslation" />
+      </div>
+      <h3 class="title">
+        {{ showTranslation ? translatedItem?.titleZh || node.titleZh || node.title : node.title }}
+      </h3>
+      <p v-if="showTranslation && (translatedItem?.titleZh || node.titleZh)" class="original-title">
+        {{ node.title }}
+      </p>
+      <ErrorPanel v-if="translationError" :error="translationError" />
+      <section v-if="showTranslation">
+        <p v-if="translatedItem?.summaryZh" class="excerpt">{{ translatedItem.summaryZh }}</p>
+        <TranslationNotice :model="node.digestedBy" :date="node.digestedAt" />
+      </section>
 
       <dl class="facts">
         <dt>{{ t.graph.selection.kind }}</dt>
@@ -121,7 +173,7 @@ function relLabel(edge: SubgraphEdge): string {
         </template>
       </dl>
 
-      <p v-if="node.excerpt.length > 0" class="excerpt">{{ node.excerpt }}</p>
+      <p v-if="!showTranslation && node.excerpt.length > 0" class="excerpt">{{ node.excerpt }}</p>
 
       <div class="actions">
         <button type="button" @click="emit('focus', node.id)">
@@ -245,6 +297,16 @@ function relLabel(edge: SubgraphEdge): string {
   margin: 0 0 10px;
   line-height: 1.4;
   color: var(--text);
+}
+.translation-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-bottom: 10px;
+}
+.original-title {
+  font-size: var(--fs-small);
+  color: var(--text-muted);
 }
 .section {
   font-size: var(--fs-label);

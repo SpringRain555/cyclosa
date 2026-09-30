@@ -73,6 +73,9 @@ export interface SubgraphQuery {
 
 /** 圖上的一個點。**`node` 這個字只有在明確指「圖上的一個點」時才用**（glossary）。 */
 export interface SubgraphNode {
+  readonly titleZh: string | null;
+  readonly digestedBy: string | null;
+  readonly digestedAt: number | null;
   readonly id: string;
   readonly kind: 'item' | 'entity';
   /** `item.kind` 或 `entity.type` */
@@ -268,6 +271,9 @@ export async function subgraph(
         kind: 'item',
         subKind: item.kind,
         title: item.title,
+        titleZh: item.titleZh,
+        digestedBy: item.digestedBy,
+        digestedAt: item.digestedAt,
         hop: traversal.hopOf.get(item.id) ?? 0,
         lang: item.lang,
         readAt: item.readAt,
@@ -285,6 +291,9 @@ export async function subgraph(
         kind: 'entity',
         subKind: entity.type,
         title: entity.nameZh,
+        titleZh: null,
+        digestedBy: null,
+        digestedAt: null,
         hop: traversal.hopOf.get(entity.id) ?? 0,
         lang: null,
         readAt: null,

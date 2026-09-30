@@ -29,6 +29,10 @@ import ErrorPanel from '../components/ErrorPanel.vue';
 import LowConfidenceBadge from '../components/LowConfidenceBadge.vue';
 import NotesPanel from '../components/NotesPanel.vue';
 import PdfPages from '../components/pdf/PdfPages.vue';
+import TranslationSwitch from '../components/TranslationSwitch.vue';
+import TranslationNotice from '../components/TranslationNotice.vue';
+import { useTranslationStore } from '../stores/translation-store';
+import { when } from '../when';
 
 const route = useRoute();
 const router = useRouter();
@@ -46,6 +50,11 @@ const filter = ref<'all' | 'low' | 'unread'>('all');
 const listError = ref<import('../api').ApiError | null>(null);
 
 const detail = ref<ItemDetail | null>(null);
+const translation = useTranslationStore();
+const hasTranslation = computed(() =>
+  Boolean(detail.value?.item.titleZh || detail.value?.item.summaryZh),
+);
+const showTranslation = computed(() => translation.translated && hasTranslation.value);
 const derived = ref<DerivedPayload | null>(null);
 const detailError = ref<import('../api').ApiError | null>(null);
 /** 這份正文是舊版抽取器抽的 —— 要說出來，不然使用者以為重排壞了。 */
@@ -482,10 +491,6 @@ function humanSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function when(ms: number | null): string {
-  return ms === null ? '' : new Date(ms).toLocaleString('zh-Hant');
-}
-
 async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   const id = itemId.value;
   if (id === null) return;
@@ -563,7 +568,12 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
               })
             }}
           </p>
-          <h1>{{ detail.item.title }}</h1>
+          <h1>
+            {{ showTranslation ? detail.item.titleZh || detail.item.title : detail.item.title }}
+          </h1>
+          <p v-if="showTranslation && detail.item.titleZh" class="original-title">
+            {{ detail.item.title }}
+          </p>
           <!-- 研究的候選還沒確認（D8）：可以先讀，但確認之前不會從它抽任何關聯。 -->
           <p v-if="detail.candidacy" class="callout pending candidacy">
             {{ fill(t.reader.candidateOf, { topic: detail.candidacy.topic }) }}
@@ -623,11 +633,13 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
             >
               {{ t.reader.openSnapshot }}
             </a>
-            <!-- **原文／繁中切換要有譯文才有意義。** 這一版沒有翻譯，
-                 所以按鈕是關的，而旁邊寫著為什麼 —— 不是一個按了沒反應的按鈕。 -->
-            <button disabled>{{ t.reader.translated }}</button>
-            <span class="muted note">{{ t.reader.noTranslation }}</span>
+            <TranslationSwitch :available="hasTranslation" />
           </div>
+
+          <section v-if="showTranslation" class="notice">
+            <p v-if="detail.item.summaryZh">{{ detail.item.summaryZh }}</p>
+            <TranslationNotice :model="detail.item.digestedBy" :date="detail.item.digestedAt" />
+          </section>
 
           <div class="actions">
             <button v-if="detail.item.status === 'excluded'" @click="act('restore')">
@@ -1010,6 +1022,10 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
 .doc-head h1 {
   margin: 4px 0 12px;
   line-height: 1.4;
+}
+.original-title {
+  font-size: var(--fs-section);
+  color: var(--text-muted);
 }
 /* 表頭一列一組：時間 · 語言 · 大小 · 頁數 · 來源。來源最長，放最後，可以縮。 */
 .facts-row {

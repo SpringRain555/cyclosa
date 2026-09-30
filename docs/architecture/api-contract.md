@@ -139,6 +139,10 @@
 回傳節點與邊，**外加每條 `named` 邊的可信度等級與獨立來源數** ——
 否則側欄為了顯示一行「出處 5 筆 · 2 個獨立來源」要再打一次 API。
 
+子圖節點另帶 `titleZh: string | null`、`digestedBy: string | null`、`digestedAt: number | null`（Unix 毫秒）。
+未初讀的資料與實體三欄都是 `null`；原文 `title` 不變。**不帶 `summaryZh`**，避免大子圖膨脹；
+節點面板需要繁中摘要時才讀既有的 item 詳情端點。
+
 **超過渲染上限時回 `GRAPH_SUBGRAPH_TOO_LARGE`（413），不是回一個巨大的結果。**
 
 **預算與硬上限是兩個不同的數字，這是刻意的**：
@@ -359,7 +363,7 @@
 | 端點 | 說明 |
 |---|---|
 | `GET /api/cases/:id/items` | cursor 分頁 ＋ 篩選 |
-| `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言；v0.25.0 多一欄 `candidacy`：這一份是**哪一次還沒結束的研究**的候選（閱讀器那一行「候選 · 還沒確認」，ADR-0033 D8）|
+| `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言；`item` 另帶 `titleZh: string \| null`、`summaryZh: string \| null`、`digestedBy: string \| null`、`digestedAt: number \| null`（Unix 毫秒），未初讀四欄都是 `null`，原文欄位不變。v0.25.0 多一欄 `candidacy`：這一份是**哪一次還沒結束的研究**的候選（閱讀器那一行「候選 · 還沒確認」，ADR-0033 D8）|
 | `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）。v0.24.0 起多一欄 `stale`：這份是舊版抽取器抽的，**而且那一版之後這一種資料的抽取真的改過**（`EXTRACTOR_CHANGES`）—— 閱讀器據此說一句「按重算全部正文會換成新的」 |
 | `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）。v0.24.1 起閱讀器的版面檢視也讀它：pdf.js 整份拿（不分段），在瀏覽器裡畫 |
 | `GET …/subgraph/focus` | 打開關聯圖時的起點。**回一個焦點，不回一張圖** |

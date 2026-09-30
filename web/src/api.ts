@@ -121,6 +121,10 @@ export interface CaseDeletion {
 export type ItemStatus = 'pending' | 'fetched' | 'parsed' | 'included' | 'excluded' | 'failed';
 
 export interface Item {
+  titleZh: string | null;
+  summaryZh: string | null;
+  digestedBy: string | null;
+  digestedAt: number | null;
   id: string;
   /** `reference` ＝ 只有書目、沒有正文（研究裡拿不到、只留書目的那一份，schema v10） */
   kind: 'web' | 'pdf' | 'image' | 'text' | 'note' | 'reference';
@@ -658,6 +662,9 @@ export interface SearchResponse {
 }
 
 export interface SubgraphNode {
+  titleZh: string | null;
+  digestedBy: string | null;
+  digestedAt: number | null;
   id: string;
   kind: 'item' | 'entity';
   /** `item.kind` 或 `entity.type` */

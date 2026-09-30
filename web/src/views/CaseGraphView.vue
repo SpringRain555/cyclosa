@@ -280,6 +280,7 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
         />
         <SelectionPanel
           v-else
+          :slug="slug"
           :class="{ idle: store.selected === null && store.connectFrom === null }"
           :node="store.selected"
           :edges="store.selectedEdges"

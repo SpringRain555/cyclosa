@@ -200,6 +200,27 @@ describe('投影與畫法是同一個決定的兩面', () => {
   });
 });
 
+describe('書目節點', () => {
+  it('只有書目用資料藍虛線，與實體和有正文的資料分開', () => {
+    expect(nodeGlyphFor({ kind: 'item', itemKind: 'reference' })).toMatchObject({
+      fill: 'item',
+      hollow: false,
+      dashed: true,
+    });
+    expect(nodeGlyphFor({ kind: 'item', itemKind: 'web' }).dashed).toBe(false);
+    expect(nodeGlyphFor({ kind: 'item', itemKind: 'note' }).dashed).toBe(false);
+    expect(nodeGlyphFor({ kind: 'entity' }).dashed).toBe(false);
+  });
+
+  it('排除的書目仍保留打叉與預設隱藏', () => {
+    expect(nodeGlyphFor({ kind: 'item', itemKind: 'reference', excluded: true })).toMatchObject({
+      dashed: true,
+      crossed: true,
+      hiddenByDefault: true,
+    });
+  });
+});
+
 /**
  * 面板上哪幾欄有意義。
  *

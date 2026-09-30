@@ -94,6 +94,8 @@ export interface SubgraphNode {
   /** 摺進這個節點的轉載數（「＋3 轉載」）。**看不到就會以為資料漏了** */
   readonly derivedFolded: number;
   readonly hollow: boolean;
+  readonly dashed: boolean;
+  readonly sourceUrl: string | null;
 }
 
 export interface SubgraphEdge {
@@ -266,6 +268,7 @@ export async function subgraph(
 
     const nodes: SubgraphNode[] = [];
     for (const item of items) {
+      const glyph = nodeGlyphFor({ kind: 'item', itemKind: item.kind as ItemKind });
       nodes.push({
         id: item.id,
         kind: 'item',
@@ -282,7 +285,10 @@ export async function subgraph(
         excerpt: item.excerpt,
         mentionCount: null,
         derivedFolded: folded.get(item.id) ?? 0,
-        hollow: nodeGlyphFor({ kind: 'item', itemKind: item.kind as ItemKind }).hollow,
+        hollow: glyph.hollow,
+        dashed: glyph.dashed,
+        // 只有書目節點要（面板的「開啟原網址」）；每一份都帶的話 8k 節點的子圖白白多幾百 KB
+        sourceUrl: item.kind === 'reference' ? item.sourceUrl : null,
       });
     }
     for (const entity of entities) {
@@ -303,6 +309,8 @@ export async function subgraph(
         mentionCount: counts.get(entity.id) ?? 0,
         derivedFolded: folded.get(entity.id) ?? 0,
         hollow: true,
+        dashed: false,
+        sourceUrl: null,
       });
     }
 

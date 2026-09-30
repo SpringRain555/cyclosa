@@ -78,6 +78,12 @@ export const LEGEND_SECTIONS: readonly LegendSection[] = [
         tokens: ['--node-note', '--node-outline'],
         compact: true,
       },
+      {
+        key: 'nodeReference',
+        mark: 'swatch reference',
+        tokens: ['--node-item'],
+        compact: true,
+      },
       // **實體靠空心分，不靠顏色。** 第三個資料色不存在（ADR-0018）。
       { key: 'nodeEntity', mark: 'swatch entity', tokens: ['--node-entity'], compact: true },
       {

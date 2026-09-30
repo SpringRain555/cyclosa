@@ -169,6 +169,7 @@ export type NodeFill =
 
 export interface NodeGlyph {
   readonly fill: NodeFill;
+  readonly dashed: boolean;
   /** 實體是空心的 */
   readonly hollow: boolean;
   /** 已排除：中間打叉，預設隱藏 */
@@ -189,10 +190,22 @@ export function nodeGlyphFor(input: {
 }): NodeGlyph {
   const excluded = input.excluded === true;
   if (input.kind === 'entity') {
-    return { fill: 'entity', hollow: true, crossed: excluded, hiddenByDefault: excluded };
+    return {
+      fill: 'entity',
+      hollow: true,
+      dashed: false,
+      crossed: excluded,
+      hiddenByDefault: excluded,
+    };
   }
   const fill: NodeFill = input.itemKind === 'note' ? 'note' : 'item';
-  return { fill, hollow: false, crossed: excluded, hiddenByDefault: excluded };
+  return {
+    fill,
+    hollow: false,
+    dashed: input.itemKind === 'reference',
+    crossed: excluded,
+    hiddenByDefault: excluded,
+  };
 }
 
 /**

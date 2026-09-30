@@ -142,6 +142,8 @@
 子圖節點另帶 `titleZh: string | null`、`digestedBy: string | null`、`digestedAt: number | null`（Unix 毫秒）。
 未初讀的資料與實體三欄都是 `null`；原文 `title` 不變。**不帶 `summaryZh`**，避免大子圖膨脹；
 節點面板需要繁中摘要時才讀既有的 item 詳情端點。
+另外兩欄：`dashed: boolean`（書目節點 —— `item.kind = 'reference'` —— 畫虛線稜線）與 `sourceUrl: string | null`
+（**只有書目節點有**，給面板的「開啟原網址」；其他節點一律 `null`，同樣是不讓大子圖膨脹）。
 
 **超過渲染上限時回 `GRAPH_SUBGRAPH_TOO_LARGE`（413），不是回一個巨大的結果。**
 

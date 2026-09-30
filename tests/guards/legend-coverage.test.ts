@@ -28,6 +28,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { LEGEND_SECTIONS } from '../../web/src/components/graph/legend-items.js';
+import { nodeGlyphFor } from '../../src/domain/graph/render-rules.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...parts: string[]): string => readFileSync(join(ROOT, ...parts), 'utf8');
@@ -49,6 +50,20 @@ function drawingsInDomain(): string[] {
 }
 
 describe('圖例宣告與它指向的東西', () => {
+  it('書目的資料藍虛線有圖例，且圖上與設定頁都涵蓋', () => {
+    const section = LEGEND_SECTIONS.find((entry) => entry.key === 'nodes');
+    const reference = section?.items.find((entry) => entry.key === 'nodeReference');
+    expect(section?.compact).toBe(true);
+    expect(reference).toMatchObject({
+      mark: 'swatch reference',
+      tokens: ['--node-item'],
+      compact: true,
+    });
+    expect(nodeGlyphFor({ kind: 'item', itemKind: 'reference' })).toMatchObject({
+      fill: 'item',
+      dashed: true,
+    });
+  });
   it('每一種關聯畫法都對得上 domain 的那一份，而且沒有多也沒有少', () => {
     const declared = new Set(items.map((i) => i.drawing).filter((d) => d !== undefined));
     // **雙向。** 只查一邊的話，一份「只是子集」的圖例照樣會綠 ——

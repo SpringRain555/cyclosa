@@ -33,6 +33,19 @@
 .mark.entity {
   border: 1.5px solid var(--node-entity);
 }
+.mark.reference {
+  border: 1.5px dashed var(--node-item);
+}
+.reference-filled {
+  --reference-fill-opacity: 0;
+}
+.reference-filled .mark.reference {
+  background: color-mix(
+    in srgb,
+    var(--node-item) calc(var(--reference-fill-opacity) * 100%),
+    transparent
+  );
+}
 /* 已排除／已否決不用顏色，用**打叉**（ADR-0018：那一段的顏色預算滿了）。 */
 .mark.crossed {
   color: var(--edge-rejected);

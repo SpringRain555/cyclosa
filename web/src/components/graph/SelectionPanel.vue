@@ -174,6 +174,17 @@ function relLabel(edge: SubgraphEdge): string {
       </dl>
 
       <p v-if="!showTranslation && node.excerpt.length > 0" class="excerpt">{{ node.excerpt }}</p>
+      <template v-if="node.kind === 'item' && node.subKind === 'reference'">
+        <p class="hint">{{ t.reader.referenceOnly }}</p>
+        <a
+          v-if="node.sourceUrl && /^https?:\/\//i.test(node.sourceUrl)"
+          :href="node.sourceUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {{ t.reader.openSourceUrl }}
+        </a>
+      </template>
 
       <div class="actions">
         <button type="button" @click="emit('focus', node.id)">

@@ -688,7 +688,9 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
           :reasons="detail.item.lowConfidenceReasons"
         />
 
-        <div v-if="detail.item.kind === 'image'" class="image-wrap">
+        <p v-if="detail.item.kind === 'reference'" class="muted">{{ t.reader.referenceOnly }}</p>
+
+        <div v-else-if="detail.item.kind === 'image'" class="image-wrap">
           <p class="muted">{{ t.reader.imageOnly }}</p>
           <!-- 框選：按住拖曳。**座標存的是快照的原尺寸像素**，跟畫面多大無關。 -->
           <div

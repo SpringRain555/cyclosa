@@ -75,6 +75,26 @@ afterEach(async () => {
 });
 
 describe('沒有整圖端點', () => {
+  it('合成書目連到資料，子圖帶出虛線畫法與原網址', async () => {
+    const body = await get(`/api/cases/${slug}/subgraph?focus=${FIXTURE.focus}&hops=1`);
+    const data = body.data as {
+      nodes: { id: string }[];
+      edges: { source: string; target: string }[];
+    };
+    expect(data.nodes.find((entry) => entry.id === 'itm-reference')).toMatchObject({
+      kind: 'item',
+      subKind: 'reference',
+      dashed: true,
+      hollow: false,
+      sourceUrl: 'https://example.invalid/reference',
+      excerpt: '',
+    });
+    expect(data.edges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: FIXTURE.focus, target: 'itm-reference' }),
+      ]),
+    );
+  });
   it('`/graph` 不存在 —— 不是「有但不建議用」（ADR-0008）', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/cases/${slug}/graph` });
     expect(res.statusCode).toBe(404);
@@ -95,12 +115,12 @@ describe('節點預算：只數不拉資料', () => {
     expect(body.ok).toBe(true);
     const data = body.data as { counts: Record<string, number>; budget: number };
 
-    // 1 跳：三條 item→item 的邊 ＋ 展開成節點的實體 ＋ 穿過攤平實體到達的那一份
-    expect(data.counts['1']).toBe(6);
+    // 1 跳：四條 item→item 的邊（含書目） ＋ 展開成節點的實體 ＋ 穿過攤平實體到達的那一份
+    expect(data.counts['1']).toBe(7);
     // 2 跳：透過展開的實體再帶進三份互為轉載的
-    expect(data.counts['2']).toBe(9);
+    expect(data.counts['2']).toBe(10);
     // 3 跳：已經走完了，不會再多
-    expect(data.counts['3']).toBe(9);
+    expect(data.counts['3']).toBe(10);
     expect(data.budget).toBe(2000);
   });
 
@@ -328,7 +348,7 @@ describe('失敗路徑', () => {
     expect(body.ok).toBe(true);
     const data = body.data as { focus: string | null; totalNodeCount: number };
     expect(data.focus).not.toBeNull();
-    // 9 份資料節點 ＋ 3 個實體
-    expect(data.totalNodeCount).toBe(12);
+    // 10 份資料節點（含書目） ＋ 3 個實體
+    expect(data.totalNodeCount).toBe(13);
   });
 });

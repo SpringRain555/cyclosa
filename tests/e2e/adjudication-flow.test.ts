@@ -590,7 +590,16 @@ describe('重跑之後，人的判斷一個都沒有變（Phase E 的驗收條�
       rel: '後續報導',
     });
     const before = await humanSubset();
-    expect(before).toHaveLength(1);
+    // 範例資料本來就有一條人建的（書目的「引用」），所以不寫死條數 —— 要驗的是剛建的那條在、而且重跑前後不變
+    expect(before).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_id: 'itm-focus',
+          target_id: 'itm-quiet',
+          rel: '後續報導',
+        }),
+      ]),
+    );
 
     // 機器提出一條**一模一樣的三元組**，外加幾條別的
     const r = await proposeEdges(dataRoot, slug, [

@@ -55,6 +55,7 @@ const ITEMS: readonly { id: string; kind: string; title: string }[] = [
   { id: 'itm-mirror-b', kind: 'web', title: '合成：通稿的轉載（甲媒體）' },
   { id: 'itm-mirror-c', kind: 'web', title: '合成：通稿的轉載（乙媒體）' },
   { id: 'itm-quiet', kind: 'text', title: '合成：只提到一個沒有別人提過的實體' },
+  { id: 'itm-reference', kind: 'reference', title: '合成：只有書目的參考資料' },
 ];
 
 const ENTITIES: readonly { id: string; type: string; name: string }[] = [
@@ -176,11 +177,16 @@ export function writeSyntheticGraph(db: DatabaseSync, now = Date.now()): void {
       item.kind,
       item.title,
       String(i).padStart(8, '0'),
-      `這是合成資料，用來驗證關聯圖的四種畫法。（${item.id}）`,
+      item.kind === 'reference' ? '' : `這是合成資料，用來驗證關聯圖的四種畫法。（${item.id}）`,
       now + i,
       now + i,
     );
   });
+
+  db.prepare('UPDATE item SET source_url = ? WHERE id = ?').run(
+    'https://example.invalid/reference',
+    'itm-reference',
+  );
 
   const insertEntity = db.prepare(
     `INSERT INTO entity (id, type, name_zh, title_rank, created_at, updated_at)
@@ -245,6 +251,15 @@ export function writeSyntheticGraph(db: DatabaseSync, now = Date.now()): void {
     // **圖上要看得到一條琥珀虛線**，那是這個工具真正在等人做的事
     if (spec.evidenceFrom.length > 0) confirm.run(now, spec.id);
   }
+
+  // 書目節點靠**人建、已確認**的「引用」連上來（Stage 22 的「被哪幾份引用」，不需要引文）——
+  // 所以它不進裁決佇列。寫成機器的待查證邊的話，這份資料就多出一條真實路徑產生不出來的待裁決。
+  db.prepare(
+    `INSERT INTO edge (id, layer, rel, source_id, source_kind, target_id, target_kind,
+                       origin, status, confidence, created_at, updated_at)
+     VALUES ('edg-reference', 'named', '引用', 'itm-focus', 'item', 'itm-reference', 'item',
+             'human', 'confirmed', 0, ?, ?)`,
+  ).run(now, now);
 
   // **具名關係的可信度走跟真實路徑一模一樣的那一支。**
   //

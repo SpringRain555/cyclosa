@@ -681,6 +681,8 @@ export interface SubgraphNode {
   /** 摺進這個節點的轉載數（「＋3 轉載」）*/
   derivedFolded: number;
   hollow: boolean;
+  dashed: boolean;
+  sourceUrl: string | null;
 }
 
 export interface SubgraphEdge {

@@ -1,4 +1,4 @@
-export const REFERENCE_FILL_OPACITY = 0.12;
+export const REFERENCE_FILL_OPACITY = 0.3;
 
 // 只為截圖比較；使用者挑完之後刪掉另一種。
 export function referenceStyle(search = window.location.search): 'a' | 'b' {

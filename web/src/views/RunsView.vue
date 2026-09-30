@@ -3,22 +3,14 @@
  * 作業紀錄。**這一頁是「擷取不是黑箱」的體現**（ui-workflows）。
  *
  * 三件事一定要看得見：
- *   1. **節流狀態列一直在畫面上** —— 它是這個工具對外的行為承諾
+ *   1. **節流狀態列在抓取等待時出現** —— 完整規則在設定頁的狀態說明
  *   2. **每一項的失敗各自帶自己的碼與繁中訊息**，不是一個「匯入失敗」
  *   3. **`部分失敗` 不是「失敗」的一種**：成功幾個、失敗幾個、原因各是什麼
  */
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import {
-  api,
-  type Angle,
-  type ApiError,
-  type FetchPolicy,
-  type RebuildReport,
-  type Run,
-  type RunItem,
-} from '../api';
+import { api, type Angle, type ApiError, type RebuildReport, type Run, type RunItem } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import ResearchPanel from '../components/ResearchPanel.vue';
@@ -54,11 +46,6 @@ const urls = ref('');
 const busy = ref(false);
 const dragging = ref(false);
 const throttleNow = ref<{ host: string; ms: number } | null>(null);
-/** 那一列的數字從程式讀（`/api/system/fetch-policy`），不寫死在 i18n 裡。 */
-const policy = ref<FetchPolicy | null>(null);
-void api.fetchPolicy().then((r) => {
-  if (r.ok) policy.value = r.data;
-});
 
 let stream: EventSource | null = null;
 
@@ -157,15 +144,32 @@ async function submitUrls(): Promise<void> {
 async function submitFiles(files: FileList | null): Promise<void> {
   if (files === null || files.length === 0) return;
   busy.value = true;
-  let lastRun: string | null = null;
-  for (const file of Array.from(files)) {
-    const result = await api.importFile(slug.value, file);
-    if (result.ok) lastRun = result.data.runId;
-    else error.value = result.error;
+  const batchSlug = slug.value;
+  const selected = Array.from(files);
+  const started = await api.startFileImport(
+    batchSlug,
+    selected.map((file) => file.name),
+  );
+  if (!started.ok) {
+    error.value = started.error;
+    busy.value = false;
+    return;
+  }
+  await loadRuns();
+  openRun(started.data.runId);
+  for (const [index, file] of selected.entries()) {
+    const entry = started.data.items[index];
+    if (entry === undefined) break;
+    const result = await api.importFile(batchSlug, started.data.runId, entry.runItemId, file);
+    if (!result.ok) {
+      // 這一批已經收尾（你按了取消，或等太久）：每一列自己寫了原因，不再跳一個錯誤。
+      if (result.error.code !== 'RUN_ALREADY_SETTLED') error.value = result.error;
+      break;
+    }
   }
   busy.value = false;
   await loadRuns();
-  if (lastRun !== null) openRun(lastRun);
+  if (runId.value === started.data.runId) await refreshRun(started.data.runId);
 }
 
 /** 產生了角度、還沒勾的擴展。`queued` 在匯入上是真的在排隊，在擴展上是「在等你勾」（state-machines.md）。 */
@@ -554,17 +558,8 @@ async function rebuild(): Promise<void> {
         </section>
       </div>
 
-      <!-- **這一列一直在畫面上。** 它是這個工具對外的行為承諾。 -->
-      <section class="throttle">
-        <span class="label">{{ t.runs.throttleTitle }}</span>
-        <span v-if="policy" class="rule">
-          {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
-        </span>
-        <span v-if="policy" class="rule">
-          {{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}
-        </span>
-        <span class="rule">{{ t.runs.throttleRobots }}</span>
-        <span v-if="throttleNow" class="now">
+      <section v-if="throttleNow" class="throttle">
+        <span class="now">
           {{ fill(t.runs.throttleNow, { host: throttleNow.host, ms: throttleNow.ms }) }}
         </span>
       </section>
@@ -624,7 +619,19 @@ async function rebuild(): Promise<void> {
         <aside class="list">
           <h2>{{ t.runs.title }}</h2>
           <p v-if="runList.length === 0" class="muted">{{ t.runs.empty }}</p>
-          <ul v-else class="rows">
+          <select
+            v-if="runList.length > 0"
+            class="history-select"
+            :aria-label="t.runs.title"
+            :value="runId ?? ''"
+            @change="openRun(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="" disabled>{{ t.runs.title }}</option>
+            <option v-for="entry in runList" :key="entry.id" :value="entry.id">
+              {{ titleOf(entry) }} · {{ t.runStatus[entry.status] }} · {{ when(entry.createdAt) }}
+            </option>
+          </select>
+          <ul v-if="runList.length > 0" class="rows">
             <li v-for="r in runList" :key="r.id">
               <button class="row" :class="{ active: r.id === runId }" @click="openRun(r.id)">
                 <span class="row-title">{{ titleOf(r) }}</span>
@@ -937,9 +944,19 @@ async function rebuild(): Promise<void> {
   margin-top: 16px;
   align-items: start;
 }
-@media (max-width: 900px) {
+.history-select {
+  display: none;
+}
+@media (width < 900px) {
   .split {
     grid-template-columns: 1fr;
+  }
+  .history-select {
+    display: block;
+    width: 100%;
+  }
+  .list .rows {
+    display: none;
   }
 }
 .list h2,

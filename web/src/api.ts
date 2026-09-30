@@ -1021,9 +1021,18 @@ export const api = {
    * 上傳一個檔案。**原始位元組直接送**，檔名走標頭 ——
    * 沒有 multipart 套件，也就不必為了拖一個檔案多一個會解析外部輸入的依賴。
    */
-  importFile: (slug: string, file: File) =>
+  startFileImport: (slug: string, names: string[]) =>
+    request<{ runId: string; items: { runItemId: string; name: string }[] }>(
+      `/api/cases/${enc(slug)}/import/files`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ names }),
+      },
+    ),
+
+  importFile: (slug: string, runId: string, runItemId: string, file: File) =>
     request<{ runId: string; itemId: string | null; code: string | null }>(
-      `/api/cases/${enc(slug)}/import/file`,
+      `/api/cases/${enc(slug)}/import/files/${enc(runId)}/${enc(runItemId)}`,
       {
         method: 'POST',
         headers: {

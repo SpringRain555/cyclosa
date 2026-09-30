@@ -6,7 +6,7 @@
 > **現況（2026-09-07）：一部分實作了。**
 >
 > **已經存在**：系統（`/healthz`、資料根）、專題（清單／建立／封存）、
-> **匯入**（`/import/urls`、`/import/file`）、**作業紀錄**（`/runs`、`/runs/:id`、
+> **匯入**（`/import/urls`、`/import/files`、`/import/files/:runId/:runItemId`）、**作業紀錄**（`/runs`、`/runs/:id`、
 > **SSE `/runs/:id/events`**、`/cancel`）、**資料節點與閱讀器**
 > （`/items`、`/items/:id`、`/content`、`/snapshot`、`/read`、`/exclude`、
 > `/restore`、`/retry`）。
@@ -225,7 +225,7 @@
 | `POST /api/providers` | 存設定。設定檔在 `%LOCALAPPDATA%\Cyclosa\providers.json`，**不在資料根裡**（storage-layout）。**收 v1 或 v2 的形狀都行**，讀檔與收請求走同一支解析（`parseConfig`），存進去的永遠是 v2。每個任務的 `via` 不在它准許的清單裡就退回第一個准許的；金鑰欄位形狀不對就當沒設定 |
 | `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode, browse}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求。找來源走 OpenAI 相容 API 時，量的是「會不會上網搜尋」（一個帶搜尋的小請求，v0.24.2）。設定頁的「儲存並測試」逐任務叫它 |
 | `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型。回 `{kind, models, auth}`。v0.24.1 起設定頁改了就存，按這顆之前會先存；這一支本身仍然不寫檔 |
-| `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**作業紀錄頁那一列從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）|
+| `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**設定頁「狀態說明」從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）；匯入與研究只在抓取等待時顯示節流狀態 |
 | `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（見下）|
 | `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
 | `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**|
@@ -409,7 +409,7 @@
 | `POST …/research/:id/start` | **會** | **閘門一**：先確定**找來源與初讀兩支**都配得上（配不上就整支失敗、`detail.task` 說是哪一個，方向**還沒**落成），再把方向落成 `research_direction`（含模型提過、使用者刪掉的，`adopted=0`），狀態 → `collecting`，**開一筆蒐集作業**：搜 → 抓 → 拿到的每一份初讀一次（Stage 21）。按下去之前一次搜尋、一次擷取都沒有發生（R5）|
 | `POST …/research/:id/collect` | **會** | 「繼續蒐集」：開一筆**新的**作業，只做還沒做完的（R13）：沒搜成的方向、沒抓的、**沒讀或讀失敗的**（沒有正文可讀的不再讀）。只剩要抓的時候不檢查找來源那一支；初讀那一支每一次都檢查（新抓到的也要讀）|
 | `POST …/research/:id/finish` | 不 | **閘門二**「完成蒐集」：狀態 → `reviewing`，之後不再找、不再抓。作業還在跑的時候按不下去（`RESEARCH_STEP_INVALID`）|
-| `POST …/research/:id/candidates/:cid/upload` | 看初讀走哪一條 | 把你拿到的檔案對回一列候選（R10）。**跟 `import/file` 同一種請求**（body 是檔案、檔名走 `x-file-name`），走一般的匯入。**之後自動開一筆只讀、不搜不抓的作業**讀這一份（R14；已經有一筆在跑的話由它讀）|
+| `POST …/research/:id/candidates/:cid/upload` | 看初讀走哪一條 | 把你拿到的檔案對回一列候選（R10）。**跟批次匯入的逐檔上傳同一種請求**（body 是檔案、檔名走 `x-file-name`），仍各開一筆單檔匯入作業。**之後自動開一筆只讀、不搜不抓的作業**讀這一份（R14；已經有一筆在跑的話由它讀）|
 | `POST …/research/:id/candidates/:cid/unavailable` | 不 | `{reason, note}`：你說拿不到（`paywall`／`not-found`／`blocked`／`other`，R11）|
 | `POST …/research/:id/candidates/:cid/reopen` | 不 | 標錯了，改回「要你拿」|
 | `POST …/research/:id/abandon` | 不 | 放棄。**任何還沒結束的狀態都可以**；還在跑的蒐集會先被停下來 |
@@ -464,7 +464,14 @@
 | 端點 | 說明 |
 |---|---|
 | `POST …/import/urls` | 貼一批 URL。回一個 run |
-| `POST …/import/files` | 上傳或指定本機路徑。**不支援的型別要列出來**，不是靜默略過 |
+| `POST …/import/files` | body `{ names: string[] }`，非空檔名清單。開一筆標籤「N 個檔案」的匯入作業，每個檔案一列。回 `{ runId, items: [{ runItemId, name }] }`，順序與輸入相同 |
+| `POST …/import/files/:runId/:runItemId` | body 是原始檔案位元組、`Content-Type: application/octet-stream`、`x-file-name` 是 URI 編碼的原檔名。回 `{ runId, itemId, code, failed }`。逐列走既有匯入管線，不支援的型別記為該列失敗，不拖垮其他列 |
+
+一批依序上傳，同一筆作業提供 SSE 進度與既有取消控制。全部列有結果後依 `settleRun` 收成已完成／部分完成／失敗。
+取消保留已寫入的資料，未上傳列標已取消。這一批收尾之後（取消、閒置逾時、全部傳完）才送到的檔回 `RUN_ALREADY_SETTLED`，
+畫面停下來、不另外報錯；別的專題的作業回 `RUN_NOT_FOUND`；已經用過的列、檔名不符、同一批同時傳兩個檔回 `GRAPH_TRANSITION_INVALID`（前端不會這樣送）。
+等下一個檔案超過 `FILE_UPLOAD_IDLE_MS`（五分鐘）就自動收尾；未上傳列記 `FETCH_UPLOAD_TIMEOUT`，算失敗而不是使用者取消。
+正在處理的檔案不計入閒置時間。關分頁或連線中斷由這個期限接住，不靠瀏覽器保證送出關閉通知。舊的 `POST …/import/file` 已移除。
 
 ### 筆記與點註
 

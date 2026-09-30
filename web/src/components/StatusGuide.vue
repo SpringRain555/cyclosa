@@ -12,12 +12,27 @@
  * 而這個專案已經為那件事付過錢：v0.3.0 的圖例上寫著「已否決（打叉）」，
  * 而那個叉根本沒實作。
  */
+import { ref } from 'vue';
+import { api, type FetchPolicy } from '../api';
 import { LEGEND_SECTIONS } from './graph/legend-items';
-import { guideItem, guideSection, t } from '../i18n/zh-TW';
+import { fill, guideItem, guideSection, t } from '../i18n/zh-TW';
+
+const policy = ref<FetchPolicy | null>(null);
+void api.fetchPolicy().then((result) => {
+  if (result.ok) policy.value = result.data;
+});
 </script>
 
 <template>
   <div class="guide">
+    <section>
+      <h2 class="group">{{ t.runs.throttleTitle }}</h2>
+      <p v-if="policy">
+        {{ fill(t.runs.throttleInterval, { seconds: policy.intervalMs / 1000 }) }}
+      </p>
+      <p v-if="policy">{{ fill(t.runs.throttleBackoff, { n: policy.maxRetries }) }}</p>
+      <p>{{ t.runs.throttleRobots }}</p>
+    </section>
     <h2 class="group">{{ t.graph.guide.title }}</h2>
     <p class="group-what">{{ t.graph.guide.what }}</p>
 

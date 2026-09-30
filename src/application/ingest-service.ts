@@ -714,7 +714,7 @@ export async function importFileInto(
     readonly researchId?: string;
   },
 ): Promise<FileImported> {
-  const { fileName, bytes } = input;
+  const { fileName } = input;
   const runId = newId();
   const runItemId = newId();
   const now = Date.now();
@@ -730,19 +730,44 @@ export async function importFileInto(
   runs.insertRunItem(db, { id: runItemId, runId, requested: fileName, host: null });
   runs.startRun(db, runId, now);
 
+  const result = await receiveFileInto(db, folder, { ...input, runId, runItemId });
+  finishFileRun(db, runId, result.failed ? 0 : 1, result.failed ? 1 : 0);
+  return result;
+}
+
+function finishFileRun(db: DatabaseSync, runId: string, succeeded: number, failed: number): void {
+  const action = settleRun(succeeded, failed);
+  runs.settleRunRow(db, {
+    id: runId,
+    status: action === 'complete' ? 'done' : action === 'complete-partial' ? 'partial' : 'failed',
+    succeeded,
+    failed,
+    now: Date.now(),
+  });
+  reindexTitleRank(db);
+  if (readCase(db)?.status === 'new') updateCaseStatus(db, 'ready', Date.now());
+}
+
+async function receiveFileInto(
+  db: DatabaseSync,
+  folder: string,
+  input: {
+    readonly fileName: string;
+    readonly bytes: Uint8Array;
+    readonly runId: string;
+    readonly runItemId: string;
+    readonly forUrl?: string;
+  },
+): Promise<FileImported> {
+  const { fileName, bytes, runId, runItemId } = input;
+  const now = Date.now();
+
   const media = classifyExtension(fileName);
   if (media.kind !== 'ok') {
     runs.updateRunItem(db, {
       id: runItemId,
       outcome: 'failed',
       code: 'FETCH_UNSUPPORTED_TYPE',
-      now: Date.now(),
-    });
-    runs.settleRunRow(db, {
-      id: runId,
-      status: 'failed',
-      succeeded: 0,
-      failed: 1,
       now: Date.now(),
     });
     return { runId, itemId: null, code: 'FETCH_UNSUPPORTED_TYPE', failed: true };
@@ -778,17 +803,171 @@ export async function importFileInto(
   });
 
   const failed = result.counts === 'failed' ? 1 : 0;
-  runs.settleRunRow(db, {
+  return { runId, itemId: result.itemId, code: result.code, failed: failed === 1 };
+}
+
+// 留五分鐘讓使用者的下一個檔案傳到；正在處理的檔案不計入閒置時間。
+export const FILE_UPLOAD_IDLE_MS = 5 * 60 * 1000;
+
+interface FileBatch {
+  readonly dataRoot: string;
+  readonly slug: string;
+  readonly db: DatabaseSync;
+  readonly state: ActiveRun;
+  readonly idleMs: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  receiving: boolean;
+}
+
+const fileBatches = new Map<string, FileBatch>();
+
+function settleFileBatch(batch: FileBatch, expired = false): void {
+  if (batch.receiving) return;
+  const { db, state } = batch;
+  const entries = runs.listRunItems(db, state.runId);
+  if (!expired && !state.cancelled && entries.some((entry) => entry.outcome === 'queued')) return;
+  if (batch.timer !== null) clearTimeout(batch.timer);
+  try {
+    for (const entry of entries.filter((entry) => entry.outcome === 'queued')) {
+      runs.updateRunItem(db, {
+        id: entry.id,
+        outcome: state.cancelled ? 'cancelled' : 'failed',
+        code: state.cancelled ? null : 'FETCH_UPLOAD_TIMEOUT',
+        now: Date.now(),
+      });
+    }
+    const completed = runs.listRunItems(db, state.runId);
+    const failed = completed.filter((entry) => entry.outcome === 'failed').length;
+    const succeeded = completed.filter(
+      (entry) => entry.outcome !== 'failed' && entry.outcome !== 'cancelled',
+    ).length;
+    finishFileRun(db, state.runId, succeeded, failed);
+    if (state.cancelled) {
+      runs.settleRunRow(db, {
+        id: state.runId,
+        status: 'cancelled',
+        succeeded,
+        failed,
+        endedReason: state.cancelReason,
+        now: Date.now(),
+      });
+    }
+    const settled = runs.getRun(db, state.runId);
+    if (settled) state.channel.emit({ type: 'settled', status: settled.status, succeeded, failed });
+  } finally {
+    fileBatches.delete(state.runId);
+    registry.unregister(state.runId);
+    db.close();
+  }
+}
+
+function armFileBatch(batch: FileBatch): void {
+  batch.timer = setTimeout(() => settleFileBatch(batch, true), batch.idleMs);
+  batch.timer.unref();
+}
+
+export async function startFileImport(
+  dataRoot: string,
+  slug: string,
+  names: readonly string[],
+  idleMs = FILE_UPLOAD_IDLE_MS,
+): Promise<Result<{ runId: string; items: { runItemId: string; name: string }[] }>> {
+  const cid = correlationId();
+  if (names.length === 0 || names.some((name) => name.trim().length === 0))
+    return err('SEARCH_QUERY_EMPTY', cid);
+  const db = await openCase(dataRoot, slug);
+  if (typeof db === 'string') return err(db, cid);
+  const caseRow = readCase(db);
+  if (caseRow === null || caseRow.status === 'archived') {
+    db.close();
+    return err(caseRow === null ? 'CASE_NOT_FOUND' : 'CASE_ARCHIVED', cid);
+  }
+  const runId = newId();
+  runs.insertRun(db, {
     id: runId,
-    status: failed === 1 ? 'failed' : 'done',
-    succeeded: failed === 1 ? 0 : 1,
-    failed,
+    kind: 'import',
+    label: `${names.length} 個檔案`,
+    total: names.length,
+    correlationId: cid,
     now: Date.now(),
   });
-  reindexTitleRank(db);
-  if (readCase(db)?.status === 'new') updateCaseStatus(db, 'ready', Date.now());
+  const entries = names.map((name) => {
+    const runItemId = newId();
+    runs.insertRunItem(db, { id: runItemId, runId, requested: name, host: null });
+    return { runItemId, name };
+  });
+  runs.startRun(db, runId, Date.now());
+  const state = registry.register(runId);
+  const batch: FileBatch = { dataRoot, slug, db, state, idleMs, timer: null, receiving: false };
+  fileBatches.set(runId, batch);
+  state.cancellable = { stop: () => settleFileBatch(batch) };
+  state.channel.emit({ type: 'started', runId, total: names.length });
+  armFileBatch(batch);
+  return ok({ runId, items: entries }, cid);
+}
 
-  return { runId, itemId: result.itemId, code: result.code, failed: failed === 1 };
+export async function uploadImportFile(
+  dataRoot: string,
+  slug: string,
+  runId: string,
+  runItemId: string,
+  fileName: string,
+  bytes: Uint8Array,
+): Promise<Result<FileImported>> {
+  const cid = correlationId();
+  const batch = fileBatches.get(runId);
+  // 已經收尾（取消、閒置逾時、全部傳完）之後才到的檔：使用者碰得到的正常情況，不是 bug。
+  if (batch === undefined || batch.state.cancelled) return err('RUN_ALREADY_SETTLED', cid);
+  if (batch.dataRoot !== dataRoot || batch.slug !== slug) return err('RUN_NOT_FOUND', cid);
+  // 同一批同時傳兩個：前端一次只送一個，碰到就是 bug。
+  if (batch.receiving) return err('GRAPH_TRANSITION_INVALID', cid);
+  const entry = runs.listRunItems(batch.db, runId).find((entry) => entry.id === runItemId);
+  if (entry === undefined || entry.outcome !== 'queued' || entry.requested !== fileName)
+    return err('GRAPH_TRANSITION_INVALID', cid);
+  batch.receiving = true;
+  if (batch.timer !== null) clearTimeout(batch.timer);
+  try {
+    await batch.state.gate();
+    if (batch.state.cancelled) return err('RUN_ALREADY_SETTLED', cid);
+    const result = await receiveFileInto(batch.db, caseFolderOf(dataRoot, slug), {
+      fileName,
+      bytes,
+      runId,
+      runItemId,
+    });
+    const row = runs.listRunItems(batch.db, runId).find((entry) => entry.id === runItemId);
+    if (row) {
+      batch.state.channel.emit({
+        type: 'item',
+        runItemId,
+        requested: fileName,
+        host: null,
+        outcome: row.outcome,
+        code: result.code,
+        itemId: result.itemId,
+      });
+    }
+    const entries = runs.listRunItems(batch.db, runId);
+    batch.state.channel.emit({
+      type: 'progress',
+      done: entries.filter((entry) => entry.outcome !== 'queued').length,
+      total: entries.length,
+    });
+    return ok(result, cid);
+  } catch (error) {
+    logger.error('檔案匯入失敗', { reason: String(error) });
+    runs.updateRunItem(batch.db, {
+      id: runItemId,
+      outcome: 'failed',
+      code: 'IO_UNEXPECTED',
+      now: Date.now(),
+    });
+    return err('IO_UNEXPECTED', cid);
+  } finally {
+    batch.receiving = false;
+    settleFileBatch(batch);
+    if (fileBatches.has(runId)) armFileBatch(batch);
+  }
 }
 
 /**

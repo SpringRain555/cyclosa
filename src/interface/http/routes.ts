@@ -25,7 +25,8 @@ import { createSampleCase } from '../../application/sample-service.js';
 import {
   cancelRun,
   channelOf,
-  importFile,
+  startFileImport,
+  uploadImportFile,
   pauseRun,
   resumeRun,
   startUrlImport,
@@ -508,7 +509,7 @@ function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
   );
 
   /**
-   * 把你拿到的檔案對回一列候選（R10）。**跟 `import/file` 同一種請求**：
+   * 把你拿到的檔案對回一列候選（R10）。**跟批次匯入的逐檔上傳同一種請求**：
    * body 整個是檔案內容，檔名走 `x-file-name` 標頭。
    */
   app.post<{ Params: { slug: string; researchId: string; candidateId: string } }>(
@@ -631,23 +632,52 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post<{ Params: { slug: string } }>('/api/cases/:slug/import/file', async (req, reply) => {
-    const dataRoot = await requireDataRoot(ctx, reply);
-    if (dataRoot === null) return reply;
+  app.post<{ Params: { slug: string }; Body: { names?: unknown } }>(
+    '/api/cases/:slug/import/files',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      const names = req.body?.names;
+      if (
+        !Array.isArray(names) ||
+        !names.every((name): name is string => typeof name === 'string')
+      ) {
+        return reply.code(400).send({ ok: false, code: 'SEARCH_QUERY_EMPTY' });
+      }
+      return send(reply, await startFileImport(dataRoot, req.params.slug, names));
+    },
+  );
 
-    // 檔名走標頭而不是 body —— body 整個都是檔案內容。
-    const fileName = decodeFileName(req.headers['x-file-name']);
-    if (fileName.trim().length === 0) {
-      return reply.code(400).send({ ok: false, code: 'FETCH_BAD_URL' });
-    }
+  app.post<{ Params: { slug: string; runId: string; runItemId: string } }>(
+    '/api/cases/:slug/import/files/:runId/:runItemId',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
 
-    const body = req.body;
-    if (!Buffer.isBuffer(body) || body.byteLength === 0) {
-      return reply.code(400).send({ ok: false, code: 'PARSE_EMPTY_CONTENT' });
-    }
+      // 檔名走標頭而不是 body —— body 整個都是檔案內容。
+      const fileName = decodeFileName(req.headers['x-file-name']);
+      if (fileName.trim().length === 0) {
+        return reply.code(400).send({ ok: false, code: 'FETCH_BAD_URL' });
+      }
 
-    return send(reply, await importFile(dataRoot, req.params.slug, fileName, new Uint8Array(body)));
-  });
+      const body = req.body;
+      if (!Buffer.isBuffer(body)) {
+        return reply.code(400).send({ ok: false, code: 'PARSE_EMPTY_CONTENT' });
+      }
+
+      return send(
+        reply,
+        await uploadImportFile(
+          dataRoot,
+          req.params.slug,
+          req.params.runId,
+          req.params.runItemId,
+          fileName,
+          new Uint8Array(body),
+        ),
+      );
+    },
+  );
 
   app.get<{ Params: { slug: string } }>('/api/cases/:slug/runs', async (req, reply) => {
     const dataRoot = await requireDataRoot(ctx, reply);

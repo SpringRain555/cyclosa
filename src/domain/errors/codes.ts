@@ -119,6 +119,7 @@ export const ERROR_CODES = {
   FETCH_ROBOTS_DISALLOWED: 'partial',
   FETCH_RATE_LIMITED: 'partial',
   FETCH_TIMEOUT: 'partial',
+  FETCH_UPLOAD_TIMEOUT: 'partial',
   FETCH_DNS: 'partial',
   FETCH_TLS: 'partial',
   FETCH_HTTP_4XX: 'partial',
@@ -206,6 +207,11 @@ export const ERROR_CODES = {
 
   // ── RUN_* 作業本身 ───────────────────────────────────────
   RUN_NOT_FOUND: 'error',
+  /**
+   * 一批檔案匯入已經收尾（使用者取消、等不到下一個檔、或全部傳完）之後才送到的檔案。
+   * **不是 `GRAPH_TRANSITION_INVALID`**：按了取消、電腦睡著都碰得到，不是程式的 bug，不該叫人交識別碼。
+   */
+  RUN_ALREADY_SETTLED: 'error',
   /**
    * 想復原一次**還在跑的**作業。
    *

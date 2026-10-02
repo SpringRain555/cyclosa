@@ -8,11 +8,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { conformsTo } from '../../src/domain/provider/index.js';
-import {
-  ANGLES_SCHEMA,
-  EXTRACT_SCHEMA,
-  SOURCES_SCHEMA,
-} from '../../src/application/expansion-prompts.js';
+import { EXTRACT_SCHEMA } from '../../src/application/extraction-prompts.js';
+import { CANDIDATES_SCHEMA, PLAN_SCHEMA } from '../../src/application/research-prompts.js';
 
 const PROBE = {
   type: 'object',
@@ -89,27 +86,32 @@ describe('conformsTo', () => {
  * 用一份最小的合法輸出跑過去 —— 如果哪一份用了這支不支援的關鍵字，
  * 這裡會拿到「不支援」而不是 `ok`，那條路在事後驗證模式下就會永遠失敗。
  */
-describe('三份擴展用的 schema', () => {
-  it('ANGLES：空清單是合法的形狀', () => {
-    expect(conformsTo(ANGLES_SCHEMA, { angles: [] })).toEqual({ ok: true });
+describe('研究與抽取用的 schema', () => {
+  it('PLAN：空方向清單是合法的形狀', () => {
+    expect(
+      conformsTo(PLAN_SCHEMA, { reply: '', relation: '', directions: [], out_of_scope: [] }),
+    ).toEqual({ ok: true });
   });
 
-  it('ANGLES：一條多出 maxLength 的子問題會被擋下來', () => {
+  it('PLAN：一條多出 maxLength 的方向會被擋下來', () => {
     const long = '問'.repeat(10_000);
-    const r = conformsTo(ANGLES_SCHEMA, {
-      angles: [{ question: long, stance: 'x', seeds: [] }],
+    const r = conformsTo(PLAN_SCHEMA, {
+      reply: '',
+      relation: '',
+      out_of_scope: [],
+      directions: [{ title: long, what: '', expect: '', keywords: [] }],
     });
     expect(r.ok).toBe(false);
   });
 
   it('SOURCES 與 EXTRACT：最小輸出是合法的形狀', () => {
     const sourcesMin = Object.fromEntries(
-      ((SOURCES_SCHEMA as { required?: readonly string[] }).required ?? []).map((k) => [k, []]),
+      ((CANDIDATES_SCHEMA as { required?: readonly string[] }).required ?? []).map((k) => [k, []]),
     );
     const extractMin = Object.fromEntries(
       ((EXTRACT_SCHEMA as { required?: readonly string[] }).required ?? []).map((k) => [k, []]),
     );
-    expect(conformsTo(SOURCES_SCHEMA, sourcesMin)).toEqual({ ok: true });
+    expect(conformsTo(CANDIDATES_SCHEMA, sourcesMin)).toEqual({ ok: true });
     expect(conformsTo(EXTRACT_SCHEMA, extractMin)).toEqual({ ok: true });
   });
 

@@ -14,12 +14,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { EXTRACT_SCHEMA } from '../../src/application/extraction-prompts.js';
 import {
-  ANGLES_SCHEMA,
-  EXTRACT_SCHEMA,
-  SOURCES_SCHEMA,
-} from '../../src/application/expansion-prompts.js';
-import { CANDIDATES_SCHEMA, PLAN_SCHEMA } from '../../src/application/research-prompts.js';
+  CANDIDATES_SCHEMA,
+  DIGEST_SCHEMA,
+  PLAN_SCHEMA,
+} from '../../src/application/research-prompts.js';
 import { SUPPORTED_KEYWORDS } from '../../src/domain/provider/schema-check.js';
 import { PROBE_SCHEMA } from '../../src/infrastructure/providers/chat-openai.js';
 
@@ -50,8 +50,7 @@ function unsupported(schema: unknown): string[] {
 
 describe('送給模型的 schema 只用 conformsTo 認得的關鍵字', () => {
   it.each([
-    ['ANGLES_SCHEMA', ANGLES_SCHEMA],
-    ['SOURCES_SCHEMA', SOURCES_SCHEMA],
+    ['DIGEST_SCHEMA', DIGEST_SCHEMA],
     ['EXTRACT_SCHEMA', EXTRACT_SCHEMA],
     // 研究的兩份。**規劃那一份 Stage 19 漏了** —— 走只到 json_object 的端點時，它也是 conformsTo 在驗。
     ['PLAN_SCHEMA（規劃對話）', PLAN_SCHEMA],

@@ -15,12 +15,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { conformsTo, strictify } from '../../src/domain/provider/schema-check.js';
+import { EXTRACT_SCHEMA } from '../../src/application/extraction-prompts.js';
 import {
-  ANGLES_SCHEMA,
-  EXTRACT_SCHEMA,
-  SOURCES_SCHEMA,
-} from '../../src/application/expansion-prompts.js';
-import { CANDIDATES_SCHEMA, PLAN_SCHEMA } from '../../src/application/research-prompts.js';
+  CANDIDATES_SCHEMA,
+  DIGEST_SCHEMA,
+  PLAN_SCHEMA,
+} from '../../src/application/research-prompts.js';
 
 type Node = Readonly<Record<string, unknown>>;
 
@@ -49,9 +49,8 @@ function violations(schema: Node, path = '$'): string[] {
 }
 
 const REAL_SCHEMAS = [
-  ['角度', ANGLES_SCHEMA],
+  ['初讀', DIGEST_SCHEMA],
   ['抽取', EXTRACT_SCHEMA],
-  ['找來源', SOURCES_SCHEMA],
   // 研究的兩份（Stage 19／20）。**規劃那一份 Stage 19 漏了** —— 它走 OpenAI 相容 API 的時候
   // 一樣會被嚴格模式檢查。
   ['規劃', PLAN_SCHEMA],

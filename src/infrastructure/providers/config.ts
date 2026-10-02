@@ -214,7 +214,6 @@ export const RECOMMENDED_CHAT_MODEL = 'granite4.2:8b';
  * **這些數字是在本機 Ollama 上量的**，所以設定頁只對走 `ollama` 的任務顯示建議。
  */
 export const RECOMMENDED_TASK_MODELS: Readonly<Record<ChatTask, string>> = {
-  angles: 'granite4.2:8b',
   extract: RECOMMENDED_CHAT_MODEL,
   // 初讀（Stage 21）先跟抽取同一個：一個常駐就夠，而抽取那一輪量到的「照 schema 交回、引文不編」
   // 是初讀也要的兩件事。**初讀本身讀得準不準、繁中順不順是另一個問題** —— 量在 chat-choice.md「初讀」。
@@ -243,7 +242,6 @@ export const DEFAULT_CONFIG: ProvidersConfig = {
     // 初讀預設本機、還沒選模型：它每一份候選都讀一次，**不該在使用者沒說的時候走會花錢的那一條**。
     // 沒選的話閘門一擋下來、說是這一個任務（ADR-0033「你定的」）。
     digest: { via: 'ollama', model: '' },
-    angles: { via: 'ollama', model: '' },
     extract: { via: 'ollama', model: '' },
     embed: { via: 'ollama', model: '' },
   },
@@ -385,7 +383,6 @@ export function upgradeV1(raw: Record<string, unknown>): ProvidersConfig {
       // 初讀也是 v0.25.0 才有的。**不從抽取那一格抄** —— 抽取可能走會花錢的端點，
       // 而初讀每一份都讀；使用者沒選之前閘門一會說是這一格沒設定。
       digest: { via: 'ollama', model: '' },
-      angles: chatTask('angles'),
       extract: chatTask('extract'),
       embed: { via: 'ollama', model: str(embed?.['model']) },
     },

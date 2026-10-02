@@ -19,22 +19,6 @@ export type RunEvent =
       readonly itemId: string | null;
     }
   /**
-   * 一條切入角度做完了。
-   *
-   * **跟 `item` 是兩個層級**：一條角度會產生好幾個 `item` 事件。
-   * 併成一種的話，作業紀錄那一頁就分不出「這幾個網址是哪一條角度找來的」——
-   * 而那正是「擴展不是黑箱」要說的事。
-   */
-  | {
-      readonly type: 'angle';
-      readonly angleId: string;
-      readonly question: string;
-      readonly foundUrls: number;
-      readonly newNodes: number;
-      readonly newEdges: number;
-      readonly code: string | null;
-    }
-  /**
    * 研究的一條方向搜完了（Stage 20）。**跟 `angle` 分開**：那一種是舊的擴展，
    * 一條角度會「找 → 抓 → 抽」一路做完；方向只搜，抓是全部搜完之後的另一段。
    */

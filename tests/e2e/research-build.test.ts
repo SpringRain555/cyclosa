@@ -1,5 +1,5 @@
 import { createServer, type Server, type ServerResponse } from 'node:http';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest';
@@ -20,6 +20,7 @@ import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import { readDerived } from '../../src/infrastructure/fs/case-files.js';
 import { newId } from '../../src/shared/id.js';
+import { createEdge, transitionEdge } from '../../src/application/edge-service.js';
 
 let server: Server;
 let baseUrl = '';
@@ -36,6 +37,7 @@ let quote = '';
 let replyInvalid = false;
 let candidateIds: string[] = [];
 let itemIds: string[] = [];
+const calledModels: string[] = [];
 
 async function inDb<T>(body: (db: DatabaseSync) => T): Promise<T> {
   const opened = await openCaseDatabase(join(root, 'cases', slug, 'case.sqlite'));
@@ -73,8 +75,12 @@ beforeAll(async () => {
         }),
       );
     } else if (req.url === '/api/chat') {
-      req.resume();
+      let body = '';
+      req.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+      });
       req.on('end', () => {
+        calledModels.push((JSON.parse(body) as { model: string }).model);
         calls += 1;
         if (calls === holdAt) {
           held = res;
@@ -135,6 +141,7 @@ beforeEach(async () => {
   );
   contextTokens = 128_000;
   calls = 0;
+  calledModels.length = 0;
   holdAt = 0;
   held = null;
   replyInvalid = false;
@@ -427,4 +434,131 @@ it('重啟掃掉孤兒建圖作業後，保留 done 候選並可接著做', asyn
   await idle();
   expect((await view()).build.done).toBe(4);
   expect(calls).toBe(0);
+});
+
+async function buildAgain(): Promise<void> {
+  await inDb((db) => {
+    research.updateResearchStatus(db, researchId, 'reviewing', Date.now());
+    research.setCandidateBuild(db, {
+      id: candidateIds[0]!,
+      state: null,
+      code: null,
+      now: Date.now(),
+    });
+  });
+  expect((await startBuilding(root, slug, researchId)).ok).toBe(true);
+  await idle();
+}
+
+it('建圖重跑不改人的子集，也不覆寫人工確認', async () => {
+  await buildAgain();
+  const edge = await inDb(
+    (db) =>
+      db
+        .prepare(
+          "SELECT id, source_id, target_id FROM edge WHERE layer = 'named' AND origin = 'machine' AND rel = '測試關係'",
+        )
+        .get() as { id: string; source_id: string; target_id: string },
+  );
+  expect((await transitionEdge(root, slug, edge.id, 'confirm')).ok).toBe(true);
+  expect(
+    (
+      await createEdge(root, slug, {
+        source: edge.source_id,
+        target: edge.target_id,
+        rel: '人自己連的',
+        layer: 'named',
+      })
+    ).ok,
+  ).toBe(true);
+  const humanRows = (db: DatabaseSync) =>
+    db.prepare("SELECT * FROM edge WHERE origin = 'human' ORDER BY id").all();
+  const before = await inDb(humanRows);
+  expect(before.length).toBeGreaterThan(0);
+  await buildAgain();
+  expect(await inDb(humanRows)).toEqual(before);
+  expect(
+    await inDb((db) => db.prepare('SELECT status FROM edge WHERE id = ?').get(edge.id)),
+  ).toEqual({ status: 'confirmed' });
+  expect(calls).toBe(2);
+});
+
+it('建圖重跑同一份引文，墓碑不復活、出處不增加', async () => {
+  await buildAgain();
+  const edge = await inDb(
+    (db) =>
+      db
+        .prepare(
+          "SELECT id FROM edge WHERE layer = 'named' AND origin = 'machine' AND rel = '測試關係'",
+        )
+        .get() as { id: string },
+  );
+  expect((await transitionEdge(root, slug, edge.id, 'reject')).ok).toBe(true);
+  await buildAgain();
+  expect(
+    await inDb((db) => db.prepare('SELECT status FROM edge WHERE id = ?').get(edge.id)),
+  ).toEqual({ status: 'rejected' });
+  expect(
+    await inDb((db) =>
+      db.prepare('SELECT COUNT(*) AS count FROM edge_evidence WHERE edge_id = ?').get(edge.id),
+    ),
+  ).toEqual({ count: 1 });
+  expect(calls).toBe(2);
+});
+
+it('建圖的引文找不到，不寫機器具名關聯並留下錯誤碼', async () => {
+  quote = '這一句並不存在於任何測試正文裡面';
+  await buildAgain();
+  expect(
+    await inDb((db) =>
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM edge WHERE layer = 'named' AND origin = 'machine' AND rel = '測試關係'",
+        )
+        .get(),
+    ),
+  ).toEqual({ count: 0 });
+  const runId = (await view()).build.runId!;
+  expect(
+    await inDb(
+      (db) => runs.listRunItems(db, runId).find((entry) => entry.itemId === itemIds[0])?.code,
+    ),
+  ).toBe('PROVIDER_QUOTE_NOT_FOUND');
+});
+
+it('建圖預設不記模型呼叫', async () => {
+  await buildAgain();
+  await expect(readdir(join(root, 'cases', slug, 'model-calls'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+});
+
+it('逐任務模型真的送到抽取端點，紀錄保留提示詞、回覆與實際模型', async () => {
+  const configPath = join(sandbox, 'local', 'Cyclosa', 'providers.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8')) as {
+    tasks: Record<string, { via: string; model: string }>;
+    diagnostics: { logModelCalls: boolean };
+  };
+  config.tasks['digest'] = { via: 'ollama', model: 'different-digest' };
+  config.tasks['extract'] = { via: 'ollama', model: 'fake-extract' };
+  config.diagnostics.logModelCalls = true;
+  await writeFile(configPath, JSON.stringify(config), 'utf8');
+  await buildAgain();
+  expect(calledModels).toEqual(['fake-extract']);
+  const runId = (await view()).build.runId!;
+  const lines = (await readFile(join(root, 'cases', slug, 'model-calls', `${runId}.jsonl`), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toMatchObject({
+    task: 'extract',
+    model: 'ollama:fake-extract',
+    transport: 'ollama',
+    endpoint: new URL(baseUrl).host,
+    itemId: itemIds[0],
+    outcome: { ok: true, code: null },
+  });
+  expect((lines[0]?.['request'] as { user: string }).user).toContain(quote);
+  expect(JSON.stringify(lines[0]?.['response'])).toContain('測試關係');
 });

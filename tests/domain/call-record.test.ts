@@ -20,7 +20,7 @@ import { MODEL_TASKS } from '../../src/domain/provider/capabilities.js';
 describe('哪些任務要記', () => {
   it('三個會產生文字的任務都記', () => {
     expect(isLoggedTask('find-sources')).toBe(true);
-    expect(isLoggedTask('angles')).toBe(true);
+    expect(isLoggedTask('digest')).toBe(true);
     expect(isLoggedTask('extract')).toBe(true);
   });
 

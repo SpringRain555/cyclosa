@@ -45,7 +45,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { applyExtraction } from '../../src/application/expand-service.js';
+import { applyExtraction } from '../../src/application/extraction-service.js';
 import { normalizeExtraction } from '../../src/domain/provider/index.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import { readCase } from '../../src/infrastructure/db/repositories/case-repo.js';

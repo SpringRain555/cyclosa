@@ -48,8 +48,7 @@ import {
   markRead,
   urlForRetry,
 } from '../../application/item-service.js';
-import { discardDraftRun, getRun, listRuns } from '../../application/run-service.js';
-import { chooseAngles, startExpansion } from '../../application/expand-service.js';
+import { getRun, listRuns } from '../../application/run-service.js';
 import {
   editCandidateDecision,
   startBuilding,
@@ -346,7 +345,6 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   registerProviderRoutes(app, ctx);
   registerIngestRoutes(app, ctx);
-  registerExpandRoutes(app, ctx);
   registerResearchRoutes(app, ctx);
   registerItemRoutes(app, ctx);
   registerGraphRoutes(app, ctx);
@@ -384,35 +382,6 @@ function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { kind: string }; Body: unknown }>(
     '/api/providers/connections/:kind/models',
     async (req, reply) => send(reply, await listModelsFor(req.params.kind, req.body)),
-  );
-}
-
-/**
- * 擴展。**兩支端點，中間有一個人。**
- *
- * `POST …/runs` 回的是子問題清單而**不會開始抓** —— 那一步是
- * REQ-0004 的驗收條件（「不是黑箱一次跑完」），不是可以省略的 UI 糖。
- */
-function registerExpandRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.post<{ Params: { slug: string }; Body: { topic?: unknown } }>(
-    '/api/cases/:slug/runs',
-    async (req, reply) => {
-      const dataRoot = await requireDataRoot(ctx, reply);
-      if (dataRoot === null) return reply;
-      const topic = typeof req.body?.topic === 'string' ? req.body.topic : '';
-      return send(reply, await startExpansion(dataRoot, req.params.slug, topic));
-    },
-  );
-
-  app.post<{ Params: { slug: string; runId: string }; Body: { angles?: unknown } }>(
-    '/api/cases/:slug/runs/:runId/angles',
-    async (req, reply) => {
-      const dataRoot = await requireDataRoot(ctx, reply);
-      if (dataRoot === null) return reply;
-      const raw = req.body?.angles;
-      const angles = Array.isArray(raw) ? raw.map((a) => String(a)) : [];
-      return send(reply, await chooseAngles(dataRoot, req.params.slug, req.params.runId, angles));
-    },
   );
 }
 
@@ -769,19 +738,6 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post<{ Params: { slug: string; runId: string } }>(
     '/api/cases/:slug/runs/:runId/cancel',
     async (req, reply) => send(reply, cancelRun(req.params.runId)),
-  );
-
-  /**
-   * 丟掉一筆還沒開始的擴展草稿。**只有 `queued` 的 expand 刪得掉** ——
-   * 跑過的作業留著（要拿掉它寫的東西是「復原」，另一支端點）。
-   */
-  app.delete<{ Params: { slug: string; runId: string } }>(
-    '/api/cases/:slug/runs/:runId',
-    async (req, reply) => {
-      const dataRoot = await requireDataRoot(ctx, reply);
-      if (dataRoot === null) return reply;
-      return send(reply, await discardDraftRun(dataRoot, req.params.slug, req.params.runId));
-    },
   );
 
   /**

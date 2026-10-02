@@ -41,7 +41,7 @@ import {
   EXTRACT_SYSTEM,
   extractUser,
   MAX_TEXT_CHARS,
-} from '../../src/application/expansion-prompts.js';
+} from '../../src/application/extraction-prompts.js';
 
 const rawHost = process.env['OLLAMA_HOST'] ?? '127.0.0.1:11434';
 const OLLAMA = /^https?:\/\//.test(rawHost) ? rawHost : `http://${rawHost}`;

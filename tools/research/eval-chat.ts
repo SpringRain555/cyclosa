@@ -16,8 +16,6 @@
  * |---|---|
  * | schema 有效率 | 硬需求。吐不出合法 JSON 的模型，這個任務直接不能用 |
  * | **引文命中率** | `locateQuote` 找不到的引文**那條邊就不存在**（ADR-0005）。命中率低 ＝ 抓了一堆網頁卻寫不進任何一條邊 |
- * | 角度之間的相似度 | 「多視角」如果全是同一個問題的改寫，這個功能就沒有價值 |
- * | `seeds` 指到真的東西 | 模型可以編一個不存在的編號。編了就代表「依據」那一欄是假的 |
  * | 延遲 | 本機模型沒有金額成本，時間就是全部的成本 |
  *
  * **引文命中率是這一份最重要的一欄。** 它直接量「模型有沒有捏造原文」，
@@ -25,7 +23,7 @@
  *
  * ## 走的是真的會出貨的那幾支
  *
- * 提示詞用 `application/expansion-prompts.ts`、正規化用 `domain/provider/`、
+ * 提示詞用 `application/extraction-prompts.ts`、正規化用 `domain/provider/`、
  * 引文定位用 `locateQuote` —— 跟擴展作業實際跑的是同一條路。
  * 量測如果走另一條路，量到的就不是使用者會遇到的東西。
  *
@@ -37,35 +35,21 @@ import { join } from 'node:path';
 
 import {
   locateQuote,
-  normalizeAngles,
   normalizeExtraction,
   REQUIRED_CONTEXT_TOKENS,
 } from '../../src/domain/provider/index.js';
 import {
-  ANGLES_SCHEMA,
-  ANGLES_SYSTEM,
-  anglesUser,
   EXTRACT_SCHEMA,
   EXTRACT_SYSTEM,
   extractUser,
   MAX_TEXT_CHARS,
-  type SeedItem,
-} from '../../src/application/expansion-prompts.js';
+} from '../../src/application/extraction-prompts.js';
 
 const rawHost = process.env['OLLAMA_HOST'] ?? '127.0.0.1:11434';
 const OLLAMA = /^https?:\/\//.test(rawHost) ? rawHost : `http://${rawHost}`;
 
 /** 每個任務重複幾次。**一次跑不出「穩不穩定」**，而穩定性正是這裡要問的。 */
 const REPEATS = 3;
-
-/**
- * 角度之間的相似度用它算（只有跑角度的時候用得到）。
- *
- * 09-09 那一輪寫死成當時的嵌入建議值 `qwen3-embedding:4b`。2026-09-29 起建議值只從非中國來源挑
- * （ADR-0035），這一支工具也不再預設任何一個 —— **換了嵌入模型，「彼此」「離題目」那幾欄就跟 09-09 不可比**，
- * 所以要跑角度的人自己指定、自己在文件裡寫下用的是哪一個。角度在 Stage 22 退場，抽取用不到它（`--extract-only`）。
- */
-const EMBED_MODEL = process.env['EVAL_EMBED_MODEL'] ?? '';
 
 const MODELS_DEFAULT = [
   'gemma4:31b',
@@ -193,166 +177,8 @@ async function askJson(
   }
 }
 
-async function embed(input: readonly string[]): Promise<Float32Array[]> {
-  if (EMBED_MODEL.length === 0) {
-    throw new Error('角度那幾欄要一個嵌入模型：設 EVAL_EMBED_MODEL，或加 --extract-only 只量抽取');
-  }
-  const res = await fetch(`${OLLAMA}/api/embed`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ model: EMBED_MODEL, input }),
-  });
-  const body = (await res.json()) as { embeddings?: number[][] };
-  return (body.embeddings ?? []).map((v) => {
-    const out = new Float32Array(v.length);
-    let sum = 0;
-    for (const x of v) sum += x * x;
-    const norm = Math.sqrt(sum) || 1;
-    for (let i = 0; i < v.length; i++) out[i] = (v[i] as number) / norm;
-    return out;
-  });
-}
-
-function cosine(a: Float32Array, b: Float32Array): number {
-  let s = 0;
-  for (let i = 0; i < a.length; i++) s += (a[i] as number) * (b[i] as number);
-  return s;
-}
-
 function mean(xs: readonly number[]): number {
   return xs.length === 0 ? 0 : xs.reduce((a, b) => a + b, 0) / xs.length;
-}
-
-// ── 任務一：多視角子問題 ────────────────────────────────────
-
-interface AnglesRun {
-  readonly schemaOk: boolean;
-  readonly kept: number;
-  readonly seedRefsValid: number;
-  readonly seedRefsTotal: number;
-  readonly maxPairSimilarity: number | null;
-  /**
-   * **每條角度離「這個專題的主題」有多遠。**
-   *
-   * 2026-09-09 補的，因為 `maxPairSimilarity` 這一欄**獎勵了錯的東西**。
-   * 它量的是角度彼此有多發散，而**胡說八道是很發散的**：
-   * `olmo-3:32b-think` 的發散度最好（0.681），而它問的是
-   * 「蜘蛛結網行為的演化如何與其**光合作用能力**的發展相關」；
-   * `translategemma:12b` 發散度最差（0.800），三條全部切題。
-   *
-   * 失效的機制看得出來：素材（`seeds`）是語料裡**別的頁面的標題**
-   * （区块链、光合作用、Knowledge graph…），而有些模型會把素材的主題
-   * 當成這個專題的角度 —— 於是角度之間確實不像，但它們也不是這個專題的。
-   *
-   * 所以要兩欄一起看：**彼此夠不同（低 `maxPair`）而且都還在題目上（高這一欄）**。
-   */
-  readonly topicSimilarity: number | null;
-  /**
-   * **幾條角度飄到別的素材上去了。**
-   *
-   * `topicSimilarity` 補上之後量出來的東西**跟樣本對不上**：
-   * `qwen3.5:4b` 離主題最近（0.719），而它問的是「免疫系統中的病原體壓力」；
-   * `nemotron-cascade-2:30b` 離主題最遠（0.593），三條卻全部切題 ——
-   * 它的問句都以「接下來該查什麼…」開頭，**長句把相似度稀釋掉了**。
-   * 那一欄量到的是句子長度，不是離題。
-   *
-   * 這一欄改成**相對的**：同一條角度，對主題的相似度減掉
-   * 對最像的那份素材標題的相似度。**兩邊用同一個向量，長度效應自己抵消。**
-   * 差是負的 ＝ 這條角度更像某份素材而不是這個專題 ＝ 飄走了。
-   *
-   * 素材本來就該被用到（角度是從既有內容長出來的），
-   * 所以「像素材」本身不是問題；**「比像主題還像素材」才是**。
-   */
-  readonly driftedAngles: number | null;
-  readonly ms: number;
-  readonly why: string | null;
-  readonly sample: readonly string[];
-}
-
-async function runAngles(
-  model: string,
-  topic: string,
-  seeds: readonly SeedItem[],
-  think: boolean | null,
-): Promise<AnglesRun> {
-  const out = await askJson(model, ANGLES_SYSTEM, anglesUser(topic, seeds), ANGLES_SCHEMA, think);
-  if (!out.ok) {
-    return {
-      schemaOk: false,
-      kept: 0,
-      seedRefsValid: 0,
-      seedRefsTotal: 0,
-      maxPairSimilarity: null,
-      topicSimilarity: null,
-      driftedAngles: null,
-      ms: out.ms,
-      why: out.why,
-      sample: [],
-    };
-  }
-
-  const rawAngles = (out.value as { angles?: unknown } | null)?.angles;
-  // **同一支正規化程式** —— 它會丟掉重複與指到不存在的 seed。
-  const kept = normalizeAngles(rawAngles, seeds.length);
-
-  // `seeds` 是 1-based 的編號。**模型可以編一個不存在的** ——
-  // 編了的話畫面上那一欄「依據」就是假的。
-  const rawList = Array.isArray(rawAngles) ? rawAngles : [];
-  let refsTotal = 0;
-  let refsValid = 0;
-  for (const entry of rawList) {
-    const list = (entry as { seeds?: unknown } | null)?.seeds;
-    for (const n of Array.isArray(list) ? list : []) {
-      refsTotal++;
-      if (typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= seeds.length) refsValid++;
-    }
-  }
-
-  // **角度之間有多像。** 全是同一個問題的改寫的話，「多視角」就沒有價值。
-  // **而只有這一欄會選出胡說八道的模型** —— 所以同時量離題目有多遠。
-  let maxPair: number | null = null;
-  let topicSim: number | null = null;
-  const questions = kept.map((a) => a.question);
-  let drifted: number | null = null;
-  if (questions.length >= 1) {
-    const seedTitles = seeds.map((x) => x.title);
-    const vecs = await embed([topic, ...seedTitles, ...questions]);
-    const topicVec = vecs[0] as Float32Array;
-    const seedVecs = vecs.slice(1, 1 + seedTitles.length);
-    const angleVecs = vecs.slice(1 + seedTitles.length);
-    topicSim =
-      angleVecs.reduce((acc, v) => acc + cosine(topicVec, v), 0) / Math.max(1, angleVecs.length);
-    drifted = angleVecs.filter((v) => {
-      const toTopic = cosine(topicVec, v);
-      const toSeed = seedVecs.reduce((m, sv) => Math.max(m, cosine(sv, v)), -1);
-      return toSeed > toTopic;
-    }).length;
-    if (angleVecs.length >= 2) {
-      let worst = -1;
-      for (let i = 0; i < angleVecs.length; i++) {
-        for (let j = i + 1; j < angleVecs.length; j++) {
-          worst = Math.max(
-            worst,
-            cosine(angleVecs[i] as Float32Array, angleVecs[j] as Float32Array),
-          );
-        }
-      }
-      maxPair = worst;
-    }
-  }
-
-  return {
-    schemaOk: true,
-    kept: kept.length,
-    seedRefsValid: refsValid,
-    seedRefsTotal: refsTotal,
-    maxPairSimilarity: maxPair,
-    topicSimilarity: topicSim,
-    driftedAngles: drifted,
-    ms: out.ms,
-    why: null,
-    sample: questions.slice(0, 3),
-  };
 }
 
 // ── 任務二：從正文抽實體與關係 ──────────────────────────────
@@ -462,19 +288,16 @@ const argv = process.argv.slice(2);
  * 少了「不送這一欄」的那一半，「關掉比較好」就變成一句不能被反駁的話。
  */
 const noThink = argv.includes('--no-think');
-/** `--angles-only` ＝ 只跑角度。補一欄指標時不必把抽取那一輪重跑一次。 */
-const anglesOnly = argv.includes('--angles-only');
-/**
- * `--extract-only` ＝ 只跑抽取（2026-09-29 加）。角度在 Stage 22 退場，它的建議值 `granite4.2:8b`
- * 本來就不是中國來源，換模型那一輪只需要重量抽取 —— 而跑角度要一個嵌入模型算相似度（見 `EMBED_MODEL`）。
- */
-const extractOnly = argv.includes('--extract-only');
+if (argv.includes('--angles-only')) {
+  console.error('角度流程已退場，這支工具只量抽取。');
+  process.exit(2);
+}
 const [corpusDir, outDir, ...only] = argv.filter(
-  (a) => a !== '--no-think' && a !== '--angles-only' && a !== '--extract-only',
+  (a) => a !== '--no-think' && a !== '--extract-only',
 );
 if (corpusDir === undefined || outDir === undefined) {
   console.error(
-    '用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [--no-think] [--extract-only | --angles-only] [模型 ...]',
+    '用法：npx tsx tools/research/eval-chat.ts <語料目錄> <輸出目錄> [--no-think] [模型 ...]',
   );
   process.exit(2);
 }
@@ -516,16 +339,9 @@ function documentsOf(lang: 'zh' | 'en', n: number): { title: string; text: strin
 }
 
 const docs = { zh: documentsOf('zh', REPEATS), en: documentsOf('en', REPEATS) };
-/** 角度那一步的素材：拿真實頁面的標題當既有內容。 */
-const seeds: SeedItem[] = passages
-  .filter((p) => p.lang === 'zh')
-  .map((p) => ({ title: p.page, excerpt: p.text.slice(0, 120) }))
-  .filter((s, i, arr) => arr.findIndex((x) => x.title === s.title) === i)
-  .slice(0, 8);
-const TOPIC = '蜘蛛結網行為與它的演化';
 
 console.error(
-  `語料 ${passages.length} 段｜角度素材 ${seeds.length} 份｜` +
+  `語料 ${passages.length} 段｜` +
     `抽取文件 中文 ${docs.zh.map((d) => `${d.title} ${d.text.length} 字`).join('、')}｜英文 ${docs.en.map((d) => `${d.title} ${d.text.length} 字`).join('、')}`,
 );
 
@@ -561,17 +377,8 @@ for (const model of models) {
   const think = noThink ? false : null;
   const label = think === false ? `${model} (think:off)` : model;
   console.error(`\n── ${model}`);
-  const angles: AnglesRun[] = [];
-  for (let i = 0; i < (extractOnly ? 0 : REPEATS); i++) {
-    const r = await runAngles(model, TOPIC, seeds, think);
-    angles.push(r);
-    console.error(
-      `  角度 ${i + 1}/${REPEATS}: ${r.schemaOk ? `${r.kept} 條、彼此 ${r.maxPairSimilarity?.toFixed(3) ?? '—'}、離題目 ${r.topicSimilarity?.toFixed(3) ?? '—'}、飄走 ${r.driftedAngles ?? '—'}/${r.kept}` : `失敗（${r.why ?? ''}）`} ${(r.ms / 1000).toFixed(1)}s`,
-    );
-  }
-
   const extracts: (ExtractRun & { lang: string })[] = [];
-  for (const lang of anglesOnly ? ([] as const) : (['zh', 'en'] as const)) {
+  for (const lang of ['zh', 'en'] as const) {
     for (let i = 0; i < REPEATS; i++) {
       // **第 i 次用第 i 篇** —— 三次同一篇的話那不是三個樣本。
       const doc = docs[lang][i] ?? docs[lang][0];
@@ -587,28 +394,12 @@ for (const model of models) {
     }
   }
 
-  const okAngles = angles.filter((a) => a.schemaOk);
   const okExtracts = extracts.filter((e) => e.schemaOk);
   const totalRels = okExtracts.reduce((s, e) => s + e.relations, 0);
   const totalFound = okExtracts.reduce((s, e) => s + e.quotesFound, 0);
 
   results.push({
     model: label,
-    angles: {
-      schemaOkRate:
-        angles.length === 0 ? null : angles.filter((a) => a.schemaOk).length / angles.length,
-      keptMean: mean(okAngles.map((a) => a.kept)),
-      seedRefValidRate:
-        okAngles.reduce((s, a) => s + a.seedRefsTotal, 0) === 0
-          ? null
-          : okAngles.reduce((s, a) => s + a.seedRefsValid, 0) /
-            okAngles.reduce((s, a) => s + a.seedRefsTotal, 0),
-      maxPairSimilarityMean: mean(
-        okAngles.map((a) => a.maxPairSimilarity).filter((v): v is number => v !== null),
-      ),
-      msMean: mean(angles.map((a) => a.ms)),
-      samples: okAngles[0]?.sample ?? [],
-    },
     extract: {
       schemaOkRate: okExtracts.length / extracts.length,
       entitiesMean: mean(okExtracts.map((e) => e.entities)),
@@ -620,7 +411,7 @@ for (const model of models) {
       failures: extracts.filter((e) => !e.schemaOk).map((e) => `${e.lang}: ${e.why ?? ''}`),
       sampleMiss: okExtracts.find((e) => e.sampleMiss !== null)?.sampleMiss ?? null,
     },
-    raw: { angles, extracts },
+    raw: { extracts },
   });
 }
 

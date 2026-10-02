@@ -248,38 +248,6 @@ export interface Run {
 
 // ── 擴展──────────────────────────────────────────
 
-export interface AngleSeed {
-  id: string;
-  title: string;
-}
-
-export interface Angle {
-  id: string;
-  ord: number;
-  question: string;
-  stance: string;
-  /**
-   * 這條角度是從既有的哪幾份長出來的。
-   *
-   * **設計稿在這裡寫的是「預估會找到幾個」**，而那個數字只可能是模型猜的。
-   * 這一欄是查得到也驗得了的，而且它說的是「這條角度憑什麼被提出來」。
-   */
-  seeds: AngleSeed[];
-  selected: boolean;
-  foundUrls: number;
-  newNodes: number;
-  newEdges: number;
-  code: string | null;
-}
-
-export interface ExpansionStart {
-  runId: string;
-  topic: string;
-  angles: Angle[];
-  /** 有幾份既有內容被拿去歸納視角。**0 代表這個專題是空的** */
-  seededFrom: number;
-}
-
 // ── 研究（v0.25.0，ADR-0033）─────────────────────
 //
 // server 的 `application/research-service.ts` 是定義，這裡是抄的
@@ -556,7 +524,7 @@ export interface ConnectionStatus {
  * `chat` 底下的任務。**這一組字串在 server 的 `domain/provider` 也有一份** ——
  * `tests/guards/chat-tasks.test.ts` 釘著兩邊一致（`web/` 與 server 是兩份建置）。
  */
-export type ChatTask = 'angles' | 'digest' | 'extract';
+export type ChatTask = 'digest' | 'extract';
 
 /**
  * **這個工具會用到模型的每一個地方。**
@@ -1088,28 +1056,11 @@ export const api = {
     }),
   runs: (slug: string) => request<Run[]>(`/api/cases/${enc(slug)}/runs`),
   run: (slug: string, runId: string) =>
-    request<{ run: Run; items: RunItem[]; angles: Angle[] }>(
-      `/api/cases/${enc(slug)}/runs/${enc(runId)}`,
-    ),
+    request<{ run: Run; items: RunItem[] }>(`/api/cases/${enc(slug)}/runs/${enc(runId)}`),
   cancelRun: (slug: string, runId: string) =>
     request<true>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/cancel`, { method: 'POST' }),
   runEventsUrl: (slug: string, runId: string) =>
     `/api/cases/${enc(slug)}/runs/${enc(runId)}/events`,
-
-  // ── 擴展──────────────────────────────────────
-  //
-  // **兩支端點，中間有一個人。** `startExpansion` 回的是子問題清單，
-  // 而它**不會開始抓** —— 那一步是 REQ-0004 的驗收條件，不是 UI 糖。
-  startExpansion: (slug: string, topic: string) =>
-    request<ExpansionStart>(`/api/cases/${enc(slug)}/runs`, {
-      method: 'POST',
-      body: JSON.stringify({ topic }),
-    }),
-  chooseAngles: (slug: string, runId: string, angles: string[]) =>
-    request<{ runId: string; total: number }>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/angles`, {
-      method: 'POST',
-      body: JSON.stringify({ angles }),
-    }),
 
   // ── 研究（Stage 19–20，ADR-0033）──────────────────────
   //
@@ -1386,10 +1337,6 @@ export const api = {
   /** **跟取消是兩件事。** 取消是「別再做下去了」，復原是「當作沒發生」。 */
   undoRun: (slug: string, runId: string) =>
     request<UndoReport>(`/api/cases/${enc(slug)}/runs/${enc(runId)}/undo`, { method: 'POST' }),
-  /** 丟掉一筆還沒開始的擴展草稿。**只有 `queued` 的刪得掉** —— 跑過的走 `undoRun`。 */
-  discardRun: (slug: string, runId: string) =>
-    request<{ runId: string }>(`/api/cases/${enc(slug)}/runs/${enc(runId)}`, { method: 'DELETE' }),
-
   /**
    * 結束 Cyclosa。**兩段式** —— 不帶 `force` 只回「有幾個作業在跑」，
    * 帶了才真的關。那道門在伺服器端，不是只在畫面上。

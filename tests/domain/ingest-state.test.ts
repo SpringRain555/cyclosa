@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  angleOutcome,
+  workOutcome,
   nextItemStatus,
   nextRunStatus,
   producedUsableOutput,
-  settleAngles,
+  settleWork,
   settleRun,
 } from '../../src/domain/ingest/state.js';
 
@@ -90,43 +90,41 @@ describe('部分失敗是一等公民', () => {
  */
 describe('切入角度的三種結局', () => {
   it('沒有碼就是乾淨的', () => {
-    expect(angleOutcome({ code: null, fatal: false, produced: true })).toBe('clean');
+    expect(workOutcome({ code: null, fatal: false, produced: true })).toBe('clean');
   });
 
   it('**有碼但做出了東西 ＝ 只做成一部分，不是失敗**', () => {
-    expect(angleOutcome({ code: 'PROVIDER_QUOTE_NOT_FOUND', fatal: false, produced: true })).toBe(
+    expect(workOutcome({ code: 'PROVIDER_QUOTE_NOT_FOUND', fatal: false, produced: true })).toBe(
       'degraded',
     );
   });
 
   it('有碼而且什麼都沒做出來才是失敗', () => {
-    expect(angleOutcome({ code: 'PROVIDER_TIMEOUT', fatal: false, produced: false })).toBe(
-      'failed',
-    );
+    expect(workOutcome({ code: 'PROVIDER_TIMEOUT', fatal: false, produced: false })).toBe('failed');
   });
 
   /** `error` 級的碼要整批停下來 —— 已經寫進去的東西不會因此消失，但這一條是失敗。 */
   it('`error` 級的碼一律是失敗，即使做出了東西', () => {
-    expect(angleOutcome({ code: 'PROVIDER_SANDBOX_VIOLATION', fatal: true, produced: true })).toBe(
+    expect(workOutcome({ code: 'PROVIDER_SANDBOX_VIOLATION', fatal: true, produced: true })).toBe(
       'failed',
     );
   });
 
   it('全部乾淨 → 已完成', () => {
-    expect(settleAngles(['clean', 'clean'])).toBe('complete');
+    expect(settleWork(['clean', 'clean'])).toBe('complete');
   });
 
   /** **這一條就是那次驗收抓到的東西。** */
   it('一條角度做出了東西但有碼 → 部分失敗，不是失敗', () => {
-    expect(settleAngles(['degraded'])).toBe('complete-partial');
+    expect(settleWork(['degraded'])).toBe('complete-partial');
   });
 
   it('有乾淨的也有失敗的 → 部分失敗', () => {
-    expect(settleAngles(['clean', 'failed'])).toBe('complete-partial');
+    expect(settleWork(['clean', 'failed'])).toBe('complete-partial');
   });
 
   it('一條都沒做出東西才是失敗', () => {
-    expect(settleAngles(['failed', 'failed'])).toBe('fail');
+    expect(settleWork(['failed', 'failed'])).toBe('fail');
   });
 
   /**
@@ -135,6 +133,6 @@ describe('切入角度的三種結局', () => {
    * 而不是下一個人讀這支函式時要自己想一遍。
    */
   it('空陣列回 complete（呼叫端擋在前面，所以走不到這裡）', () => {
-    expect(settleAngles([])).toBe('complete');
+    expect(settleWork([])).toBe('complete');
   });
 });

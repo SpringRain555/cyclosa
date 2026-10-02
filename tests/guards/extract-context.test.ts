@@ -22,7 +22,6 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 import {
-  TASK_ANGLES,
   TASK_DIGEST,
   TASK_EXTRACT,
   TASK_PLAN,
@@ -46,6 +45,8 @@ import {
   MAX_RELATION_CHARS,
 } from '../../src/domain/provider/plan.js';
 import {
+  PLAN_SCHEMA,
+  CANDIDATES_SCHEMA,
   DIGEST_SCHEMA,
   DIGEST_SYSTEM,
   digestUser,
@@ -59,19 +60,11 @@ import {
 } from '../../src/domain/provider/relations.js';
 import { MAX_QUOTE_CHARS, MIN_QUOTE_CHARS } from '../../src/domain/provider/quote.js';
 import {
-  MAX_ANGLES,
-  MAX_QUESTION_CHARS,
-  MAX_STANCE_CHARS,
-  MAX_URL_CHARS,
-  MAX_URLS_PER_ANGLE,
-  MAX_WHY_CHARS,
-} from '../../src/domain/provider/angles.js';
-import {
-  ANGLES_SCHEMA,
-  EXTRACT_SCHEMA,
-  MAX_TEXT_CHARS,
-  SOURCES_SCHEMA,
-} from '../../src/application/expansion-prompts.js';
+  MAX_CANDIDATE_URL_CHARS,
+  MAX_CANDIDATES_PER_DIRECTION,
+  MAX_CANDIDATE_WHY_CHARS,
+} from '../../src/domain/provider/candidates.js';
+import { EXTRACT_SCHEMA, MAX_TEXT_CHARS } from '../../src/application/extraction-prompts.js';
 
 describe('抽取的 context 門檻要蓋得住實際送出去的正文', () => {
   it('最壞的 tokenizer 之下，正文 ＋ 提示詞 ＋ 輸出仍在門檻內', () => {
@@ -84,8 +77,8 @@ describe('抽取的 context 門檻要蓋得住實際送出去的正文', () => {
     expect(TASK_EXTRACT.minContextTokens ?? 0).toBeGreaterThanOrEqual(need);
   });
 
-  it('**抽取的門檻要比歸納角度高** —— 角度吃的是標題清單，抽取吃的是整份正文', () => {
-    expect(TASK_EXTRACT.minContextTokens ?? 0).toBeGreaterThan(TASK_ANGLES.minContextTokens ?? 0);
+  it('抽取的門檻要比規劃高，抽取吃的是整份正文', () => {
+    expect(TASK_EXTRACT.minContextTokens ?? 0).toBeGreaterThan(TASK_PLAN.minContextTokens ?? 0);
   });
 
   it('抽取需要 json_schema —— 它是外部文字那三層防護的第二層', () => {
@@ -160,7 +153,7 @@ describe('規劃對話與初讀的 context 門檻，也要蓋得住實際送出�
 
 describe('送出去的請求要自己指定 context，不吃 Ollama 的預設', () => {
   it('`REQUIRED_CONTEXT_TOKENS` 蓋得住每一個任務', () => {
-    for (const task of [TASK_ANGLES, TASK_EXTRACT, TASK_PLAN, TASK_DIGEST]) {
+    for (const task of [TASK_EXTRACT, TASK_PLAN, TASK_DIGEST]) {
       expect(REQUIRED_CONTEXT_TOKENS).toBeGreaterThanOrEqual(task.minContextTokens ?? 0);
     }
   });
@@ -208,16 +201,16 @@ describe('送出去的請求要自己指定 context，不吃 Ollama 的預設', 
 describe('context 不夠會被擋下來，而且說得出差多少', () => {
   const capable = { ...NO_CAPABILITIES, json_schema: true };
 
-  it('剛好 8000（過得了角度那一關）的模型，抽取這一關過不了', () => {
-    const have = { ...capable, context_tokens: 8000 };
-    expect(missingFor(TASK_ANGLES, have).kind).toBe('ok');
+  it('過得了規劃那一關的模型，抽取這一關仍可能過不了', () => {
+    const have = { ...capable, context_tokens: 18000 };
+    expect(missingFor(TASK_PLAN, have).kind).toBe('ok');
 
     const match = missingFor(TASK_EXTRACT, have);
     expect(match.kind).toBe('missing');
     if (match.kind !== 'missing') return;
     // **旗標是空的，缺的是 context** —— 這正是原本會顯示成「缺少：（空白）」的那種情況
     expect(match.flags).toEqual([]);
-    expect(match.context).toEqual([24_000, 8000]);
+    expect(match.context).toEqual([24_000, 18000]);
   });
 
   it('context 宣告是 0 時放行 —— **不知道與很小是兩件事**', () => {
@@ -280,18 +273,17 @@ describe('抽取 schema 的上界要等於正規化實際執行的上界', () =>
  * 影響比抽取那一個小得多 —— 角度的輸出本來就短，撐不爆視窗。
  * 但使用者看得到：模型提了六條、畫面上只有五條，**而沒有任何地方說少的那條去哪了**。
  */
-describe('角度與來源的 schema 上界，也要等於正規化的門檻', () => {
-  it('角度：條數、子問題長度、立場長度', () => {
-    const angles = ANGLES_SCHEMA.properties.angles;
-    expect(angles.maxItems).toBe(MAX_ANGLES);
-    expect(angles.items.properties.question.maxLength).toBe(MAX_QUESTION_CHARS);
-    expect(angles.items.properties.stance.maxLength).toBe(MAX_STANCE_CHARS);
+describe('研究方向與來源的 schema 上界，也要等於正規化的門檻', () => {
+  it('方向：條數、標題長度', () => {
+    const directions = PLAN_SCHEMA.properties.directions;
+    expect(directions.maxItems).toBe(MAX_DIRECTIONS);
+    expect(directions.items.properties.title.maxLength).toBe(MAX_DIRECTION_TITLE_CHARS);
   });
 
   it('來源：候選數、URL 長度、理由長度', () => {
-    const candidates = SOURCES_SCHEMA.properties.candidates;
-    expect(candidates.maxItems).toBe(MAX_URLS_PER_ANGLE);
-    expect(candidates.items.properties.url.maxLength).toBe(MAX_URL_CHARS);
-    expect(candidates.items.properties.why.maxLength).toBe(MAX_WHY_CHARS);
+    const candidates = CANDIDATES_SCHEMA.properties.candidates;
+    expect(candidates.maxItems).toBe(MAX_CANDIDATES_PER_DIRECTION);
+    expect(candidates.items.properties.url.maxLength).toBe(MAX_CANDIDATE_URL_CHARS);
+    expect(candidates.items.properties.why.maxLength).toBe(MAX_CANDIDATE_WHY_CHARS);
   });
 });

@@ -173,7 +173,8 @@ describe('線上 chat 端點', () => {
   it('存得進去，讀回來是 openai，而且設定檔裡存的是變數名不是金鑰', async () => {
     const p = await saveOnline();
     // v1 升成 v2：兩個對話任務都走 openai，金鑰變數名在 openai 那條連線上。
-    expect(p.config.tasks['angles']?.via).toBe('openai');
+    expect(p.config.tasks).not.toHaveProperty('angles');
+    expect(p.config.tasks['extract']?.via).toBe('openai');
     expect(p.config.tasks['extract']?.via).toBe('openai');
     expect(p.config.connections.openai?.apiKeyEnv).toBe(KEY_ENV);
     const file = await readFile(join(localAppData, 'Cyclosa', 'providers.json'), 'utf8');
@@ -205,7 +206,7 @@ describe('線上 chat 端點', () => {
     const p = await saveOnline();
     expect(completions).toBe(0);
     const chatRows = p.tasks.filter((row) => row.via === 'openai');
-    expect(chatRows.length).toBe(2);
+    expect(chatRows.map((entry) => entry.task)).toEqual(['extract']);
     expect(chatRows.every((row) => row.jsonMode?.mode === 'unchecked')).toBe(true);
   });
 

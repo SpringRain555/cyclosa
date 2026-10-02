@@ -118,8 +118,8 @@ function openInReader(itemId: string): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(itemId)}`);
 }
 
-function openExpand(): void {
-  void router.push(`/case/${encodeURIComponent(slug.value)}/runs`);
+function openResearch(): void {
+  void router.push(`/case/${encodeURIComponent(slug.value)}/runs#research`);
 }
 
 function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }): void {
@@ -168,13 +168,7 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
 
         <button type="button" @click="store.reload()">{{ t.graph.toolbar.relayout }}</button>
 
-        <!--
-          擴展的入口在這裡（設計稿把它放在關聯圖的工具列上），
-          **而它按下去是跳到作業紀錄** —— 擴展產生的是一個 run，
-          而 run 的畫面就是那一頁。在這裡再開一個對話框，
-          等於同一件事有兩個入口與兩份狀態。
-        -->
-        <button type="button" @click="openExpand">{{ t.expand.open }}</button>
+        <button type="button" @click="openResearch">{{ t.research.open }}</button>
 
         <!--
           匯出的入口在工具列上（設計稿與 `ui-workflows` 都這樣寫），

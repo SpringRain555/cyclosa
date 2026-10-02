@@ -119,21 +119,6 @@ export const NO_CAPABILITIES: ProviderCapabilities = {
 // ── 這個工具裡的兩個任務 ──────────────────────────────────
 
 /**
- * 產生多視角子問題。
- *
- * **不需要 `browse`** —— 視角是從**這個專題裡已經有的東西**歸納出來的
- * （STORM 的 Perspective-Guided Question Asking，`market-scan.md` 發現 ⑥）。
- * 一個要上網才想得出角度的擴展，跟「叫 LLM 隨便發散」沒有差別。
- *
- * **需要 `json_schema`** —— 回來的東西要當成清單顯示給人勾選。
- * 靠正則從散文裡撈問句，會在模型換一種寫法時安靜地少撈幾條。
- */
-export const TASK_ANGLES: TaskRequirement = {
-  needs: ['json_schema'],
-  minContextTokens: 8000,
-};
-
-/**
  * 依一條子問題去找候選來源。
  *
  * **需要 `browse`** —— 這是唯一真的需要上網的一步。
@@ -153,8 +138,8 @@ export const TASK_FIND_SOURCES: TaskRequirement = {
  * —— 那正是這一步最不能發生的事：少的那一條使用者根本不知道它存在過。
  *
  * `browse` 是**有就用**：Claude Code 有（`--tools WebSearch`）、OpenAI 相容 API 量過會搜尋的也有
- * （ADR-0034），本機 Ollama 沒有。沒有它也談得出方向 —— 素材是這個專題裡已經有的東西
- * （`TASK_ANGLES` 的同一個理由）。**所以它不進 `needs`**：列進去等於把本機那條路關掉，
+ * （ADR-0034），本機 Ollama 沒有。沒有它也談得出方向 —— 素材是這個專題裡已經有的東西。
+ * **所以它不進 `needs`**：列進去等於把本機那條路關掉，
  * 而畫面上只會說「缺少 browse」，使用者不會知道「其實可以談，只是不會上網查」。
  * 差別由畫面說（ui-workflows §4）。
  *
@@ -303,7 +288,7 @@ export const TASK_DIGEST: TaskRequirement = {
  * **`digest`（初讀）是第三個**（Stage 21）：它讀的是研究抓回來的每一份，而且每一份都讀，
  * 所以「走哪一條、花不花錢」要能跟抽取分開挑 —— 抽取走線上端點、初讀留在本機是很自然的組合。
  */
-export const CHAT_TASKS = ['angles', 'extract', 'digest'] as const;
+export const CHAT_TASKS = ['extract', 'digest'] as const;
 export type ChatTask = (typeof CHAT_TASKS)[number];
 
 /**
@@ -340,13 +325,12 @@ export const TASK_EMBED: TaskRequirement = {
  */
 /**
  * 順序就是設定頁「模型分工」那張表的列順序（守門釘著兩邊一樣）。
- * **照流程排**：先談出方向、再找來源、初讀抓回來的、（角度是舊流程，Stage 22 退場）、抽取、向量。
+ * **照流程排**：先談出方向、再找來源、初讀抓回來的、抽取、向量。
  */
 export const MODEL_TASKS = [
   { task: 'plan', role: 'agent', requirement: TASK_PLAN },
   { task: 'find-sources', role: 'agent', requirement: TASK_FIND_SOURCES },
   { task: 'digest', role: 'chat', requirement: TASK_DIGEST },
-  { task: 'angles', role: 'chat', requirement: TASK_ANGLES },
   { task: 'extract', role: 'chat', requirement: TASK_EXTRACT },
   { task: 'embed', role: 'embed', requirement: TASK_EMBED },
 ] as const satisfies readonly {
@@ -371,7 +355,6 @@ export function requirementOfTask(task: ModelTask): TaskRequirement {
  * 兩份需求表會漂，而漂掉的那一份會讓閘門對某個任務放行。
  */
 export const CHAT_TASK_REQUIREMENTS: Readonly<Record<ChatTask, TaskRequirement>> = {
-  angles: TASK_ANGLES,
   extract: TASK_EXTRACT,
   digest: TASK_DIGEST,
 };
@@ -418,7 +401,6 @@ export const WORST_TOKENS_PER_CHAR = 1.2;
  * 是在燒顯示記憶體，而這個工具要能在只有一張消費級顯示卡的機器上跑。
  */
 export const REQUIRED_CONTEXT_TOKENS = Math.max(
-  TASK_ANGLES.minContextTokens ?? 0,
   TASK_EXTRACT.minContextTokens ?? 0,
   // 規劃對話也可以走本機 Ollama（ADR-0033 D5），而它送的是攤平的整段對話 ——
   // 漏掉它的話，`num_ctx` 會比這個任務真正需要的小，而症狀是對話前半被安靜截掉。

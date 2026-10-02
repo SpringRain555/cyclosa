@@ -73,20 +73,12 @@ const ollamaUrl = ref(OLLAMA_DEFAULT_URL);
 const openaiUrl = ref('');
 /** **變數的名字，不是金鑰。** 金鑰不進任何一個檔（2026-09-08 的決定）。 */
 const openaiKeyEnv = ref('');
-const TASK_ORDER: readonly ModelTask[] = [
-  'plan',
-  'find-sources',
-  'digest',
-  'angles',
-  'extract',
-  'embed',
-];
+const TASK_ORDER: readonly ModelTask[] = ['plan', 'find-sources', 'digest', 'extract', 'embed'];
 function emptyTasks(): Record<ModelTask, TaskSetting> {
   return {
     plan: { via: 'cli', model: '' },
     'find-sources': { via: 'cli', model: '' },
     digest: { via: 'ollama', model: '' },
-    angles: { via: 'ollama', model: '' },
     extract: { via: 'ollama', model: '' },
     embed: { via: 'ollama', model: '' },
   };
@@ -132,7 +124,6 @@ watch(openaiKeyEnv, (value) => {
 const RECOMMENDED_EMBED = 'hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16';
 const RECOMMENDED_CHAT = 'granite4.2:8b';
 const RECOMMENDED_TASK: Record<ChatTask, string> = {
-  angles: 'granite4.2:8b',
   extract: RECOMMENDED_CHAT,
   digest: RECOMMENDED_CHAT,
 };

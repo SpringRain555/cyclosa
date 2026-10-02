@@ -1,9 +1,9 @@
 import { join } from 'node:path';
 import {
-  angleOutcome,
+  workOutcome,
   nextRunStatus,
   settleWork,
-  type AngleOutcome,
+  type WorkOutcome,
 } from '../domain/ingest/state.js';
 import { levelOf } from '../domain/errors/codes.js';
 import { chargeTask, missingFor, TASK_EXTRACT, type TaskCosts } from '../domain/provider/index.js';
@@ -29,8 +29,8 @@ import { correlationId, newId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { callExtract } from './extraction-call.js';
-import { applyExtraction } from './expand-service.js';
-import { EXTRACT_SYSTEM, extractUser } from './expansion-prompts.js';
+import { applyExtraction } from './extraction-service.js';
+import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
 import { recordModelCall } from './model-call-log.js';
 import {
   openResearchCase,
@@ -250,7 +250,7 @@ async function processBuild(
   state: registry.ActiveRun,
 ): Promise<void> {
   let db: DatabaseSync | null = null;
-  const outcomes: AngleOutcome[] = [];
+  const outcomes: WorkOutcome[] = [];
   let taskCosts: TaskCosts = {};
   try {
     const opened = await openResearchCase(dataRoot, slug);
@@ -420,7 +420,7 @@ async function processBuild(
           code,
           now: Date.now(),
         });
-      const outcome = angleOutcome({
+      const outcome = workOutcome({
         code,
         fatal: code !== null && levelOf(code) === 'error',
         produced: newEdges > 0 || newNodes > 0,

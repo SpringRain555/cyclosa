@@ -9,20 +9,20 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_BUDGET,
   EMPTY_BUDGET_STATE,
-  MAX_ANGLES,
-  MAX_URLS_PER_ANGLE,
+  MAX_DIRECTIONS,
+  MAX_CANDIDATES_PER_DIRECTION,
   MIN_QUOTE_CHARS,
   NO_CAPABILITIES,
   SANDBOX_ALLOWED_EXTENSIONS,
-  TASK_ANGLES,
+  TASK_PLAN,
   TASK_FIND_SOURCES,
   charge,
   entityKey,
   locateQuote,
   mayContinue,
   missingFor,
-  normalizeAngles,
-  normalizeCandidates,
+  normalizePlan,
+  normalizeResearchCandidates,
   normalizeExtraction,
   sandboxViolations,
   type ProviderCapabilities,
@@ -47,7 +47,7 @@ describe('能力配對', () => {
   });
 
   it('沒設定任何 provider 時，缺的是這個任務要的每一樣', () => {
-    const result = missingFor(TASK_ANGLES, NO_CAPABILITIES);
+    const result = missingFor(TASK_PLAN, NO_CAPABILITIES);
     expect(result.kind).toBe('missing');
     if (result.kind === 'missing') expect(result.flags).toEqual(['json_schema']);
   });
@@ -60,17 +60,17 @@ describe('能力配對', () => {
    * 放行一個其實不夠大的，會拿到一個來自 provider 自己的明確錯誤。
    */
   it('context_tokens 是 0 的時候放行', () => {
-    expect(missingFor(TASK_ANGLES, { ...FULL, context_tokens: 0 })).toEqual({ kind: 'ok' });
+    expect(missingFor(TASK_PLAN, { ...FULL, context_tokens: 0 })).toEqual({ kind: 'ok' });
   });
 
   it('context_tokens 有值但不夠大的時候擋下來，而且說出兩個數字', () => {
-    const result = missingFor(TASK_ANGLES, { ...FULL, context_tokens: 2048 });
-    expect(result).toEqual({ kind: 'missing', flags: [], context: [8000, 2048] });
+    const result = missingFor(TASK_PLAN, { ...FULL, context_tokens: 2048 });
+    expect(result).toEqual({ kind: 'missing', flags: [], context: [18000, 2048] });
   });
 
   /** 產生視角不需要上網 —— 它是**從既有內容歸納**的（STORM）。 */
   it('產生視角不要求 browse', () => {
-    expect(TASK_ANGLES.needs).not.toContain('browse');
+    expect(TASK_PLAN.needs).not.toContain('browse');
   });
 });
 
@@ -128,66 +128,59 @@ describe('三種上限', () => {
   });
 });
 
-describe('切入角度的正規化', () => {
+describe('研究方向的正規化', () => {
   it('丟掉沒有問題文字的，保留其餘', () => {
-    const out = normalizeAngles(
-      [{ question: '  誰付的錢？ ', stance: '資金流向', seeds: [0] }, { question: '' }, null],
-      3,
-    );
-    expect(out).toEqual([{ question: '誰付的錢？', stance: '資金流向', seeds: [0] }]);
+    const out = normalizePlan({
+      directions: [{ title: '  誰付的錢？ ', what: '資金流向' }, { title: '' }, null],
+    });
+    expect(out.directions).toEqual([
+      { title: '誰付的錢？', what: '資金流向', expect: '', keywords: [] },
+    ]);
   });
 
   /** 「X 是誰？」與「X 是誰」在畫面上是同一條，收兩條就是在灌水。 */
   it('去掉標點之後相同的算重複', () => {
-    const out = normalizeAngles(
-      [
-        { question: '他是誰？', stance: '', seeds: [] },
-        { question: '他是誰', stance: '', seeds: [] },
-      ],
-      0,
-    );
-    expect(out).toHaveLength(1);
+    const out = normalizePlan({ directions: [{ title: '他是誰？' }, { title: '他是誰' }] });
+    expect(out.directions).toHaveLength(1);
   });
 
-  /** 編號指到不存在的第幾份 —— **丟掉那個編號，不去猜它想指哪一個**。 */
-  it('超出範圍的種子編號直接丟掉', () => {
-    const out = normalizeAngles([{ question: '這是一條角度', stance: '', seeds: [0, 5, -1] }], 2);
-    expect(out[0]?.seeds).toEqual([0]);
+  it('研究方向不採用舊流程的種子編號', () => {
+    const out = normalizePlan({ directions: [{ title: '這是一條方向', seeds: [0, 5, -1] }] });
+    expect(out.directions[0]).not.toHaveProperty('seeds');
   });
 
-  it('最多只收 MAX_ANGLES 條', () => {
-    const many = Array.from({ length: MAX_ANGLES + 4 }, (_, i) => ({
-      question: `第 ${i} 條角度是什麼`,
-      stance: '',
-      seeds: [],
+  it('最多只收 MAX_DIRECTIONS 條，並回報超出上限', () => {
+    const many = Array.from({ length: MAX_DIRECTIONS + 4 }, (_, index) => ({
+      title: `第 ${index} 條方向是什麼`,
     }));
-    expect(normalizeAngles(many, 0)).toHaveLength(MAX_ANGLES);
+    expect(normalizePlan({ directions: many }).directions).toHaveLength(MAX_DIRECTIONS);
+    expect(normalizePlan({ directions: many }).overflow).toBe(true);
   });
 
   it('完全不是陣列的東西回空清單，不丟例外', () => {
-    expect(normalizeAngles('大概是這樣', 0)).toEqual([]);
-    expect(normalizeAngles(null, 0)).toEqual([]);
+    expect(normalizePlan('大概是這樣').directions).toEqual([]);
+    expect(normalizePlan(null).directions).toEqual([]);
   });
 });
 
 describe('候選網址的正規化', () => {
   it('只留 http／https', () => {
-    const out = normalizeCandidates([
+    const out = normalizeResearchCandidates([
       { url: 'https://example.com/a', why: '相關' },
       { url: 'file:///C:/secrets.txt', why: '本機檔案' },
       { url: 'javascript:alert(1)', why: '' },
     ]);
-    expect(out.map((c) => c.url)).toEqual(['https://example.com/a']);
+    expect(out.candidates.map((candidate) => candidate.url)).toEqual(['https://example.com/a']);
   });
 
   it('同一個網址只收一次，而且有數量上限', () => {
-    const many = Array.from({ length: MAX_URLS_PER_ANGLE + 3 }, (_, i) => ({
-      url: `https://example.com/${i}`,
+    const many = Array.from({ length: MAX_CANDIDATES_PER_DIRECTION + 3 }, (_, index) => ({
+      url: `https://example.com/${index}`,
       why: '',
     }));
-    expect(normalizeCandidates([...many, { url: 'https://example.com/0', why: '' }])).toHaveLength(
-      MAX_URLS_PER_ANGLE,
-    );
+    expect(
+      normalizeResearchCandidates([...many, { url: 'https://example.com/0', why: '' }]).candidates,
+    ).toHaveLength(MAX_CANDIDATES_PER_DIRECTION);
   });
 });
 

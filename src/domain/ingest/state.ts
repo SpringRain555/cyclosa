@@ -158,15 +158,15 @@ export function settleRun(succeeded: number, failed: number): RunAction {
  * 它可能**做出了東西，同時有一部分沒做成**
  * （例如模型抽了 8 條關係，其中 5 條的引文在原文裡找不到）。
  */
-export type AngleOutcome = 'clean' | 'degraded' | 'failed';
+export type WorkOutcome = 'clean' | 'degraded' | 'failed';
 
-export function angleOutcome(input: {
+export function workOutcome(input: {
   readonly code: string | null;
   /** 那個碼是不是 `error` 級 —— 那種要整批停下來 */
   readonly fatal: boolean;
   /** 這條角度有沒有做出任何東西（找到網址、寫進節點或關聯）*/
   readonly produced: boolean;
-}): AngleOutcome {
+}): WorkOutcome {
   if (input.code === null) return 'clean';
   if (input.fatal || !input.produced) return 'failed';
   return 'degraded';
@@ -189,11 +189,9 @@ export function angleOutcome(input: {
  * **「部分失敗被併進失敗」是這個專案明寫要避免的那條**，
  * 而它在一支只認得兩個數字的函式後面又發生了一次。
  */
-export function settleWork(outcomes: readonly AngleOutcome[]): RunAction {
+export function settleWork(outcomes: readonly WorkOutcome[]): RunAction {
   if (outcomes.every((o) => o === 'clean')) return 'complete';
   // **只要有一條做出了東西，這次作業就不是「失敗」。**
   if (outcomes.some((o) => o === 'clean' || o === 'degraded')) return 'complete-partial';
   return 'fail';
 }
-
-export { settleWork as settleAngles };

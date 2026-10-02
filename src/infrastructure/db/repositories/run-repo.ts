@@ -298,7 +298,7 @@ export function cancelPendingItems(db: DatabaseSync, runId: string, now: number)
  *
  * **只有 `running`，`queued` 不算。** 這一條不是保守，是正確：
  * 擴展的 `排隊` 的意思是**「在等你勾」**（`POST /runs` 產生切入角度之後
- * 就停在這裡），而那個狀態**撐得過重新啟動** —— `chooseAngles` 只看
+ * 就停在這裡），而那個狀態**撐得過重新啟動** —— 舊的角度選擇只看
  * 資料庫裡的 `status === 'queued'`，不問記憶體裡有沒有這個 run。
  * 把它掃掉等於把一個使用者還沒回答的問題丟掉。
  *
@@ -328,106 +328,6 @@ export function markRunEnded(
 }
 
 // ── 切入角度（schema v4）────────────────────────────────────
-
-export interface RunAngleRow {
-  readonly id: string;
-  readonly runId: string;
-  readonly ord: number;
-  readonly question: string;
-  readonly stance: string;
-  /** 這條角度是從專題裡既有的哪幾份長出來的（`item.id`）*/
-  readonly seeds: readonly string[];
-  readonly selected: boolean;
-  readonly foundUrls: number;
-  readonly newNodes: number;
-  readonly newEdges: number;
-  readonly code: string | null;
-}
-
-function toAngle(row: Raw): RunAngleRow {
-  let seeds: string[] = [];
-  try {
-    const parsed: unknown = JSON.parse(String(row['seeds_json'] ?? '[]'));
-    if (Array.isArray(parsed)) seeds = parsed.map((s) => String(s));
-  } catch {
-    // 壞掉的 JSON 就當成沒有種子。**這一欄是說明，不是規則** ——
-    // 為了它讓整張作業紀錄打不開，代價不成比例。
-  }
-  return {
-    id: String(row['id']),
-    runId: String(row['run_id']),
-    ord: Number(row['ord'] ?? 0),
-    question: String(row['question'] ?? ''),
-    stance: String(row['stance'] ?? ''),
-    seeds,
-    selected: Number(row['selected'] ?? 0) === 1,
-    foundUrls: Number(row['found_urls'] ?? 0),
-    newNodes: Number(row['new_nodes'] ?? 0),
-    newEdges: Number(row['new_edges'] ?? 0),
-    code: str(row['code']),
-  };
-}
-
-export function insertAngle(
-  db: DatabaseSync,
-  input: {
-    readonly id: string;
-    readonly runId: string;
-    readonly ord: number;
-    readonly question: string;
-    readonly stance: string;
-    readonly seeds: readonly string[];
-    readonly now: number;
-  },
-): void {
-  db.prepare(
-    `INSERT INTO run_angle (id, run_id, ord, question, stance, seeds_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    input.id,
-    input.runId,
-    input.ord,
-    input.question,
-    input.stance,
-    JSON.stringify(input.seeds),
-    input.now,
-  );
-}
-
-export function listAngles(db: DatabaseSync, runId: string): readonly RunAngleRow[] {
-  const rows = db
-    .prepare('SELECT * FROM run_angle WHERE run_id = ? ORDER BY ord')
-    .all(runId) as Raw[];
-  return rows.map(toAngle);
-}
-
-/**
- * 勾選。**沒被勾的那幾條留著而且留成「沒被勾」** ——
- * 「工具提了六條、你只要兩條」是這次作業發生過的事實的一部分。
- */
-export function selectAngles(db: DatabaseSync, runId: string, ids: readonly string[]): number {
-  db.prepare('UPDATE run_angle SET selected = 0 WHERE run_id = ?').run(runId);
-  if (ids.length === 0) return 0;
-  const stmt = db.prepare('UPDATE run_angle SET selected = 1 WHERE run_id = ? AND id = ?');
-  let changed = 0;
-  for (const id of ids) changed += Number(stmt.run(runId, id).changes);
-  return changed;
-}
-
-export function finishAngle(
-  db: DatabaseSync,
-  input: {
-    readonly id: string;
-    readonly foundUrls: number;
-    readonly newNodes: number;
-    readonly newEdges: number;
-    readonly code: string | null;
-  },
-): void {
-  db.prepare(
-    'UPDATE run_angle SET found_urls = ?, new_nodes = ?, new_edges = ?, code = ? WHERE id = ?',
-  ).run(input.foundUrls, input.newNodes, input.newEdges, input.code, input.id);
-}
 
 /** 一條作業項目寫進去幾條邊。匯入那一條路永遠是 0，所以它沒有這一支。 */
 export function setRunItemEdges(db: DatabaseSync, id: string, newEdges: number): void {
@@ -523,16 +423,4 @@ export function deleteOrphanEntities(db: DatabaseSync): number {
   const stmt = db.prepare('DELETE FROM entity WHERE id = ?');
   for (const row of rows) stmt.run(String(row['id']));
   return rows.length;
-}
-
-/**
- * 丟掉一筆**還沒開始**的擴展草稿。
- *
- * 呼叫端要先確認 `status === 'queued'`：那種 run 只有 `run_angle`（跟著 CASCADE 走），
- * `total` 是 0、沒有 `run_item`、沒有任何 item 或 edge 指著它 —— 所以刪它就是刪一列。
- * 跑過的 run 不走這裡：它寫進去的東西要留（「復原」是另一顆按鈕，ADR-0023）。
- */
-export function deleteDraftRun(db: DatabaseSync, id: string): boolean {
-  const result = db.prepare(`DELETE FROM run WHERE id = ? AND status = 'queued'`).run(id);
-  return Number(result.changes) === 1;
 }

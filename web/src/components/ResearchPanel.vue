@@ -736,7 +736,7 @@ const hitsText = computed(() => {
               <span v-if="m.role === 'model'" class="turn-meta muted">
                 {{ m.model }}
                 <template v-if="m.costUsd !== null && m.costUsd > 0">
-                  · {{ fill(t.expand.cost, { usd: m.costUsd.toFixed(2) }) }}
+                  · {{ fill(t.research.cost, { usd: m.costUsd.toFixed(2) }) }}
                 </template>
               </span>
             </li>

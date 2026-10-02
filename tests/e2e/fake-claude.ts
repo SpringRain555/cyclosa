@@ -38,7 +38,7 @@ if (log) await appendFile(log, JSON.stringify({ cwd: process.cwd(), prompt, argv
 
 const mode = process.env['CYCLOSA_FAKE_CLAUDE_MODE'] ?? 'ok';
 // **這是違規的那一種**：agent 自己把一份網頁存進沙箱。
-if (mode === 'sandbox') await writeFile('grabbed.html', '<html>不該在這裡</html>', 'utf8');
+if (mode === 'sandbox' || mode === 'sandbox-fail') await writeFile('grabbed.html', '<html>不該在這裡</html>', 'utf8');
 const slowKey = process.env['CYCLOSA_FAKE_CLAUDE_SLOW_KEY'];
 if (mode === 'slow' || (slowKey && prompt.includes(slowKey))) {
   await new Promise((r) => setTimeout(r, 60000));
@@ -47,7 +47,7 @@ if (mode === 'slow' || (slowKey && prompt.includes(slowKey))) {
 const cost = Number(process.env['CYCLOSA_FAKE_CLAUDE_COST'] ?? '0.05');
 process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init' }) + '\\n');
 
-if (mode === 'fail') {
+if (mode === 'fail' || mode === 'sandbox-fail') {
   process.stdout.write(
     JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true, total_cost_usd: cost }) + '\\n',
   );

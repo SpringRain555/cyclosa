@@ -11,7 +11,7 @@
  */
 export * from './capabilities.js';
 export * from './budget.js';
-export * from './angles.js';
+export * from './source-hints.js';
 export * from './plan.js';
 export * from './candidates.js';
 export * from './digest.js';

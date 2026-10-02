@@ -1,7 +1,7 @@
 import type { ErrorCode } from '../domain/errors/codes.js';
 import { normalizeExtraction, type Extraction } from '../domain/provider/index.js';
 import type { ChatProvider } from '../infrastructure/providers/types.js';
-import { EXTRACT_SCHEMA, EXTRACT_SYSTEM, extractUser } from './expansion-prompts.js';
+import { EXTRACT_SCHEMA, EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
 
 type CallExtractOutcome =
   | {

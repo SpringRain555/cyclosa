@@ -88,7 +88,7 @@ describe('v1 的設定檔原地升版', () => {
     });
     expect(config.connections.openai).toBeNull();
     // 覆寫優先；沒覆寫的跟著預設模型 —— 這正是 v1 的語意。
-    expect(config.tasks.angles).toEqual({ via: 'ollama', model: 'granite4.2:8b' });
+    expect(config.tasks).not.toHaveProperty('angles');
     expect(config.tasks.extract).toEqual({ via: 'ollama', model: 'qwen3.5:4b' });
     expect(config.tasks['find-sources']).toEqual({ via: 'cli', model: 'sonnet' });
     expect(config.tasks.embed).toEqual({ via: 'ollama', model: 'qwen3-embedding:4b' });
@@ -117,7 +117,7 @@ describe('v1 的設定檔原地升版', () => {
       apiKeyEnv: null,
     });
     expect(config.connections.cli).toBeNull();
-    expect(config.tasks.angles).toEqual({ via: 'openai', model: 'gpt-x' });
+    expect(config.tasks.digest).toEqual({ via: 'ollama', model: '' });
     expect(config.tasks.extract).toEqual({ via: 'openai', model: 'gpt-x' });
     expect(config.tasks.embed).toEqual({ via: 'ollama', model: 'bge-m3' });
   });
@@ -129,7 +129,7 @@ describe('v1 的設定檔原地升版', () => {
       chat: { baseUrl: 'http://127.0.0.1:11434', model: 'gemma4:31b' },
       agent: { command: 'claude', args: [] },
     });
-    expect(config.tasks.angles).toEqual({ via: 'ollama', model: 'gemma4:31b' });
+    expect(config.tasks.digest).toEqual({ via: 'ollama', model: '' });
     expect(config.tasks.extract).toEqual({ via: 'ollama', model: 'gemma4:31b' });
     // **空字串與 undefined 在這裡差很多**：前者讓 `--model` 整個不帶，
     // 後者會被 `String()` 變成 'undefined' 送給 CLI。
@@ -176,7 +176,6 @@ describe('v2 的形狀', () => {
         plan: { via: 'cli' as const, model: '' },
         'find-sources': { via: 'cli' as const, model: '' },
         digest: { via: 'ollama' as const, model: 'granite4.2:8b' },
-        angles: { via: 'ollama' as const, model: 'granite4.2:8b' },
         extract: { via: 'openai' as const, model: 'gpt-x' },
         embed: { via: 'ollama' as const, model: 'qwen3-embedding:4b' },
       },
@@ -199,7 +198,7 @@ describe('v2 的形狀', () => {
     });
     expect(Object.keys(config.tasks).sort()).toEqual(MODEL_TASKS.map((t) => t.task).sort());
     expect(config.tasks.extract.model).toBe('x');
-    expect(config.tasks.angles.model).toBe('');
+    expect(config.tasks.digest.model).toBe('');
   });
 
   it('`via` 不在准許的清單裡就退回第一個准許的', () => {
@@ -209,18 +208,18 @@ describe('v2 的形狀', () => {
       tasks: {
         embed: { via: 'openai', model: 'text-embedding-3' },
         'find-sources': { via: 'ollama', model: '' },
-        angles: { via: 'cli', model: 'x' },
+        digest: { via: 'cli', model: 'x' },
       },
     });
     expect(config.tasks.embed.via).toBe('ollama');
     expect(config.tasks['find-sources'].via).toBe('cli');
-    expect(config.tasks.angles.via).toBe('ollama');
+    expect(config.tasks.digest.via).toBe('ollama');
   });
 
   it('每個任務可以走哪些連線是由角色推出來的', () => {
     // 找來源：CLI 的搜尋是參數給的，OpenAI 相容 API 的搜尋是量的（v0.24.2，ADR-0034）。
     expect(viaOptionsOf('find-sources')).toEqual(['cli', 'openai']);
-    expect(viaOptionsOf('angles')).toEqual(['ollama', 'openai']);
+    expect(viaOptionsOf('digest')).toEqual(['ollama', 'openai']);
     expect(viaOptionsOf('extract')).toEqual(['ollama', 'openai']);
     expect(viaOptionsOf('embed')).toEqual(['ollama']);
   });
@@ -241,7 +240,7 @@ describe('v2 的形狀', () => {
       tasks: { extract: { via: 'openai', model: 'm' } },
     });
     expect(httpConnectionFor(config, 'extract')?.baseUrl).toBe('https://x/v1');
-    expect(httpConnectionFor(config, 'angles')?.baseUrl).toBe(OLLAMA_DEFAULT_URL);
+    expect(httpConnectionFor(config, 'digest')?.baseUrl).toBe(OLLAMA_DEFAULT_URL);
     expect(httpConnectionFor(config, 'find-sources')).toBeNull();
   });
 
@@ -276,6 +275,20 @@ describe('金鑰欄位存的是名字不是金鑰', () => {
 });
 
 describe('建議值', () => {
+  it('v2 舊 angles 鍵讀得進來，但不再是可用任務；其餘設定不變', () => {
+    const config = parseConfig({
+      version: 2,
+      tasks: {
+        angles: { via: 'ollama', model: 'old-angle-model' },
+        extract: { via: 'openai', model: 'extract-model' },
+        digest: { via: 'ollama', model: 'digest-model' },
+      },
+    });
+    expect(config.tasks).not.toHaveProperty('angles');
+    expect(config.tasks.extract).toEqual({ via: 'openai', model: 'extract-model' });
+    expect(config.tasks.digest).toEqual({ via: 'ollama', model: 'digest-model' });
+    expect(MODEL_TASKS.map((entry) => entry.task)).not.toContain('angles');
+  });
   it('逐任務的建議表跟 CHAT_TASKS 是同一組鍵，而且抽取就是預設模型', () => {
     expect(Object.keys(RECOMMENDED_TASK_MODELS).sort()).toEqual([...CHAT_TASKS].sort());
     for (const task of CHAT_TASKS) expect(RECOMMENDED_TASK_MODELS[task].length).toBeGreaterThan(0);

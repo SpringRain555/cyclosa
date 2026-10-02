@@ -2,10 +2,9 @@
  * 記一次模型呼叫（v0.22.0 的診斷開關；研究的規劃與蒐集用這一支）。
  *
  * **開關預設是關的**（`providers.json` 的 `diagnostics`）。放在用例層而不是 provider 裡，
- * 理由跟 `expand-service.ts` 那一份一樣：provider 不知道自己正在做哪一個任務、哪一個專題，
+ * provider 不知道自己正在做哪一個任務、哪一個專題，
  * 而**該記哪些任務是一個判斷**（`domain/provider/call-record.ts` 那張表）。
  *
- * 舊的擴展有自己的一份（跟著它在 Stage 22 退場）；新的流程共用這一份。
  * 寫失敗不會讓作業失敗（`appendModelCall` 自己吞）。
  */
 import { endpointOf, type ModelCallRecord } from '../domain/provider/call-record.js';

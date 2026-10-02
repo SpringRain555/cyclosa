@@ -7,10 +7,10 @@
  *   2. **每一項的失敗各自帶自己的碼與繁中訊息**，不是一個「匯入失敗」
  *   3. **`部分失敗` 不是「失敗」的一種**：成功幾個、失敗幾個、原因各是什麼
  */
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { api, type Angle, type ApiError, type RebuildReport, type Run, type RunItem } from '../api';
+import { api, type ApiError, type RebuildReport, type Run, type RunItem } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import ResearchPanel from '../components/ResearchPanel.vue';
@@ -28,20 +28,7 @@ const runId = computed(() => {
 const runList = ref<Run[]>([]);
 const run = ref<Run | null>(null);
 const runItems = ref<RunItem[]>([]);
-const runAngles = ref<Angle[]>([]);
 const error = ref<ApiError | null>(null);
-
-// ── 擴展────────────────────────────────────────
-//
-// **兩階段之間有一個人。** `startExpansion` 回的是子問題清單而不會開始抓，
-// 使用者勾選之後 `chooseAngles` 才真的開始（REQ-0004 的驗收條件）。
-const topic = ref('');
-const expanding = ref(false);
-/** 第一階段的結果。**不是 null 就代表「等你勾」**，而畫面要說出這件事 */
-const draft = ref<{ runId: string; angles: Angle[]; seededFrom: number } | null>(null);
-const picked = ref<Set<string>>(new Set());
-/** 跟 `MAX_SELECTED_ANGLES` 一致 —— 每條角度要花 2 次呼叫 */
-const MAX_PICK = 5;
 
 const urls = ref('');
 const busy = ref(false);
@@ -68,7 +55,6 @@ async function loadRun(): Promise<void> {
   closeStream();
   run.value = null;
   runItems.value = [];
-  runAngles.value = [];
   if (id === null) return;
 
   const result = await api.run(slug.value, id);
@@ -78,7 +64,6 @@ async function loadRun(): Promise<void> {
   }
   run.value = result.data.run;
   runItems.value = result.data.items;
-  runAngles.value = result.data.angles;
 
   // 還在跑就接上 SSE。**跑完了就不接** —— 那條端點會立刻回一個結束事件。
   if (result.data.run.live) subscribe(id);
@@ -91,12 +76,7 @@ function subscribe(id: string): void {
     if (event['type'] === 'throttled') {
       throttleNow.value = { host: String(event['host']), ms: Number(event['waitedMs']) };
     }
-    if (
-      event['type'] === 'item' ||
-      event['type'] === 'angle' ||
-      event['type'] === 'direction' ||
-      event['type'] === 'settled'
-    ) {
+    if (event['type'] === 'item' || event['type'] === 'direction' || event['type'] === 'settled') {
       throttleNow.value = null;
       void refreshRun(id);
     }
@@ -113,11 +93,19 @@ async function refreshRun(id: string): Promise<void> {
   if (!result.ok) return;
   run.value = result.data.run;
   runItems.value = result.data.items;
-  runAngles.value = result.data.angles;
 }
 
 watch(slug, () => void loadRuns(), { immediate: true });
 watch(runId, () => void loadRun(), { immediate: true });
+watch(
+  () => route.hash,
+  async (hash) => {
+    if (hash !== '#research') return;
+    await nextTick();
+    document.getElementById('research')?.scrollIntoView({ block: 'start' });
+  },
+  { immediate: true, flush: 'post' },
+);
 
 function openRun(id: string): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/runs/${encodeURIComponent(id)}`);
@@ -173,25 +161,6 @@ async function submitFiles(files: FileList | null): Promise<void> {
   if (runId.value === started.data.runId) await refreshRun(started.data.runId);
 }
 
-/** 產生了角度、還沒勾的擴展。`queued` 在匯入上是真的在排隊，在擴展上是「在等你勾」（state-machines.md）。 */
-function isDraft(r: Run): boolean {
-  return r.kind === 'expand' && r.status === 'queued' && !r.live;
-}
-
-async function discard(r: Run): Promise<void> {
-  if (!window.confirm(t.runControl.discardConfirm)) return;
-  busyControl.value = true;
-  const result = await api.discardRun(slug.value, r.id);
-  busyControl.value = false;
-  if (!result.ok) {
-    error.value = result.error;
-    return;
-  }
-  // 正在看的就是它 —— 回到清單，不留一個指著已經不存在的東西的網址。
-  if (runId.value === r.id) void router.replace(`/case/${encodeURIComponent(slug.value)}/runs`);
-  await loadRuns();
-}
-
 /** 這一次寫進去最多關聯的那一份資料 —— 「在關聯圖上看」的焦點。沒寫進任何東西就沒有這顆按鈕。 */
 const graphFocusId = computed<string | null>(() => {
   let best: RunItem | null = null;
@@ -214,50 +183,6 @@ function showOnGraph(): void {
 function onDrop(event: DragEvent): void {
   dragging.value = false;
   void submitFiles(event.dataTransfer?.files ?? null);
-}
-
-// ── 擴展的兩步 ────────────────────────────────────────────
-
-async function proposeAngles(): Promise<void> {
-  const value = topic.value.trim();
-  if (value.length === 0) return;
-  expanding.value = true;
-  error.value = null;
-  const result = await api.startExpansion(slug.value, value);
-  expanding.value = false;
-  if (!result.ok) {
-    error.value = result.error;
-    return;
-  }
-  draft.value = {
-    runId: result.data.runId,
-    angles: result.data.angles,
-    seededFrom: result.data.seededFrom,
-  };
-  picked.value = new Set();
-}
-
-function togglePick(id: string): void {
-  const next = new Set(picked.value);
-  if (next.has(id)) next.delete(id);
-  else if (next.size < MAX_PICK) next.add(id);
-  picked.value = next;
-}
-
-async function startPicked(): Promise<void> {
-  const current = draft.value;
-  if (current === null || picked.value.size === 0) return;
-  expanding.value = true;
-  const result = await api.chooseAngles(slug.value, current.runId, [...picked.value]);
-  expanding.value = false;
-  if (!result.ok) {
-    error.value = result.error;
-    return;
-  }
-  topic.value = '';
-  draft.value = null;
-  await loadRuns();
-  openRun(current.runId);
 }
 
 /**
@@ -312,7 +237,7 @@ function countsOf(r: Run): string {
       fetched: fetchedCount.value,
     });
   }
-  return fill(r.kind === 'expand' ? t.expand.counts : t.runs.counts, {
+  return fill(t.runs.counts, {
     succeeded: r.succeeded,
     failed: r.failed,
     total: r.total,
@@ -320,9 +245,9 @@ function countsOf(r: Run): string {
 }
 
 function costText(r: Run): string {
-  if (r.costUsd === null) return t.expand.costUnknown;
-  if (r.costUsd === 0) return t.expand.costLocal;
-  return fill(t.expand.cost, { usd: r.costUsd.toFixed(4) });
+  if (r.costUsd === null) return t.research.modelCostUnknown;
+  if (r.costUsd === 0) return t.research.costLocal;
+  return fill(t.research.cost, { usd: r.costUsd.toFixed(4) });
 }
 
 async function cancel(): Promise<void> {
@@ -440,7 +365,7 @@ async function rebuild(): Promise<void> {
         而匯入與舊版擴展是旁邊那兩件事。第一版排在下面，實際看過之後改上來 ——
         使用者要捲過三張卡才看得到現在正在做的那一次研究。
       -->
-      <ResearchPanel :slug="slug" @error="error = $event" @runs-changed="loadRuns" />
+      <ResearchPanel id="research" :slug="slug" @error="error = $event" @runs-changed="loadRuns" />
 
       <div class="top">
         <section class="card import" :class="{ dragging }">
@@ -477,85 +402,6 @@ async function rebuild(): Promise<void> {
             @drop.prevent="onDrop"
           >
             {{ t.runs.dropHint }}
-          </div>
-        </section>
-
-        <!--
-      擴展。**兩階段之間有一個人**（REQ-0004）——
-      第一步只產生子問題，畫面上要說出「還沒有開始抓」。
-
-      **這一塊是舊版流程**（v0.25.0 起「研究」取代它，ADR-0033）——
-      蒐集與建圖那幾步接上去之前它還是唯一走得完的一條路，所以留著、標明是舊的。
-    -->
-        <section class="card expand">
-          <h2>{{ t.expand.title }}</h2>
-          <p class="card-what">{{ t.expand.legacy }}</p>
-
-          <label class="field wide">
-            <span>{{ t.expand.topicLabel }}</span>
-            <input v-model="topic" type="text" :placeholder="t.expand.topicPlaceholder" />
-          </label>
-
-          <div class="import-actions">
-            <button :disabled="expanding || topic.trim().length === 0" @click="proposeAngles">
-              {{ expanding ? t.expand.working : t.expand.submit }}
-            </button>
-          </div>
-
-          <div v-if="draft" class="angles">
-            <h3>{{ t.expand.anglesTitle }}</h3>
-            <!-- **這一句一定要在。** 第一階段結束時什麼都還沒抓 -->
-            <p class="callout pending">{{ t.expand.notYet }}</p>
-            <p class="muted">
-              {{
-                draft.seededFrom > 0
-                  ? fill(t.expand.seededFrom, { n: draft.seededFrom })
-                  : t.expand.seededFromNothing
-              }}
-            </p>
-
-            <ul class="angle-list">
-              <li v-for="angle in draft.angles" :key="angle.id">
-                <label :class="{ picked: picked.has(angle.id) }">
-                  <input
-                    type="checkbox"
-                    :checked="picked.has(angle.id)"
-                    @change="togglePick(angle.id)"
-                  />
-                  <span class="q">{{ angle.question }}</span>
-                  <span v-if="angle.stance" class="stance">{{ angle.stance }}</span>
-                </label>
-                <!--
-              **設計稿在這裡寫的是「預估會找到幾個」** —— 那個數字只可能是模型猜的。
-              這一行是我們查得到也驗得了的：這條角度是從你已有的哪幾份長出來的。
-            -->
-                <p class="seeds">
-                  <template v-if="angle.seeds.length > 0">
-                    {{ t.expand.seedsLabel }}：{{ angle.seeds.map((s) => s.title).join('、') }}
-                  </template>
-                  <template v-else>{{ t.expand.noSeeds }}</template>
-                </p>
-              </li>
-            </ul>
-
-            <div class="import-actions">
-              <button
-                class="primary"
-                :disabled="expanding || picked.size === 0"
-                @click="startPicked"
-              >
-                {{ fill(t.expand.start, { n: picked.size }) }}
-              </button>
-              <span class="muted small">
-                {{
-                  picked.size === 0
-                    ? t.expand.pickAtLeastOne
-                    : fill(t.expand.tooMany, { n: MAX_PICK })
-                }}
-              </span>
-            </div>
-
-            <p class="muted small">{{ t.expand.machineOnly }}</p>
           </div>
         </section>
       </div>
@@ -638,20 +484,10 @@ async function rebuild(): Promise<void> {
               <button class="row" :class="{ active: r.id === runId }" @click="openRun(r.id)">
                 <span class="row-title">{{ titleOf(r) }}</span>
                 <span class="row-meta">
-                  <!-- 沒勾就走掉的擴展停在 queued。**它不是在排隊，是在等一個不會來的人** —— 標成草稿。 -->
-                  <span v-if="isDraft(r)" class="badge draft">{{ t.runControl.draft }}</span>
-                  <span v-else :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
+                  <span :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
                   <span v-if="r.live" class="live">{{ t.runs.live }}</span>
                   <span>{{ when(r.createdAt) }}</span>
                 </span>
-              </button>
-              <button
-                v-if="isDraft(r)"
-                class="discard quiet small"
-                :disabled="busyControl"
-                @click="discard(r)"
-              >
-                {{ t.runControl.discard }}
               </button>
             </li>
           </ul>
@@ -686,10 +522,6 @@ async function rebuild(): Promise<void> {
                 <span v-if="run.paused" class="paused">{{ t.runControl.paused }}</span>
                 <span v-else class="hint">{{ t.runControl.pauseHint }}</span>
               </template>
-              <!-- 草稿沒有東西可以復原，只有丟掉。 -->
-              <button v-else-if="isDraft(run)" :disabled="busyControl" @click="discard(run)">
-                {{ t.runControl.discard }}
-              </button>
               <!-- **跑完才給復原。** 一邊寫一邊刪會留下說不清楚的狀態。 -->
               <template v-else>
                 <!--
@@ -721,46 +553,15 @@ async function rebuild(): Promise<void> {
           **主題不在這裡。** 擴展的 `label` 就是 `topic` ——
           上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
         -->
-          <p v-if="run.kind === 'expand' || run.kind === 'research'" class="budget">
-            <span>{{ fill(t.expand.requests, { n: run.requests }) }}</span>
+          <p v-if="run.kind === 'extract' || run.kind === 'research'" class="budget">
+            <span>{{ fill(t.research.requests, { n: run.requests }) }}</span>
             <span>{{ costText(run) }}</span>
             <span v-if="run.providers" class="mono">{{
-              fill(t.expand.usedProviders, { chat: providerLabel(run) })
+              fill(t.research.usedProviders, { chat: providerLabel(run) })
             }}</span>
           </p>
 
           <!-- 沒被勾的那幾條也在這裡 —— 作業紀錄要看得出當時有哪些選項 -->
-          <table v-if="runAngles.length > 0" class="table angle-table">
-            <thead>
-              <tr>
-                <th>{{ t.expand.colAngle }}</th>
-                <th>{{ t.expand.colStance }}</th>
-                <th>{{ t.expand.colFound }}</th>
-                <th>{{ t.expand.colNodes }}</th>
-                <th>{{ t.expand.colEdges }}</th>
-                <th>{{ t.expand.colNote }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="angle in runAngles" :key="angle.id" :class="{ skipped: !angle.selected }">
-                <td>{{ angle.question }}</td>
-                <td class="stance-cell">{{ angle.stance }}</td>
-                <td class="num">{{ angle.selected ? angle.foundUrls : '' }}</td>
-                <td class="num">{{ angle.selected ? angle.newNodes : '' }}</td>
-                <td class="num">{{ angle.selected ? angle.newEdges : '' }}</td>
-                <td class="note">
-                  {{
-                    angle.selected
-                      ? angle.code
-                        ? (errorMessages[angle.code] ?? angle.code)
-                        : ''
-                      : t.expand.notSelected
-                  }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
           <table class="table">
             <thead>
               <tr>
@@ -805,7 +606,7 @@ async function rebuild(): Promise<void> {
 /* 頁寬、卡片、標題、表格、表單、按鈕都在 base.css；這裡只有這一頁自己的東西。 */
 .top {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: var(--s4);
   align-items: start;
 }
@@ -844,58 +645,12 @@ async function rebuild(): Promise<void> {
   color: var(--edge-pending);
 }
 
-.angles h3 {
-  margin: 14px 0 6px;
-}
-.angle-list {
-  list-style: none;
-  padding: 0;
-  margin: 10px 0;
-  display: grid;
-  gap: 8px;
-}
-.angle-list label {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: var(--fs-small);
-  cursor: pointer;
-}
-.angle-list label.picked .q {
-  color: var(--text);
-}
-.angle-list .q {
-  color: var(--text-secondary);
-}
-.stance {
-  font-size: var(--fs-label);
-  color: var(--text-muted);
-  border: 1px solid var(--line-subtle);
-  border-radius: 999px;
-  padding: 0 8px;
-}
-.seeds {
-  font-size: var(--fs-label);
-  color: var(--text-muted);
-  margin: 2px 0 0 24px;
-}
 .budget {
   display: flex;
   gap: 14px;
   font-size: var(--fs-label);
   color: var(--text-tertiary);
   margin: 0 0 10px;
-}
-.angle-table {
-  margin-bottom: 16px;
-}
-/* 立場只有三四個字，不讓它折成一行一個字。 */
-.stance-cell {
-  white-space: nowrap;
-}
-/* 沒被勾的那幾條淡一點，**但仍然看得到** —— 它們是這次作業的一部分 */
-.angle-table tr.skipped td {
-  color: var(--text-muted);
 }
 .import.dragging {
   border-color: var(--ui-action);
@@ -979,10 +734,6 @@ async function rebuild(): Promise<void> {
 .rows li .row {
   flex: 1 1 auto;
   min-width: 0;
-}
-.discard {
-  flex: none;
-  margin-top: 8px;
 }
 .row {
   display: block;
@@ -1096,10 +847,5 @@ async function rebuild(): Promise<void> {
 .badge.failed {
   border-color: var(--ui-danger);
   color: var(--ui-danger);
-}
-/* 草稿不是一個「狀態」，它是還沒發生 —— 不上色。 */
-.badge.draft {
-  border-color: var(--line-muted);
-  color: var(--text-tertiary);
 }
 </style>

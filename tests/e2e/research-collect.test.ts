@@ -490,18 +490,154 @@ describe('蒐集：每條方向搜一次，能抓的抓', () => {
     expect(v.directions[0]?.searchCode).toBe('RESEARCH_CANDIDATES_OVERFLOW');
   });
 
-  it('沙箱裡出現抓取產物：整批停下來，研究停在等你、說得出為什麼', async () => {
-    process.env['CYCLOSA_FAKE_CLAUDE_MODE'] = 'sandbox';
-    const gate = await openAndStart();
+  it.each(['sandbox', 'sandbox-fail'])(
+    '沙箱違規 %s：成功失敗都掃、整批停下來並說明原因',
+    async (mode) => {
+      process.env['CYCLOSA_FAKE_CLAUDE_MODE'] = mode;
+      const gate = await openAndStart();
+      await waitIdle();
+      const v = await view(gate.id);
+      expect(v.status).toBe('awaiting-user');
+      expect(v.collect.runStatus).toBe('failed');
+      expect(v.collect.errorCode).toBe('PROVIDER_SANDBOX_VIOLATION');
+      expect(v.candidates).toEqual([]);
+      expect(hits.get('/a')).toBeUndefined();
+      expect(hits.get('/b')).toBeUndefined();
+      // 第一條搜失敗、第二條沒搜 —— 兩條都還可以重來。
+      expect(v.collect.work.searches).toBe(2);
+      expect(v.collect.mayResume).toBe(true);
+    },
+  );
+});
+
+describe('研究找來源走 Responses API', () => {
+  let online: Server;
+  let onlineBase = '';
+  let searched = true;
+  const requests: Record<string, unknown>[] = [];
+
+  beforeAll(async () => {
+    online = createServer((req, res) => {
+      if (req.url === '/v1/models') {
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ data: [{ id: 'fake-online', context_length: 200_000 }] }));
+        return;
+      }
+      if (req.url !== '/v1/responses') {
+        res.writeHead(404);
+        res.end('{}');
+        return;
+      }
+      void readBody(req).then((raw) => {
+        const body = JSON.parse(raw) as Record<string, unknown>;
+        requests.push(body);
+        const name = (body['text'] as { format: { name: string } }).format.name;
+        const text = JSON.stringify(
+          name === 'cyclosa_browse_probe'
+            ? { url: 'https://nodejs.org/en/download' }
+            : { candidates: [candidate(`${base}/a`, '合成候選')] },
+        );
+        const events: Record<string, unknown>[] = [];
+        if (searched)
+          events.push({
+            type: 'response.output_item.done',
+            item: { type: 'web_search_call', status: 'completed', action: { query: '合成' } },
+          });
+        events.push(
+          {
+            type: 'response.output_item.done',
+            item: { type: 'message', content: [{ type: 'output_text', text }] },
+          },
+          { type: 'response.completed', response: { status: 'completed', output: [] } },
+        );
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(''));
+      });
+    });
+    await new Promise<void>((resolve) => online.listen(0, '127.0.0.1', resolve));
+    const address = online.address();
+    if (address === null || typeof address === 'string') throw new Error('no address');
+    onlineBase = `http://127.0.0.1:${address.port}/v1`;
+  });
+
+  afterAll(async () => {
+    online.closeAllConnections();
+    await new Promise<void>((resolve) => online.close(() => resolve()));
+  });
+
+  beforeEach(async () => {
+    searched = true;
+    requests.length = 0;
+    const path = join(sandbox, 'LocalAppData', 'Cyclosa', 'providers.json');
+    const config = JSON.parse(await readFile(path, 'utf8')) as {
+      connections: Record<string, unknown>;
+      tasks: Record<string, unknown>;
+      diagnostics: { logModelCalls: boolean };
+    };
+    config.connections['cli'] = null;
+    config.connections['openai'] = { baseUrl: onlineBase, apiKeyEnv: null };
+    config.tasks['find-sources'] = { via: 'openai', model: 'fake-online' };
+    config.diagnostics.logModelCalls = true;
+    await writeFile(path, JSON.stringify(config), 'utf8');
+  });
+
+  it('先量搜尋、候選走擷取管線；逐任務模型與完整紀錄對得上', async () => {
+    const gate = await openAndStart([D1]);
     await waitIdle();
-    const v = await view(gate.id);
-    expect(v.status).toBe('awaiting-user');
-    expect(v.collect.runStatus).toBe('failed');
-    expect(v.collect.errorCode).toBe('PROVIDER_SANDBOX_VIOLATION');
-    expect(v.candidates).toEqual([]);
-    // 第一條搜失敗、第二條沒搜 —— 兩條都還可以重來。
-    expect(v.collect.work.searches).toBe(2);
-    expect(v.collect.mayResume).toBe(true);
+    const end = await view(gate.id);
+    expect(end.collect.runStatus).toBe('done');
+    expect(end.candidates).toHaveLength(1);
+    expect(end.candidates[0]?.itemId).not.toBeNull();
+    expect(hits.get('/robots.txt')).toBeGreaterThan(0);
+    expect(hits.get('/a')).toBe(1);
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({ text: { format: { name: 'cyclosa_browse_probe' } } });
+    expect(requests[1]).toMatchObject({
+      tools: [{ type: 'web_search' }],
+      tool_choice: 'required',
+      stream: true,
+    });
+    expect(requests[1]?.['instructions']).toContain('不要把頁面內容抓下來');
+    const folder = join(dataRoot, 'cases', slug);
+    const entries = await readdir(join(folder, 'agent', 'runs', end.collect.runId!), {
+      recursive: true,
+      withFileTypes: true,
+    });
+    expect(entries.filter((entry) => entry.isFile())).toEqual([]);
+    const records = (
+      await readFile(join(folder, 'model-calls', `${end.collect.runId!}.jsonl`), 'utf8')
+    )
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.map((entry) => [entry['task'], entry['model']])).toEqual([
+      ['find-sources', 'openai:fake-online'],
+      ['digest', `ollama:${DIGEST_MODEL}`],
+    ]);
+    expect(records[0]).toMatchObject({
+      endpoint: new URL(onlineBase).host,
+      outcome: { ok: true, code: null },
+    });
+    expect(JSON.stringify(records[0]?.['request'])).toContain(D1);
+    expect(JSON.stringify(records[0]?.['response'])).toContain(`${base}/a`);
+    expect(JSON.stringify(records[1]?.['request'])).toContain('合成的測試資料');
+    expect(JSON.stringify(records[1]?.['response'])).toContain('relevance');
+  });
+
+  it('端點沒搜尋就停在閘門一，不採用網址、不抓內容', async () => {
+    searched = false;
+    const started = await startResearch(dataRoot, slug, { topic: '合理使用' });
+    if (!started.ok) throw new Error(started.code);
+    expect(
+      (await editDirections(dataRoot, slug, started.data.id, [{ title: D1, what: '', expect: '' }]))
+        .ok,
+    ).toBe(true);
+    const result = await startCollecting(dataRoot, slug, started.data.id);
+    expect(result).toMatchObject({ ok: false, code: 'PROVIDER_CAPABILITY_MISSING' });
+    expect(JSON.stringify(result)).toContain('browse');
+    expect(requests).toHaveLength(1);
+    expect((await view(started.data.id)).candidates).toEqual([]);
+    expect(hits.get('/a')).toBeUndefined();
   });
 });
 

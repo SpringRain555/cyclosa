@@ -22,7 +22,7 @@ import {
   EXTRACT_SCHEMA,
   EXTRACT_SYSTEM,
   extractUser,
-} from '../../src/application/expansion-prompts.js';
+} from '../../src/application/extraction-prompts.js';
 
 const SHORT =
   '塵蛛屬（Cyclosa）是金蛛科的一個屬。牠們會在網上放置碎屑裝飾。研究者在台中的烏石坑觀察到這個行為。';

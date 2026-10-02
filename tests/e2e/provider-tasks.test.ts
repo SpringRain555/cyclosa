@@ -70,6 +70,15 @@ afterEach(async () => {
 });
 
 describe('各任務模型那張表', () => {
+  it('舊擴展、選角度與刪草稿的 HTTP 入口都已退場', async () => {
+    for (const route of [
+      { method: 'POST' as const, url: '/api/cases/test/runs' },
+      { method: 'POST' as const, url: '/api/cases/test/runs/test/angles' },
+      { method: 'DELETE' as const, url: '/api/cases/test/runs/test' },
+    ]) {
+      expect((await app.inject(route)).statusCode).toBe(404);
+    }
+  });
   it('四個任務全部都在，而且順序與角色跟 server 那份定義一致', async () => {
     const rows = await tasks();
     // **少一列使用者就找不到那件事的模型欄位**，而畫面上不會有任何提示。
@@ -115,8 +124,7 @@ describe('各任務模型那張表', () => {
 
     const byTask = new Map((await tasks()).map((r) => [r.task, r]));
 
-    expect(byTask.get('angles')?.model).toBe('覆寫的模型');
-    expect(byTask.get('angles')?.via).toBe('ollama');
+    expect(byTask.has('angles')).toBe(false);
 
     // v1 的空字串是「跟著預設」—— 升版之後每一列都寫實際會跑的那一個。
     expect(byTask.get('extract')?.model).toBe('預設模型');
@@ -134,7 +142,7 @@ describe('各任務模型那張表', () => {
    * **v2 的形狀：兩個對話任務各接一條連線。** 這是 2026-09-18 使用者要的那一格
    * （歸納留在本機、抽取走線上），v1 明寫不准。
    */
-  it('v2：歸納走 Ollama、抽取走 OpenAI 相容端點，各自帶自己的連線', async () => {
+  it('v2：初讀走 Ollama、抽取走 OpenAI 相容端點，各自帶自己的連線', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/providers',
@@ -147,7 +155,7 @@ describe('各任務模型那張表', () => {
         },
         tasks: {
           'find-sources': { via: 'cli', model: '' },
-          angles: { via: 'ollama', model: '本機模型' },
+          digest: { via: 'ollama', model: '本機模型' },
           extract: { via: 'openai', model: '線上模型' },
           embed: { via: 'ollama', model: '' },
         },
@@ -157,10 +165,10 @@ describe('各任務模型那張表', () => {
     const body = res.json() as { ok: boolean; data: { tasks: TaskRow[] } };
     expect(body.ok).toBe(true);
     const byTask = new Map(body.data.tasks.map((r) => [r.task, r]));
-    expect(byTask.get('angles')).toMatchObject({ via: 'ollama', model: '本機模型' });
+    expect(byTask.get('digest')).toMatchObject({ via: 'ollama', model: '本機模型' });
     expect(byTask.get('extract')).toMatchObject({ via: 'openai', model: '線上模型' });
     // 兩條連線都通不了，所以兩列都不 ok —— 而且各自說自己連不上，不是替對方說。
-    expect(byTask.get('angles')?.state).toBe('unreachable');
+    expect(byTask.get('digest')?.state).toBe('unreachable');
     expect(byTask.get('extract')?.state).toBe('unreachable');
     // 存進去的檔案是 v2。
     const file = JSON.parse(
@@ -220,7 +228,7 @@ describe('各任務模型那張表', () => {
     // 位址是通不了的，所以兩個任務都不 ok、都說連不上。
     // **它不能拿別列的能力算** —— 那樣一個覆寫成小模型的抽取
     // 會顯示成綠的，而設定頁上那個欄位裡寫的是預設模型的名字。
-    expect(chatTasks.length).toBe(2);
+    expect(chatTasks.map((entry) => entry.task)).toEqual(['extract']);
     expect(chatTasks.every((r) => !r.ok && r.state === 'unreachable')).toBe(true);
 
     // **初讀是 v0.25.0 才有的，v1 的檔案升上來它是「還沒設定」** —— 不從 chat 那一格抄：

@@ -15,7 +15,6 @@ import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { isActive, isPaused } from './run-registry.js';
 import { sweepStaleRuns } from './run-sweep.js';
-import { viewAngles, type AngleView } from './expand-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
 
@@ -91,46 +90,6 @@ export async function listRuns(
 export interface RunDetail {
   readonly run: RunSummary;
   readonly items: readonly runs.RunItemRow[];
-  /**
-   * 切入角度（擴展才有，匯入是空陣列）。
-   *
-   * **沒被勾的那幾條也在裡面** —— 「工具提了六條、你只要兩條」
-   * 是這次作業發生過的事實的一部分。
-   */
-  readonly angles: readonly AngleView[];
-}
-
-/**
- * 丟掉一筆還沒開始的擴展草稿。
- *
- * 「產生切入角度」之後沒勾的 run 停在 `queued`，而它會永遠留在清單上 ——
- * 2026-09-18 使用者的清單裡有兩筆這樣的「排隊中」，沒有任何路可以拿掉。
- * **只准草稿**：跑過的 run 寫進去的東西要留著，那是「復原這次作業」的事（ADR-0023）；
- * 正在跑的回 `RUN_STILL_ACTIVE`，其餘狀態回 `GRAPH_TRANSITION_INVALID`。
- */
-export async function discardDraftRun(
-  dataRoot: string,
-  slug: string,
-  runId: string,
-): Promise<Result<{ runId: string }>> {
-  const cid = correlationId();
-  const db = await open(dataRoot, slug, cid);
-  if ('ok' in db) return db;
-  try {
-    const row = runs.getRun(db, runId);
-    if (row === null) return err('RUN_NOT_FOUND', cid, { runId });
-    if (isActive(runId)) return err('RUN_STILL_ACTIVE', cid, { runId });
-    if (row.kind !== 'expand' || row.status !== 'queued')
-      return err('GRAPH_TRANSITION_INVALID', cid, {
-        runId,
-        from: row.status,
-        why: 'not-a-draft',
-      });
-    if (!runs.deleteDraftRun(db, runId)) return err('RUN_NOT_FOUND', cid, { runId });
-    return ok({ runId }, cid);
-  } finally {
-    db.close();
-  }
 }
 
 export async function getRun(
@@ -148,7 +107,6 @@ export async function getRun(
       {
         run: summarize(db, row),
         items: runs.listRunItems(db, runId),
-        angles: row.kind === 'expand' ? viewAngles(db, runId) : [],
       },
       cid,
     );

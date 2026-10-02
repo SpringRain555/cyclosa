@@ -442,28 +442,16 @@
 > **蒐集的進度走作業那一條 SSE**（`…/runs/:runId/events`，`collect.runId`）—— 研究自己沒有進度通道，
 > 做事的是那一筆作業（D3）。事件多兩種：`direction`（一條方向搜完了）、`digest`（一份讀完了，Stage 21）。
 
-### 擴展作業（舊版流程，Stage 22 退場）
+### 作業紀錄與進度
 
 | 端點 | 說明 |
 |---|---|
-| `POST …/runs` | `{topic}`。開一次 run，回傳的是**多視角子問題清單**，還沒開始抓。run 停在 `排隊` |
-| `POST …/runs/:runId/angles` | `{angles: [id]}`。使用者勾選要展開哪幾條，**這一步才真的開始**。一次最多 5 條 |
-| `GET …/runs/:runId/events` | **SSE**：逐項進度、節流狀態、**每條角度做完的 `angle` 事件** |
-| `POST …/runs/:runId/cancel` | 取消 ＝ 殺子程序 ＋ 標 `已取消`，**已寫入的保留**。**匯入與擴展走同一支** |
-| `GET …/runs` ／ `/runs/:runId` | 作業紀錄。詳細那一支另外回 `angles`（**含沒被勾的那幾條**）。v0.25.0 起每一列多 `heldByResearch`：屬於一次還沒結束的研究 → **不給「復原」那顆按鈕**，改說為什麼（`RUN_OWNED_BY_RESEARCH`）|
+| `GET …/runs/:runId/events` | **SSE**：逐項進度與節流狀態，研究另有方向搜尋與初讀的進度 |
+| `POST …/runs/:runId/cancel` | 取消作業，**已寫入的保留**。匯入與研究共用 |
+| `GET …/runs` ／ `/runs/:runId` | 作業紀錄。詳細回 `run` 與 `items`，不再回 `angles`。`heldByResearch` 表示屬於尚未結束的研究，不能復原（`RUN_OWNED_BY_RESEARCH`）|
 
-> **`POST /runs` 不會直接開始抓。** 它回子問題讓使用者勾 ——
-> 那一步是 REQ-0004 的驗收條件（「不是黑箱一次跑完」），不是可以省略的 UI 糖。
->
-> **`angle` 事件與 `item` 事件是兩個層級。** 一條角度會產生好幾個 `item` 事件；
-> 併成一種的話，作業紀錄就分不出「這幾個網址是哪一條角度找來的」。
->
-> **每條角度帶 `seeds`（它是從既有的哪幾份長出來的），不帶「預估會找到幾個」。**
-> 設計稿寫的是後者，而那個數字只可能是模型猜的 —— 理由在 ADR-0021。
->
-> **`run` 對擴展多回四欄**：`topic`、`providers`（用了哪些模型）、
-> `requests`（打了幾次）、`costUsd`。`requests` 是主要上限，
-> 而**產生角度那一次也算在裡面** —— 使用者一條都沒勾，那一次仍然發生過。
+> Stage 22 移除 `POST …/runs`、`POST …/runs/:runId/angles` 與 `DELETE …/runs/:runId`。
+> 舊的角度與草稿流程由研究取代（REQ-0009）；研究作業仍保留模型、請求數與花費紀錄。
 
 ### 匯入
 
@@ -535,7 +523,6 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 | `POST …/runs/:runId/pause` ／ `/resume` | 執行中 | 停在**項與項之間**。正在做的那一項會做完 |
 | `POST …/runs/:runId/cancel` | 執行中 | 不再往下做。**已寫入的保留** |
 | `POST …/runs/:runId/undo` | **跑完之後** | 刪掉這次寫進去的資料與關聯 |
-| `DELETE …/runs/:runId` | **只有 `queued` 的擴展草稿** | 丟掉一筆「產生了角度、還沒勾」的草稿（v0.23.0）。跑過的回 `GRAPH_TRANSITION_INVALID`，正在跑的回 `RUN_STILL_ACTIVE` —— 它們寫的東西要留，那是 `undo` 的事 |
 
 暫停與取消的差別要在畫面上看得出來：**暫停會回來，取消不會。**
 而復原是第三件事 —— 它在跑完之後才出現（ADR-0023）。

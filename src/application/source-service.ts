@@ -20,7 +20,7 @@
  *
  * ## 這一頁不擋任何東西
  *
- * 清單影響的是**排序與給 agent 的建議**（`sourceHints`，`chooseAngles` 每次作業讀一次
+ * 清單影響的是**排序與給 agent 的建議**（`sourceHints`，研究蒐集每次作業讀一次
  * 放進提示詞），不影響任何一條 URL 能不能被送進管線。
  * 一篇讀不到的重要論文仍然值得出現在待取得的清單上 ——
  * **擋掉它等於假裝那篇論文不存在。**
@@ -304,7 +304,7 @@ const UNFETCHABLE: readonly SiteAccess[] = [
 ];
 
 /**
- * 給 agent 的來源提示（`chooseAngles` 每次作業讀一次，放進 `sourcesUser`）。
+ * 給 agent 的來源提示（研究蒐集每次作業讀一次，放進 `candidatesUser`）。
  *
  * 四段，**每一段的標題都要是真話**：
  *

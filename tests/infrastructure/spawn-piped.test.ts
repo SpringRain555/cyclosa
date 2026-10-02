@@ -49,7 +49,7 @@ describe.runIf(process.platform === 'win32')('子程序起不來（Windows）', 
   it('工作目錄太長：子程序失敗，**管線的錯誤不會變成沒接住的例外**', async () => {
     const dir = await longDir(290);
     const outcome = await new Promise<string>((resolve) => {
-      const child = spawnPiped(process.execPath, ['-e', '1'], { cwd: dir, shell: false });
+      const child = spawnPiped(process.execPath, ['-e', '1'], { cwd: dir });
       child.on('error', (e) => resolve(`error ${String((e as NodeJS.ErrnoException).code)}`));
       child.on('close', (code) => resolve(`close ${String(code)}`));
     });
@@ -81,4 +81,56 @@ describe.runIf(process.platform === 'win32')('子程序起不來（Windows）', 
     expect(call.code).toBe('IO_PATH_TOO_LONG');
     await expect(access(marker)).rejects.toThrow();
   });
+});
+
+/**
+ * **`.cmd`／`.bat` 不經過 `cmd.exe`**（2026-10-02）。那一條路上，提示詞（含專題文件的段落）
+ * 會被原樣接成一個字串交給 `cmd.exe` —— 文件裡的 `&` 就是一個指令。
+ * 所以那兩種副檔名直接說不支援，**連 spawn 都不做**：下面那支 `.cmd` 一被執行就會留下記號。
+ */
+describe('CLI 指令是 .cmd／.bat：不經過 cmd.exe', () => {
+  async function wrapper(ext: 'cmd' | 'bat'): Promise<{ command: string; marker: string }> {
+    const marker = join(base, `ran-${ext}.txt`);
+    const command = join(base, `would-run.${ext}`);
+    await writeFile(command, `@echo x > "${marker}"\r\n`, 'utf8');
+    return { command, marker };
+  }
+
+  it.each(['cmd', 'bat'] as const)('.%s：探針說不支援、要改用原生安裝', async (ext) => {
+    const { command, marker } = await wrapper(ext);
+    const agent = createClaudeAgent({
+      command,
+      args: [],
+      model: '',
+      schema: {},
+      systemPrompt: '',
+      maxCostUsd: null,
+    });
+    const probe = await agent.probe();
+    expect(probe.kind).toBe('unreachable');
+    if (probe.kind !== 'unreachable') return;
+    expect(probe.detail).toContain('claude.exe');
+    await expect(access(marker)).rejects.toThrow();
+  });
+
+  it.each(['cmd', 'bat'] as const)(
+    '.%s：執行回 PROVIDER_NOT_CONFIGURED，提示詞裡的 & 碰不到 cmd.exe',
+    async (ext) => {
+      const { command, marker } = await wrapper(ext);
+      const agent = createClaudeAgent({
+        command,
+        args: [],
+        model: '',
+        schema: {},
+        systemPrompt: '',
+        maxCostUsd: null,
+      });
+      const call = await agent.run({ prompt: 'x" & echo pwned & "', cwd: base, timeoutMs: 5000 });
+      expect(call.kind).toBe('error');
+      if (call.kind !== 'error') return;
+      expect(call.code).toBe('PROVIDER_NOT_CONFIGURED');
+      expect(call.detail).toContain('claude.exe');
+      await expect(access(marker)).rejects.toThrow();
+    },
+  );
 });

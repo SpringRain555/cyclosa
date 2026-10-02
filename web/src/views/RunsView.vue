@@ -189,12 +189,6 @@ function onDrop(event: DragEvent): void {
 }
 
 /**
- * 「花了多少」這一句有三種，**而它們說的是三件不同的事**（ADR-0006 的補記）。
- *
- * `null` ＝ provider 沒回報；`0` ＝ 本機執行、金額成本真的是零。
- * 兩者都寫成「$0.00」的話，對前者是一句謊。
- */
-/**
  * 這一次用了哪些模型。
  *
  * **換一個模型重跑，結果會不一樣** —— 而沒有這一行的話，
@@ -245,12 +239,6 @@ function countsOf(r: Run): string {
     failed: r.failed,
     total: r.total,
   });
-}
-
-function costText(r: Run): string {
-  if (r.costUsd === null) return t.research.modelCostUnknown;
-  if (r.costUsd === 0) return t.research.costLocal;
-  return fill(t.research.cost, { usd: r.costUsd.toFixed(4) });
 }
 
 async function cancel(): Promise<void> {
@@ -549,16 +537,12 @@ async function rebuild(): Promise<void> {
           <p v-if="undoNote" class="undo-note">{{ undoNote }}</p>
 
           <!--
-          擴展這一次花了什麼。**請求數是主要上限**（ADR-0006 的補記），
-          而金額只在 provider 真的回報時才是一個數字。
-        -->
-          <!--
-          **主題不在這裡。** 擴展的 `label` 就是 `topic` ——
-          上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
+          這一次打了幾次模型、用的是哪一個。**不寫金額**（2026-10-03 使用者決定）：Claude Code 回報的是
+          等值價格，用訂閱的話不會真的扣；金額仍記在作業紀錄裡（`cost_usd`），畫面不再顯示。
+          **主題不在這裡** —— 上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
         -->
           <p v-if="run.kind === 'extract' || run.kind === 'research'" class="budget">
             <span>{{ fill(t.research.requests, { n: run.requests }) }}</span>
-            <span>{{ costText(run) }}</span>
             <span v-if="run.providers" class="mono">{{
               fill(t.research.usedProviders, { chat: providerLabel(run) })
             }}</span>

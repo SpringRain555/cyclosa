@@ -1133,28 +1133,18 @@ export const t = {
   },
 
   /**
-   * 擴展。
+   * 研究（v0.25.0，ADR-0033）。
    *
-   * **這一區的每一句都在說「這不是黑箱」** ——
-   * 工具打算怎麼找、找到了什麼、你勾了哪幾條、花了幾次呼叫。
-   */
-  /**
-   * 研究（v0.25.0，ADR-0033）。**這一版只到閘門一。**
-   *
-   * 每一句都要能回答「現在花了什麼」—— 這個流程存在的理由就是「花錢之前停下來」。
+   * 每一步按下去之前要說得出「會不會用到線上的模型」—— 這個流程存在的理由就是「花錢之前停下來」。
+   * **不寫金額**（2026-10-03 使用者決定）：Claude Code 回報的是等值價格，用訂閱的話不會真的扣這筆錢。
    */
   research: {
     open: '研究',
     requests: '打了 {n} 次模型',
-    cost: '花費 {usd} 美元',
-    costLocal: '本機執行，無金額成本',
-    modelCostUnknown: '這個模型沒有回報金額',
     usedProviders: '用的是 {chat}',
     gap: '請模型評估這次的缺口',
     gapHint: '只看這次的方向、數字、候選標題與初讀，不會上網搜尋。不按也可以開始建圖。',
     gapOpinion: '模型的意見，不是事實',
-    gapCostUnknown: '這次評估的花費：不知道（模型沒有回報）',
-    gapCost: '這次評估的花費：US$ {usd}',
     build: '開始建圖',
     resumeBuild: '繼續建圖',
     finishBuild: '到此為止',
@@ -1328,7 +1318,7 @@ export const t = {
     removeConfirm: '確認刪除這次研究',
     removeCancel: '取消，不刪除',
     deletionItems: {
-      conversation: '這次研究的對話與花費紀錄',
+      conversation: '這次研究的對話紀錄',
       plan: '這次研究的規劃與當時的檢索結果',
       directions: '這次研究的方向紀錄',
       candidates: '這次研究的候選、選擇與建圖進度紀錄',
@@ -1337,22 +1327,8 @@ export const t = {
       fetched: '抓回來的資料、快照與正文',
       uploaded: '上傳進來的資料、快照與正文',
       graph: '建出來的關聯、出處、實體與書目節點，以及筆記與點註',
-      runs: '作業紀錄（包含作業花費，仍可用「復原這次作業」）',
+      runs: '作業紀錄（仍可用「復原這次作業」）',
     },
-    costSoFar: '到目前為止花了 {usd} 美元',
-    costUnknown: '有 {n} 次沒有回報金額',
-    costNone: '目前還沒有花錢',
-    /** 逐任務（R29）：「規劃 0.02、找來源 0.10、初讀 0.00」。沒回報過的寫「不知道」，不寫 0。 */
-    costTasks: {
-      plan: '規劃與缺口評估',
-      'find-sources': '找來源',
-      digest: '初讀',
-      extract: '抽取',
-    },
-    costTaskItem: '{task} {usd}',
-    costTaskUnknown: '{task} 不知道',
-    costTaskUnpriced: '{task} 有 {n} 次花費不知道',
-    costBreakdown: '（{parts}）',
     /** 作業紀錄那一頁：研究的蒐集作業那一列。 */
     runLabel: '研究 · {topic}',
     /** 這一筆的「一項」是一次模型呼叫：一條方向的搜尋，或一份的初讀（Stage 21）。 */

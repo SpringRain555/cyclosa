@@ -39,7 +39,6 @@ import {
   type UnavailableReason,
 } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
-import { costBreakdown } from '../research-cost';
 
 const props = defineProps<{ slug: string }>();
 const emit = defineEmits<{
@@ -645,17 +644,6 @@ function when(ms: number): string {
   return new Date(ms).toLocaleString('zh-TW', { hour12: false });
 }
 
-/** 花費：**沒回報的那幾次單獨說** —— 合成一個數字對線上端點是一句謊。 */
-const costText = computed(() => {
-  const row = current.value;
-  if (row === null) return '';
-  const parts: string[] = [];
-  if (row.costUsd > 0) parts.push(fill(t.research.costSoFar, { usd: row.costUsd.toFixed(2) }));
-  if (row.unknownCost > 0) parts.push(fill(t.research.costUnknown, { n: row.unknownCost }));
-  if (parts.length === 0) parts.push(t.research.costNone);
-  return parts.join(' · ') + costBreakdown(row.costByTask);
-});
-
 /** 一列候選的初讀那一行：判斷 ＋ 理由；還沒讀、讀失敗的照實說。 */
 function digestLineOf(c: Candidate): string {
   if (c.relevance !== null) {
@@ -710,7 +698,6 @@ const hitsText = computed(() => {
       <header class="live-head">
         <strong class="topic">{{ open.topic }}</strong>
         <span class="badge">{{ t.research.status[open.status] }}</span>
-        <span class="muted small">{{ costText }}</span>
       </header>
 
       <!--
@@ -726,19 +713,17 @@ const hitsText = computed(() => {
       </ul>
 
       <div v-if="planning" class="two">
-        <!-- 左：對話。每一輪寫得出是誰說的、哪個模型、花了多少。 -->
+        <!--
+          左：對話。每一輪寫得出是誰說的、哪個模型。**不寫金額**（2026-10-03 使用者決定）：
+          Claude Code 回報的是等值價格，用訂閱的話不會真的扣這筆錢，寫在畫面上會被讀成「花掉了」。
+        -->
         <div class="talk">
           <ul v-if="open.messages.length > 0" class="turns">
             <li v-for="m in open.messages" :key="m.id" :class="['turn', m.role]">
               <span class="who">{{ m.role === 'user' ? t.research.you : t.research.model }}</span>
               <span v-if="m.code !== null" class="failed">{{ t.research.failedTurn }}</span>
               <span v-else class="said">{{ m.content }}</span>
-              <span v-if="m.role === 'model'" class="turn-meta muted">
-                {{ m.model }}
-                <template v-if="m.costUsd !== null && m.costUsd > 0">
-                  · {{ fill(t.research.cost, { usd: m.costUsd.toFixed(2) }) }}
-                </template>
-              </span>
+              <span v-if="m.role === 'model'" class="turn-meta muted">{{ m.model }}</span>
             </li>
           </ul>
 
@@ -1142,13 +1127,6 @@ const hitsText = computed(() => {
       <h3>{{ t.research.gapOpinion }}</h3>
       <p class="gap-opinion">{{ current.gap.opinion }}</p>
       <p class="muted small">{{ current.gap.model }} · {{ when(current.gap.at) }}</p>
-      <p class="hint">
-        {{
-          current.gap.costUsd === null
-            ? t.research.gapCostUnknown
-            : fill(t.research.gapCost, { usd: current.gap.costUsd.toFixed(2) })
-        }}
-      </p>
     </section>
 
     <!-- 歷次研究。**放棄與做完的都留著**，可以一筆一筆刪。 -->

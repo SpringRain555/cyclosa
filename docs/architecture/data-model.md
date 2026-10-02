@@ -575,7 +575,7 @@ v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_co
 | `research_candidate` | `decision TEXT` | CHECK 只收 `include`／`reference`／`discard` 或 `NULL`。**只存使用者改過的；`NULL` ＝ 照預設**（ADR-0033 D10），不是「確認之前」。閘門三之前就可以改；選得跟預設相同仍是人的選擇 |
 | `research_candidate` | `cited_by_json TEXT NOT NULL DEFAULT '[]'` | 這份被這次研究裡哪幾份候選引用，存候選 id 的 JSON 陣列 |
 | `research_candidate` | `build_state TEXT`、`build_code TEXT` | 狀態 CHECK 只收 `done`／`failed` 或 `NULL`；碼可為 `NULL`。repository 寫完成或重設時清掉失敗碼 |
-| `research` | `gap_json TEXT` | 可為 `NULL`；保存這次研究的缺口評估，尚未評估時不填 |
+| `research` | `gap_json TEXT` | 可為 `NULL`；保存最近一次通過 schema 驗證的缺口意見 `opinion`、模型 `model`、花費 `costUsd`（未回報為 `null`）與時間 `at`，尚未評估時不填 |
 
 **有效選擇**＝`decision ?? defaultDecision`。拿到正文（抓到或上傳）且初讀有關／說不準 → 進圖；
 沒關 → 丟掉；沒有初讀判斷但初讀碼屬於 `FINAL_DIGEST_CODES` → 只留，其餘 → 進圖；沒拿到正文 → 只留書目。

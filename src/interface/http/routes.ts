@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { httpStatusOf } from '../../domain/errors/codes.js';
 import type { ItemStatus } from '../../domain/ingest/state.js';
+import { assessResearchGap } from '../../application/research-gap.js';
 import {
   changeCaseStatus,
   createCase,
@@ -534,6 +535,15 @@ function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
       return send(reply, await resumeCollecting(dataRoot, req.params.slug, req.params.researchId));
+    },
+  );
+
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/research/:researchId/gap',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await assessResearchGap(dataRoot, req.params.slug, req.params.researchId));
     },
   );
 

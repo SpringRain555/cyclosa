@@ -49,6 +49,7 @@ import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import type { Providers } from '../infrastructure/providers/registry.js';
+import { gapOf, type GapAssessment } from '../domain/research/gap.js';
 import type { ConnectionKind } from '../infrastructure/providers/config.js';
 import { isActive, isPaused } from './run-registry.js';
 import { sweepStaleRuns } from './run-sweep.js';
@@ -222,6 +223,7 @@ export interface ResearchView {
   readonly updatedAt: number;
   /** 專題裡總共幾份、其中幾份提到這個主題（R1）。 */
   readonly hitTotal: number;
+  readonly gap: GapAssessment | null;
   readonly hits: readonly ResearchHit[];
   readonly plan: PlanView;
   readonly messages: readonly MessageView[];
@@ -405,6 +407,7 @@ export function viewOf(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     hitTotal: items.countByStatus(db)['included'] ?? 0,
+    gap: gapOf(row.gapJson),
     hits: hitsOf(row.hitsJson),
     plan: planOf(row.planJson),
     messages: research.listMessages(db, row.id).map((m) => ({

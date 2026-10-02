@@ -134,6 +134,7 @@ export function parseStreamJson(lines: readonly string[]): StreamSummary {
 }
 
 export interface ClaudeAgentOptions {
+  readonly tools?: 'none';
   readonly command: string;
   /** 接在 `command` 之後、我們的旗標之前。見 `config.ts` 的 `AgentConfig.args` */
   readonly args: readonly string[];
@@ -181,7 +182,11 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
             kind: 'ready',
             model: options.command,
             version: stdout.trim().split('\n')[0] ?? null,
-            capabilities: { ...CLAUDE_CAPABILITIES },
+            capabilities: {
+              ...CLAUDE_CAPABILITIES,
+              browse: options.tools !== 'none',
+              tools: options.tools !== 'none',
+            },
           });
         });
       });
@@ -226,9 +231,8 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
         options.systemPrompt,
         // **工具清單就是沙箱。** 見這個檔案開頭。
         '--tools',
-        'WebSearch',
-        '--allowedTools',
-        'WebSearch',
+        options.tools === 'none' ? '' : 'WebSearch',
+        ...(options.tools === 'none' ? [] : ['--allowedTools', 'WebSearch']),
         '--json-schema',
         JSON.stringify(options.schema),
         '--no-session-persistence',

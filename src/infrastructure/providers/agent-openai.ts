@@ -85,7 +85,7 @@ const BROWSE_PROBE_USER = '用網頁搜尋找出 Node.js 官方網站的下載�
  * **查得到更好、查不到照樣談得出來**；強迫它每一輪都搜尋，等於每一輪都多付一次錢
  * 去查一件使用者可能只是在改字的事。
  */
-export type SearchMode = 'required' | 'optional';
+export type SearchMode = 'required' | 'optional' | 'none';
 
 export interface OpenAiAgentOptions {
   readonly baseUrl: string;
@@ -275,7 +275,7 @@ export function createOpenAiAgent(options: OpenAiAgentOptions): AgentProvider {
       const check = await known();
       const capabilities: ProviderCapabilities = {
         // 還沒量的時候放行（開始擴展之前會先量）；量出不行才擋 —— 跟 JSON 格式同一套（ADR-0030）。
-        browse: check === null || check.ok,
+        browse: mode !== 'none' && (check === null || check.ok),
         tools: false,
         // Responses API 的 `text.format`；而每一次交回來的東西都再由 `conformsTo` 驗。
         json_schema: true,
@@ -321,7 +321,7 @@ export function createOpenAiAgent(options: OpenAiAgentOptions): AgentProvider {
           'cyclosa_sources',
           options.schema,
           mode,
-          blind ? [] : WEB_SEARCH_ONLY,
+          blind || mode === 'none' ? [] : WEB_SEARCH_ONLY,
         ),
         input.timeoutMs,
         signal,

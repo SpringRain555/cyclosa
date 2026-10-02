@@ -276,6 +276,23 @@ async function talk(): Promise<void> {
   current.value = res.data;
 }
 
+async function assessGap(): Promise<void> {
+  const id = open.value?.id;
+  if (id === undefined) return;
+  busy.value = 'other';
+  report(null);
+  try {
+    const res = await api.assessResearchGap(props.slug, id);
+    if (res.ok) current.value = res.data;
+    else {
+      report(res.error);
+      await refresh();
+    }
+  } finally {
+    busy.value = '';
+  }
+}
+
 function addDirection(): void {
   draft.value = [...draft.value, { title: t.research.newDirection, what: '', expect: '' }];
 }
@@ -1071,6 +1088,13 @@ const hitsText = computed(() => {
           </div>
         </template>
         <template v-else-if="open.status === 'reviewing' || open.status === 'building'">
+          <template v-if="open.status === 'reviewing'">
+            <p class="hint">{{ t.research.gapHint }}</p>
+            <p class="hint">{{ costLabelOf(open.service) }}</p>
+            <button :disabled="busy !== '' || busyRow !== null" @click="assessGap">
+              {{ t.research.gap }}
+            </button>
+          </template>
           <p class="hint">{{ costLabelOf(open.extractService) }}</p>
           <div class="actions">
             <button
@@ -1111,6 +1135,19 @@ const hitsText = computed(() => {
       </footer>
     </template>
 
+    <section v-if="current?.gap" class="gap-assessment">
+      <h3>{{ t.research.gapOpinion }}</h3>
+      <p class="gap-opinion">{{ current.gap.opinion }}</p>
+      <p class="muted small">{{ current.gap.model }} · {{ when(current.gap.at) }}</p>
+      <p class="hint">
+        {{
+          current.gap.costUsd === null
+            ? t.research.gapCostUnknown
+            : fill(t.research.gapCost, { usd: current.gap.costUsd.toFixed(2) })
+        }}
+      </p>
+    </section>
+
     <!-- 歷次研究。**放棄與做完的都留著**，可以一筆一筆刪。 -->
     <div class="history">
       <h3>{{ t.research.listTitle }}</h3>
@@ -1136,6 +1173,10 @@ const hitsText = computed(() => {
 </template>
 
 <style scoped>
+.gap-opinion {
+  white-space: pre-wrap;
+}
+
 .live-head {
   display: flex;
   align-items: baseline;

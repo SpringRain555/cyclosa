@@ -1186,6 +1186,11 @@ export const t = {
    * 每一句都要能回答「現在花了什麼」—— 這個流程存在的理由就是「花錢之前停下來」。
    */
   research: {
+    gap: '請模型評估這次的缺口',
+    gapHint: '只看這次的方向、數字、候選標題與初讀，不會上網搜尋。不按也可以開始建圖。',
+    gapOpinion: '模型的意見，不是事實',
+    gapCostUnknown: '這次評估的花費：不知道（模型沒有回報）',
+    gapCost: '這次評估的花費：US$ {usd}',
     build: '開始建圖',
     resumeBuild: '繼續建圖',
     finishBuild: '到此為止',

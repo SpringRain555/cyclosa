@@ -447,6 +447,7 @@ export interface PlanService extends ServiceView {
 }
 
 export interface Research {
+  gap: { opinion: string; model: string; costUsd: number | null; at: number } | null;
   extractService: ServiceView;
   build: {
     runId: string | null;
@@ -1151,6 +1152,8 @@ export const api = {
   /** 閘門二「完成蒐集」 */
   finishCollecting: (slug: string, id: string) =>
     request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/finish`, { method: 'POST' }),
+  assessResearchGap: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/gap`, { method: 'POST' }),
   /** 把你拿到的檔案對回一列候選（跟匯入檔案同一種請求） */
   uploadCandidate: (slug: string, id: string, candidateId: string, file: File) =>
     request<Research>(

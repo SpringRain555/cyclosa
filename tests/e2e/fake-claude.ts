@@ -34,7 +34,7 @@ if (argv.includes('--version')) {
 
 const prompt = argv[argv.indexOf('-p') + 1] ?? '';
 const log = process.env['CYCLOSA_FAKE_CLAUDE_LOG'];
-if (log) await appendFile(log, JSON.stringify({ cwd: process.cwd(), prompt }) + '\\n', 'utf8');
+if (log) await appendFile(log, JSON.stringify({ cwd: process.cwd(), prompt, argv }) + '\\n', 'utf8');
 
 const mode = process.env['CYCLOSA_FAKE_CLAUDE_MODE'] ?? 'ok';
 // **這是違規的那一種**：agent 自己把一份網頁存進沙箱。

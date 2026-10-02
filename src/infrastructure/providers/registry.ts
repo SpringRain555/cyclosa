@@ -108,6 +108,7 @@ export interface TaskStatus {
  * 所以 `createClaudeAgent` 要它們當參數 —— 這一支負責把設定那一半補上。
  */
 export interface AgentRequest {
+  readonly tools?: 'none';
   readonly schema: Readonly<Record<string, unknown>>;
   readonly systemPrompt: string;
   readonly maxCostUsd: number | null;
@@ -228,7 +229,7 @@ export async function loadProviders(env: NodeJS.ProcessEnv = process.env): Promi
         apiKeyEnv: openai.apiKeyEnv,
         schema: request.schema,
         systemPrompt: request.systemPrompt,
-        search: 'optional',
+        search: request.tools === 'none' ? 'none' : 'optional',
         env,
       });
     }

@@ -52,7 +52,6 @@ import {
   missingFor,
   normalizeAngles,
   normalizeCandidates,
-  normalizeExtraction,
   sandboxViolations,
   TASK_ANGLES,
   TASK_EXTRACT,
@@ -87,13 +86,13 @@ import {
   ANGLES_SCHEMA,
   ANGLES_SYSTEM,
   anglesUser,
-  EXTRACT_SCHEMA,
   EXTRACT_SYSTEM,
   extractUser,
   SOURCES_SCHEMA,
   SOURCES_SYSTEM,
   sourcesUser,
 } from './expansion-prompts.js';
+import { callExtract } from './extraction-call.js';
 import { processOneUrl, type OneOutcome } from './ingest-service.js';
 import * as registry from './run-registry.js';
 import { sourceHints } from './source-service.js';
@@ -989,50 +988,6 @@ async function extractInto(db: DatabaseSync, ctx: ExtractContext): Promise<Extra
   return { newEdges: applied.newEdges, costUsd: called.costUsd, code: applied.code };
 }
 
-type CallExtractOutcome =
-  | {
-      readonly kind: 'ok';
-      readonly extraction: Extraction;
-      readonly costUsd: number | null;
-      readonly elapsedMs: number;
-    }
-  | {
-      readonly kind: 'error';
-      readonly code: ErrorCode;
-      readonly costUsd: number | null;
-      readonly elapsedMs: number;
-    };
-
-/** 問模型那一半。**模型回的東西是外部輸入**，一律先過 `normalizeExtraction`。 */
-async function callExtract(
-  chat: ChatProvider,
-  derived: { readonly title: string; readonly text: string },
-  abort: AbortController,
-): Promise<CallExtractOutcome> {
-  const call = await chat.json(
-    {
-      system: EXTRACT_SYSTEM,
-      user: extractUser(derived.title, derived.text),
-      schema: EXTRACT_SCHEMA,
-    },
-    abort.signal,
-  );
-  if (call.kind === 'error') {
-    return {
-      kind: 'error',
-      code: call.code,
-      costUsd: call.cost.costUsd,
-      elapsedMs: call.cost.elapsedMs,
-    };
-  }
-  return {
-    kind: 'ok',
-    extraction: normalizeExtraction(call.value),
-    costUsd: call.cost.costUsd,
-    elapsedMs: call.cost.elapsedMs,
-  };
-}
-
 export interface AppliedExtraction {
   readonly newEdges: number;
   /** 引文找不到要說出來，不是安靜地少幾條邊。 */
@@ -1063,9 +1018,8 @@ export function applyExtraction(
   runId: string,
   text: string,
   extraction: Extraction,
+  completed?: (result: AppliedExtraction) => void,
 ): AppliedExtraction {
-  if (extraction.entities.length === 0) return { newEdges: 0, code: null };
-
   let quoteMisses = 0;
   const newEdges = withTransaction(db, () => {
     const now = Date.now();
@@ -1155,6 +1109,7 @@ export function applyExtraction(
       );
       if (result.kind === 'created' || result.kind === 'revived') written++;
     }
+    completed?.({ newEdges: written, code: quoteMisses > 0 ? 'PROVIDER_QUOTE_NOT_FOUND' : null });
     return written;
   });
 

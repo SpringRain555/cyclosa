@@ -48,6 +48,25 @@ export interface ItemRow {
 
 type Raw = Record<string, unknown>;
 
+export function insertReference(
+  db: DatabaseSync,
+  input: { id: string; title: string; url: string; bibJson: string; runId: string; now: number },
+): void {
+  db.prepare(
+    `INSERT INTO item (id, kind, title, requested_url, source_url, status, bib_json, run_id, created_at, updated_at)
+    VALUES (?, 'reference', ?, ?, ?, 'included', ?, ?, ?, ?)`,
+  ).run(
+    input.id,
+    input.title,
+    input.url,
+    input.url,
+    input.bibJson,
+    input.runId,
+    input.now,
+    input.now,
+  );
+}
+
 export function setItemExtracted(
   db: DatabaseSync,
   input: { readonly id: string; readonly extractedBy: string; readonly now: number },

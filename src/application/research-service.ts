@@ -571,6 +571,7 @@ export async function abandonResearch(
     // **還在蒐集就先叫它停**（取消 ＝ 殺子程序 ＋ 停爬蟲，已抓的留著）。它收尾時換狀態是條件式的
     // （`moveResearchIf`），所以不會把「放棄了」蓋回「等你」。
     if (row.collectRunId !== null) registry.cancel(row.collectRunId);
+    if (row.buildRunId !== null) registry.cancel(row.buildRunId);
     research.updateResearchStatus(db, researchId, 'abandoned', Date.now());
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });

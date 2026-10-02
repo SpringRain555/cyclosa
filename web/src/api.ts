@@ -306,6 +306,9 @@ export interface Direction {
 
 /** 一條方向找到幾份、拿到幾份…… **數的，不叫模型說**（ADR-0033 D10）。 */
 export interface DirectionTally {
+  include: number;
+  reference: number;
+  discard: number;
   found: number;
   acquired: number;
   needsUser: number;
@@ -339,6 +342,12 @@ export interface Bibliography {
 }
 
 export interface Candidate {
+  decision: 'include' | 'reference' | 'discard' | null;
+  defaultDecision: 'include' | 'reference' | 'discard';
+  effectiveDecision: 'include' | 'reference' | 'discard';
+  citedBy: string[];
+  buildState: 'done' | 'failed' | null;
+  buildCode: string | null;
   id: string;
   /** 第一條找到它的方向在最前面 */
   directionIds: string[];
@@ -438,6 +447,15 @@ export interface PlanService extends ServiceView {
 }
 
 export interface Research {
+  extractService: ServiceView;
+  build: {
+    runId: string | null;
+    live: boolean;
+    done: number;
+    total: number;
+    mayResume: boolean;
+    mayFinish: boolean;
+  };
   id: string;
   kind: 'research' | 'consolidate';
   status: ResearchStatus;
@@ -1089,6 +1107,22 @@ export const api = {
   // **開一次研究不花錢** —— 那一支只跑全文檢索；花錢的是 `converse`。
   // 閘門一（`startCollecting`）按下去之前，一次搜尋、一次擷取都沒有發生。
   listResearch: (slug: string) => request<Research[]>(`/api/cases/${enc(slug)}/research`),
+  buildResearch: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/build`, { method: 'POST' }),
+  finishBuild: (slug: string, id: string) =>
+    request<Research>(`/api/cases/${enc(slug)}/research/${enc(id)}/finish-build`, {
+      method: 'POST',
+    }),
+  decideCandidate: (
+    slug: string,
+    id: string,
+    candidateId: string,
+    input: { decision?: Candidate['decision']; citedBy?: string[] },
+  ) =>
+    request<Research>(
+      `/api/cases/${enc(slug)}/research/${enc(id)}/candidates/${enc(candidateId)}/decision`,
+      { method: 'PUT', body: JSON.stringify(input) },
+    ),
   startResearch: (slug: string, topic: string) =>
     request<Research>(`/api/cases/${enc(slug)}/research`, {
       method: 'POST',

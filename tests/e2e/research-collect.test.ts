@@ -740,6 +740,13 @@ describe('停在半路、繼續、放棄、刪除', () => {
     const gate = await openAndStart();
     const firstRun = String(gate.collect.runId);
     await waitUntil(async () => (await view(gate.id)).directions[0]?.searchState === 'done');
+    await waitUntil(async () => {
+      const calls = (await readFile(join(sandbox, 'claude-calls.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { prompt: string });
+      return calls.some((call) => call.prompt.includes(D2));
+    });
     cancel(firstRun, 'shutdown');
     await waitIdle();
 

@@ -136,6 +136,14 @@ export function setCandidateDecision(
   );
 }
 
+export function setCandidateItem(db: DatabaseSync, id: string, itemId: string, now: number): void {
+  db.prepare('UPDATE research_candidate SET item_id = ?, updated_at = ? WHERE id = ?').run(
+    itemId,
+    now,
+    id,
+  );
+}
+
 export function setCandidateCitedBy(
   db: DatabaseSync,
   id: string,

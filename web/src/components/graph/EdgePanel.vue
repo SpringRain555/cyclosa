@@ -154,7 +154,7 @@ function when(ms: number): string {
           於是自己剛連的一條線旁邊寫著「可信度：強」，
           讀起來像有什麼東西評估過它。**沒有，那就是你說的。**
         -->
-        <template v-if="detail.fields.tier">
+        <template v-if="detail.origin !== 'human' && detail.fields.tier">
           <dt>{{ t.graph.selection.tier }}</dt>
           <dd>{{ t.graph.tier[detail.tier] }}</dd>
         </template>
@@ -181,7 +181,8 @@ function when(ms: number): string {
           對一條你自己連的邊，「出處 0 筆 · 沒有直接引文」讀起來像它很弱 ——
           而在這個工具的模型裡，人親手連的線是最強的那一種。
         -->
-        <template v-if="detail.fields.evidenceFacts">
+        <p v-if="detail.origin === 'human'" class="hint">{{ t.graph.selection.humanRelation }}</p>
+        <template v-else-if="detail.fields.evidenceFacts">
           <p class="facts-line">
             {{ fill(t.graph.selection.evidence, { n: detail.evidenceCount }) }} ·
             {{ fill(t.graph.selection.independent, { n: detail.independentSourceCount }) }} ·

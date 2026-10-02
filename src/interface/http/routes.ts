@@ -50,6 +50,11 @@ import {
 import { discardDraftRun, getRun, listRuns } from '../../application/run-service.js';
 import { chooseAngles, startExpansion } from '../../application/expand-service.js';
 import {
+  editCandidateDecision,
+  startBuilding,
+  finishBuilding,
+} from '../../application/research-build.js';
+import {
   abandonResearch,
   converse,
   deleteResearch,
@@ -417,6 +422,39 @@ function registerExpandRoutes(app: FastifyInstance, ctx: AppContext): void {
  * （可不可以再談、閘門按不按得下去、哪一列可以上傳在 `domain/research`）。
  */
 function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.put<{
+    Params: { slug: string; researchId: string; candidateId: string };
+    Body: { decision?: unknown; citedBy?: unknown };
+  }>(
+    '/api/cases/:slug/research/:researchId/candidates/:candidateId/decision',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await editCandidateDecision(
+          dataRoot,
+          req.params.slug,
+          req.params.researchId,
+          req.params.candidateId,
+          req.body ?? {},
+        ),
+      );
+    },
+  );
+  for (const [action, service] of [
+    ['build', startBuilding],
+    ['finish-build', finishBuilding],
+  ] as const) {
+    app.post<{ Params: { slug: string; researchId: string } }>(
+      `/api/cases/:slug/research/:researchId/${action}`,
+      async (req, reply) => {
+        const dataRoot = await requireDataRoot(ctx, reply);
+        if (dataRoot === null) return reply;
+        return send(reply, await service(dataRoot, req.params.slug, req.params.researchId));
+      },
+    );
+  }
   app.get<{ Params: { slug: string } }>('/api/cases/:slug/research', async (req, reply) => {
     const dataRoot = await requireDataRoot(ctx, reply);
     if (dataRoot === null) return reply;

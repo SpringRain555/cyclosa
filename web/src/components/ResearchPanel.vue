@@ -201,7 +201,10 @@ async function refresh(): Promise<void> {
 }
 
 watch(
-  () => [current.value?.collect.live, current.value?.collect.runId] as const,
+  () =>
+    current.value?.status === 'building'
+      ? ([current.value.build.live, current.value.build.runId] as const)
+      : ([current.value?.collect.live, current.value?.collect.runId] as const),
   ([live, runId]) => {
     if (live !== true || runId === null || runId === undefined) {
       closeStream();
@@ -217,7 +220,11 @@ watch(
         throttleNow.value = { host: String(event['host']), ms: Number(event['waitedMs']) };
         return;
       }
-      if (event['type'] === 'item' || event['type'] === 'direction') {
+      if (
+        event['type'] === 'item' ||
+        event['type'] === 'direction' ||
+        event['type'] === 'progress'
+      ) {
         throttleNow.value = null;
         void refresh();
       }
@@ -352,7 +359,8 @@ function gateTwo(): void {
 
 /** 暫停／繼續／取消。**這三顆是作業的**（同作業紀錄那一頁），不是研究的。 */
 async function control(what: 'pause' | 'resume' | 'cancel'): Promise<void> {
-  const runId = open.value?.collect.runId;
+  const runId =
+    open.value?.status === 'building' ? open.value.build.runId : open.value?.collect.runId;
   if (runId === null || runId === undefined) return;
   report(null);
   const res =
@@ -434,6 +442,47 @@ const adopted = computed(() => open.value?.directions.filter((d) => d.adopted) ?
 const dropped = computed(() => open.value?.directions.filter((d) => !d.adopted) ?? []);
 
 /** 列在這一條底下的：**第一條找到它的是這一條**。別的方向也找到的只列一次。 */
+async function build(finish = false): Promise<void> {
+  if (open.value === null) return;
+  busy.value = 'gate';
+  report(null);
+  const res = finish
+    ? await api.finishBuild(props.slug, open.value.id)
+    : await api.buildResearch(props.slug, open.value.id);
+  busy.value = '';
+  if (!res.ok) report(res.error);
+  else current.value = res.data;
+  emit('runs-changed');
+}
+
+function decide(candidate: Candidate, decision: Candidate['decision']): void {
+  if (open.value === null) return;
+  const id = open.value.id;
+  void onRow(candidate, () => api.decideCandidate(props.slug, id, candidate.id, { decision }));
+}
+
+function cite(candidate: Candidate, itemId: string, event: Event): void {
+  if (open.value === null) return;
+  const id = open.value.id;
+  const checked = (event.target as HTMLInputElement).checked;
+  const citedBy = checked
+    ? [...candidate.citedBy, itemId]
+    : candidate.citedBy.filter((entry) => entry !== itemId);
+  void onRow(candidate, () => api.decideCandidate(props.slug, id, candidate.id, { citedBy }));
+}
+
+function decisionLabel(candidate: Candidate): string {
+  if (candidate.decision !== null) return t.research.decisionEdited;
+  if (candidate.acquisition !== 'fetched' && candidate.acquisition !== 'uploaded')
+    return t.research.decisionNoBody;
+  return fill(t.research.decisionDefault, {
+    relevance:
+      candidate.relevance === null
+        ? t.research.digestPending
+        : t.research.decisionRelevance[candidate.relevance],
+  });
+}
+
 function rowsOf(d: FrozenDirection): Candidate[] {
   return (open.value?.candidates ?? []).filter((c) => c.directionIds[0] === d.id);
 }
@@ -457,6 +506,8 @@ function directionState(d: FrozenDirection): string {
       : t.research.directionPending;
   }
   if (d.tally.found === 0) return t.research.noCandidates;
+  if (open.value?.status === 'reviewing' || open.value?.status === 'building')
+    return fill(t.research.reviewTally, { ...d.tally });
   const parts = [fill(t.research.tally, { found: d.tally.found, acquired: d.tally.acquired })];
   if (d.tally.needsUser > 0) parts.push(fill(t.research.tallyNeedsUser, { n: d.tally.needsUser }));
   if (d.tally.unavailable > 0) {
@@ -734,10 +785,20 @@ const hitsText = computed(() => {
 
       <!-- 閘門一之後：蒐集（Stage 20）。照方向分組，每一列候選說得出它現在是哪一種、為什麼。 -->
       <div v-else class="collect">
-        <h3>
+        <template v-if="open.status === 'building'">
+          <h3>
+            {{ fill(t.research.buildProgress, { done: open.build.done, total: open.build.total }) }}
+          </h3>
+          <button v-if="open.build.live" :disabled="busy !== ''" @click="control('cancel')">
+            {{ t.runs.cancel }}
+          </button>
+          <p v-else class="hint">{{ t.research.buildStopped }}</p>
+        </template>
+        <h3 v-if="open.status !== 'building'">
           {{ collectState === 'reviewing' ? t.research.reviewingTitle : t.research.collectTitle }}
         </h3>
         <p
+          v-if="open.status !== 'building'"
           :class="[
             'callout',
             collectState === 'awaiting' || collectState === 'reviewing' ? '' : 'pending',
@@ -810,6 +871,75 @@ const hitsText = computed(() => {
                   </a>
                   <span class="muted small host">{{ c.host }}</span>
                 </div>
+                <template v-if="open.status === 'reviewing'">
+                  <p class="hint">{{ decisionLabel(c) }}</p>
+                  <div class="actions">
+                    <label
+                      v-for="choice in ['include', 'reference', 'discard'] as const"
+                      :key="choice"
+                    >
+                      <input
+                        type="radio"
+                        :name="`decision-${c.id}`"
+                        :checked="c.effectiveDecision === choice"
+                        :disabled="
+                          busy !== '' ||
+                          busyRow !== null ||
+                          (choice === 'include' &&
+                            c.acquisition !== 'fetched' &&
+                            c.acquisition !== 'uploaded')
+                        "
+                        @change="decide(c, choice)"
+                      />
+                      {{
+                        choice === 'include'
+                          ? t.research.decisionInclude
+                          : choice === 'discard'
+                            ? t.research.decisionDiscard
+                            : c.acquisition === 'fetched' || c.acquisition === 'uploaded'
+                              ? t.research.decisionKeep
+                              : t.research.decisionReference
+                      }}
+                    </label>
+                    <button
+                      v-if="c.decision !== null"
+                      class="quiet small"
+                      :disabled="busy !== '' || busyRow !== null"
+                      @click="decide(c, null)"
+                    >
+                      {{ t.research.decisionReset }}
+                    </button>
+                  </div>
+                  <fieldset
+                    v-if="
+                      c.effectiveDecision === 'reference' &&
+                      c.acquisition !== 'fetched' &&
+                      c.acquisition !== 'uploaded'
+                    "
+                  >
+                    <legend>{{ t.research.citedBy }}</legend>
+                    <label
+                      v-for="source in open.candidates.filter(
+                        (entry) =>
+                          entry.itemId !== null &&
+                          entry.itemId !== c.itemId &&
+                          (entry.acquisition === 'fetched' || entry.acquisition === 'uploaded'),
+                      )"
+                      :key="source.id"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="c.citedBy.includes(source.itemId!)"
+                        :disabled="busy !== '' || busyRow !== null"
+                        @change="cite(c, source.itemId!, $event)"
+                      />
+                      {{ source.title }}
+                    </label>
+                  </fieldset>
+                </template>
+                <p v-if="c.buildCode" class="hint">
+                  {{ errorMessages[c.buildCode] ?? c.buildCode }}
+                </p>
                 <!-- 初讀（Stage 21）：繁中標題是衍生物，原文在上面那一行（R15）。 -->
                 <p
                   v-if="c.titleZh !== null && c.titleZh !== c.title"
@@ -937,6 +1067,22 @@ const hitsText = computed(() => {
             <span v-if="draft.length === 0" class="hint">{{ t.research.gateOneNotReady }}</span>
             <button class="quiet" :disabled="busy !== ''" @click="abandon">
               {{ t.research.abandon }}
+            </button>
+          </div>
+        </template>
+        <template v-else-if="open.status === 'reviewing' || open.status === 'building'">
+          <p class="hint">{{ costLabelOf(open.extractService) }}</p>
+          <div class="actions">
+            <button
+              v-if="open.status === 'reviewing' || open.build.mayResume"
+              class="primary"
+              :disabled="busy !== '' || busyRow !== null"
+              @click="build()"
+            >
+              {{ open.status === 'reviewing' ? t.research.build : t.research.resumeBuild }}
+            </button>
+            <button v-if="open.build.mayFinish" :disabled="busy !== ''" @click="build(true)">
+              {{ t.research.finishBuild }}
             </button>
           </div>
         </template>

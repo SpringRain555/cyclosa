@@ -261,7 +261,8 @@ function relLabel(edge: SubgraphEdge): string {
 
           <!-- **可信度只在具名關係上有意義** —— 另外三層是計算結果，
                把一個「弱／中／強」貼在相似度分數上只會讓那三個字失去意思 -->
-          <template v-if="edge.layer === 'named'">
+          <p v-if="edge.origin === 'human'" class="hint">{{ t.graph.selection.humanRelation }}</p>
+          <template v-else-if="edge.layer === 'named'">
             <p class="tier">
               {{ t.graph.selection.tier }}：<strong>{{ t.graph.tier[edge.tier] }}</strong>
             </p>

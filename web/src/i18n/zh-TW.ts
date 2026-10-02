@@ -978,6 +978,7 @@ export const t = {
     },
 
     selection: {
+      humanRelation: '你建的關聯，不需要出處',
       title: '選取的',
       none: '在圖上點一個節點，這裡會顯示它的細節。',
       kind: '型別',
@@ -1185,6 +1186,23 @@ export const t = {
    * 每一句都要能回答「現在花了什麼」—— 這個流程存在的理由就是「花錢之前停下來」。
    */
   research: {
+    build: '開始建圖',
+    resumeBuild: '繼續建圖',
+    finishBuild: '到此為止',
+    buildProgress: '建圖：已完成 {done}／{total} 份',
+    buildStopped: '建圖停在半路，已做好的留著；繼續只做剩下的。',
+    decisionInclude: '進圖',
+    decisionReference: '只留書目',
+    decisionKeep: '只留著，不抽',
+    decisionDiscard: '丟掉',
+    decisionDefault: '預設（依初讀：{relevance}）',
+    decisionRelevance: { yes: '有關', no: '沒關', unsure: '說不準' },
+    decisionNoBody: '預設（沒有正文）',
+    decisionEdited: '你改的',
+    decisionReset: '恢復預設',
+    citedBy: '被哪幾份引用',
+    reviewTally:
+      '找到 {found}、拿到 {acquired}、只留書目／留著不抽 {reference}、丟掉 {discard}、進圖 {include}',
     title: '新的研究',
     topicLabel: '這次想研究什麼',
     topicPlaceholder: '一個主題、一個問題、一個人',
@@ -1263,9 +1281,9 @@ export const t = {
       '按下去之後不再找、不再抓新的。還沒拿到的那幾份，下一步（確認）會預設成「只留書目」。',
     gateTwoLive: '蒐集還在跑 —— 等它做完，或先按「取消這次作業」。',
     /** 閘門二之後：確認與建圖還沒接上（Stage 22）。**照實說**。 */
-    reviewingTitle: '蒐集完成',
+    reviewingTitle: '確認要進圖的資料',
     reviewingBody:
-      '確認每一份要不要進圖、以及建圖那兩步還沒做進這一版 —— 它們是下一步。抓回來、上傳進來的現在都可以在閱讀器裡讀。',
+      '每一份選「進圖」「只留書目（有正文的只留著，不抽）」或「丟掉」。預設依初讀決定，你可以改；按「開始建圖」才會抽取關聯。',
 
     // 一條方向那一列（**數的，不叫模型說**，ADR-0033 D10）
     directionPending: '還沒搜',

@@ -189,9 +189,11 @@ export function angleOutcome(input: {
  * **「部分失敗被併進失敗」是這個專案明寫要避免的那條**，
  * 而它在一支只認得兩個數字的函式後面又發生了一次。
  */
-export function settleAngles(outcomes: readonly AngleOutcome[]): RunAction {
+export function settleWork(outcomes: readonly AngleOutcome[]): RunAction {
   if (outcomes.every((o) => o === 'clean')) return 'complete';
   // **只要有一條做出了東西，這次作業就不是「失敗」。**
   if (outcomes.some((o) => o === 'clean' || o === 'degraded')) return 'complete-partial';
   return 'fail';
 }
+
+export { settleWork as settleAngles };

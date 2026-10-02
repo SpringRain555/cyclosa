@@ -25,6 +25,12 @@ import {
 } from '../domain/provider/index.js';
 import {
   collectWork,
+  defaultDecision,
+  effectiveDecision,
+  mayFinishBuilding,
+  mayResumeBuilding,
+  type Decision,
+  type BuildState,
   mayActOnCandidate,
   mayFinishCollecting,
   mayResumeCollecting,
@@ -115,6 +121,12 @@ export interface FrozenDirection extends DirectionView {
 
 /** 一個候選在畫面上的樣子（Stage 20，ADR-0033 D7）。 */
 export interface CandidateView {
+  readonly decision: Decision | null;
+  readonly defaultDecision: Decision;
+  readonly effectiveDecision: Decision;
+  readonly citedBy: readonly string[];
+  readonly buildState: BuildState | null;
+  readonly buildCode: string | null;
   readonly id: string;
   /** 第一條找到它的方向在最前面；別的方向也找到的接在後面 */
   readonly directionIds: readonly string[];
@@ -193,6 +205,15 @@ export interface CollectView {
 }
 
 export interface ResearchView {
+  readonly extractService: ServiceView;
+  readonly build: {
+    readonly runId: string | null;
+    readonly live: boolean;
+    readonly done: number;
+    readonly total: number;
+    readonly mayResume: boolean;
+    readonly mayFinish: boolean;
+  };
   readonly id: string;
   readonly kind: ResearchKind;
   readonly status: ResearchStatus;
@@ -321,6 +342,9 @@ export function viewOf(
   const live = run !== null && isActive(run.id);
   const directions = research.listDirections(db, row.id);
   const candidates = research.listCandidates(db, row.id);
+  const buildRun = row.buildRunId === null ? null : runs.getRun(db, row.buildRunId);
+  const building = buildRun !== null && isActive(buildRun.id);
+  const extractSetting = providers.config.tasks.extract;
   const work = collectWork(directions, candidates);
   // 初讀的繁中住在資料上（v11）。**一次撈完**，不是每一列各查一次。
   const itemsById = new Map(
@@ -339,6 +363,12 @@ export function viewOf(
     const item = c.itemId === null ? undefined : itemsById.get(c.itemId);
     return {
       id: c.id,
+      decision: c.decision,
+      defaultDecision: defaultDecision(c),
+      effectiveDecision: effectiveDecision(c),
+      citedBy: c.citedBy,
+      buildState: c.buildState,
+      buildCode: c.buildCode,
       directionIds: [...(c.directionId === null ? [] : [c.directionId]), ...c.alsoDirections],
       url: c.url,
       host: displayHost(c.url),
@@ -411,6 +441,25 @@ export function viewOf(
     })),
     candidates: candidateViews,
     collect: collectOf(row, run, work),
+    extractService: {
+      via: extractSetting.via,
+      model: extractSetting.model,
+      costs: extractSetting.via !== 'ollama',
+    },
+    build: {
+      runId: row.buildRunId,
+      live: building,
+      done: candidates.filter((candidate) => candidate.buildState === 'done').length,
+      total: candidates.length,
+      mayResume: mayResumeBuilding(row.status, building),
+      mayFinish: mayFinishBuilding(
+        row.status,
+        building,
+        buildRun?.status === 'cancelled' && buildRun.endedReason === null
+          ? 'cancelled'
+          : 'interrupted',
+      ),
+    },
     costUsd: cost.costUsd,
     unknownCost: cost.unknown,
     costByTask: cost.byTask,

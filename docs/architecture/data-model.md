@@ -3,11 +3,11 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v12`，已實作。**
+> **現況：`schema v13`，已實作。**
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
 > `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`、
 > `007-vector-scan-index.sql`、`008-run-ended-reason.sql`、`009-research.sql`、
-> `010-research-collect.sql`、`011-research-digest.sql`、`012-research-build.sql`），
+> `010-research-collect.sql`、`011-research-digest.sql`、`012-research-build.sql`、`013-retire-expansion.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07）**：11 張表、18 個索引、3 條 trigger。
@@ -127,9 +127,8 @@ erDiagram
 | `edge_evidence` | 引文 | `quote` ＋ `char_start` ＋ `char_end`，指向某個 `item` |
 | **`edge_audit`** | **狀態轉換的稽核** | **只增不刪**。校準比例的資料來源 |
 | `note` | 筆記與點註 | 錨點用 W3C 選擇器，**釘在 snapshot 上**（`snapshot_sha256`）；**`id` 同時是它那個 `kind='note'` 的 `item` 的 id** |
-| `run` | 一次擴展或匯入作業 | 每個新增的 `item`／`edge` 都記得自己來自哪一次 |
+| `run` | 一次匯入、抽取、研究或整理作業 | `kind` 只接受 `import`／`extract`／`research`／`consolidate`；新增的 `item`／`edge` 記作業識別碼，升級清掉的舊作業參照改為 `NULL` |
 | **`run_item`** | **一次作業裡的一個輸入** | **一個輸入不一定會變成一個 `item`** —— 見下面 |
-| **`run_angle`** | **一次擴展的切入角度** | **沒被勾的那幾條也留著** —— 見下面 |
 | **`research`** | **一次研究或整理**（v9）| **同一專題同時只有一列沒結束** —— 見下面 |
 | **`research_message`** | **規劃對話的一輪**（v9）| **失敗的那一輪也留著**（`code` 有值）|
 | **`research_direction`** | **閘門一那一刻落成的方向**（v9）| **沒被採用的也留著**（`adopted = 0`）|
@@ -157,7 +156,9 @@ erDiagram
 狀態／來源／網域／新增節點／新增關聯／備註，另外多一個 **`waited_ms`** ——
 那是「同網域間隔照設定值走、被限流時退避了多久」這條驗收條件**量得到的地方**（REQ-0003）。
 
-## `run_angle`：沒被勾的那幾條也留著
+## 舊表 `run_angle`（v13 已移除）
+
+以下記錄 v4–v12 的設計；v13 清除舊擴展後刪除這張表，不再是現行 schema。
 
 一次擴展分兩階段：`POST /runs` 產生角度（**還沒開始抓**），
 使用者勾選之後 `POST /runs/:id/angles` 才真的開始。這張表就是那兩階段之間的東西。
@@ -186,11 +187,11 @@ erDiagram
 > 而且它對「要不要勾這一條」更有用 —— 它說的是這條角度憑什麼被提出來。
 > 完整理由在 ADR-0021。
 
-## `run` 對擴展多的四欄
+## `run` 的主題、模型與花費
 
 | 欄 | 為什麼要存 |
 |---|---|
-| `topic` | 匯入沒有主題，所以可以是 NULL —— **兩種 run 共用一張表** |
+| `topic` | 匯入沒有主題，所以可以是 NULL；各種作業共用一張表 |
 | `providers_json` | 用了哪些模型。**換一個模型重跑結果會不一樣**，而沒有這一欄的話兩次結果不同時沒有任何地方查得出「換了模型」 |
 | `requests` | 實際打了幾次。**請求數是主要上限**（ADR-0006 的補記）|
 | `cost_usd` | provider 回報的實際金額 |
@@ -593,8 +594,36 @@ v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_co
 | `created_at` | `INTEGER NOT NULL` | 建立時間 |
 | `dismissed_at` | `INTEGER` | `NULL` ＝ 尚未收起；收起保留資料，重複收起不改第一次的時間 |
 
-repository 依建立時間、id 列出尚未收起的通知；升級清除通知的產生留給 v13 前置步驟。
+repository 依建立時間、id 列出尚未收起的通知；v13 前置步驟寫入 `expansion-cleanup` 通知。
 `tests/infrastructure/migration-v12.test.ts` 從含合成資料的 v11 升級，逐欄核對舊資料、預設、CHECK 與外鍵。
+
+### 舊擴展清除與作業種類（v13，ADR-0033 D17）
+
+`database.ts` 用「版本 → 前置步驟」表，在 v13 SQL 前執行 `cleanup-expansion.ts`。
+既有資料庫必須指定 `backupDir`，先 `VACUUM INTO` 備份；沒指定或備份失敗，完全不升級、不清資料。
+新建的空白資料庫（版本 0）不需要備份。
+
+1. 前置步驟獨立使用 `BEGIN IMMEDIATE`，**外鍵開著**。只清 `run.kind='expand'`，
+   `providers_json.chat` 以 `manual:` 開頭或 `providers_json.json.extract === 'manual'` 的手動抽取保留。
+   空值、壞 JSON 與不符合這兩種標記的值都不是手動抽取。
+2. **整批一次計畫，不逐作業刪**：與 `undoRun` 共用 `undo-core.ts`，依 `planUndo` 保留人建或人裁決過的邊，
+   以及讀過、點註過、排除過的資料。還被任何留下的邊當出處或任一端點的資料都留，包含其他作業與沒有作業識別碼的邊。
+   兩筆即將一起清掉的作業互相引用，不會因此被誤留。
+3. 同一交易刪邊、資料、索引（bigram／FTS）與向量，清孤兒實體、重排標題。
+   留下的資料與邊的舊 `run_id` 改成 `NULL`；稽核不可改寫，裡面的歷史作業識別碼原樣保留（不是外鍵）。刪作業會連帶刪逐項紀錄與角度。
+   `research.collect_run_id`／`build_run_id` 若指著將被清除的作業，也改為 `NULL`，研究本身保留。
+   `sources/` 不碰；交易提交之後才用 `removeDerived` 刪掉被移除資料的每一版衍生物。
+4. 同一交易只寫一則通知。`body_json` 包含 `deletedRuns`、`deletedItems`、`deletedEdges`、`keptItems`、`keptEdges`，
+   以及 `reasons`：`read`／`annotated`／`excluded`／`referenced`／`otherRuns`。
+   `referenced` 是沒有前三種理由、但仍被邊用著的份數；`otherRuns` 是別筆作業或其他留下的邊仍在用的份數。
+   原因可能重疊。沒有舊擴展就不寫通知，再跑也不重寫；「知道了」只填 `dismissed_at`。
+5. SQL 使用 `-- cyclosa: foreign-keys-off` 重建 `run`，保留各欄位、索引與其他表的參照。
+   `kind` 只剩 `import`／`extract`／`research`／`consolidate`，留下的手動 `expand` 轉成 `extract`；`DROP TABLE run_angle`。
+   重建與清理是不同交易，外鍵關閉只限 SQL 重建階段，完成後開回來。
+   每份 SQL 讀完後重查版本，同一行程同頁的並行開檔不會重跑已完成的 migration；清理和 SQL 之間不等待檔案操作。
+   備份檔名的時間後綴再加 UUID，避免同一毫秒開檔撞名。
+
+`tests/infrastructure/migration-v13.test.ts` 驗混合資料、人工判定、跨作業參照、備份、衍生物、交易回滾、冪等與外鍵。
 
 ### 重建資料表：外鍵關著跑（v10 是第一次）
 
@@ -649,7 +678,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | `item` | ✅ v12：`extracted_at`、`extracted_by`（抽取紀錄）| 已加欄位，見正文 |
 | `item` | ✅ v12：`bib_json`（書目）| 已加欄位，見正文；建圖流程尚未接上 |
 | `run` | ✅ v10：`kind` 多 `research`、`consolidate`；多 `research_id`、`unpriced` | 重建資料表 |
-| `run` | ✅ v11：逐任務的花費（`task_costs_json`）；**v13：`kind` 拿掉 `expand`、多 `extract`**（手動抽取，Q15）| v11 `ADD COLUMN`；v13 重建資料表 |
+| `run` | ✅ v11：逐任務的花費（`task_costs_json`）；✅ v13：`kind` 拿掉 `expand`、多 `extract`（手動抽取，Q15），見正文 | v11 `ADD COLUMN`；v13 重建資料表 |
 | `note` | **不用改** —— `md_path` 從 v1 就在；附上的筆記檔是 `selector_json='[]'`（整份）的一則點註 | —— |
 
 **書目節點**：`kind='reference'`、`sha256` 是 `NULL`、`status='included'`。之後使用者補上正文 → **同一個 id** 轉成一般的資料節點
@@ -661,8 +690,8 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | ✅ 20 | v10 | `research_candidate`（取得狀態那一半）；`research_direction` 的搜尋狀態；`item` 重建（`reference`、拿掉 `paper`）；`run` 重建（`kind`、`research_id`、`unpriced`）。**`item.bib_json` 挪到 v12**（書目節點在那時才建）|
 | ✅ 21 | v11 | `item` 的初讀四欄；`research_candidate` 的 `relevance`／`relevance_why`／`digest_code`；**每一筆作業逐任務的花費**（`task_costs_json`）（**做完了，搬到上面正文**）|
 | 22（部分）| **✅ v12** | 欄位、通知表與 repository 已完成，見上面正文；Stage 22 整體尚未完成 |
-| 22 | （v13 之前的一段程式）| **舊的擴展紀錄一次性清除**（ADR-0033 D17）：自己一個交易、**外鍵開著**（復原靠連帶刪除），挑出真的舊擴展 —— **`providers_json` 的 `chat` 是 `manual:…` 的是手動抽取，保留**（Q15）—— 用既有的復原規則一次算完，**還被任何留下來的邊當出處或端點的資料一律留下**；寫一則 `case_notice`。冪等：再跑一次沒東西可清，不重寫通知 |
-| 22 | **v13** | 重建 `run`（`-- cyclosa: foreign-keys-off`）：`kind` 只剩 `import`／`extract`／`research`／`consolidate`，**剩下的 `expand`（＝手動抽取）轉 `extract`**；`DROP TABLE run_angle` |
+| 22（部分）| ✅ v13 前置步驟 | 已完成，清理規則、通知與冪等見正文；Stage 22 整體尚未完成 |
+| 22（部分）| ✅ v13 | 已完成，`run` 重建與 `run_angle` 移除見正文 |
 
 **為什麼 Stage 22 是兩個 migration 夾一段程式**（2026-09-29 定，原本寫「v12 一份、`run` 要不要重建再定」）：
 重建資料表必須**外鍵關著**跑（「重建資料表」那一節：外鍵開著的 `DROP TABLE` 會先隱含一次 `DELETE`），

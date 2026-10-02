@@ -27,12 +27,12 @@
 import { join } from 'node:path';
 
 import { isOpen } from '../domain/research/index.js';
-import { keptAnything, planUndo, type UndoPlan } from '../domain/run/index.js';
+import { keptAnything, type UndoPlan } from '../domain/run/index.js';
+import { applyUndoPlan, planUndoRuns } from '../infrastructure/db/undo-core.js';
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
-import { reindexTitleRank } from '../infrastructure/index/writer.js';
 import { removeDerived } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
@@ -98,23 +98,18 @@ export async function undoRun(
       }
     }
 
-    plan = planUndo(runs.runEdgeFacts(db, runId), runs.runItemFacts(db, runId));
-
     // **一個交易。** 刪到一半斷掉會留下「有邊、沒有出處」的半套狀態，
     // 而那正好是一條看起來可以被確認、卻沒有東西支撐它的邊。
-    db.exec('BEGIN');
+    db.exec('BEGIN IMMEDIATE');
     try {
-      runs.deleteEdgesById(db, plan.deleteEdges);
-      runs.deleteItemsById(db, plan.deleteItems);
-      deletedEntities = runs.deleteOrphanEntities(db);
+      plan = planUndoRuns(db, [runId]);
+      deletedEntities = applyUndoPlan(db, plan);
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
       logger.error('復原作業失敗', { correlationId: cid, reason: String((e as Error).message) });
       return err('RUN_UNEXPECTED', cid, { at: 'undo-delete' });
     }
-
-    reindexTitleRank(db);
   } finally {
     db.close();
   }

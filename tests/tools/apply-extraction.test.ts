@@ -145,7 +145,7 @@ describe('人給的抽取結果走跟模型一樣的路', () => {
     expect(derived.text.slice(ev.char_start, ev.char_end)).toBe(QUOTE);
 
     // 作業紀錄：一列 run、記得是誰抽的；一列 run_item 指回那份資料
-    expect(rows.run['kind']).toBe('expand');
+    expect(rows.run['kind']).toBe('extract');
     expect(rows.run['status']).toBe('partial');
     expect(String(rows.run['providers_json'])).toContain('manual:test');
     expect(rows.runItems).toHaveLength(1);

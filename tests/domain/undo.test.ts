@@ -74,6 +74,21 @@ describe('人動過的一律留下', () => {
 });
 
 describe('留下來的邊的出處，那一份也要留', () => {
+  it.each(['evidenceItemIds', 'endpointItemIds'] as const)('別的作業的 %s 也保護資料', (field) => {
+    const plan = planUndo([], [item()], [edge({ [field]: ['itm-1'] })]);
+    expect(plan.deleteItems).toEqual([]);
+    expect(plan.keepItems).toEqual(['itm-1']);
+    expect(plan.keptAsEvidence).toEqual(['itm-1']);
+  });
+
+  it('自己留下的邊的兩端也保護，機器邊刪掉就不保護', () => {
+    expect(
+      planUndo([edge({ origin: 'human', endpointItemIds: ['itm-1'] })], [item()]).keepItems,
+    ).toEqual(['itm-1']);
+    expect(planUndo([edge({ endpointItemIds: ['itm-1'] })], [item()]).deleteItems).toEqual([
+      'itm-1',
+    ]);
+  });
   it('人裁決過的邊靠 itm-9 當出處 —— itm-9 不能刪', () => {
     const plan = planUndo(
       [edge({ id: 'edg-keep', adjudicatedByHuman: true, evidenceItemIds: ['itm-9'] })],

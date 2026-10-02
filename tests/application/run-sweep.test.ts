@@ -105,26 +105,23 @@ describe('掃掉上一次沒有收尾的作業', () => {
     expect(runs.getRun(db, 'r2')?.status).toBe('running');
   });
 
-  it('**等你勾的擴展作業不能被掃掉** —— 那個狀態撐得過重新啟動', () => {
-    // 這一條是實際踩到的：第一版連 `排隊中` 一起掃，而擴展的「排隊」
-    // 的意思是「在等你勾」。它不在記憶體的執行表裡（沒有東西在跑），
-    // 所以掃描會把它當成孤兒 —— 於是使用者還沒回答的問題被丟掉了。
-    //
-    // `chooseAngles` 只看資料庫裡的 `status === 'queued'`，
-    // **所以那個狀態本來就撐得過重新啟動。**
-    runs.insertRun(db, {
-      id: 'e1',
-      kind: 'expand',
-      label: '擴展',
-      total: 0,
-      correlationId: 'cid',
-      now: Date.now(),
-      topic: '主題',
-    });
+  it.each(['import', 'extract', 'research', 'consolidate'] as const)(
+    '排隊中的 %s 作業不能被掃掉 —— 那個狀態撐得過重新啟動',
+    (kind) => {
+      runs.insertRun(db, {
+        id: 'e1',
+        kind,
+        label: '測試',
+        total: 0,
+        correlationId: 'cid',
+        now: Date.now(),
+        topic: '主題',
+      });
 
-    expect(sweepStaleRuns(db, '測試專題')).toBe(0);
-    expect(runs.getRun(db, 'e1')?.status).toBe('queued');
-  });
+      expect(sweepStaleRuns(db, '測試專題')).toBe(0);
+      expect(runs.getRun(db, 'e1')?.status).toBe('queued');
+    },
+  );
 
   it('已經收尾的作業一列都不動', () => {
     insertRunning('r1');

@@ -14,6 +14,7 @@ import { api, type Angle, type ApiError, type RebuildReport, type Run, type RunI
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import ResearchPanel from '../components/ResearchPanel.vue';
+import CaseNotices from '../components/CaseNotices.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -433,6 +434,7 @@ async function rebuild(): Promise<void> {
   -->
   <main class="scroll">
     <div class="page wide">
+      <CaseNotices :slug="slug" @error="error = $event" />
       <!--
         研究（Stage 19，ADR-0033）**排在最上面**：它是這一頁的主角，
         而匯入與舊版擴展是旁邊那兩件事。第一版排在下面，實際看過之後改上來 ——

@@ -500,6 +500,30 @@
 > 以及**人的判定**（`status` 不重設，`origin='human'` 的列不看也不動）。
 > 「重算」聽起來最無害，而它正是最容易把「機器不得覆寫人工判定」洗掉的動作。
 
+### 專題升級通知
+
+| 端點 | 說明 |
+|---|---|
+| `GET /api/cases/:slug/notices` | 依建立時間、id 回傳尚未收起的通知陣列 |
+| `POST /api/cases/:slug/notices/:noticeId/dismiss` | 不需 body；收起通知，回 `{ dismissed: true }`。已收起或不存在回 `{ dismissed: false }`（200），不改第一次收起的時間 |
+
+兩支沿用 `{ ok, data, correlationId }` 包裝；專題不存在回 `CASE_NOT_FOUND`（404），
+schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAILED`。
+每筆通知為 `{ id, kind, bodyJson, createdAt, dismissedAt: null }`，時間是毫秒。
+`expansion-cleanup` 的 `bodyJson` 是 JSON 字串：
+
+```json
+{
+  "deletedRuns": 2, "deletedItems": 3, "deletedEdges": 4,
+  "keptItems": 5, "keptEdges": 1,
+  "reasons": { "read": 1, "annotated": 1, "excluded": 1, "referenced": 2, "otherRuns": 1 }
+}
+```
+
+原因可能重疊；`referenced` 是未讀、沒點註、沒排除，但仍是留下的關聯的出處或端點的份數。
+`otherRuns` 是其他作業或不屬於這次清理的邊仍在用的份數。
+「匯入與研究」最上面顯示，按「知道了」收起；不顯示原始 JSON 或把內容當 HTML。
+
 ### 作業的三顆按鈕是三件事
 
 | 端點 | 何時能用 | 做什麼 |
@@ -513,8 +537,8 @@
 而復原是第三件事 —— 它在跑完之後才出現（ADR-0023）。
 
 `undo` 回一份報告，而**那份報告要說出「留下了什麼」**：
-`keptItems`／`keptEdges`（你動過的）與 `keptAsEvidence`
-（有一條留下來的關聯靠它當出處）。**只回一個刪除數的話，
+`keptItems`／`keptEdges`（你動過或仍有關聯在用的）與 `keptAsEvidence`
+（有一條留下來的關聯靠它當出處或端點，含其他作業）。**只回一個刪除數的話，
 使用者解釋不了為什麼圖上還有東西。**
 
 失敗路徑：作業還在跑 → `RUN_STILL_ACTIVE`；找不到 → `RUN_NOT_FOUND`（404）。

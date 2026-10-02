@@ -21,6 +21,8 @@ import { buildServer } from '../../src/server.js';
 import * as registry from '../../src/application/run-registry.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
 import { insertRun } from '../../src/infrastructure/db/repositories/run-repo.js';
+import { indexText } from '../../src/infrastructure/index/writer.js';
+import { insertNotice } from '../../src/infrastructure/db/repositories/notice-repo.js';
 import {
   appendAudit,
   insertEdge,
@@ -88,6 +90,23 @@ afterEach(async () => {
 });
 
 describe('暫停與續跑', () => {
+  it('通知只列未收起的；知道了會持久保存且重按不改日期', async () => {
+    const db = await openDb();
+    insertNotice(db, { id: 'notice', kind: 'expansion-cleanup', bodyJson: '{}', createdAt: 1 });
+    db.close();
+    const listed = await app.inject({ method: 'GET', url: `/api/cases/${slug}/notices` });
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json<{ data: { id: string }[] }>().data.map((notice) => notice.id)).toEqual([
+      'notice',
+    ]);
+    const url = `/api/cases/${slug}/notices/notice/dismiss`;
+    const dismissed = await app.inject({ method: 'POST', url });
+    expect(dismissed.json<{ data: { dismissed: boolean } }>().data.dismissed).toBe(true);
+    const again = await app.inject({ method: 'POST', url });
+    expect(again.json<{ data: { dismissed: boolean } }>().data.dismissed).toBe(false);
+    const empty = await app.inject({ method: 'GET', url: `/api/cases/${slug}/notices` });
+    expect(empty.json<{ data: unknown[] }>().data).toEqual([]);
+  });
   it('閘門在暫停時擋住，續跑之後放行', async () => {
     const state = registry.register(RUN_ID);
     let passed = false;
@@ -159,8 +178,8 @@ describe('復原這次作業', () => {
     try {
       insertRun(db, {
         id: RUN_ID,
-        kind: 'expand',
-        label: '一次擴展',
+        kind: 'extract',
+        label: '一次抽取',
         total: 2,
         correlationId: 'cid',
         now: 1000,
@@ -272,6 +291,76 @@ describe('復原這次作業', () => {
     expect(again.ok).toBe(true);
     expect(again.data?.deletedItems).toBe(0);
     expect(again.data?.deletedEdges).toBe(0);
+  });
+
+  it.each(['evidence', 'source', 'target'])('復原也保護別筆作業的 %s 參照', async (reference) => {
+    const db = await openDb();
+    try {
+      addItem(db, 'other', null);
+      const edgeId = insertEdge(
+        db,
+        {
+          layer: 'named',
+          rel: '合成',
+          source: reference === 'source' ? 'itm-plain' : 'other',
+          sourceKind: 'item',
+          target: reference === 'target' ? 'itm-plain' : 'itm-before',
+          targetKind: 'item',
+          origin: 'machine',
+          confidence: 0.5,
+          runId: 'other-run',
+        },
+        1,
+      );
+      if (reference === 'evidence')
+        insertEvidence(
+          db,
+          edgeId,
+          [{ itemId: 'itm-plain', quote: '合成', charStart: 0, charEnd: 2 }],
+          1,
+        );
+    } finally {
+      db.close();
+    }
+    const result = await undo();
+    expect(result.data?.deletedItems).toBe(0);
+    expect(result.data?.keptAsEvidence).toBe(1);
+    const after = await openDb();
+    try {
+      expect(after.prepare("SELECT id FROM item WHERE id = 'itm-plain'").get()).toBeDefined();
+      expect(after.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+      if (reference === 'evidence')
+        expect(after.prepare('SELECT * FROM edge_evidence').all()).toHaveLength(1);
+    } finally {
+      after.close();
+    }
+  });
+
+  it('復原一起清掉索引與向量', async () => {
+    const db = await openDb();
+    try {
+      indexText(db, {
+        ownerKind: 'item',
+        ownerId: 'itm-plain',
+        lang: 'zh',
+        title: '合成 title',
+        text: '合成 body',
+      });
+      db.exec("INSERT INTO vector VALUES ('v', 'item', 'itm-plain', 'fixture', 1, X'00000000', 1)");
+    } finally {
+      db.close();
+    }
+    await undo();
+    const after = await openDb();
+    try {
+      for (const table of ['bigram', 'fts_text', 'vector']) {
+        expect(after.prepare(`SELECT * FROM ${table} WHERE owner_id = 'itm-plain'`).all()).toEqual(
+          [],
+        );
+      }
+    } finally {
+      after.close();
+    }
   });
 
   it('還在跑的復原不了', async () => {

@@ -43,7 +43,7 @@ import * as entities from '../infrastructure/db/repositories/entity-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { reindexTitleRank } from '../infrastructure/index/writer.js';
-import { caseDir, casesDir } from '../infrastructure/fs/paths.js';
+import { backupsDir, caseDir, casesDir } from '../infrastructure/fs/paths.js';
 import { readDerived } from '../infrastructure/fs/case-files.js';
 import type { EdgeOrigin, EntityType } from '../domain/graph/types.js';
 import { correlationId, newId } from '../shared/id.js';
@@ -166,7 +166,10 @@ export async function createSampleCase(dataRoot: string): Promise<Result<SampleR
   const summary: CaseSummary = made.data;
 
   const folder = caseDir(dataRoot, summary.slug);
-  const opened = await openCaseDatabase(join(folder, 'case.sqlite'));
+  const opened = await openCaseDatabase(join(folder, 'case.sqlite'), {
+    backupDir: backupsDir(dataRoot),
+    backupLabel: summary.slug,
+  });
   // 剛建好的專題照理不會不見 —— 但如果真的不見了，那句話該是「找不到」，
   // 不是「migration 失敗」。
   if (opened.kind === 'missing') return err('CASE_NOT_FOUND', cid, { slug: summary.slug });

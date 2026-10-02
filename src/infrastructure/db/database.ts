@@ -5,15 +5,22 @@
  * 引了就需要編譯工具鏈，而一鍵啟動就沒了（ADR-0002、ADR-0009）。
  */
 import { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import { access, mkdir, readFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cleanupExpansion } from './cleanup-expansion.js';
+import { removeDerived } from '../fs/case-files.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, 'migrations');
 
 /** 這一版程式認得的 schema 版本。**比資料庫的版本小就代表資料庫被新版寫過。** */
-export const SUPPORTED_SCHEMA_VERSION = 12;
+export const SUPPORTED_SCHEMA_VERSION = 13;
+
+const PRE_MIGRATIONS: Readonly<Record<number, (db: DatabaseSync) => readonly string[]>> = {
+  13: cleanupExpansion,
+};
 
 /**
  * migration 檔裡單獨一行寫這個 ＝ **這一份要在外鍵關著的時候跑**（重建資料表）。
@@ -110,7 +117,7 @@ export interface OpenOptions {
   /**
    * migration 之前把複本放這裡（`<資料根>\backups\`）。
    *
-   * **不給就不備份** —— 新建的專題不需要（它從 0 直接建到最新版，
+   * **既有專題升級時必填** —— 新建的空白專題不需要（它從 0 直接建到最新版，
    * 沒有任何東西可以失去）。
    */
   readonly backupDir?: string | undefined;
@@ -175,6 +182,10 @@ export async function openCaseDatabase(
   }
 
   if (current < SUPPORTED_SCHEMA_VERSION) {
+    if (current > 0 && options.backupDir === undefined) {
+      db.close();
+      return { kind: 'migrate-failed', at: 'backup', reason: '升級 v13 之前必須指定備份目錄' };
+    }
     // **既有資料庫在 migration 之前先留一份複本**（storage-layout 的 `backups\`）。
     //
     // 用 `VACUUM INTO` 而不是複製檔案：WAL 模式下 `.sqlite` 那一個檔案
@@ -184,7 +195,7 @@ export async function openCaseDatabase(
       try {
         await mkdir(options.backupDir, { recursive: true });
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const name = `${options.backupLabel ?? 'case'}-v${current}-${stamp}.sqlite`;
+        const name = `${options.backupLabel ?? 'case'}-v${current}-${stamp}-${randomUUID()}.sqlite`;
         db.prepare('VACUUM INTO ?').run(join(options.backupDir, name));
       } catch (e) {
         // **備份失敗就不要 migrate。** 沒有退路的 migration 是這個專案
@@ -200,7 +211,14 @@ export async function openCaseDatabase(
       if (version <= current) continue;
       const sql = await readFile(join(MIGRATIONS_DIR, file), 'utf8');
       try {
-        applyMigration(db, sql, version);
+        const latest = db.prepare('PRAGMA user_version').get() as { user_version: number };
+        if (version <= latest.user_version) continue;
+        const deletedItems = PRE_MIGRATIONS[version]?.(db) ?? [];
+        try {
+          applyMigration(db, sql, version);
+        } finally {
+          for (const itemId of deletedItems) await removeDerived(dirname(path), itemId);
+        }
       } catch (e) {
         db.close();
         return { kind: 'migrate-failed', at: file, reason: String((e as Error).message) };

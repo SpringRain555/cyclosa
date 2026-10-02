@@ -198,10 +198,18 @@ export interface ReadReset {
   done: boolean;
 }
 
+export interface CaseNotice {
+  id: string;
+  kind: string;
+  bodyJson: string;
+  createdAt: number;
+  dismissedAt: number | null;
+}
+
 export interface Run {
   id: string;
   /** `research` ＝ 研究裡的機器工作（蒐集一筆、建圖一筆）；`expand` 是舊版擴展 */
-  kind: 'import' | 'expand' | 'research' | 'consolidate';
+  kind: 'import' | 'extract' | 'expand' | 'research' | 'consolidate';
   status: 'queued' | 'running' | 'done' | 'partial' | 'cancelled' | 'failed';
   label: string;
   total: number;
@@ -1046,6 +1054,11 @@ export const api = {
     ),
 
   // ── 作業紀錄 ────────────────────────────────────────────
+  notices: (slug: string) => request<CaseNotice[]>(`/api/cases/${enc(slug)}/notices`),
+  dismissNotice: (slug: string, noticeId: string) =>
+    request<{ dismissed: boolean }>(`/api/cases/${enc(slug)}/notices/${enc(noticeId)}/dismiss`, {
+      method: 'POST',
+    }),
   runs: (slug: string) => request<Run[]>(`/api/cases/${enc(slug)}/runs`),
   run: (slug: string, runId: string) =>
     request<{ run: Run; items: RunItem[]; angles: Angle[] }>(

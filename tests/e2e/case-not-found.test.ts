@@ -52,6 +52,8 @@ const ENDPOINTS: ReadonlyArray<{
   { method: 'POST', path: 'items/unread-all', payload: { force: true } },
   { method: 'GET', path: 'notes' },
   { method: 'GET', path: 'runs' },
+  { method: 'GET', path: 'notices' },
+  { method: 'POST', path: 'notices/missing/dismiss' },
   { method: 'GET', path: 'queue' },
   { method: 'GET', path: 'edges/e1' },
   { method: 'GET', path: 'subgraph/focus' },

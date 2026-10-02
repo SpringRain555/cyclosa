@@ -744,6 +744,11 @@ export const t = {
   },
 
   runs: {
+    noticeTitle: '專題升級通知',
+    noticeDismiss: '知道了',
+    noticeUnknown: '這個專題有一則升級通知；目前無法顯示詳細內容。',
+    noticeCleanup:
+      '已清除 {deletedRuns} 筆舊擴展作業、{deletedItems} 份資料與 {deletedEdges} 條關聯。留下 {keptItems} 份資料與 {keptEdges} 條人建立或裁決過的關聯：讀過 {read} 份、點註過 {annotated} 份、排除過 {excluded} 份；另外 {referenced} 份仍是留下的關聯的出處或端點。其中 {otherRuns} 份是別的作業還在用。原因可能重疊，不能直接相加。手動抽取保留，快照不動。',
     tab: '匯入與研究',
     title: '歷次紀錄',
     empty: '還沒有任何作業。貼一個網址或拖一個檔案進來就會開始。',
@@ -788,8 +793,8 @@ export const t = {
     undone: '已刪掉 {items} 份資料、{edges} 條關聯。',
     undoneEntities: '另外清掉 {n} 個因此沒有任何關聯的實體。',
     /** 留下來的東西要解釋，不然使用者會問「為什麼圖上還有」。 */
-    undoKept: '留下 {items} 份資料與 {edges} 條關聯 —— 你動過它們。',
-    undoKeptEvidence: '其中 {n} 份是因為有一條留下來的關聯靠它當出處。',
+    undoKept: '留下 {items} 份資料與 {edges} 條關聯 —— 你動過它們，或仍有關聯在用。',
+    undoKeptEvidence: '其中 {n} 份是因為留下的關聯仍靠它當出處或端點（包含別的作業）。',
     /** 研究還沒結束的作業不能復原（`RUN_OWNED_BY_RESEARCH`）—— **不給一顆按了必定報錯的按鈕**，說為什麼。 */
     heldByResearch:
       '這一筆屬於一次還沒結束的研究 ——「匯入與研究」上面那一次做完或放棄之後，才能復原它。',

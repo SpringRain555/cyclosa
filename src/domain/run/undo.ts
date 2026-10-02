@@ -39,6 +39,7 @@ export interface RunEdgeFact {
   readonly adjudicatedByHuman: boolean;
   /** 它的出處出自哪幾份資料。 */
   readonly evidenceItemIds: readonly string[];
+  readonly endpointItemIds?: readonly string[];
 }
 
 export interface RunItemFact {
@@ -64,7 +65,11 @@ export interface UndoPlan {
   readonly keptAsEvidence: readonly string[];
 }
 
-export function planUndo(edges: readonly RunEdgeFact[], items: readonly RunItemFact[]): UndoPlan {
+export function planUndo(
+  edges: readonly RunEdgeFact[],
+  items: readonly RunItemFact[],
+  otherEdges: readonly RunEdgeFact[] = [],
+): UndoPlan {
   const keepEdges: string[] = [];
   const deleteEdges: string[] = [];
   for (const edge of edges) {
@@ -74,9 +79,9 @@ export function planUndo(edges: readonly RunEdgeFact[], items: readonly RunItemF
 
   const kept = new Set(keepEdges);
   const backing = new Set<string>();
-  for (const edge of edges) {
-    if (!kept.has(edge.id)) continue;
+  for (const edge of [...edges.filter((edge) => kept.has(edge.id)), ...otherEdges]) {
     for (const itemId of edge.evidenceItemIds) backing.add(itemId);
+    for (const itemId of edge.endpointItemIds ?? []) backing.add(itemId);
   }
 
   const keepItems: string[] = [];

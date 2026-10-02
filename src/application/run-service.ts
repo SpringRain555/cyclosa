@@ -148,7 +148,7 @@ export async function getRun(
       {
         run: summarize(db, row),
         items: runs.listRunItems(db, runId),
-        angles: viewAngles(db, runId),
+        angles: row.kind === 'expand' ? viewAngles(db, runId) : [],
       },
       cid,
     );

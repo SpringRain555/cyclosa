@@ -82,7 +82,7 @@ export type RunStatus = 'queued' | 'running' | 'done' | 'partial' | 'cancelled' 
  * `research` 是一次研究裡的機器工作（蒐集一筆、建圖一筆 —— ADR-0033 D3）；
  * `consolidate` 是整理（Stage 24）。`expand` 是舊版擴展，Stage 22 退場。
  */
-export type RunKind = 'import' | 'expand' | 'research' | 'consolidate';
+export type RunKind = 'import' | 'extract' | 'expand' | 'research' | 'consolidate';
 
 /**
  * **不是狀態，是「這次取消是誰按的」。**

@@ -32,6 +32,7 @@ import {
   startUrlImport,
 } from '../../application/ingest-service.js';
 import { undoRun } from '../../application/undo-service.js';
+import { listCaseNotices, dismissCaseNotice } from '../../application/notice-service.js';
 import { activeCount } from '../../application/run-registry.js';
 import { describeFetchPolicy } from '../../application/fetch-policy.js';
 import { shutdownSequence, targetOf } from './shutdown.js';
@@ -676,6 +677,21 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
           new Uint8Array(body),
         ),
       );
+    },
+  );
+
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/notices', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listCaseNotices(dataRoot, req.params.slug));
+  });
+
+  app.post<{ Params: { slug: string; noticeId: string } }>(
+    '/api/cases/:slug/notices/:noticeId/dismiss',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await dismissCaseNotice(dataRoot, req.params.slug, req.params.noticeId));
     },
   );
 

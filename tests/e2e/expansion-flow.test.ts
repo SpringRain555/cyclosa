@@ -1,10 +1,11 @@
 /**
- * LLM 擴展的端對端測試。
+ * LLM 舊擴展的端對端回歸測試，固定使用退場前的 schema v12。
  *
  * ## 什麼是假的、什麼是真的
  *
- * **假的只有兩個 provider 本身**：一台起在 `127.0.0.1` 的假 Ollama，
+ * **假的是兩個 provider 與開檔的版本選擇**：一台起在 `127.0.0.1` 的假 Ollama，
  * 與一支用 node 跑的假 `claude` CLI。
+ * 開檔使用真正的 001–012 migration 與 SQLite；v13 升級另由 migration-v13 測試。
  *
  * **其餘全部是真的** —— `providers.json` 真的被讀、Ollama 的 HTTP client
  * 真的送出去、子程序真的被 spawn、stream-json 真的被逐行解析、
@@ -24,11 +25,11 @@
  * 6. **否決過的組合重跑不再出現**（墓碑，ADR-0016）。
  */
 import { createServer, type Server } from 'node:http';
-import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { DatabaseSync } from 'node:sqlite';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DatabaseSync } from 'node:sqlite';
 
 import { TASK_EXTRACT } from '../../src/domain/provider/capabilities.js';
 import { createCase } from '../../src/application/case-service.js';
@@ -37,9 +38,45 @@ import { discardDraftRun, getRun, listRuns } from '../../src/application/run-ser
 import { createEdge } from '../../src/application/edge-service.js';
 import { transitionEdge } from '../../src/application/edge-service.js';
 import { isActive } from '../../src/application/run-registry.js';
-import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
+import { openCaseDatabase, type OpenOptions } from '../../src/infrastructure/db/database.js';
 import { CATALOG } from '../../src/infrastructure/sources/catalog.js';
 import { derivedPath } from '../../src/infrastructure/fs/case-files.js';
+
+vi.mock('../../src/infrastructure/db/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/infrastructure/db/database.js')>();
+  return {
+    ...actual,
+    openCaseDatabase: async (path: string, options: OpenOptions = {}) => {
+      if (options.create !== true) {
+        try {
+          await access(path);
+        } catch {
+          return { kind: 'missing' };
+        }
+      }
+      const db = new DatabaseSync(path);
+      try {
+        db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000');
+        const current = db.prepare('PRAGMA user_version').get() as { user_version: number };
+        if (current.user_version === 0) {
+          const migrations = new URL('../../src/infrastructure/db/migrations/', import.meta.url);
+          for (const file of (await readdir(migrations))
+            .filter((name) => name.endsWith('.sql'))
+            .sort()) {
+            const version = Number(file.slice(0, 3));
+            if (version <= 12)
+              actual.applyMigration(db, await readFile(new URL(file, migrations), 'utf8'), version);
+          }
+        }
+        expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 12 });
+        return { kind: 'ok', db };
+      } catch (error) {
+        db.close();
+        throw error;
+      }
+    },
+  };
+});
 
 // ══ 合成的來源網頁 ═════════════════════════════════════════
 

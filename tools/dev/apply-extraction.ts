@@ -29,7 +29,7 @@
  *
  * ## 它留下什麼
  *
- * 一個 `kind='expand'` 的作業（`label`「手動抽取」、`providers_json` 記 `chat: manual:<誰>`），
+ * 一個 `kind='extract'` 的作業（`label`「手動抽取」、`providers_json` 記 `chat: manual:<誰>`），
  * 每一份一列 `run_item`。所以作業紀錄看得到、**復原得掉**、寫進去的邊帶著 `run_id`。
  *
  * ## 三道防線（跟 `seed-graph.ts` 同一種形狀）
@@ -115,7 +115,7 @@ export async function applyManualExtraction(
     const now = Date.now();
     runs.insertRun(db, {
       id: runId,
-      kind: 'expand',
+      kind: 'extract',
       label: '手動抽取',
       total: entries.length,
       correlationId: correlationId(),

@@ -440,15 +440,15 @@ export function setRunItemEdges(db: DatabaseSync, id: string, newEdges: number):
 // 要刪哪些是 `domain/run/undo.ts` 的規則，不在這裡。
 
 /** 這次作業寫進去的關聯，連同判斷「人動過沒有」需要的兩個事實。 */
-export function runEdgeFacts(db: DatabaseSync, runId: string): readonly RunEdgeFact[] {
+export function runEdgeFacts(db: DatabaseSync, runId?: string): readonly RunEdgeFact[] {
   const rows = db
     .prepare(
-      `SELECT e.id AS id, e.origin AS origin,
+      `SELECT e.id AS id, e.origin AS origin, e.source_id, e.source_kind, e.target_id, e.target_kind,
               EXISTS (SELECT 1 FROM edge_audit a
                        WHERE a.edge_id = e.id AND a.actor = 'human') AS judged
-         FROM edge e WHERE e.run_id = ?`,
+         FROM edge e WHERE (? IS NULL OR e.run_id = ?)`,
     )
-    .all(runId) as Raw[];
+    .all(runId ?? null, runId ?? null) as Raw[];
 
   const evidence = db.prepare('SELECT item_id FROM edge_evidence WHERE edge_id = ?');
   return rows.map((row) => {
@@ -459,6 +459,10 @@ export function runEdgeFacts(db: DatabaseSync, runId: string): readonly RunEdgeF
       origin: String(row['origin']) === 'human' ? ('human' as const) : ('machine' as const),
       adjudicatedByHuman: Number(row['judged']) === 1,
       evidenceItemIds: items,
+      endpointItemIds: [
+        ...(row['source_kind'] === 'item' ? [String(row['source_id'])] : []),
+        ...(row['target_kind'] === 'item' ? [String(row['target_id'])] : []),
+      ],
     };
   });
 }

@@ -221,14 +221,13 @@ function providerLabel(r: Run): string {
   try {
     // `chatExtract` 只在**抽取跑在另一個模型上**時才有值（逐任務覆寫）。
     // 舊的紀錄沒有這個鍵，而那跟「兩個任務同一個模型」在畫面上是同一件事。
-    const parsed = JSON.parse(r.providers) as {
-      chat?: unknown;
-      chatExtract?: unknown;
-      agent?: unknown;
-    };
-    return [parsed.chat, parsed.chatExtract, parsed.agent]
-      .filter((v) => typeof v === 'string')
-      .join(' ＋ ');
+    // 研究的蒐集記 `agent`＋`digest`、建圖與抽進圖記 `extract`（v0.25.0 起）——
+    // 2026-10-03 之前只認前三個鍵，建圖那一筆的「用的是」後面是空的。
+    const parsed = JSON.parse(r.providers) as Record<string, unknown>;
+    const names = ['chat', 'chatExtract', 'agent', 'digest', 'extract']
+      .map((key) => parsed[key])
+      .filter((v): v is string => typeof v === 'string');
+    return [...new Set(names)].join(' ＋ ');
   } catch {
     // 這一欄是說明不是規則 —— 壞掉就不顯示，不要為它讓整頁失敗
     return '';
@@ -582,7 +581,7 @@ async function rebuild(): Promise<void> {
             class="budget"
           >
             <span>{{ fill(t.research.requests, { n: run.requests }) }}</span>
-            <span v-if="run.providers" class="mono">{{
+            <span v-if="providerLabel(run) !== ''" class="mono">{{
               fill(t.research.usedProviders, { chat: providerLabel(run) })
             }}</span>
           </p>

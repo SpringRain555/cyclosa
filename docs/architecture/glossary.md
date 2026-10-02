@@ -23,12 +23,12 @@
 | **出處** | `edge_evidence` | 一條關聯的引文 ＋ 它在哪個 `item` 的哪個字元區間 | `data-model.md` |
 | **稽核紀錄** | `edge_audit` | 一次狀態轉換的紀錄。只增不刪 | ADR-0016 |
 | **點註** | `note` | 錨在快照上的一段註記。**它也是圖上的節點** | ADR-0010 |
-| **擴展作業** | `run` | 一次擴展或匯入。有自己的狀態機 | `state-machines.md` |
+| **作業** | `run` | 一次匯入、研究蒐集／建圖或手動抽取。有自己的狀態機，與研究工作流分開 | `state-machines.md` |
 | **快照** | `snapshot` | 抓回來的原始位元組。**不可變** | ADR-0003 |
 | **衍生物** | `derived` | 從快照算出來的東西。**可以整批重算** | ADR-0003 |
 | **資料根目錄** | `dataRoot` | 資料住的地方，在 repo 之外 | ADR-0004 |
 | **指標檔** | `systemPaths` | 記著資料根在哪的那個檔 | `storage-layout.md` |
-| **切入角度** | `angle` | 擴展的一條多視角子問題。**使用者勾選之後才展開** | `data-model.md` |
+| **切入角度（舊版）** | `angle` | 已退場的多視角子問題；現行研究使用方向 `direction`，v13 移除舊表 | `data-model.md` |
 | **沙箱** | `sandbox` | agent 子程序的工作目錄。**裡面不得出現抓取產物** | ADR-0006 |
 | **能力宣告** | `capabilities` | 一個 provider 有沒有 `browse`／`tools`／`json_schema`／`vision`，以及 context 多大 | ADR-0006 |
 | **任務** | `task` | 會用到模型的一件事：規劃對話、找候選來源、歸納切入角度（Stage 22 退場）、抽實體與關係、算語意向量（`MODEL_TASKS`）。**模型設定以它為主鍵** | ADR-0032 |
@@ -56,7 +56,7 @@
 |---|---|---|
 | **專題** | 新建／蒐集中／已就緒／已封存 | `new` / `collecting` / `ready` / `archived` |
 | **資料節點** | 待處理／已擷取／已解析／已納入／已排除／失敗 | `pending` / `fetched` / `parsed` / `included` / `excluded` / `failed` |
-| **擴展作業** | 排隊／執行中／已完成／**部分完成**／已取消／失敗 | `queued` / `running` / `done` / **`partial`** / `cancelled` / `failed` |
+| **作業** | 排隊／執行中／已完成／**部分完成**／已取消／失敗 | `queued` / `running` / `done` / **`partial`** / `cancelled` / `failed` |
 | **關聯** | 待查證／已確認／已否決 | `pending` / `confirmed` / `rejected` |
 
 > **`partial` 畫面上叫「部分完成」，不叫「部分失敗」（2026-09-18 改）。**
@@ -129,10 +129,10 @@
 | `graph`（當端點名）| `subgraph` | **沒有整圖端點**（ADR-0008）。連名字都不要留下那個可能 |
 | `sync` | —— | 這個工具沒有同步。多台機器同步是一個還沒做的決定（ADR-0004）|
 | `user` | —— | **單機單人工具，沒有使用者概念。** 出現 `userId` 就代表有人在往多人方向走 |
-| `perspective` | `angle`（切入角度）| STORM 用 perspective，而我們的 UI 字是「切入角度」。**兩個字在同一個 codebase 裡指同一件事**就會開始有人以為它們不一樣 |
+| `perspective` | `direction`（方向）| 研究用方向，不用 STORM 的立場或舊版切入角度 |
 | `estimate`（子問題上的）| `seeds` | 設計稿寫的是「預估會找到幾個」，而那個數字只可能是模型猜的。**留下這個名字，就會有人去把它填起來**（ADR-0021）|
 | `download`（agent 的）| —— | **agent 不抓東西。** 程式裡出現這個字就是 ADR-0006 第 5 條開始鬆動 |
-| `expand`／「擴展」（**新的**程式與畫面）| `research`／「研究」| ADR-0033（2026-09-20 採納）起。**舊資料不改名**（`run.kind='expand'`、`run_angle`）—— 歷史不改寫；v0.25.0 升級時清掉（D17，手動抽取轉成 `extract`）|
+| `expand`／「擴展」（**新的**程式與畫面）| `research`／「研究」| ADR-0033（2026-09-20 採納）起。**v13 已實作清除舊 `expand` 與移除 `run_angle`**（尚未出貨）；手動抽取轉成 `extract`，歷史稽核不改寫|
 | `angle`（**新的**程式）| `direction` | 同上。切入角度有立場標籤、而且從已有資料歸納；方向兩者都不是 —— 同一個字指兩種東西，就會有人以為它們一樣 |
 | **專案**（當工作單位）| **專題** | 「專案」留給 `D:\Projects` 底下的 repo（「這個專案採 MIT」是對的用法）。UI 與文件裡一個東西兩個叫法，使用者會以為有兩種東西 —— 2026-09-16 之前「範例專案」漏網了 12 個版本，而清單上其餘全部是「專題」 |
 
@@ -159,7 +159,7 @@
 | 找到 | `agent`（搜尋）| **一個網址** |
 | 抓到 | 擷取管線 | 快照、`manifest.jsonl` 的一列、一個 `item` |
 
-`run_angle.found_urls` 數的是前者，`run_item` 記的是後者 ——
+`research_candidate` 記找到的候選，取得狀態與 `item_id` 記有沒有拿到；`run_item` 記逐項執行結果 ——
 **兩個數字不會相等**（robots 不准的、404 的、已經在專題裡的都在中間掉了）。
 
 ---

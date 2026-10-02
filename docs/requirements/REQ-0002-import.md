@@ -29,10 +29,10 @@
 - **從其他工具匯入**（Zotero、Obsidian、Pocket）。第一版不做；
   日後要做也**必須走同一條擷取管線**，不另開入口（ADR-0006 第 5 條的同一個理由）。
 - **整站爬取。** 只抓被指名的頁面（REQ-0003）。
-- **自動分類。** 匯入不做判斷，判斷是擴展與人工裁決的事。
+- **自動分類。** 匯入不做判斷；研究初讀給相關性意見，確認與裁決由人決定。
 
 ## 相關
 
 - ADR-0003（快照不可變、SHA-256）
 - REQ-0003（擷取與重構排版）
-- `docs/architecture/state-machines.md` —— 資料節點 Item 與擴展作業 Run 的轉移表
+- `docs/architecture/state-machines.md` —— 資料節點 Item、作業 Run 與研究 Research 的轉移表

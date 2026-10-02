@@ -86,25 +86,25 @@
 | 相似度線也畫成琥珀虛線 | 查證狀態的畫法**只套用在 `named` 層**。非 `named` 的 `status` 欄沒有意義 | `render-rules.ts` 的 `edgeLineFor`、open-questions Q6 |
 | 標籤大小不對 | `objects.ts` 的 `buildLabel` 從節點邊長回推縮放；語意縮放的兩個門檻從像素回推 | `render-rules.ts` 的 `LABEL_DISTANCE` 註解 |
 | 同一批資料兩次打開長得不一樣 | 節點順序沒有排序。`d3-force-3d` 本身是確定性的（種子固定的 LCG），**不穩定的是餵進去的順序** | `GraphView.vue` 的 `startLayout` |
-| 圖上一條線都沒有，而專題確實有關聯 | **匯入不產生關聯**（那是擴展的事）。要看四種畫法用 `tools/dev/seed-graph.ts` | `tools/dev/graph-fixture.ts` |
+| 圖上一條線都沒有，而專題確實有關聯 | **匯入不產生關聯**（由研究建圖抽取）。要看四種畫法用 `tools/dev/seed-graph.ts` | `tools/dev/graph-fixture.ts` |
 | 合成資料上的可信度跟真實資料算出來的不一樣 | **不該發生。** `graph-fixture.ts` 結尾走 `recomputeConfidence`，跟真實寫入路徑同一支 | `tests/e2e/adjudication-flow.test.ts` |
 | 多了一個獨立來源，可信度卻沒動 | 先看那條邊**有沒有被人碰過**（`machineMayUpdateStatus`）。碰過就不動，那是規則不是 bug | `tests/e2e/adjudication-flow.test.ts` |
 
-## LLM 擴展
+## 研究與建圖
 
 | 症狀 | 看哪裡 | 誰守著 |
 |---|---|---|
-| 按「產生切入角度」之後什麼都沒開始抓 | **那是設計。** 兩階段之間有一個人（REQ-0004）—— 勾選之後才開始 | `tests/e2e/expansion-flow.test.ts` |
+| 規劃完卻沒開始抓 | 閘門一「照這份規劃開始」才啟動蒐集；先檢查找來源與初讀服務 | `tests/e2e/research-flow.test.ts` |
 | `PROVIDER_NOT_CONFIGURED`，但設定頁上明明填了模型 | 那個模型**沒有拉下來**。`chat.probe()` 在 `/api/tags` 找不到它就當成沒設定，而設定頁會把偵測到的清單列出來 | `chat-ollama.ts` 的 `probe` |
-| `PROVIDER_UNREACHABLE` | Ollama 沒開，或 `claude` 不在 PATH 上。**訊息的 `detail` 會說是打不到哪裡** | `tests/e2e/expansion-flow.test.ts` |
+| `PROVIDER_UNREACHABLE` | Ollama 沒開，或 `claude` 不在 PATH 上。**訊息的 `detail` 會說是打不到哪裡** | `tests/e2e/research-collect.test.ts` |
 | `PROVIDER_CAPABILITY_MISSING` | **不會自動換一個弱的**（ADR-0006）。`detail.missing` 說缺哪幾樣，設定頁上也看得到 | `tests/domain/provider.test.ts` |
-| 抽出來的關聯比模型講的少 | 三種可能，**每一種都會記在 `run_angle.code` 或計數裡**：引文在原文裡找不到（`PROVIDER_QUOTE_NOT_FOUND`）、關係的兩端不是宣告過的實體、型別不在六個值裡 | `tests/domain/provider.test.ts` |
+| 抽出來的關聯比模型講的少 | 三種可能，**每一種都會記在 `run_item.code` 或計數裡**：引文在原文裡找不到（`PROVIDER_QUOTE_NOT_FOUND`）、關係的兩端不是宣告過的實體、型別不在六個值裡 | `tests/domain/provider.test.ts` |
 | 引文的位置指到別的地方 | 不該發生 —— **位置是我們自己在正文裡找的**，模型給的數字不採信 | `locateQuote`、ADR-0021 |
-| `PROVIDER_SANDBOX_VIOLATION`，整批停下來 | 沙箱裡出現了放行清單以外的檔案。**那是白名單不是黑名單**，所以一個 `.csv` 也會報 | `tests/domain/provider.test.ts`、`tests/e2e/expansion-flow.test.ts` |
-| 找來源走 OpenAI 相容 API 停手，說缺「browse」或「沒有搜尋就交回了網址」 | **那是量出來的。** 端點收了 `web_search` 工具卻沒搜（回應裡沒有完成的 `web_search_call`），或根本沒有 `/responses`；設定頁「上網搜尋」那一行寫著原因。**沒搜就交回的網址不採用**（ADR-0034）| `tests/infrastructure/agent-openai.test.ts`、`tests/e2e/expansion-flow.test.ts` |
+| `PROVIDER_SANDBOX_VIOLATION`，整批停下來 | 沙箱裡出現了放行清單以外的檔案。**那是白名單不是黑名單**，所以一個 `.csv` 也會報 | `tests/domain/provider.test.ts`、`tests/e2e/research-collect.test.ts` |
+| 找來源走 OpenAI 相容 API 停手，說缺「browse」或「沒有搜尋就交回了網址」 | **那是量出來的。** 端點收了 `web_search` 工具卻沒搜（回應裡沒有完成的 `web_search_call`），或根本沒有 `/responses`；設定頁「上網搜尋」那一行寫著原因。**沒搜就交回的網址不採用**（ADR-0034）| `tests/infrastructure/agent-openai.test.ts`、`tests/e2e/research-collect.test.ts` |
 | OpenAI 相容 API 的回應是空的、或設定頁說「還沒量過」而明明量過 | Responses API **不串流會回空的 `output`**（一律串流，`responses-api.ts`）；v0.24.1 之前的量測沒有 `protocol` 欄位，讀到就當沒量過、重量一次 | `tests/infrastructure/chat-openai.test.ts` 的「先走 Responses API」 |
 | agent 起不來，說結束碼不是 0 | **命令有空白時不要走 shell。** `needsShell` 只對 `.cmd`／`.bat` 回 true —— `shell: true` 不會替命令那一段加引號 | `agent-claude.ts` 的 `needsShell` |
-| 一次擴展花了幾次呼叫看不出來 | `run.requests`，作業紀錄那一頁顯示。**產生角度那一次也算** | `tests/e2e/expansion-flow.test.ts` |
+| 研究花費看起來少了 | 規劃與缺口評估計費紀錄，加上所有 `run.research_id` 對應作業的逐任務花費；沒回報的次數另外數 | `tests/tools/research-cost.test.ts` |
 | 畫面說「本機執行，無金額成本」但用的是 `claude` | 那句話只在 `cost_usd = 0` 時出現。**`NULL` 是「這個模型沒有回報金額」** —— 兩者不同 | `data-model.md` |
 
 ## 證據包匯出
@@ -155,15 +155,15 @@
 4. **一條你自己連的邊沒有「可信度」。**
    同上：`confidence` 那一欄存的 1 是為了讓線畫得夠粗，**不是量出來的**。
 
-5. **一次擴展只抽到兩三條關聯，而模型明明講了很多。**
+5. **一次建圖只抽到兩三條關聯，而模型明明講了很多。**
    多半是引文對不上（`PROVIDER_QUOTE_NOT_FOUND`）。
    **那是設計**：引文在原文裡找不到就沒有這條邊 ——
    一個指不到原文的出處，比沒有出處更糟（ADR-0021）。
-   `run_angle.code` 會說出來，不是安靜地少幾條。
+   `run_item.code` 會說出來，不是安靜地少幾條。
 
-6. **擴展的 run 停在「排隊」而不是「執行中」。**
-   那是設計。擴展的 `排隊` 是**「在等你勾」**，
-   而不是「排到它就會開始」（`state-machines.md`）。
+6. **建圖作業取消了，研究卻仍在「建圖中」。**
+   這是為了接著做：作業停下後可「繼續建圖」，只跑未完成的候選。
+   使用者取消後另可「到此為止」；關程式中斷不替人做這個決定（`state-machines.md`）。
 
 ## 加一條新的守門測試時
 

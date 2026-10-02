@@ -19,7 +19,7 @@
 - [x] 每一條機器產生的邊都帶 `edge_evidence`：**引文 ＋ `char_start` ＋ `char_end`**，
       指向某個 `item`。
 - [x] **沒有出處的邊只能是 `待查證`**，UI 上不得顯示成已確認。
-- [x] **重跑擴展不改任何 `origin='human'` 的列**
+- [x] **重跑建圖不改任何既有 `origin='human'` 的列**
       （可驗：跑前後對該子集做 diff，必須為空）。
 - [x] provider 配不上時顯示 `PROVIDER_CAPABILITY_MISSING` 對應的繁中訊息**並停手**，
       **不自動換一個能力較弱的**（ADR-0006）。
@@ -27,7 +27,7 @@
 - [x] `agent` 找到的 URL **一律交回主程式走擷取管線**
       （可驗：`agent` 的沙箱目錄裡不得出現任何抓取產物）。
 - [x] **失敗路徑**：子程序逾時、超過請求數上限、或輸出解析失敗時，
-      run 標 `部分失敗` 或 `失敗`，且**已經寫入的節點與邊保留**。
+      run 標 `部分完成` 或 `失敗`，且**已經寫入的節點與邊保留**。
 
 > ### 兩條實作時才補上的
 >
@@ -38,8 +38,8 @@
 > 而**它沒說那兩個數字是誰算的** —— 那正是最容易寫錯的地方。
 >
 > **2. 「不自動確認高信心的邊」是靠沒有那條路達成的，不是靠一個判斷。**
-> 擴展的寫入路徑上沒有任何地方會設 `confirmed`：
-> 機器建的邊一律 `pending`，而 `confirmed` 只從人按的那個端點來。
+> 建圖的機器抽取路徑不會設 `confirmed`：機器建的邊一律 `pending`。
+> `confirmed` 來自人的裁決或人工連線；確認畫面指定的書目引用也是人工邊，不是機器自動確認。
 
 ## 刻意不做
 
@@ -53,5 +53,5 @@
 
 - ADR-0005（雙層圖模型、強制出處、`origin` 與 `status` 分開存）
 - ADR-0006（能力宣告配對、不靜默降級、agent 沙箱）
-- `docs/architecture/state-machines.md` —— 關聯 Edge 與擴展作業 Run 的轉移表
+- `docs/architecture/state-machines.md` —— 關聯 Edge、作業 Run 與研究 Research 的轉移表
 - `docs/research/open-questions.md` **Q3**（成本上限的單位）

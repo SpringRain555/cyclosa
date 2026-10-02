@@ -17,7 +17,7 @@
 
 ---
 
-## 一次「擴展」的運作流程
+## 一次研究與建圖的運作流程（Stage 19–22 已完成，尚未出貨）
 
 ```mermaid
 flowchart TB
@@ -27,7 +27,8 @@ flowchart TB
     I3[輸入主題／人物／事件]
   end
 
-  I3 --> AG["agent 擴展<br/>claude -p ／ codex exec<br/>多視角提問"]
+  I3 --> PLAN[規劃方向]
+  PLAN -->|閘門一：照這份規劃開始| AG["找來源<br/>Claude Code ／ OpenAI 相容 API<br/>只搜尋，不抓取"]
   AG -->|候選 URL 清單| FQ
   I2 --> FQ
   I1 --> LOCAL[本機檔案登記]
@@ -40,7 +41,16 @@ flowchart TB
   end
 
   LOCAL --> SNAP
-  EXT --> UND
+  EXT --> IDX
+  EXT --> EMB
+  EXT -->|研究候選| DIGEST[初讀：有沒有關、繁中標題與摘要]
+  DIGEST --> COLLECT[候選清單：等你上傳或說拿不到]
+  AG --> COLLECT
+  COLLECT -->|閘門二：完成蒐集| REVIEW[逐筆確認]
+  REVIEW -->|閘門三：開始建圖| BUILD[建圖]
+  BUILD -->|進圖且有正文| NER
+  BUILD -->|只留書目且沒正文| REF[書目節點與人指定的引用]
+  BUILD -->|丟掉已取得的資料| EXCLUDE[標已排除，可復原]
 
   subgraph UND[理解]
     NER[實體與具名關係抽取<br/>每條都要引文與字元區間]
@@ -49,12 +59,17 @@ flowchart TB
   end
 
   UND --> DB[("專題 SQLite<br/>item · entity · edge<br/>edge_evidence · note · run")]
+  REF --> DB
+  EXCLUDE --> DB
   DB --> SUB["子圖 API<br/>focus + hops + filters<br/>（沒有整圖端點）"]
   SUB --> UI3D[3D 關聯圖]
   SUB --> RDR[閱讀器＋點註]
   UI3D -.使用者確認／否決／手動連線.-> DB
   RDR -.點註與筆記.-> DB
 ```
+
+匯入本身不抽關聯，也不自動初讀；初讀只對研究候選執行。
+已有正文的「只留著，不抽」保留原資料，不另建書目節點。
 
 **這張圖只有一個要點：`agent` 找到的東西不能自己抓，一律回到 `FQ` 這個唯一出口。**
 節流、robots、雜湊、manifest 只存在於那一層 —— 開第二條路等於讓它們全部失效。

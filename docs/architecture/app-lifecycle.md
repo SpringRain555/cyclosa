@@ -12,6 +12,31 @@
 > 而它們都落在「兩份文件的交界處」：一個在「結束」與「SSE 進度通道」之間，
 > 一個在「結束」與「Run 狀態機」之間。**沒有一份文件的範圍涵蓋那兩個交界。**
 
+## 獨立環境
+
+`start_cyclosa.cmd -LocalAppData "D:\Cyclosa-Test"` 或
+`.\tools\Launch.ps1 -LocalAppData "D:\Cyclosa-Test"` 使用另一個設定與資料環境；
+也可以搭配 `-Foreground` 或 `-SkipBuild`。相對路徑以目前 shell 的位置解析。
+啟動時印出所用的 `LOCALAPPDATA` 與資料根：有指標檔就讀它的 `dataRoot`，
+沒有則顯示 `<指定目錄>\Cyclosa\data`（首次啟動預設）；指標壞掉則明說無法讀取。
+
+`LOCALAPPDATA` 只放進伺服器子行程的環境，不改目前 shell、使用者或系統設定。
+指標檔、`providers.json`、模型量測與啟動日誌都在指定目錄的 `Cyclosa\` 底下；
+既有指標若指向別處，資料根仍以那份指標為準，不會擅自改寫或搬資料。
+
+**這不是同時開兩個伺服器。** 埠仍是 7433。帶 `-LocalAppData` 時，
+只要上面已有 Cyclosa（含不同版本），啟動器就拒絕、不開瀏覽器，
+請先按平常那一個的「結束 Cyclosa」。沒帶參數時維持原本的單一實例行為。
+
+PowerShell 5.1 沒有 `Start-Process -Environment`，所以啟動器在起 server 的那一刻
+把自己行程的 `LOCALAPPDATA` 換成指定的目錄、起完**立刻換回來**（`Invoke-WithServerEnvironment`）——
+最後開瀏覽器也是一個子行程，而瀏覽器的使用者設定檔就在 `LOCALAPPDATA` 底下。
+起法跟平常一模一樣（`Start-Process -WindowStyle Hidden`，自己的隱藏主控台）。
+
+**不用 Node 的 `spawn(…, { detached: true })` 起 server**（2026-10-02 審查時拿掉的初稿）：
+libuv 在 Windows 上把 `detached` 做成 `DETACHED_PROCESS`，server 完全沒有主控台，
+之後它每起一個主控台程式（`claude.exe`）都會被 Windows 配一個看得見的新視窗。
+
 ## 五條啟動路徑
 
 | 路徑 | 埠被佔用時 | 版本比對 | 寫 `server.log` | 開瀏覽器 |
@@ -157,7 +182,7 @@ ADR-0020、ADR-0025、README 的指令表與 `Launch.ps1` 的註解裡，
 
 | # | 問題 | 這個程式的答案 |
 |---|---|---|
-| 1 | 第二次啟動要做什麼 | 把既有的那個給他：`Launch.ps1` 直接開瀏覽器到 7433；`npm start` 印出網址並 exit 0。兩邊都先看 `/healthz` 的 `app` 與版本，不只看 200 |
+| 1 | 第二次啟動要做什麼 | 沒帶 `-LocalAppData` 時把既有的那個給他：`Launch.ps1` 直接開瀏覽器到 7433；帶了則拒絕，先用畫面上的「結束 Cyclosa」。`npm start` 印出網址並 exit 0。先辨識 `/healthz` 的 `app`，啟動器另比版本，不只看 200 |
 | 2 | 「已經在跑」的判斷放哪 | 在 server 裡：`main.ts` 的 `listen` 撞到 `EADDRINUSE` 之後問 7433 上是不是自己。`Launch.ps1` 那一份是**另外**為了「啟動前就決定要不要開瀏覽器」，不是替代 |
 | 3 | 啟動器憑什麼退場 | 輪詢 `/healthz` 直到回 `app=cyclosa`（60 × 400ms 是上限，不是等待時間）；行程先死就貼 `server.log` |
 | 4 | 使用者關掉畫面之後，行程有沒有真的結束 | **沒有** —— 關掉分頁 server 還在，這是刻意的。所以畫面右上角有「結束 Cyclosa」，門在 server 的 `POST /api/system/shutdown`，有作業在跑時二次確認 |

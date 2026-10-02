@@ -36,6 +36,10 @@
     server 留在這個視窗裡跑，日誌直接印出來，不自動開瀏覽器。
     **「它開不起來」的時候用這個看完整錯誤。**
 
+.PARAMETER LocalAppData
+    使用另一個 LOCALAPPDATA 啟動獨立環境，不改目前 shell 的環境變數。
+    7433 已有 Cyclosa 時拒絕啟動，請先用畫面上的「結束 Cyclosa」。
+
 .EXAMPLE
     .\tools\Launch.ps1
     .\tools\Launch.ps1 -Foreground
@@ -43,7 +47,9 @@
 [CmdletBinding()]
 param(
     [switch]$SkipBuild,
-    [switch]$Foreground
+    [switch]$Foreground,
+    [ValidateNotNullOrEmpty()]
+    [string]$LocalAppData
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +57,10 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $port = 7433
 $url = "http://127.0.0.1:$port/"
+$separateEnvironment = $PSBoundParameters.ContainsKey('LocalAppData')
+$serverLocalAppData = if ($separateEnvironment) {
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LocalAppData)
+} else { $env:LOCALAPPDATA }
 
 function Write-Step { param([string]$Text) Write-Host "`n=== $Text" -ForegroundColor Cyan }
 function Write-Ok { param([string]$Text) Write-Host "  OK    $Text" -ForegroundColor Green }
@@ -128,6 +138,12 @@ function Get-PortOwner {
 # ── 1. 已經在跑了嗎 ────────────────────────────────────────────────
 Write-Step '檢查是否已經在執行'
 $owner = Get-PortOwner
+if ($separateEnvironment -and $owner -in @('cyclosa', 'stale')) {
+    Stop-WithMessage '不能切換到另一個環境：7433 上已經有 Cyclosa' @(
+        '先按平常那一個的「結束 Cyclosa」，再用 -LocalAppData 重跑。'
+        '這次不開瀏覽器，以免開到平常的環境。'
+    )
+}
 if ($owner -eq 'cyclosa') {
     Write-Ok "Cyclosa 已經在 $url 執行中"
     Write-Note '不再起第二個，直接開瀏覽器。'
@@ -236,11 +252,24 @@ Write-Ok '產物就緒'
 # 砍掉它砍不到真正的 server，於是「關掉視窗」之後 7433 還在被佔用。
 # rubricator 2026-09-04 實測踩過，記在它的 docs\lessons.md。
 Write-Step '啟動'
+Write-Note "LOCALAPPDATA：$serverLocalAppData"
+$pointerPath = Join-Path $serverLocalAppData 'Cyclosa\system_paths.json'
+if (Test-Path -LiteralPath $pointerPath) {
+    try {
+        $pointer = Get-Content -Raw -Encoding UTF8 -LiteralPath $pointerPath | ConvertFrom-Json
+        if ($pointer.dataRoot -isnot [string] -or -not $pointer.dataRoot) { throw '缺少 dataRoot' }
+        Write-Note "資料根：$($pointer.dataRoot)"
+    } catch {
+        Write-Note "資料根：無法讀取指標檔（$pointerPath），由伺服器回報問題。"
+    }
+} else {
+    Write-Note "資料根：$(Join-Path $serverLocalAppData 'Cyclosa\data')（首次啟動預設）"
+}
 
 # **背景執行沒有主控台，所以 server 的輸出要有個去處。**
 # 放在指標檔旁邊而不是資料根底下 —— 「資料根讀不到」正是最需要看日誌的那一種故障，
 # 而一個存在資料根裡的日誌在那個情況下寫不出來。
-$logDir = Join-Path $env:LOCALAPPDATA 'Cyclosa\logs'
+$logDir = Join-Path $serverLocalAppData 'Cyclosa\logs'
 $logFile = Join-Path $logDir 'server.log'
 # **stderr 也要有個去處**（v0.24.3）。日誌檔只收經過 logger 的那幾行；
 # 程式自己當掉時 Node 印的那一行（沒接住的錯誤的堆疊、原生層的 assert）只會出現在 stderr ——
@@ -263,12 +292,33 @@ try {
     $errFile = $null
 }
 
+# **`-LocalAppData` 只換 server 那一個行程的環境。**
+#
+# PowerShell 5.1 的 `Start-Process` 沒有 `-Environment`，子行程拿到的是這個行程當下的環境變數 ——
+# 所以在起 server 的那一刻把 `LOCALAPPDATA` 換掉、起完立刻換回來。**換回來是必要的**：
+# 最後開瀏覽器也是一個子行程，而瀏覽器的使用者設定檔就放在 `LOCALAPPDATA` 底下。
+#
+# 2026-10-02 不採用的另一種做法：用一支 Node 小程式 `spawn(…, { detached: true })` 起 server。
+# libuv 在 Windows 上把 `detached` 做成 `DETACHED_PROCESS` —— server **完全沒有主控台**，
+# 之後它每起一個主控台程式（`claude.exe`）都會被 Windows 配一個看得見的新視窗。
+# 下面的 `-WindowStyle Hidden` 是「自己的、隱藏的主控台」，子行程繼承那一個，所以不會跳窗。
+function Invoke-WithServerEnvironment {
+    param([scriptblock]$Action)
+    $saved = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = $serverLocalAppData
+        & $Action
+    } finally {
+        $env:LOCALAPPDATA = $saved
+    }
+}
+
 if ($Foreground) {
     # 前景模式：留在這個視窗裡。**這條路是給「它為什麼開不起來」用的**，
     # 所以不自動開瀏覽器 —— 要看的是這裡印出來的東西。
     Write-Note "前景模式：server 跑在這個視窗裡，Ctrl+C 結束。網址是 $url"
     Write-Host ''
-    exit (Invoke-Native { & $node $serverEntry })
+    exit (Invoke-WithServerEnvironment { Invoke-Native { & $node $serverEntry } })
 }
 
 # **-WindowStyle Hidden：自己的主控台，而且是隱藏的。**
@@ -303,7 +353,7 @@ if ($errFile) {
     $startArgs['RedirectStandardError'] = $errFile
     $startArgs['RedirectStandardOutput'] = 'NUL'
 }
-$proc = Start-Process @startArgs
+$proc = Invoke-WithServerEnvironment { Start-Process @startArgs }
 
 function Stop-WithLog {
     param([string]$Title, [string[]]$Lines)

@@ -11,6 +11,24 @@
 
 ## 建置與啟動
 
+要用第二個獨立環境，先在平常那個畫面按「結束 Cyclosa」，再跑：
+
+```powershell
+.\tools\Launch.ps1 -LocalAppData "D:\Cyclosa-Test"
+```
+
+`start_cyclosa.cmd` 也會轉傳這個參數；可搭配 `-Foreground` 看錯誤。
+啟動器印出的 `LOCALAPPDATA` 與資料根才是這次使用的位置；
+日誌在 `<指定目錄>\Cyclosa\logs`，不是平常的 `%LOCALAPPDATA%`。
+參數只替伺服器設環境，不改 shell，npm 建置仍用原環境。
+已有 `system_paths.json` 時沿用它的 `dataRoot`，所以要全新資料就指定全新的目錄。
+7433 已有 Cyclosa（即使同版本或同目錄）會拒絕、不開瀏覽器，也不替你殺行程。
+不帶參數的啟動行為不變。回到平常環境前，也先按測試環境的「結束 Cyclosa」。
+
+`LOCALAPPDATA` 只在 `Start-Process` 起 server 的那一刻換掉、起完立刻換回來
+（`Launch.ps1` 的 `Invoke-WithServerEnvironment`）；不需要改 `.cmd` 或安裝額外相依。
+**不要改成 Node 的 `detached` spawn**：server 會沒有主控台，之後每次叫 `claude.exe` 都跳一個視窗。
+
 | 症狀 | 看哪裡 | 誰守著 |
 |---|---|---|
 | 雙擊啟動器沒反應／閃退 | `tools\Launch.ps1`。它每一步都印字，看它停在哪一步 | —— |

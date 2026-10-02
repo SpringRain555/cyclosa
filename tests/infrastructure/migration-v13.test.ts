@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyMigration, openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import { cleanupExpansion } from '../../src/infrastructure/db/cleanup-expansion.js';
+import {
+  insertEntity,
+  mergeEntities,
+  unmergeEntity,
+} from '../../src/infrastructure/db/repositories/entity-repo.js';
 import { indexText } from '../../src/infrastructure/index/writer.js';
 import { derivedPath, EXTRACTOR_VERSION } from '../../src/infrastructure/fs/case-files.js';
 
@@ -123,6 +128,34 @@ function ids(db: DatabaseSync, table: string): string[] {
 }
 
 describe('v13 清除舊擴展', () => {
+  it.each([false, true])('保留人工合併涉及的實體與歷史（已撤銷：%s）', async (undone) => {
+    const db = await buildV12();
+    try {
+      seed(db);
+      insertEntity(db, { id: 'kept', name: '保留者', type: 'concept', now: 1 });
+      insertEntity(db, { id: 'merged', name: '被合併者', type: 'concept', now: 1 });
+      mergeEntities(db, {
+        id: 'merge',
+        keptId: 'kept',
+        mergedId: 'merged',
+        reason: 'manual',
+        now: 2,
+      });
+      if (undone) unmergeEntity(db, 'merged', 3);
+      const before = db.prepare('SELECT * FROM entity_merge').all();
+      const entities = db
+        .prepare("SELECT * FROM entity WHERE id IN ('kept', 'merged') ORDER BY id")
+        .all();
+      cleanupExpansion(db);
+      expect(db.prepare('SELECT * FROM entity_merge').all()).toEqual(before);
+      expect(
+        db.prepare("SELECT * FROM entity WHERE id IN ('kept', 'merged') ORDER BY id").all(),
+      ).toEqual(entities);
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
   it('同一頁同時開啟專題時只升級一次、不重寫通知', async () => {
     const previous = await buildV12();
     seed(previous);

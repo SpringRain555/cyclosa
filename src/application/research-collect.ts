@@ -971,7 +971,7 @@ async function withResearch(
     if (failed !== null && !failed.ok) return failed;
     const after = research.getResearch(db, researchId);
     if (after === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });
-    return ok(viewOf(db, after, await load()), cid);
+    return ok(await viewOf(db, after, await load(), caseFolderOf(dataRoot, slug)), cid);
   } finally {
     db.close();
   }

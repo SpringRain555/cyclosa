@@ -417,7 +417,7 @@
 | `POST …/research/:id/start` | **會** | **閘門一**：先確定**找來源與初讀兩支**都配得上（配不上就整支失敗、`detail.task` 說是哪一個，方向**還沒**落成），再把方向落成 `research_direction`（含模型提過、使用者刪掉的，`adopted=0`），狀態 → `collecting`，**開一筆蒐集作業**：搜 → 抓 → 拿到的每一份初讀一次（Stage 21）。按下去之前一次搜尋、一次擷取都沒有發生（R5）|
 | `POST …/research/:id/collect` | **會** | 「繼續蒐集」：開一筆**新的**作業，只做還沒做完的（R13）：沒搜成的方向、沒抓的、**沒讀或讀失敗的**（沒有正文可讀的不再讀）。只剩要抓的時候不檢查找來源那一支；初讀那一支每一次都檢查（新抓到的也要讀）|
 | `POST …/research/:id/finish` | 不 | **閘門二**「完成蒐集」：狀態 → `reviewing`，之後不再找、不再抓。作業還在跑的時候按不下去（`RESEARCH_STEP_INVALID`）|
-| `PUT …/research/:id/candidates/:cid/decision` | 不 | 確認中改 `{decision, citedBy}`；兩欄可分開送。`decision` 是 `include`／`reference`／`discard`，`null` 恢復初讀預設；`citedBy` 是引用它的資料 id 清單。沒正文不能選進圖，引用來源必須存在 |
+| `PUT …/research/:id/candidates/:cid/decision` | 不 | 確認中改 `{decision, citedBy}`；兩欄可分開送。`decision` 是 `include`／`reference`／`discard`，`null` 恢復初讀預設；`citedBy` 是本次研究中引用它的候選 id 清單，候選必須已有資料，不能引用自己或同一資料。建圖時才解析成資料 id；候選回應的 `hasBody` 與建圖共用正文可用性判斷，沒正文不能選進圖 |
 | `POST …/research/:id/build` | 看抽取走哪一條 | **閘門三／繼續建圖**：先量抽取能力與 JSON 格式，錯誤帶 `detail.task='extract'`；成功開一筆標籤「建圖」的 `research` 作業。繼續只做候選 `build_state` 還沒 `done` 的 |
 | `POST …/research/:id/finish-build` | 不 | 「到此為止」：只准使用者取消後、作業已停，將研究從 `building` 收尾成 `done`；程式關閉／中斷不開放這個動作 |
 | `POST …/research/:id/candidates/:cid/upload` | 看初讀走哪一條 | 把你拿到的檔案對回一列候選（R10）。**跟批次匯入的逐檔上傳同一種請求**（body 是檔案、檔名走 `x-file-name`），仍各開一筆單檔匯入作業。**之後自動開一筆只讀、不搜不抓的作業**讀這一份（R14；已經有一筆在跑的話由它讀）|

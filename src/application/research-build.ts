@@ -22,7 +22,7 @@ import * as edges from '../infrastructure/db/repositories/edge-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { readDerived } from '../infrastructure/fs/case-files.js';
 import { casesDir } from '../infrastructure/fs/paths.js';
-import { reindexTitleRank } from '../infrastructure/index/writer.js';
+import { indexText, reindexTitleRank } from '../infrastructure/index/writer.js';
 import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
 import type { ChatProvider } from '../infrastructure/providers/types.js';
 import { correlationId, newId } from '../shared/id.js';
@@ -35,6 +35,8 @@ import { recordModelCall } from './model-call-log.js';
 import {
   openResearchCase,
   viewOf,
+  hasCandidateBody,
+  bodyAvailable,
   type ProvidersLoader,
   type ResearchView,
 } from './research-view.js';
@@ -67,16 +69,22 @@ export async function editCandidateDecision(
       input.decision === undefined ? candidate.decision : (input.decision as Decision | null);
     if (
       effectiveDecision({ ...candidate, decision }) === 'include' &&
-      !(await hasBody(dataRoot, slug, candidate.itemId))
+      !(await hasCandidateBody(join(casesDir(dataRoot), slug), candidate.itemId))
     )
       return err('RESEARCH_STEP_INVALID', cid, { why: 'no-body' });
     if (
       input.citedBy !== undefined &&
       (!Array.isArray(input.citedBy) ||
-        input.citedBy.some(
-          (id: unknown) =>
-            typeof id !== 'string' || id === candidate.itemId || items.getItem(db, id) === null,
-        ))
+        input.citedBy.some((id: unknown) => {
+          if (typeof id !== 'string' || id === candidate.id) return true;
+          const citing = research.getCandidate(db, id);
+          return (
+            citing?.researchId !== researchId ||
+            citing.itemId === null ||
+            citing.itemId === candidate.itemId ||
+            items.getItem(db, citing.itemId) === null
+          );
+        }))
     )
       return err('RESEARCH_STEP_INVALID', cid);
     const providers = await load();
@@ -92,16 +100,10 @@ export async function editCandidateDecision(
           Date.now(),
         );
     });
-    return ok(viewOf(db, row, providers), cid);
+    return ok(await viewOf(db, row, providers, join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
-}
-
-async function hasBody(dataRoot: string, slug: string, itemId: string | null): Promise<boolean> {
-  if (itemId === null) return false;
-  const derived = await readDerived(join(casesDir(dataRoot), slug), itemId);
-  return derived !== null && derived.text.trim().length > 0;
 }
 
 async function checkExtract(
@@ -159,7 +161,7 @@ export async function startBuilding(
     for (const candidate of candidates.filter(
       (entry) => entry.buildState !== 'done' && effectiveDecision(entry) === 'include',
     )) {
-      if (!(await hasBody(dataRoot, slug, candidate.itemId)))
+      if (!(await hasCandidateBody(join(casesDir(dataRoot), slug), candidate.itemId)))
         return err('RESEARCH_STEP_INVALID', cid, { candidateId: candidate.id, why: 'no-body' });
     }
     const latest = research.getResearch(db, researchId);
@@ -197,7 +199,7 @@ export async function startBuilding(
     );
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid);
-    return ok(viewOf(db, updated, providers), cid);
+    return ok(await viewOf(db, updated, providers, join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -235,7 +237,7 @@ export async function finishBuilding(
     research.updateResearchStatus(db, researchId, 'done', Date.now());
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid);
-    return ok(viewOf(db, updated, providers), cid);
+    return ok(await viewOf(db, updated, providers, join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -282,8 +284,8 @@ async function processBuild(
       let code: import('../domain/errors/codes.js').ErrorCode | null = null;
       const derived = itemId === null ? null : await readDerived(folder, itemId);
       if (state.cancelled) break;
-      const body = derived !== null && derived.text.trim().length > 0;
-      if (decision === 'include' && itemId !== null && body) {
+      const body = bodyAvailable(derived);
+      if (decision === 'include' && itemId !== null && derived !== null && body) {
         const called = await callExtract(chat, derived, abort);
         taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);
         const cost = taskCosts['extract'];
@@ -316,36 +318,52 @@ async function processBuild(
         if (called.kind === 'error') code = called.code;
         else {
           const extractedItemId = itemId;
-          const applied = applyExtraction(
-            db,
-            itemId,
-            state.runId,
-            derived.text,
-            called.extraction,
-            (result) => {
-              items.setItemExtracted(activeDb, {
-                id: extractedItemId,
-                extractedBy: chat.name,
-                now: Date.now(),
-              });
-              research.setCandidateBuild(activeDb, {
-                id: candidate.id,
-                state: 'done',
-                code: null,
-                now: Date.now(),
-              });
-              runs.updateRunItem(activeDb, {
-                id: runItemId,
-                outcome: 'ok',
-                code: result.code,
-                itemId,
-                now: Date.now(),
-              });
-              runs.setRunItemEdges(activeDb, runItemId, result.newEdges);
-            },
-          );
-          newEdges = applied.newEdges;
-          code = applied.code;
+          try {
+            const applied = applyExtraction(
+              db,
+              itemId,
+              state.runId,
+              derived.text,
+              called.extraction,
+              (result) => {
+                items.setItemExtracted(activeDb, {
+                  id: extractedItemId,
+                  extractedBy: chat.name,
+                  now: Date.now(),
+                });
+                research.setCandidateBuild(activeDb, {
+                  id: candidate.id,
+                  state: 'done',
+                  code: null,
+                  now: Date.now(),
+                });
+                runs.updateRunItem(activeDb, {
+                  id: runItemId,
+                  outcome: 'ok',
+                  code: result.code,
+                  itemId,
+                  now: Date.now(),
+                });
+                runs.setRunItemEdges(activeDb, runItemId, result.newEdges);
+              },
+            );
+            newEdges = applied.newEdges;
+            code = applied.code;
+          } catch (error) {
+            if (
+              !(error instanceof Error) ||
+              !('code' in error) ||
+              error.code !== 'ERR_SQLITE_ERROR' ||
+              !('errcode' in error) ||
+              (Number(error.errcode) & 0xff) !== 19
+            )
+              throw error;
+            code = 'RESEARCH_UNEXPECTED';
+            logger.error('research extraction write failed', {
+              candidateId: candidate.id,
+              error: String(error),
+            });
+          }
         }
       } else if (decision === 'include') code = 'PARSE_EMPTY_CONTENT';
       else
@@ -372,9 +390,19 @@ async function processBuild(
                 }),
               });
               research.setCandidateItem(activeDb, candidate.id, itemId, Date.now());
+              indexText(activeDb, {
+                ownerKind: 'item',
+                ownerId: itemId,
+                lang: 'und',
+                title: candidate.title,
+                text: '',
+              });
               newNodes = 1;
             }
-            for (const source of candidate.citedBy) {
+            for (const citingId of candidate.citedBy) {
+              const citing = research.getCandidate(activeDb, citingId);
+              if (citing?.researchId !== researchId || citing.itemId === null) continue;
+              const source = citing.itemId;
               const ref = { source, target: itemId, rel: '引用' };
               if (
                 source !== itemId &&

@@ -48,6 +48,7 @@ import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
+import { readDerived } from '../infrastructure/fs/case-files.js';
 import type { Providers } from '../infrastructure/providers/registry.js';
 import { gapOf, type GapAssessment } from '../domain/research/gap.js';
 import type { ConnectionKind } from '../infrastructure/providers/config.js';
@@ -122,6 +123,7 @@ export interface FrozenDirection extends DirectionView {
 
 /** 一個候選在畫面上的樣子（Stage 20，ADR-0033 D7）。 */
 export interface CandidateView {
+  readonly hasBody: boolean;
   readonly decision: Decision | null;
   readonly defaultDecision: Decision;
   readonly effectiveDecision: Decision;
@@ -334,11 +336,21 @@ function collectOf(
   };
 }
 
-export function viewOf(
+export async function hasCandidateBody(folder: string, itemId: string | null): Promise<boolean> {
+  if (itemId === null) return false;
+  return bodyAvailable(await readDerived(folder, itemId));
+}
+
+export function bodyAvailable(derived: { readonly text: string } | null): boolean {
+  return derived !== null && derived.text.trim().length > 0;
+}
+
+export async function viewOf(
   db: DatabaseSync,
   row: research.ResearchRow,
   providers: Providers,
-): ResearchView {
+  folder: string,
+): Promise<ResearchView> {
   const cost = research.costSoFar(db, row.id);
   const run = row.collectRunId === null ? null : runs.getRun(db, row.collectRunId);
   const live = run !== null && isActive(run.id);
@@ -358,46 +370,49 @@ export function viewOf(
       .map((i) => [i.id, i]),
   );
 
-  const candidateViews: CandidateView[] = candidates.map((c) => {
-    // 作業沒有在跑，就沒有東西「正在抓」—— 停在半路的那幾列是還沒抓（見 `CandidateView`）。
-    const acquisition: Acquisition =
-      c.acquisition === 'fetching' && !live ? 'found' : c.acquisition;
-    const item = c.itemId === null ? undefined : itemsById.get(c.itemId);
-    return {
-      id: c.id,
-      decision: c.decision,
-      defaultDecision: defaultDecision(c),
-      effectiveDecision: effectiveDecision(c),
-      citedBy: c.citedBy,
-      buildState: c.buildState,
-      buildCode: c.buildCode,
-      directionIds: [...(c.directionId === null ? [] : [c.directionId]), ...c.alsoDirections],
-      url: c.url,
-      host: displayHost(c.url),
-      title: c.title,
-      why: c.why,
-      bib: c.bib,
-      expectedAccess: c.expectedAccess,
-      acquisition,
-      code: c.code,
-      skipped: acquisition === 'needs-user' && c.code === null,
-      unavailableReason: c.unavailableReason,
-      reasonNote: c.reasonNote,
-      itemId: c.itemId,
-      relevance: c.relevance,
-      relevanceWhy: c.relevanceWhy,
-      digestCode: c.digestCode,
-      titleZh: item?.titleZh ?? null,
-      summaryZh: item?.summaryZh ?? null,
-      digestedBy: item?.digestedBy ?? null,
-      digestedAt: item?.digestedAt ?? null,
-      actions: {
-        upload: mayActOnCandidate('upload', row.status, acquisition, live),
-        unavailable: mayActOnCandidate('unavailable', row.status, acquisition, live),
-        reopen: mayActOnCandidate('reopen', row.status, acquisition, live),
-      },
-    };
-  });
+  const candidateViews: CandidateView[] = await Promise.all(
+    candidates.map(async (c) => {
+      // 作業沒有在跑，就沒有東西「正在抓」—— 停在半路的那幾列是還沒抓（見 `CandidateView`）。
+      const acquisition: Acquisition =
+        c.acquisition === 'fetching' && !live ? 'found' : c.acquisition;
+      const item = c.itemId === null ? undefined : itemsById.get(c.itemId);
+      return {
+        id: c.id,
+        hasBody: await hasCandidateBody(folder, c.itemId),
+        decision: c.decision,
+        defaultDecision: defaultDecision(c),
+        effectiveDecision: effectiveDecision(c),
+        citedBy: c.citedBy,
+        buildState: c.buildState,
+        buildCode: c.buildCode,
+        directionIds: [...(c.directionId === null ? [] : [c.directionId]), ...c.alsoDirections],
+        url: c.url,
+        host: displayHost(c.url),
+        title: c.title,
+        why: c.why,
+        bib: c.bib,
+        expectedAccess: c.expectedAccess,
+        acquisition,
+        code: c.code,
+        skipped: acquisition === 'needs-user' && c.code === null,
+        unavailableReason: c.unavailableReason,
+        reasonNote: c.reasonNote,
+        itemId: c.itemId,
+        relevance: c.relevance,
+        relevanceWhy: c.relevanceWhy,
+        digestCode: c.digestCode,
+        titleZh: item?.titleZh ?? null,
+        summaryZh: item?.summaryZh ?? null,
+        digestedBy: item?.digestedBy ?? null,
+        digestedAt: item?.digestedAt ?? null,
+        actions: {
+          upload: mayActOnCandidate('upload', row.status, acquisition, live),
+          unavailable: mayActOnCandidate('unavailable', row.status, acquisition, live),
+          reopen: mayActOnCandidate('reopen', row.status, acquisition, live),
+        },
+      };
+    }),
+  );
 
   return {
     id: row.id,

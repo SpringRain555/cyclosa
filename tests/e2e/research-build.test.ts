@@ -18,9 +18,11 @@ import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db
 import * as research from '../../src/infrastructure/db/repositories/research-repo.js';
 import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
-import { readDerived } from '../../src/infrastructure/fs/case-files.js';
+import { readDerived, writeDerived } from '../../src/infrastructure/fs/case-files.js';
+import { searchCase } from '../../src/application/search-service.js';
 import { newId } from '../../src/shared/id.js';
 import { createEdge, transitionEdge } from '../../src/application/edge-service.js';
+import { insertEntity, addAlias } from '../../src/infrastructure/db/repositories/entity-repo.js';
 
 let server: Server;
 let baseUrl = '';
@@ -197,7 +199,7 @@ beforeEach(async () => {
         Date.now(),
       );
     }
-    research.setCandidateCitedBy(db, candidateIds[3]!, [itemIds[0]!], Date.now());
+    research.setCandidateCitedBy(db, candidateIds[3]!, [candidateIds[0]!], Date.now());
     research.updateResearchStatus(db, researchId, 'reviewing', Date.now());
   });
 });
@@ -449,6 +451,133 @@ async function buildAgain(): Promise<void> {
   expect((await startBuilding(root, slug, researchId)).ok).toBe(true);
   await idle();
 }
+
+it('引用儲存同研究候選 id，拒絕資料 id、自引與其他研究候選', async () => {
+  await inDb((db) => research.updateResearchStatus(db, researchId, 'done', Date.now()));
+  const other = await startResearch(root, slug, { topic: '另一個合成研究' });
+  if (!other.ok) throw new Error(other.code);
+  await inDb((db) => {
+    research.updateResearchStatus(db, other.data.id, 'done', Date.now());
+    research.updateResearchStatus(db, researchId, 'reviewing', Date.now());
+    research.insertDirection(db, {
+      id: 'outside-direction',
+      researchId: other.data.id,
+      ord: 0,
+      title: '另一方向',
+      what: '',
+      expect: '',
+      keywords: [],
+      origin: 'human',
+      adopted: true,
+      now: 1,
+    });
+    research.addCandidate(db, {
+      id: 'outside',
+      researchId: other.data.id,
+      directionId: 'outside-direction',
+      url: 'https://example.test/outside',
+      title: '外部候選',
+      why: '',
+      bib: { authors: '', year: '', venue: '' },
+      expectedAccess: 'unknown',
+      acquisition: 'uploaded',
+      now: 1,
+    });
+    research.setCandidateItem(db, 'outside', itemIds[0]!, 1);
+  });
+  for (const invalid of [itemIds[0]!, candidateIds[3]!, 'outside']) {
+    expect(
+      (
+        await editCandidateDecision(root, slug, researchId, candidateIds[3]!, {
+          citedBy: [invalid],
+        })
+      ).ok,
+    ).toBe(false);
+  }
+  const edited = await editCandidateDecision(root, slug, researchId, candidateIds[3]!, {
+    citedBy: [candidateIds[0]!, candidateIds[0]!],
+  });
+  expect(edited.ok).toBe(true);
+  expect(await inDb((db) => research.getCandidate(db, candidateIds[3]!)?.citedBy)).toEqual([
+    candidateIds[0],
+  ]);
+});
+
+it('取得成功但正文空白時，回應與建圖都按書目處理', async () => {
+  const folder = join(root, 'cases', slug);
+  const derived = await readDerived(folder, itemIds[1]!);
+  await writeDerived(folder, itemIds[1]!, { ...derived!, text: '   \n' });
+  expect((await view()).candidates.find((entry) => entry.id === candidateIds[1])).toMatchObject({
+    acquisition: 'uploaded',
+    hasBody: false,
+  });
+  expect(
+    (await editCandidateDecision(root, slug, researchId, candidateIds[1]!, { decision: 'include' }))
+      .ok,
+  ).toBe(false);
+  expect(
+    (
+      await editCandidateDecision(root, slug, researchId, candidateIds[1]!, {
+        citedBy: [candidateIds[0]!],
+      })
+    ).ok,
+  ).toBe(true);
+  await buildAgain();
+  const reference = (await view()).candidates.find((entry) => entry.id === candidateIds[1])!;
+  expect(reference.itemId).not.toBe(itemIds[1]);
+  expect(await inDb((db) => items.getItem(db, reference.itemId!)?.kind)).toBe('reference');
+  expect(
+    await inDb((db) =>
+      db.prepare('SELECT source_id FROM edge WHERE target_id = ?').all(reference.itemId),
+    ),
+  ).toEqual([{ source_id: itemIds[0] }]);
+});
+
+it('新建書目標題可用中英文全文搜尋', async () => {
+  await inDb((db) =>
+    db
+      .prepare('UPDATE research_candidate SET title = ? WHERE id = ?')
+      .run('獨特書目 Bibliographicfixture', candidateIds[3]!),
+  );
+  await buildAgain();
+  const referenceId = (await view()).candidates.find(
+    (entry) => entry.id === candidateIds[3],
+  )!.itemId;
+  for (const query of ['獨特書目', 'Bibliographicfixture']) {
+    const found = await searchCase(root, slug, { q: query, mode: 'text' });
+    expect(found.ok && found.data.hits.some((entry) => entry.id === referenceId)).toBe(true);
+  }
+});
+
+it('實體別名對齊後不建立自連，仍完成其餘候選', async () => {
+  await inDb((db) => {
+    insertEntity(db, { id: 'same-entity', name: '測試甲', type: 'concept', now: 1 });
+    addAlias(db, 'same-entity', '測試乙', 2);
+  });
+  await buildAgain();
+  expect((await view()).build.done).toBe(4);
+  expect(await inDb((db) => db.prepare("SELECT * FROM edge WHERE rel = '測試關係'").all())).toEqual(
+    [],
+  );
+});
+
+it('單份寫入違反約束時交易退回，其餘候選仍完成', async () => {
+  const before = await inDb((db) => db.prepare('SELECT * FROM entity ORDER BY id').all());
+  await inDb((db) =>
+    db.exec(
+      "CREATE TRIGGER fail_extraction BEFORE INSERT ON entity WHEN NEW.name_zh = '測試乙' BEGIN SELECT RAISE(ABORT, 'fixture extraction failure'); END",
+    ),
+  );
+  await buildAgain();
+  const result = await view();
+  expect(result.candidates.find((entry) => entry.id === candidateIds[0])).toMatchObject({
+    buildState: 'failed',
+    buildCode: 'RESEARCH_UNEXPECTED',
+  });
+  expect(result.build.done).toBe(3);
+  expect(await inDb((db) => runs.getRun(db, result.build.runId!)?.status)).toBe('partial');
+  expect(await inDb((db) => db.prepare('SELECT * FROM entity ORDER BY id').all())).toEqual(before);
+});
 
 it('建圖重跑不改人的子集，也不覆寫人工確認', async () => {
   await buildAgain();

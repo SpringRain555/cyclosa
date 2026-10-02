@@ -173,6 +173,7 @@ function interleave(
  * 而那正是 `note-service` 送進索引的同一份字串。**所以驗的是同一段字。**
  */
 async function textOf(folder: string, item: ItemRow): Promise<string | null> {
+  if (item.kind === 'reference') return `${item.title}\n`;
   if (item.kind === 'note')
     return item.excerpt.length > 0 ? `${item.title}\n${item.excerpt}` : null;
   const derived = await readDerived(folder, item.id);

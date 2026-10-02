@@ -235,6 +235,7 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
         options.systemPrompt,
         // **工具清單就是沙箱。** 見這個檔案開頭。
         '--tools',
+        // 空字串 ＝ 關掉所有工具（CLI 文件）。不經過 shell，Node 會把它原樣交給子程序。
         options.tools === 'none' ? '' : 'WebSearch',
         ...(options.tools === 'none' ? [] : ['--allowedTools', 'WebSearch']),
         '--json-schema',

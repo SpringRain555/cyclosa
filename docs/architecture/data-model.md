@@ -566,7 +566,7 @@ v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_co
 ### 確認與建圖的欄位（v12，Stage 22 的資料基礎）
 
 `012-research-build.sql` 只做 `ADD COLUMN` 與 `CREATE TABLE`，外鍵保持開啟，不清除舊資料。
-這一版提供欄位、repository 與純函式；建圖作業、畫面與 v13 清除仍未完成。
+v12 當時先提供欄位、repository 與純函式；目前建圖作業、畫面與 v13 清除均已接上，尚未出貨。
 
 | 表 | 欄 | 說明 |
 |---|---|---|
@@ -610,6 +610,7 @@ repository 依建立時間、id 列出尚未收起的通知；v13 前置步驟�
    以及讀過、點註過、排除過的資料。還被任何留下的邊當出處或任一端點的資料都留，包含其他作業與沒有作業識別碼的邊。
    兩筆即將一起清掉的作業互相引用，不會因此被誤留。
 3. 同一交易刪邊、資料、索引（bigram／FTS）與向量，清孤兒實體、重排標題。
+   合併歷史涉及的兩端實體（包含已撤銷的合併），以及仍被合併指標指向的實體，不列為孤兒，避免清理撤掉人工合併或刪掉歷史。
    留下的資料與邊的舊 `run_id` 改成 `NULL`；稽核不可改寫，裡面的歷史作業識別碼原樣保留（不是外鍵）。刪作業會連帶刪逐項紀錄與角度。
    `research.collect_run_id`／`build_run_id` 若指著將被清除的作業，也改為 `NULL`，研究本身保留。
    `sources/` 不碰；交易提交之後才用 `removeDerived` 刪掉被移除資料的每一版衍生物。
@@ -680,7 +681,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | `run` | ✅ v11：逐任務的花費（`task_costs_json`）；✅ v13：`kind` 拿掉 `expand`、多 `extract`（手動抽取，Q15），見正文 | v11 `ADD COLUMN`；v13 重建資料表 |
 | `note` | **不用改** —— `md_path` 從 v1 就在；附上的筆記檔是 `selector_json='[]'`（整份）的一則點註 | —— |
 
-**書目節點**：`kind='reference'`、`sha256` 是 `NULL`、`status='included'`。**尚待實作的補正文設計**：同一個 id 轉成一般的資料節點
+**書目節點**：`kind='reference'`、`sha256` 是 `NULL`、`status='included'`。建圖時把標題寫進 bigram／FTS 索引，全文檢索用同一份標題驗證，不要求正文衍生檔。**尚待實作的補正文設計**：同一個 id 轉成一般的資料節點
 （`kind` 換成實際的種類、補上 `sha256`），連過的線都還在。
 
 | Stage | migration | 內容 |

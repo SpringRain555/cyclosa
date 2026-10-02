@@ -69,7 +69,7 @@ async function assess(
     }
     if (research.getResearch(db, researchId)?.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid);
-    const view = viewOf(db, row, providers);
+    const view = await viewOf(db, row, providers, join(casesDir(dataRoot), slug));
     const user = JSON.stringify({
       directions: view.directions
         .filter((direction) => direction.adopted)
@@ -147,7 +147,7 @@ async function assess(
     );
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
-    return ok(viewOf(db, updated, providers), cid);
+    return ok(await viewOf(db, updated, providers, join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }

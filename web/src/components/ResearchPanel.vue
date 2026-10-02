@@ -512,13 +512,13 @@ function decide(candidate: Candidate, decision: Candidate['decision']): void {
   void onRow(candidate, () => api.decideCandidate(props.slug, id, candidate.id, { decision }));
 }
 
-function cite(candidate: Candidate, itemId: string, event: Event): void {
+function cite(candidate: Candidate, candidateId: string, event: Event): void {
   if (open.value === null) return;
   const id = open.value.id;
   const checked = (event.target as HTMLInputElement).checked;
   const citedBy = checked
-    ? [...candidate.citedBy, itemId]
-    : candidate.citedBy.filter((entry) => entry !== itemId);
+    ? [...candidate.citedBy, candidateId]
+    : candidate.citedBy.filter((entry) => entry !== candidateId);
   void onRow(candidate, () => api.decideCandidate(props.slug, id, candidate.id, { citedBy }));
 }
 
@@ -913,11 +913,7 @@ const hitsText = computed(() => {
                         :name="`decision-${c.id}`"
                         :checked="c.effectiveDecision === choice"
                         :disabled="
-                          busy !== '' ||
-                          busyRow !== null ||
-                          (choice === 'include' &&
-                            c.acquisition !== 'fetched' &&
-                            c.acquisition !== 'uploaded')
+                          busy !== '' || busyRow !== null || (choice === 'include' && !c.hasBody)
                         "
                         @change="decide(c, choice)"
                       />
@@ -926,7 +922,7 @@ const hitsText = computed(() => {
                           ? t.research.decisionInclude
                           : choice === 'discard'
                             ? t.research.decisionDiscard
-                            : c.acquisition === 'fetched' || c.acquisition === 'uploaded'
+                            : c.hasBody
                               ? t.research.decisionKeep
                               : t.research.decisionReference
                       }}
@@ -940,13 +936,7 @@ const hitsText = computed(() => {
                       {{ t.research.decisionReset }}
                     </button>
                   </div>
-                  <fieldset
-                    v-if="
-                      c.effectiveDecision === 'reference' &&
-                      c.acquisition !== 'fetched' &&
-                      c.acquisition !== 'uploaded'
-                    "
-                  >
+                  <fieldset v-if="c.effectiveDecision === 'reference' && !c.hasBody">
                     <legend>{{ t.research.citedBy }}</legend>
                     <label
                       v-for="source in open.candidates.filter(
@@ -959,9 +949,9 @@ const hitsText = computed(() => {
                     >
                       <input
                         type="checkbox"
-                        :checked="c.citedBy.includes(source.itemId!)"
+                        :checked="c.citedBy.includes(source.id)"
                         :disabled="busy !== '' || busyRow !== null"
-                        @change="cite(c, source.itemId!, $event)"
+                        @change="cite(c, source.id, $event)"
                       />
                       {{ source.title }}
                     </label>

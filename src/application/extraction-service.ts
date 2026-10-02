@@ -65,7 +65,7 @@ export function applyExtraction(
     for (const relation of extraction.relations) {
       const source = idOf.get(relation.subject);
       const target = idOf.get(relation.object);
-      if (source === undefined || target === undefined) continue;
+      if (source === undefined || target === undefined || source === target) continue;
       const at = locateQuote(text, relation.quote);
       if (at.kind !== 'found') {
         quoteMisses++;

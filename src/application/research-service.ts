@@ -184,7 +184,7 @@ export async function startResearch(
     }
     const row = research.getResearch(db, id);
     if (row === null) return err('RESEARCH_UNEXPECTED', cid, { slug });
-    return ok(viewOf(db, row, await load()), cid);
+    return ok(await viewOf(db, row, await load(), join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -338,7 +338,7 @@ export async function converse(
 
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });
-    return ok(viewOf(db, updated, providers), cid);
+    return ok(await viewOf(db, updated, providers, join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -440,7 +440,7 @@ export async function editDirections(
     research.updateResearchPlan(db, researchId, JSON.stringify(next), Date.now());
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });
-    return ok(viewOf(db, updated, await load()), cid);
+    return ok(await viewOf(db, updated, await load(), join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -545,7 +545,7 @@ export async function startCollecting(
     });
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });
-    return ok(viewOf(db, updated, providers), cid);
+    return ok(await viewOf(db, updated, providers, join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -575,7 +575,7 @@ export async function abandonResearch(
     research.updateResearchStatus(db, researchId, 'abandoned', Date.now());
     const updated = research.getResearch(db, researchId);
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });
-    return ok(viewOf(db, updated, await load()), cid);
+    return ok(await viewOf(db, updated, await load(), join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -654,7 +654,7 @@ export async function getResearchView(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
-    return ok(viewOf(db, row, await load()), cid);
+    return ok(await viewOf(db, row, await load(), join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
@@ -673,7 +673,11 @@ export async function listResearchViews(
   try {
     const providers = await load();
     return ok(
-      research.listResearch(db, limit).map((row) => viewOf(db, row, providers)),
+      await Promise.all(
+        research
+          .listResearch(db, limit)
+          .map((row) => viewOf(db, row, providers, join(casesDir(dataRoot), slug))),
+      ),
       cid,
     );
   } finally {

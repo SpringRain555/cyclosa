@@ -417,6 +417,8 @@ export function deleteOrphanEntities(db: DatabaseSync): number {
     .prepare(
       `SELECT id FROM entity
         WHERE merged_into IS NULL
+          AND NOT EXISTS (SELECT 1 FROM entity_merge WHERE kept_id = entity.id OR merged_id = entity.id)
+          AND NOT EXISTS (SELECT 1 FROM entity AS merged WHERE merged.merged_into = entity.id)
           AND NOT EXISTS (SELECT 1 FROM edge WHERE source_id = entity.id OR target_id = entity.id)`,
     )
     .all() as Raw[];

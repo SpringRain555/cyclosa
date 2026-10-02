@@ -310,6 +310,7 @@ export interface Bibliography {
 }
 
 export interface Candidate {
+  hasBody: boolean;
   decision: 'include' | 'reference' | 'discard' | null;
   defaultDecision: 'include' | 'reference' | 'discard';
   effectiveDecision: 'include' | 'reference' | 'discard';

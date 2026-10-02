@@ -59,8 +59,8 @@ interface ExtractRun {
 
 interface Entry {
   readonly model: string;
-  readonly raw: { readonly angles: AnglesRun[]; readonly extracts: ExtractRun[] };
-  readonly angles: { readonly samples: readonly string[] };
+  readonly raw: { readonly angles?: AnglesRun[]; readonly extracts: ExtractRun[] };
+  readonly angles?: { readonly samples: readonly string[] };
 }
 
 /** **出貨的那條線。** 跑得出東西但超過它 ＝ 使用者拿到的是逾時。 */
@@ -97,7 +97,7 @@ for (const f of files) {
 console.log(`記分線：${CHAT_TIMEOUT_MS / 1000} 秒（出貨的 CHAT_TIMEOUT_MS）\n`);
 
 /** 用 `--extract-only` 跑的結果檔沒有角度 —— 那一張表整張不印，而不是印一排「0/0」。 */
-const hasAngles = entries.some((e) => e.raw.angles.length > 0);
+const hasAngles = entries.some((e) => (e.raw.angles?.length ?? 0) > 0);
 if (hasAngles) {
   console.log(
     pad('model', 26) +
@@ -111,7 +111,7 @@ if (hasAngles) {
   );
 }
 for (const e of hasAngles ? entries : []) {
-  const runs = e.raw.angles;
+  const runs = e.raw.angles ?? [];
   const ok = runs.filter(inBudget);
   const refsTotal = ok.reduce((s, a) => s + a.seedRefsTotal, 0);
   const refsValid = ok.reduce((s, a) => s + a.seedRefsValid, 0);
@@ -222,6 +222,6 @@ if (hasAngles) {
   console.log('\n=== 角度樣本 ===');
   for (const e of entries) {
     console.log(`[${e.model}]`);
-    for (const q of e.angles.samples) console.log(`  · ${q}`);
+    for (const q of e.angles?.samples ?? []) console.log(`  · ${q}`);
   }
 }

@@ -215,7 +215,6 @@ function applyEmphasis(): void {
         child as unknown as { material?: { opacity: number; transparent: boolean } }
       ).material;
       if (material !== undefined) {
-        // 書目的本體帶自己的比例（A 是 0）。**不能寫 `|| 1`** —— 0 會被當成「沒設」，選一下就變實心
         const scale: unknown = child.userData['opacityScale'];
         material.opacity = opacity * (typeof scale === 'number' ? scale : 1);
         material.transparent = material.opacity < 1;

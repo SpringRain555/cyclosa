@@ -2,10 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LineDashedMaterial, LineSegments, Mesh } from 'three';
 import { buildNode, disposeTree, type NodeSpec } from '../../web/src/components/graph/objects.js';
-import {
-  REFERENCE_FILL_OPACITY,
-  referenceStyle,
-} from '../../web/src/components/graph/reference-style.js';
+import { REFERENCE_FILL_OPACITY } from '../../web/src/components/graph/reference-style.js';
 
 const spec: NodeSpec = {
   color: 'blue',
@@ -18,7 +15,6 @@ const spec: NodeSpec = {
 };
 
 beforeEach(() => {
-  vi.stubGlobal('window', { location: { search: '' } });
   vi.stubGlobal('document', {
     documentElement: {},
     createElement: () => ({ getContext: () => null }),
@@ -28,16 +24,8 @@ beforeEach(() => {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe('書目 A／B 比較', () => {
-  it('預設 A；只有 refStyle=b 才用 B', () => {
-    expect(referenceStyle('')).toBe('a');
-    expect(referenceStyle('?refStyle=a')).toBe('a');
-    expect(referenceStyle('?refStyle=unknown')).toBe('a');
-    expect(referenceStyle('?other=1&refStyle=b')).toBe('b');
-  });
-
-  it.each(['a', 'b'])('%s 的稜線有距離資料，2D 與 3D 使用相同物件', (style) => {
-    vi.stubGlobal('window', { location: { search: `?refStyle=${style}` } });
+describe('書目虛線稜線與淡填', () => {
+  it('固定淡填且可點選，稜線有距離資料，2D 與 3D 使用相同物件', () => {
     const group = buildNode(spec);
     const outline = group.getObjectByName('reference-outline') as LineSegments;
     expect(outline).toBeInstanceOf(LineSegments);
@@ -45,11 +33,14 @@ describe('書目 A／B 比較', () => {
     expect(outline.geometry.getAttribute('lineDistance').count).toBe(24);
     expect(group.getObjectByName('outline')).toBeUndefined();
     const body = group.getObjectByName('body') as Mesh;
-    // A 也要點得到：本體留著、全透明，不是 visible = false
     expect(body.visible).toBe(true);
-    const scale = style === 'b' ? REFERENCE_FILL_OPACITY : 0;
-    expect(body.material).toMatchObject({ opacity: spec.opacity * scale, depthWrite: false });
-    expect(body.userData['opacityScale']).toBe(scale);
+    expect(REFERENCE_FILL_OPACITY).toBe(0.3);
+    expect(body.material).toMatchObject({
+      opacity: spec.opacity * REFERENCE_FILL_OPACITY,
+      transparent: true,
+      depthWrite: false,
+    });
+    expect(body.userData['opacityScale']).toBe(REFERENCE_FILL_OPACITY);
     const dispose = vi.spyOn(outline.material as LineDashedMaterial, 'dispose');
     disposeTree(group);
     expect(dispose).toHaveBeenCalledOnce();

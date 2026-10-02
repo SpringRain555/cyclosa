@@ -15,7 +15,7 @@
 import { ref } from 'vue';
 import { api, type FetchPolicy } from '../api';
 import { LEGEND_SECTIONS } from './graph/legend-items';
-import { REFERENCE_FILL_OPACITY, referenceStyle } from './graph/reference-style';
+import { REFERENCE_FILL_OPACITY } from './graph/reference-style';
 import { fill, guideItem, guideSection, t } from '../i18n/zh-TW';
 
 const policy = ref<FetchPolicy | null>(null);
@@ -25,11 +25,7 @@ void api.fetchPolicy().then((result) => {
 </script>
 
 <template>
-  <div
-    class="guide"
-    :class="{ 'reference-filled': referenceStyle() === 'b' }"
-    :style="{ '--reference-fill-opacity': REFERENCE_FILL_OPACITY }"
-  >
+  <div class="guide">
     <h2 class="group">{{ t.graph.guide.title }}</h2>
     <p class="group-what">{{ t.graph.guide.what }}</p>
 
@@ -61,6 +57,7 @@ void api.fetchPolicy().then((result) => {
 
 <style scoped>
 .guide {
+  --reference-fill-opacity: v-bind(REFERENCE_FILL_OPACITY);
   padding-bottom: 24px;
 }
 .group {

@@ -35,11 +35,6 @@
 }
 .mark.reference {
   border: 1.5px dashed var(--node-item);
-}
-.reference-filled {
-  --reference-fill-opacity: 0;
-}
-.reference-filled .mark.reference {
   background: color-mix(
     in srgb,
     var(--node-item) calc(var(--reference-fill-opacity) * 100%),

@@ -45,7 +45,7 @@ import {
   type Material,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { REFERENCE_FILL_OPACITY, referenceStyle } from './reference-style.js';
+import { REFERENCE_FILL_OPACITY } from './reference-style.js';
 
 /** 一個節點的邊長。實體稍大一點，因為空心看起來比實心小。 */
 export const NODE_SIZE = 7;
@@ -401,13 +401,10 @@ export function buildNode(spec: NodeSpec): Group {
   );
   body.name = 'body';
   if (spec.dashed) {
-    // A（不填）也留著本體、只是全透明 —— 設成 `visible = false` 的話，點選靠的那一塊不見了，
-    // 只剩細細的虛線點得到。
-    const fillScale = referenceStyle() === 'b' ? REFERENCE_FILL_OPACITY : 0;
     body.material.transparent = true;
-    body.material.opacity = spec.opacity * fillScale;
+    body.material.opacity = spec.opacity * REFERENCE_FILL_OPACITY;
     body.material.depthWrite = false;
-    body.userData['opacityScale'] = fillScale;
+    body.userData['opacityScale'] = REFERENCE_FILL_OPACITY;
     const outline = new LineSegments(
       nodeEdges,
       new LineDashedMaterial({

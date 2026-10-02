@@ -12,7 +12,7 @@ import { computed } from 'vue';
 import type { ConfidenceTier } from '../../api';
 import { guideItem, guideSection, t } from '../../i18n/zh-TW';
 import { compactSections } from './legend-items';
-import { REFERENCE_FILL_OPACITY, referenceStyle } from './reference-style';
+import { REFERENCE_FILL_OPACITY } from './reference-style';
 
 /**
  * **這一欄顯示的是那份清單的子集，不是自己的一份。**
@@ -49,11 +49,7 @@ const projectionValue = computed({
 </script>
 
 <template>
-  <aside
-    class="legend"
-    :class="{ 'reference-filled': referenceStyle() === 'b' }"
-    :style="{ '--reference-fill-opacity': REFERENCE_FILL_OPACITY }"
-  >
+  <aside class="legend">
     <h2>{{ t.graph.legend.title }}</h2>
 
     <section v-for="s in sections" :key="s.key">
@@ -111,6 +107,7 @@ const projectionValue = computed({
 
 <style scoped>
 .legend {
+  --reference-fill-opacity: v-bind(REFERENCE_FILL_OPACITY);
   width: 232px;
   flex-shrink: 0;
   overflow-y: auto;

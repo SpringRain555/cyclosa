@@ -14,6 +14,7 @@ import { MAX_CANDIDATES_PER_DIRECTION } from '../provider/candidates.js';
 import type { Relevance } from '../provider/digest.js';
 import { MAX_DIRECTIONS } from '../provider/plan.js';
 import type { ResearchStatus } from './index.js';
+import { effectiveDecision, type CandidateDecision } from './build.js';
 
 /**
  * 一個候選的**取得狀態**（schema v10 的 `research_candidate.acquisition`）。
@@ -141,7 +142,7 @@ export function needsFetch(candidate: CandidateWork): boolean {
  *
  * 不排除的話它會讓「還有事可以做」永遠是真的 —— 「繼續蒐集」那顆鈕永遠亮著，按下去什麼都沒變。
  */
-const FINAL_DIGEST_CODES: readonly string[] = ['PARSE_EMPTY_CONTENT'];
+export const FINAL_DIGEST_CODES: readonly string[] = ['PARSE_EMPTY_CONTENT'];
 
 /**
  * **這幾種初讀失敗代表「接下來每一份都會一樣」**：被限流、金鑰被拒、連不上。
@@ -289,6 +290,9 @@ export const SEARCH_TIMEOUT_MS = 5 * 60 * 1000;
 // ── 用數的（ADR-0033 D10 的前半）─────────────────────────────
 
 export interface DirectionTally {
+  readonly include: number;
+  readonly reference: number;
+  readonly discard: number;
   /** 找到幾份（**含別的方向也找到的**）*/
   readonly found: number;
   /** 抓到了或你上傳了 */
@@ -311,6 +315,9 @@ export function tallyDirection(
   candidates: readonly {
     readonly directionIds: readonly string[];
     readonly acquisition: Acquisition;
+    readonly relevance?: CandidateDecision['relevance'];
+    readonly digestCode?: CandidateDecision['digestCode'];
+    readonly decision?: CandidateDecision['decision'];
   }[],
 ): DirectionTally {
   let found = 0;
@@ -318,15 +325,24 @@ export function tallyDirection(
   let needsUser = 0;
   let unavailable = 0;
   let pending = 0;
+  const decisions = { include: 0, reference: 0, discard: 0 };
   for (const c of candidates) {
     if (!c.directionIds.includes(directionId)) continue;
     found += 1;
+    decisions[
+      effectiveDecision({
+        ...c,
+        relevance: c.relevance ?? null,
+        digestCode: c.digestCode ?? null,
+        decision: c.decision ?? null,
+      })
+    ] += 1;
     if (c.acquisition === 'fetched' || c.acquisition === 'uploaded') acquired += 1;
     else if (c.acquisition === 'needs-user') needsUser += 1;
     else if (c.acquisition === 'unavailable') unavailable += 1;
     else pending += 1;
   }
-  return { found, acquired, needsUser, unavailable, pending };
+  return { found, acquired, needsUser, unavailable, pending, ...decisions };
 }
 
 export function acquisitionOf(value: unknown): Acquisition {

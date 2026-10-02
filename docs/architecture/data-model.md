@@ -3,11 +3,11 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v10`，已實作。**
+> **現況：`schema v12`，已實作。**
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
 > `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`、
 > `007-vector-scan-index.sql`、`008-run-ended-reason.sql`、`009-research.sql`、
-> `010-research-collect.sql`），
+> `010-research-collect.sql`、`011-research-digest.sql`、`012-research-build.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07）**：11 張表、18 個索引、3 條 trigger。
@@ -524,8 +524,8 @@ v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_co
 
 **「拿不到」一定帶原因、原因只跟「拿不到」一起出現**，由一條表級的 CHECK 守
 （`(acquisition = 'unavailable') = (unavailable_reason IS NOT NULL)`）—— 兩邊各自寫的話，
-會出現一列「要你拿」卻帶著「付費牆」的候選。**最終狀態**（進圖／只留書目／丟掉）與初讀的
-「有沒有關」是 Stage 21／22 的欄位，**這一版沒有建**（一個沒有畫面讀它的欄位只是一個要記得填的欄位）。
+會出現一列「要你拿」卻帶著「付費牆」的候選。初讀的「有沒有關」在 v11，
+**最終狀態**（進圖／只留／丟掉）在 v12，欄位與規則見下面正文。
 
 **上傳的那一份出處指得回候選的網址**，而且研究的紀錄刪掉之後也一樣：它的 `requested_url` 就是那個網址，
 `source_url` 是檔名（那個網址我們沒有抓過，manifest 也照檔案匯入寫）。那個網址抓失敗留下的那一列
@@ -562,6 +562,40 @@ v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_co
 `tests/infrastructure/migration-v11.test.ts` 對著一個塞了資料的 v10 資料庫升級：舊候選是「還沒讀」、
 `relevance` 只收三個值、寫繁中不動原文。
 
+### 確認與建圖的欄位（v12，Stage 22 的資料基礎）
+
+`012-research-build.sql` 只做 `ADD COLUMN` 與 `CREATE TABLE`，外鍵保持開啟，不清除舊資料。
+這一版提供欄位、repository 與純函式；建圖作業、畫面與 v13 清除仍未完成。
+
+| 表 | 欄 | 說明 |
+|---|---|---|
+| `item` | `extracted_at INTEGER`、`extracted_by TEXT` | 可為 `NULL`；記錄抽取時間與實際模型，分得出「抽過但零條關聯」與「沒抽過」 |
+| `item` | `bib_json TEXT` | 可為 `NULL`；書目節點的作者、年份、出處，repository 原樣讀回 JSON 字串 |
+| `research_candidate` | `decision TEXT` | CHECK 只收 `include`／`reference`／`discard` 或 `NULL`。**只存使用者改過的；`NULL` ＝ 照預設**（ADR-0033 D10），不是「確認之前」。閘門三之前就可以改；選得跟預設相同仍是人的選擇 |
+| `research_candidate` | `cited_by_json TEXT NOT NULL DEFAULT '[]'` | 這份被這次研究裡哪幾份候選引用，存候選 id 的 JSON 陣列 |
+| `research_candidate` | `build_state TEXT`、`build_code TEXT` | 狀態 CHECK 只收 `done`／`failed` 或 `NULL`；碼可為 `NULL`。repository 寫完成或重設時清掉失敗碼 |
+| `research` | `gap_json TEXT` | 可為 `NULL`；保存這次研究的缺口評估，尚未評估時不填 |
+
+**有效選擇**＝`decision ?? defaultDecision`。拿到正文（抓到或上傳）且初讀有關／說不準 → 進圖；
+沒關 → 丟掉；沒有初讀判斷但初讀碼屬於 `FINAL_DIGEST_CODES` → 只留，其餘 → 進圖；沒拿到正文 → 只留書目。
+已有正文選 `reference` 是「只留著，不抽」，不另建書目節點。每條方向的進圖／只留／丟掉數量依有效選擇計算。
+`mayStartBuilding` 接收有效選擇清單，只有確認中且每筆都有最終選擇才准開始；沒有候選時也可結束這次空的研究。
+
+`research.build_run_id` 原有欄位不重建，repository 可更新或清空。v12 不自動填寫任何舊候選的 `decision`。
+
+### `case_notice`：專題裡尚未收起的通知（v12）
+
+| 欄 | 型別與約束 | 說明 |
+|---|---|---|
+| `id` | `TEXT PRIMARY KEY` | 通知識別碼 |
+| `kind` | `TEXT NOT NULL` | 通知種類 |
+| `body_json` | `TEXT NOT NULL` | 通知內容 JSON 字串 |
+| `created_at` | `INTEGER NOT NULL` | 建立時間 |
+| `dismissed_at` | `INTEGER` | `NULL` ＝ 尚未收起；收起保留資料，重複收起不改第一次的時間 |
+
+repository 依建立時間、id 列出尚未收起的通知；升級清除通知的產生留給 v13 前置步驟。
+`tests/infrastructure/migration-v12.test.ts` 從含合成資料的 v11 升級，逐欄核對舊資料、預設、CHECK 與外鍵。
+
 ### 重建資料表：外鍵關著跑（v10 是第一次）
 
 SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表 → **新表換名**」（反過來「舊表先換名」
@@ -578,7 +612,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 `tests/infrastructure/migration-v10.test.ts` 對著一個塞了資料的 v9 資料庫升級，逐條比對重建前後的
 列數、索引與 trigger，並驗外鍵、唯一索引、trigger、新的 CHECK 都照樣作用。
 
-## ⬜ schema v11 起的草案：初讀、確認、書目節點（Stage 21–24）
+## ⬜ 後續草案與分期：確認、書目節點與整理（Stage 22–24）
 
 > **這一段是設計，不是現況** —— 2026-09-19 寫、2026-09-20 使用者確認（ADR-0033、REQ-0009）。
 > 欄位名與值域是草案；實作時**每個 Stage 各自一個 migration**（下面最後一張表；Stage 22 例外，理由在表下），
@@ -589,7 +623,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | `research` | 一次研究或整理 | `kind` ∈ `research`／`consolidate`；`status` ∈ `planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`；**同一專題同時只有一列不在 `done`／`abandoned`**（ADR-0033 D4，用部分唯一索引守）|
 | `research_message` | 規劃對話的一輪 | `role` ∈ `user`／`model`；模型那一輪記**實際跑的模型**、走哪一個服務、花了多少（`NULL` ＝ 不知道，不是 0）、交出的那一份規劃 |
 | `research_direction` | 閘門一那一刻落成的方向 | `origin` ∈ `model`／`human`；**沒被採用的也留著**（`adopted=0`）—— 跟 `run_angle` 同一個理由 |
-| `research_candidate` | 一條候選來源 | ✅ v10 建了取得狀態那一半、✅ v11 補了初讀的 `relevance`（上面正文）；**最終狀態 `decision` 在 v12 用 `ADD COLUMN` 補** |
+| `research_candidate` | 一條候選來源 | ✅ v10 取得狀態、v11 初讀、v12 最終選擇與建圖進度均已建，見上面正文 |
 
 **`research` 的欄位**：`id`、`kind`、`status`、`topic`（整理是 `NULL`）、`plan_json`（最新的一份規劃；閘門一之前會一直換）、
 `collect_run_id`、`build_run_id`（→ `run.id`；**機器工作仍然是 `run`**，研究只記工作流停在哪 —— ADR-0033 D3）、
@@ -600,7 +634,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | 欄 | 值 | 誰改它 |
 |---|---|---|
 | `acquisition` | `found` → `fetching` → `fetched`；`needs-user`（帶 `code`：既有的擷取錯誤碼）；`uploaded`；`unavailable`（帶 `unavailable_reason` ∈ `paywall`／`not-found`／`blocked`／`other` ＋ `reason_note`）| 擷取管線、使用者 |
-| `decision` | `include`／`reference`／`discard`；確認之前是 `NULL`。**已經有正文的候選選 `reference` ＝「只留著，不抽」**：不建書目節點，那一份資料本身留著（ADR-0033 Q12）| 使用者（預設值由事實決定，ADR-0033 D10）|
+| `decision` | ✅ v12 已實作，值域與 `NULL` ＝ 照預設的語義見正文 | 只存使用者改過的（ADR-0033 D10）|
 
 其餘欄位：`direction_id`（第一條找到它的方向；別的方向也找到時記在 `also_directions_json`）、`url`、`title`（必填 ——
 書目節點要有名字）、`why`、`bib_json`（作者、年份、出處：搜尋結果裡有才填）、`expected_access` ∈ `open`／`login`／`unknown`、
@@ -612,8 +646,8 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 |---|---|---|
 | `item` | ✅ v10：`kind` 多 `reference`（書目節點）、拿掉從來沒建過的 `paper` | 重建資料表（上面正文「重建資料表」那一節）|
 | `item` | ✅ v11：`title_zh`、`summary_zh`、`digested_by`、`digested_at`（初讀，衍生物 —— **原文欄位永遠不被覆蓋**）| `ADD COLUMN`（上面正文「初讀」那一節）|
-| `item` | `extracted_at`、`extracted_by`（「抽過了」—— 現在分不出「抽過但 0 條」與「沒抽過」）| `ADD COLUMN` |
-| `item` | `bib_json`（書目節點的作者、年份、出處）| `ADD COLUMN`（**v12**：書目節點在建圖那一步才建；候選自己的書目在 `research_candidate.bib_json`）|
+| `item` | ✅ v12：`extracted_at`、`extracted_by`（抽取紀錄）| 已加欄位，見正文 |
+| `item` | ✅ v12：`bib_json`（書目）| 已加欄位，見正文；建圖流程尚未接上 |
 | `run` | ✅ v10：`kind` 多 `research`、`consolidate`；多 `research_id`、`unpriced` | 重建資料表 |
 | `run` | ✅ v11：逐任務的花費（`task_costs_json`）；**v13：`kind` 拿掉 `expand`、多 `extract`**（手動抽取，Q15）| v11 `ADD COLUMN`；v13 重建資料表 |
 | `note` | **不用改** —— `md_path` 從 v1 就在；附上的筆記檔是 `selector_json='[]'`（整份）的一則點註 | —— |
@@ -626,7 +660,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | ✅ 19 | v9 | `research`、`research_message`、`research_direction`（**做完了，搬到上面正文**）|
 | ✅ 20 | v10 | `research_candidate`（取得狀態那一半）；`research_direction` 的搜尋狀態；`item` 重建（`reference`、拿掉 `paper`）；`run` 重建（`kind`、`research_id`、`unpriced`）。**`item.bib_json` 挪到 v12**（書目節點在那時才建）|
 | ✅ 21 | v11 | `item` 的初讀四欄；`research_candidate` 的 `relevance`／`relevance_why`／`digest_code`；**每一筆作業逐任務的花費**（`task_costs_json`）（**做完了，搬到上面正文**）|
-| 22 | **v12** | 只加欄位（外鍵開著）：`item` 的 `extracted_at`／`extracted_by`、`bib_json`；`research_candidate` 的 `decision`、「被哪幾份引用」、建圖狀態與碼（「繼續建圖」只做沒做完的）；`research` 的缺口評估；一張 `case_notice`（升級時要跟使用者說一次的話）|
+| 22（部分）| **✅ v12** | 欄位、通知表與 repository 已完成，見上面正文；Stage 22 整體尚未完成 |
 | 22 | （v13 之前的一段程式）| **舊的擴展紀錄一次性清除**（ADR-0033 D17）：自己一個交易、**外鍵開著**（復原靠連帶刪除），挑出真的舊擴展 —— **`providers_json` 的 `chat` 是 `manual:…` 的是手動抽取，保留**（Q15）—— 用既有的復原規則一次算完，**還被任何留下來的邊當出處或端點的資料一律留下**；寫一則 `case_notice`。冪等：再跑一次沒東西可清，不重寫通知 |
 | 22 | **v13** | 重建 `run`（`-- cyclosa: foreign-keys-off`）：`kind` 只剩 `import`／`extract`／`research`／`consolidate`，**剩下的 `expand`（＝手動抽取）轉 `extract`**；`DROP TABLE run_angle` |
 

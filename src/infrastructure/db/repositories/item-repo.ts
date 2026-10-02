@@ -41,9 +41,24 @@ export interface ItemRow {
   readonly summaryZh: string | null;
   readonly digestedBy: string | null;
   readonly digestedAt: number | null;
+  readonly extractedAt: number | null;
+  readonly extractedBy: string | null;
+  readonly bibJson: string | null;
 }
 
 type Raw = Record<string, unknown>;
+
+export function setItemExtracted(
+  db: DatabaseSync,
+  input: { readonly id: string; readonly extractedBy: string; readonly now: number },
+): void {
+  db.prepare('UPDATE item SET extracted_at = ?, extracted_by = ?, updated_at = ? WHERE id = ?').run(
+    input.now,
+    input.extractedBy,
+    input.now,
+    input.id,
+  );
+}
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
@@ -87,6 +102,9 @@ function toItem(row: Raw): ItemRow {
     summaryZh: str(row['summary_zh']),
     digestedBy: str(row['digested_by']),
     digestedAt: num(row['digested_at']),
+    extractedAt: num(row['extracted_at']),
+    extractedBy: str(row['extracted_by']),
+    bibJson: str(row['bib_json']),
   };
 }
 

@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { applyMigration, openCaseDatabase } from '../../src/infrastructure/db/database.js';
+import { applyMigration } from '../../src/infrastructure/db/database.js';
 import { getItem, setItemDigest } from '../../src/infrastructure/db/repositories/item-repo.js';
 import {
   getCandidate,
@@ -70,11 +70,8 @@ describe('v10 → v11：初讀的欄位', () => {
   it('升上來的舊資料是「還沒讀」，原文一個字都沒動', async () => {
     const v10 = await buildV10(dbPath);
     seed(v10);
-    v10.close();
-
-    const opened = await openCaseDatabase(dbPath, { backupDir: join(dir, 'backups') });
-    if (opened.kind !== 'ok') throw new Error(opened.kind);
-    const db = opened.db;
+    applyMigration(v10, await readFile(join(MIGRATIONS, '011-research-digest.sql'), 'utf8'), 11);
+    const db = v10;
     try {
       expect(
         (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
@@ -107,10 +104,8 @@ describe('v10 → v11：初讀的欄位', () => {
   it('`relevance` 只收三個值；寫繁中不會蓋掉原文', async () => {
     const v10 = await buildV10(dbPath);
     seed(v10);
-    v10.close();
-    const opened = await openCaseDatabase(dbPath, { backupDir: join(dir, 'backups') });
-    if (opened.kind !== 'ok') throw new Error(opened.kind);
-    const db = opened.db;
+    applyMigration(v10, await readFile(join(MIGRATIONS, '011-research-digest.sql'), 'utf8'), 11);
+    const db = v10;
     try {
       expect(() =>
         db.exec(`UPDATE research_candidate SET relevance = 'maybe' WHERE id = 'c1'`),

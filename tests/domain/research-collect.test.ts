@@ -209,6 +209,9 @@ describe('每條方向用數的（D10）', () => {
     ];
     expect(tallyDirection('d1', rows)).toEqual({
       found: 5,
+      include: 2,
+      reference: 3,
+      discard: 0,
       acquired: 2,
       needsUser: 1,
       unavailable: 1,
@@ -216,6 +219,9 @@ describe('每條方向用數的（D10）', () => {
     });
     expect(tallyDirection('d2', rows)).toEqual({
       found: 2,
+      include: 1,
+      reference: 1,
+      discard: 0,
       acquired: 1,
       needsUser: 0,
       unavailable: 0,

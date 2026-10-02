@@ -398,7 +398,16 @@ export function viewOf(
       adopted: d.adopted,
       searchState: d.searchState,
       searchCode: d.searchCode,
-      tally: tallyDirection(d.id, candidateViews),
+      tally: tallyDirection(
+        d.id,
+        candidates.map((candidate) => ({
+          ...candidate,
+          directionIds: [
+            ...(candidate.directionId === null ? [] : [candidate.directionId]),
+            ...candidate.alsoDirections,
+          ],
+        })),
+      ),
     })),
     candidates: candidateViews,
     collect: collectOf(row, run, work),

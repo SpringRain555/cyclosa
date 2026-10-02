@@ -43,6 +43,73 @@ afterEach(async () => {
 });
 
 describe('一次研究', () => {
+  it('v12：缺口評估與建圖作業可更新、清空，不動規劃', () => {
+    start('r1');
+    expect(research.getResearch(db, 'r1')).toMatchObject({ gapJson: null, buildRunId: null });
+    db.exec(
+      "INSERT INTO run (id, kind, status, correlation_id, created_at) VALUES ('build1', 'research', 'running', 'cid', 1)",
+    );
+    research.setGap(db, 'r1', '{"gaps":[]}', NOW + 1);
+    research.setBuildRun(db, 'r1', 'build1', NOW + 2);
+    expect(research.getResearch(db, 'r1')).toMatchObject({
+      gapJson: '{"gaps":[]}',
+      buildRunId: 'build1',
+      planJson: '{}',
+      updatedAt: NOW + 2,
+    });
+    research.setGap(db, 'r1', null, NOW + 3);
+    research.setBuildRun(db, 'r1', null, NOW + 3);
+    expect(research.getResearch(db, 'r1')).toMatchObject({ gapJson: null, buildRunId: null });
+  });
+
+  it('v12：人工選擇、引用與建圖進度各自保存，重設後回預設', () => {
+    start('r1');
+    direction('d1');
+    add('c1', 'https://example.test/1');
+    add('c2', 'https://example.test/2');
+    expect(research.getCandidate(db, 'c1')).toMatchObject({
+      decision: null,
+      citedBy: [],
+      buildState: null,
+      buildCode: null,
+    });
+    research.setCandidateDecision(db, 'c1', 'include', NOW + 1);
+    research.setCandidateCitedBy(db, 'c1', ['c2'], NOW + 2);
+    research.setCandidateBuild(db, {
+      id: 'c1',
+      state: 'failed',
+      code: 'PROVIDER_TIMEOUT',
+      now: NOW + 3,
+    });
+    expect(research.listCandidates(db, 'r1')[0]).toMatchObject({
+      decision: 'include',
+      citedBy: ['c2'],
+      buildState: 'failed',
+      buildCode: 'PROVIDER_TIMEOUT',
+      updatedAt: NOW + 3,
+    });
+    expect(research.getCandidate(db, 'c2')).toMatchObject({
+      decision: null,
+      citedBy: [],
+      buildState: null,
+    });
+    research.setCandidateBuild(db, {
+      id: 'c1',
+      state: 'done',
+      code: 'PROVIDER_TIMEOUT',
+      now: NOW + 4,
+    });
+    expect(research.getCandidate(db, 'c1')).toMatchObject({ buildState: 'done', buildCode: null });
+    research.setCandidateDecision(db, 'c1', null, NOW + 5);
+    research.setCandidateCitedBy(db, 'c1', [], NOW + 5);
+    research.setCandidateBuild(db, { id: 'c1', state: null, code: null, now: NOW + 5 });
+    expect(research.getCandidate(db, 'c1')).toMatchObject({
+      decision: null,
+      citedBy: [],
+      buildState: null,
+      buildCode: null,
+    });
+  });
   it('開起來是規劃中，讀得回來', () => {
     start('r1');
     const row = research.getResearch(db, 'r1');

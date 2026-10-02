@@ -22,6 +22,8 @@ import {
   expectedAccessOf,
   unavailableReasonOf,
   type Acquisition,
+  type Decision,
+  type BuildState,
   type ExpectedAccess,
   type ResearchKind,
   type ResearchStatus,
@@ -40,6 +42,7 @@ export interface ResearchRow {
   readonly hitsJson: string;
   readonly collectRunId: string | null;
   readonly buildRunId: string | null;
+  readonly gapJson: string | null;
   readonly correlationId: string;
   readonly createdAt: number;
   readonly updatedAt: number;
@@ -107,9 +110,70 @@ export interface ResearchCandidateRow {
   readonly relevanceWhy: string;
   /** 初讀失敗的原因。**有碼 ＝ 讀過但失敗** —— 「繼續蒐集」會再讀一次 */
   readonly digestCode: string | null;
+  readonly decision: Decision | null;
+  readonly citedBy: readonly string[];
+  readonly buildState: BuildState | null;
+  readonly buildCode: string | null;
 }
 
 type Raw = Record<string, unknown>;
+
+function readStringArray(raw: unknown): readonly string[] {
+  const parsed = jsonOf(raw, []);
+  return Array.isArray(parsed) ? parsed.map((value) => String(value)) : [];
+}
+
+export function setCandidateDecision(
+  db: DatabaseSync,
+  id: string,
+  decision: Decision | null,
+  now: number,
+): void {
+  db.prepare('UPDATE research_candidate SET decision = ?, updated_at = ? WHERE id = ?').run(
+    decision,
+    now,
+    id,
+  );
+}
+
+export function setCandidateCitedBy(
+  db: DatabaseSync,
+  id: string,
+  citedBy: readonly string[],
+  now: number,
+): void {
+  db.prepare('UPDATE research_candidate SET cited_by_json = ?, updated_at = ? WHERE id = ?').run(
+    JSON.stringify(citedBy),
+    now,
+    id,
+  );
+}
+
+export function setCandidateBuild(
+  db: DatabaseSync,
+  input: {
+    readonly id: string;
+    readonly state: BuildState | null;
+    readonly code: string | null;
+    readonly now: number;
+  },
+): void {
+  db.prepare(
+    'UPDATE research_candidate SET build_state = ?, build_code = ?, updated_at = ? WHERE id = ?',
+  ).run(input.state, input.state === 'failed' ? input.code : null, input.now, input.id);
+}
+
+export function setGap(db: DatabaseSync, id: string, gapJson: string | null, now: number): void {
+  db.prepare('UPDATE research SET gap_json = ?, updated_at = ? WHERE id = ?').run(gapJson, now, id);
+}
+
+export function setBuildRun(db: DatabaseSync, id: string, runId: string | null, now: number): void {
+  db.prepare('UPDATE research SET build_run_id = ?, updated_at = ? WHERE id = ?').run(
+    runId,
+    now,
+    id,
+  );
+}
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
@@ -123,6 +187,7 @@ function toResearch(row: Raw): ResearchRow {
     hitsJson: String(row['hits_json'] ?? '[]'),
     collectRunId: str(row['collect_run_id']),
     buildRunId: str(row['build_run_id']),
+    gapJson: str(row['gap_json']),
     correlationId: String(row['correlation_id'] ?? ''),
     createdAt: Number(row['created_at']),
     updatedAt: Number(row['updated_at']),
@@ -212,6 +277,10 @@ function toCandidate(row: Raw): ResearchCandidateRow {
     relevance: isRelevance(row['relevance']) ? row['relevance'] : null,
     relevanceWhy: String(row['relevance_why'] ?? ''),
     digestCode: str(row['digest_code']),
+    decision: str(row['decision']) as Decision | null,
+    citedBy: readStringArray(row['cited_by_json']),
+    buildState: str(row['build_state']) as BuildState | null,
+    buildCode: str(row['build_code']),
   };
 }
 

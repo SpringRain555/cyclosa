@@ -384,8 +384,26 @@ describe('蒐集：每條方向搜一次，能抓的抓', () => {
 
     // 每條方向「找到 N、拿到 K」是數的（D10）。
     const [d1, d2] = v.directions.filter((d) => d.adopted);
-    expect(d1?.tally).toEqual({ found: 3, acquired: 1, needsUser: 2, unavailable: 0, pending: 0 });
-    expect(d2?.tally).toEqual({ found: 2, acquired: 2, needsUser: 0, unavailable: 0, pending: 0 });
+    expect(d1?.tally).toEqual({
+      found: 3,
+      acquired: 1,
+      needsUser: 2,
+      unavailable: 0,
+      pending: 0,
+      include: 1,
+      reference: 2,
+      discard: 0,
+    });
+    expect(d2?.tally).toEqual({
+      found: 2,
+      acquired: 2,
+      needsUser: 0,
+      unavailable: 0,
+      pending: 0,
+      include: 2,
+      reference: 0,
+      discard: 0,
+    });
 
     // R29：兩次搜尋、每次 0.05 —— 而且沒有「不知道」。初讀走本機 Ollama，兩次、不花錢。
     expect(v.costUsd).toBeCloseTo(0.1);

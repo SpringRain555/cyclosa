@@ -144,3 +144,4 @@ export function kindOf(value: unknown): ResearchKind {
 }
 
 export * from './collect.js';
+export * from './build.js';

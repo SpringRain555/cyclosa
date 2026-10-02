@@ -26,11 +26,17 @@ import {
   applyMigration,
   needsForeignKeysOff,
   openCaseDatabase,
-  SUPPORTED_SCHEMA_VERSION,
 } from '../../src/infrastructure/db/database.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS = join(HERE, '..', '..', 'src', 'infrastructure', 'db', 'migrations');
+
+async function openV10(path: string): Promise<{ kind: 'ok'; db: DatabaseSync }> {
+  const db = new DatabaseSync(path);
+  db.exec('PRAGMA foreign_keys = ON');
+  applyMigration(db, await readFile(join(MIGRATIONS, '010-research-collect.sql'), 'utf8'), 10);
+  return { kind: 'ok', db };
+}
 
 let dir = '';
 let dbPath = '';
@@ -122,7 +128,7 @@ afterEach(async () => {
 });
 
 describe('v9 → v10：重建 run 與 item', () => {
-  it('每一列都在、每一個索引與 trigger 都在，而且先留了一份備份', async () => {
+  it('每一列都在、每一個索引與 trigger 都在，固定驗 v10', async () => {
     const v9 = await buildV9(dbPath);
     seed(v9);
     const before = counts(v9);
@@ -133,15 +139,14 @@ describe('v9 → v10：重建 run 與 item', () => {
     };
     v9.close();
 
-    const backups = join(dir, 'backups');
-    const opened = await openCaseDatabase(dbPath, { backupDir: backups, backupLabel: 'old' });
+    const opened = await openV10(dbPath);
     expect(opened.kind, JSON.stringify(opened)).toBe('ok');
     if (opened.kind !== 'ok') return;
     const db = opened.db;
     try {
       expect(
         (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-      ).toBe(SUPPORTED_SCHEMA_VERSION);
+      ).toBe(10);
       // **一列都沒少** —— 特別是 `run_item` 與 `run_angle`（外鍵開著的話它們會被 CASCADE 刪光）。
       expect(counts(db)).toEqual(before);
       // 索引與 trigger 一個不少（`run` 只多了研究那一個）。
@@ -165,14 +170,13 @@ describe('v9 → v10：重建 run 與 item', () => {
     } finally {
       db.close();
     }
-    expect((await readdir(backups)).filter((f) => f.startsWith('old-v9-'))).toHaveLength(1);
   });
 
   it('重建之後，外鍵、唯一索引、trigger、新的 CHECK 都照樣作用', async () => {
     const v9 = await buildV9(dbPath);
     seed(v9);
     v9.close();
-    const opened = await openCaseDatabase(dbPath);
+    const opened = await openV10(dbPath);
     if (opened.kind !== 'ok') throw new Error(opened.kind);
     const db = opened.db;
     try {
@@ -222,7 +226,7 @@ describe('v9 → v10：重建 run 與 item', () => {
     v9.exec(`INSERT INTO item (id, kind, title, status, created_at, updated_at)
              VALUES ('old-paper', 'paper', '舊的', 'included', 1, 1)`);
     v9.close();
-    const opened = await openCaseDatabase(dbPath);
+    const opened = await openV10(dbPath);
     if (opened.kind !== 'ok') throw new Error(opened.kind);
     try {
       expect(opened.db.prepare(`SELECT kind FROM item WHERE id = 'old-paper'`).get()).toEqual({
@@ -268,13 +272,30 @@ DELETE FROM parent WHERE id = 'p1';`;
     );
     v9.close();
 
-    const opened = await openCaseDatabase(dbPath);
+    const opened = await openV10(dbPath);
     expect(opened.kind, JSON.stringify(opened)).toBe('ok');
     if (opened.kind === 'ok') opened.db.close();
   });
 });
 
 describe('執行器的標記', () => {
+  it('從 v9 透過開檔升級時，仍先留一份備份', async () => {
+    const db = await buildV9(dbPath);
+    seed(db);
+    db.close();
+    const backupDir = join(dir, 'backups');
+    const opened = await openCaseDatabase(dbPath, { backupDir, backupLabel: 'old' });
+    expect(opened.kind).toBe('ok');
+    if (opened.kind === 'ok') opened.db.close();
+    const backups = (await readdir(backupDir)).filter((file) => file.startsWith('old-v9-'));
+    expect(backups).toHaveLength(1);
+    const backup = new DatabaseSync(join(backupDir, backups[0]!));
+    try {
+      expect(backup.prepare('PRAGMA user_version').get()).toEqual({ user_version: 9 });
+    } finally {
+      backup.close();
+    }
+  });
   it('只認單獨一行的標記', () => {
     expect(needsForeignKeysOff('-- cyclosa: foreign-keys-off\nCREATE TABLE x (a);')).toBe(true);
     expect(needsForeignKeysOff('  -- cyclosa: foreign-keys-off  \r\nSELECT 1;')).toBe(true);

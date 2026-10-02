@@ -105,7 +105,13 @@
 | **跟既有狀態衝突**（`*_DUPLICATE`、`CASE_FOLDER_EXISTS`、`CASE_ARCHIVED`、`GRAPH_EVIDENCE_REQUIRED`、`PROVIDER_*`）| 409 |
 | 超過界線（`GRAPH_SUBGRAPH_TOO_LARGE`、`FETCH_TOO_LARGE`）| 413 |
 | 逾時（`*_TIMEOUT`）| 504 |
+| **不是這個工具自己的頁面送來的**（`IO_REQUEST_FOREIGN`，ADR-0036）| 403（`text/plain` 之類前端不送的型別：415）|
 | 其餘 `*_UNEXPECTED`、`IO_*` | 500 |
+
+> **每一個請求進路由之前先過 ADR-0036 的檢查**（`interface/http/request-guard.ts`）：
+> `Host` 的主機名只准 `127.0.0.1`／`localhost`／`[::1]`；POST／PUT／PATCH／DELETE 帶了 `Origin`
+> 就必須等於 `http://` ＋ 自己的 Host、帶了 `Sec-Fetch-Site` 就只准 `same-origin`／`none`。
+> body 只收 `application/json` 與 `application/octet-stream`。不帶 `Origin` 的（啟動器、`curl`）照常。
 
 > **`partial` 級別的碼不會變成 HTTP 錯誤。** 它們發生在 run 的個別項目上，
 > 整批請求本身是 `200 ok:true`，而失敗的那幾項在 run 的項目清單裡各自帶著自己的碼。

@@ -4,12 +4,15 @@
  *
  * **只綁 `127.0.0.1`**（ADR-0002）—— 綁 `0.0.0.0` 等於把一個沒有認證的
  * 本機工具開到區域網路上，那要是另一個決定，帶著它自己的認證設計。
+ * **而「只有本機連得到」不等於「只有這個工具的頁面連得到」** —— 瀏覽器裡的任何網頁都在本機，
+ * 所以每一個請求另外檢查 Host 與 Origin（ADR-0036，`interface/http/request-guard.ts`）。
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import { registerRequestGuard } from './interface/http/request-guard.js';
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
 import { pdfjsRoot, registerPdfjsAssets, registerStatic } from './interface/http/static.js';
 import { resolveOrCreateDataRoot } from './application/bootstrap-service.js';
@@ -45,9 +48,28 @@ function webRoot(): string {
   return join(HERE, '..', 'web', 'dist');
 }
 
+/** Fastify 自己丟的錯誤帶著 `FST_ERR_*` 的 `code`；其他的回 `null`。 */
+function fastifyCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return null;
+  const code = (error as { code: unknown }).code;
+  return typeof code === 'string' && code.startsWith('FST_ERR_') ? code : null;
+}
+
 export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppContext }> {
   const app = Fastify({ logger: false, bodyLimit: 32 * 1024 * 1024 });
   const ctx: AppContext = { version: VERSION, dataRoot: null };
+
+  // **只收這個工具自己的頁面送來的請求**（ADR-0036）—— 掛在所有路由之前。
+  registerRequestGuard(app);
+
+  /**
+   * **拿掉 Fastify 預設的 `text/plain` 解析器。**
+   *
+   * `text/plain` 的 POST 是瀏覽器眼中的「簡單請求」：任何一個網頁都能不經預檢送過來，
+   * 而那個解析器會把它交給路由。前端只送 JSON 與 `application/octet-stream`，用不到它。
+   * 拿掉之後那種請求是 415，碰不到任何一支路由（ADR-0036）。
+   */
+  app.removeContentTypeParser('text/plain');
 
   /**
    * 拖進來的檔案用原始位元組上傳。
@@ -102,6 +124,14 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
    * **不得出現英文 stack trace 直接噴到使用者畫面上**（REQ-0008）。
    */
   app.setErrorHandler((error: unknown, req, reply) => {
+    // **Fastify 自己擋下的那一種不是「未預期」**：前端只送 JSON 與 octet-stream，
+    // 收到別的型別（415）就是別人送的 —— 跟 `request-guard.ts` 擋下的是同一件事（ADR-0036）。
+    if (fastifyCode(error) === 'FST_ERR_CTP_INVALID_MEDIA_TYPE') {
+      void reply
+        .code(415)
+        .send({ ok: false, code: 'IO_REQUEST_FOREIGN', correlationId: 'media-type' });
+      return;
+    }
     const cid = correlationId();
     logger.error('未預期的例外', {
       correlationId: cid,

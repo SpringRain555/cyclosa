@@ -59,6 +59,9 @@ export const errorMessages: Readonly<Record<string, string>> = {
   /** 伺服器沒有回話，所以**沒有識別碼可以交** —— 這一句不能叫人交識別碼（v0.24.3）。 */
   IO_SERVER_UNREACHABLE:
     '連不到 Cyclosa 的伺服器 —— 它可能已經結束了。重新執行 start_cyclosa.cmd 之後再開這一頁。如果不是你結束的，%LOCALAPPDATA%\\Cyclosa\\logs 裡的 server.log 與 server.err.log 會記著它為什麼停。',
+  /** 正常操作看不到；看到了多半是網址不是 127.0.0.1 或 localhost（ADR-0036）。 */
+  IO_REQUEST_FOREIGN:
+    '這個請求不是從 Cyclosa 自己的頁面送來的，已經擋下。請用 http://127.0.0.1:7433/ 開啟 Cyclosa 再操作一次。',
 
   // ── 擷取 ──────────────────────────────────────────────
   FETCH_BAD_URL: '這不是一個網址。檢查看看是不是少了開頭的 https://，或貼到的是一段文字。',

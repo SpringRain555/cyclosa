@@ -105,6 +105,14 @@ export const ERROR_CODES = {
    * 使用者看到的是一句要他交出一個不存在的東西的話。
    */
   IO_SERVER_UNREACHABLE: 'error',
+  /**
+   * **這個請求不是這個工具自己的頁面送來的**（ADR-0036，2026-10-02）。
+   *
+   * Host 不是本機的寫法（DNS rebinding），或會改東西的請求帶著別的來源的 `Origin`／
+   * `Sec-Fetch-Site`（另一個網頁、同一台機器別的埠）。被擋的請求連 body 都沒有讀。
+   * 正常操作不會看到它；看到了多半是用一個指向 127.0.0.1 的自訂網域開了這個工具。
+   */
+  IO_REQUEST_FOREIGN: 'error',
 
   // ── FETCH_* 擷取 ─────────────────────────────────────────
   /** 貼進來的東西根本不是一個 http／https 網址。**這是輸入問題，不是網路問題。** */
@@ -326,6 +334,8 @@ export function httpStatusOf(code: ErrorCode): number {
   if (code.endsWith('_NOT_FOUND')) return 404;
   if (code.endsWith('_TIMEOUT')) return 504;
   if (code === 'GRAPH_SUBGRAPH_TOO_LARGE' || code === 'FETCH_TOO_LARGE') return 413;
+  // 不是「伺服器出錯」（IO_ 預設的 500），是「這個請求不准」。
+  if (code === 'IO_REQUEST_FOREIGN') return 403;
   // 400 只給**請求本身就不合法**的：空字串、自己連自己。
   // 「名稱重複」與「資料夾已存在」不是格式錯，是**跟既有狀態衝突** —— 那是 409。
   if (

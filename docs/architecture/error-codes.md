@@ -68,6 +68,7 @@
 | `IO_SNAPSHOT_CORRUPT` | error | 快照檔存在但雜湊對不上 —— **有人動過不可變的東西** | 這違反 ADR-0003。不要覆蓋它；把 `correlation_id` 交出來，並確認是不是同步軟體或防毒動過 `sources\` |
 | `IO_UNEXPECTED` | error | 檔案系統的未預期例外 | 把 `correlation_id` 交出來 |
 | `IO_SERVER_UNREACHABLE` | error | **只有前端會產生**：畫面連不到 Cyclosa 自己的伺服器（`fetch` 本身失敗）—— 按了「結束 Cyclosa」，或它自己停了。**沒有 `correlation_id`**（伺服器沒有回話）。v0.24.3 之前這個情況借用 `IO_UNEXPECTED` 的訊息，叫人交出一個不存在的識別碼 | 重新執行 `start_cyclosa.cmd`。如果是它自己停的，`%LOCALAPPDATA%\Cyclosa\logs\` 的 `server.log`（最後幾行）與 `server.err.log` 會說為什麼（`maintainer-notes.md` 有怎麼讀）|
+| `IO_REQUEST_FOREIGN` | error | 請求不是這個工具自己的頁面送來的（ADR-0036）：`Host` 不是 `127.0.0.1`／`localhost`／`[::1]`（DNS rebinding），或會改東西的請求帶著別的來源的 `Origin`／`Sec-Fetch-Site`。HTTP 403，被擋的請求連 body 都沒有讀；`correlation_id` 是 `foreign-host` 或 `foreign-origin` | 用 `http://127.0.0.1:7433/` 開。自訂網域指到 127.0.0.1 的那種用法不支援 |
 
 ## `FETCH_*` —— 擷取
 

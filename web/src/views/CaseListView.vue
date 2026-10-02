@@ -462,7 +462,7 @@ onMounted(load);
       <p v-if="unreadNote" class="muted small">{{ unreadNote }}</p>
       <ErrorPanel v-if="renameError" :error="renameError" />
 
-      <table class="table clickable">
+      <table class="table clickable case-table">
         <thead>
           <tr>
             <th>{{ t.caseList.columns.name }}</th>
@@ -700,5 +700,14 @@ tbody tr.picked {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+/*
+ * **窄畫面不從字中間斷**（2026-10-02 D10 截圖看到的）：768 寬時「實體」「關聯」「已就緒」都被拆成兩行。
+ * 表頭與名稱以外的欄不換行，寬度的壓力全給專題名稱那一欄 —— 它本來就是會換行的那一格。
+ */
+.case-table th,
+.case-table td:not(:first-child) {
+  white-space: nowrap;
 }
 </style>

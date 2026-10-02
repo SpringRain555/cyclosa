@@ -469,7 +469,9 @@ describe('放棄與刪除', () => {
     const again = await startResearch(dataRoot, slug, { topic: '政府資訊公開' });
     expect(again.ok, JSON.stringify(again)).toBe(true);
 
-    const gone = await deleteResearch(dataRoot, slug, id);
+    const preview = await deleteResearch(dataRoot, slug, id);
+    expect(preview.ok && preview.data.done).toBe(false);
+    const gone = await deleteResearch(dataRoot, slug, id, true);
     expect(gone.ok).toBe(true);
     const after = await listResearchViews(dataRoot, slug);
     expect(after.ok && after.data.map((r) => r.topic)).toEqual(['政府資訊公開']);

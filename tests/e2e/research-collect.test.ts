@@ -835,7 +835,7 @@ describe('停在半路、繼續、放棄、刪除', () => {
     expect(await readdir(logs)).toContain(`${runId}.jsonl`);
 
     await abandonResearch(dataRoot, slug, gate.id);
-    const gone = await deleteResearch(dataRoot, slug, gate.id);
+    const gone = await deleteResearch(dataRoot, slug, gate.id, true);
     expect(gone.ok, JSON.stringify(gone)).toBe(true);
 
     expect(await readdir(logs)).not.toContain(`${runId}.jsonl`);

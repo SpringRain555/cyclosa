@@ -4,7 +4,7 @@
  * **後端只送碼，訊息在前端查表** —— 這樣「同一個碼在兩個地方有兩種說法」
  * 就不可能發生（`i18n/zh-TW.ts` 是唯一來源）。
  */
-import { errorMessages, t } from './i18n/zh-TW';
+import { errorMessages, t } from './i18n/zh-TW.js';
 
 export interface ApiError {
   readonly code: string;
@@ -444,6 +444,14 @@ export interface ResearchMessage {
 export interface PlanService extends ServiceView {
   /** 這條服務會不會上網查。**本機 Ollama 是 false，而那不是壞掉。** */
   browses: boolean;
+}
+
+export interface ResearchDeletion {
+  id: string;
+  topic: string | null;
+  done: boolean;
+  willDelete: ('conversation' | 'plan' | 'directions' | 'candidates' | 'gap' | 'modelCalls')[];
+  willKeep: ('fetched' | 'uploaded' | 'graph' | 'runs')[];
 }
 
 export interface Research {
@@ -1183,8 +1191,11 @@ export const api = {
       `/api/cases/${enc(slug)}/research/${enc(id)}/candidates/${enc(candidateId)}/reopen`,
       { method: 'POST' },
     ),
-  deleteResearch: (slug: string, id: string) =>
-    request<{ id: string }>(`/api/cases/${enc(slug)}/research/${enc(id)}`, { method: 'DELETE' }),
+  deleteResearch: (slug: string, id: string, confirm = false) =>
+    request<ResearchDeletion>(`/api/cases/${enc(slug)}/research/${enc(id)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ confirm }),
+    }),
 
   // ── provider ────────────────────────────────────────────
   providers: () => request<ProvidersPayload>('/api/providers'),

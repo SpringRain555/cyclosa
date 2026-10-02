@@ -590,11 +590,22 @@ export async function abandonResearch(
  *
  * **進行中的刪不掉**，先放棄；放棄之後蒐集那一筆還在收尾的那幾秒也刪不掉。
  */
+export interface ResearchDeletion {
+  readonly id: string;
+  readonly topic: string | null;
+  readonly done: boolean;
+  readonly willDelete: readonly (
+    'conversation' | 'plan' | 'directions' | 'candidates' | 'gap' | 'modelCalls'
+  )[];
+  readonly willKeep: readonly ('fetched' | 'uploaded' | 'graph' | 'runs')[];
+}
+
 export async function deleteResearch(
   dataRoot: string,
   slug: string,
   researchId: string,
-): Promise<Result<{ readonly id: string }>> {
+  confirm = false,
+): Promise<Result<ResearchDeletion>> {
   const cid = correlationId();
   const db = await openResearchCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
@@ -608,6 +619,14 @@ export async function deleteResearch(
     if (runIds.some((id) => registry.isActive(id))) {
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'delete', why: 'live' });
     }
+    const preview: ResearchDeletion = {
+      id: researchId,
+      topic: row.topic,
+      done: false,
+      willDelete: ['conversation', 'plan', 'directions', 'candidates', 'gap', 'modelCalls'],
+      willKeep: ['fetched', 'uploaded', 'graph', 'runs'],
+    };
+    if (confirm !== true) return ok(preview, cid);
     research.deleteResearch(db, researchId);
     // 規劃對話記在研究的 id 底下，蒐集記在每一筆作業的 id 底下（`model-calls\<id>.jsonl`）。
     // **一個檔一個檔地刪**（不是整個資料夾）；沒有那個檔（診斷沒開）就是沒有。
@@ -615,7 +634,7 @@ export async function deleteResearch(
     for (const id of [researchId, ...runIds]) {
       await rm(modelLogPath(folder, id), { force: true });
     }
-    return ok({ id: researchId }, cid);
+    return ok({ ...preview, done: true }, cid);
   } finally {
     db.close();
   }

@@ -454,6 +454,56 @@ describe('方向的搜尋狀態與研究的狀態（v10）', () => {
     expect(research.listResearchRunIds(db, 'r1')).toEqual(['run3', 'run2', 'run1']);
   });
 
+  it('初讀、抽取與缺口評估都算進研究；重跑與沒回報的花費不漏算', () => {
+    start('r1');
+    for (const [index, costUsd] of [0.02, 0.04, null].entries()) {
+      research.insertMessage(db, {
+        id: `message-${index}`,
+        researchId: 'r1',
+        ord: index,
+        role: 'model',
+        content: index === 0 ? '規劃' : '',
+        costUsd,
+        now: NOW,
+      });
+    }
+    const costs = [
+      {
+        'find-sources': { requests: 1, costUsd: 0.1, unpriced: 0 },
+        digest: { requests: 2, costUsd: null, unpriced: 2 },
+      },
+      { digest: { requests: 1, costUsd: 0, unpriced: 0 } },
+      { extract: { requests: 1, costUsd: 0.2, unpriced: 0 } },
+      { extract: { requests: 1, costUsd: null, unpriced: 1 } },
+    ];
+    for (const [index, byTask] of costs.entries()) {
+      const entries = Object.values(byTask);
+      db.prepare(
+        `INSERT INTO run (id, kind, status, correlation_id, created_at, research_id,
+          requests, cost_usd, unpriced, task_costs_json)
+          VALUES (?, 'research', 'done', 'cid', ?, 'r1', ?, ?, ?, ?)`,
+      ).run(
+        `run-${index}`,
+        NOW + index,
+        entries.reduce((total, cost) => total + cost.requests, 0),
+        entries.some((cost) => cost.costUsd !== null)
+          ? entries.reduce((total, cost) => total + (cost.costUsd ?? 0), 0)
+          : null,
+        entries.reduce((total, cost) => total + cost.unpriced, 0),
+        JSON.stringify(byTask),
+      );
+    }
+    const cost = research.costSoFar(db, 'r1');
+    expect(cost.costUsd).toBeCloseTo(0.36);
+    expect(cost.unknown).toBe(4);
+    expect(cost.byTask).toEqual({
+      plan: { requests: 3, costUsd: 0.06, unpriced: 1 },
+      'find-sources': { requests: 1, costUsd: 0.1, unpriced: 0 },
+      digest: { requests: 3, costUsd: 0, unpriced: 2 },
+      extract: { requests: 2, costUsd: 0.2, unpriced: 1 },
+    });
+  });
+
   it('閱讀器的候選標籤只認還沒結束的那一次研究', () => {
     start('r1');
     direction('d1');

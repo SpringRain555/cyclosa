@@ -627,12 +627,20 @@ function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.delete<{ Params: { slug: string; researchId: string } }>(
+  app.delete<{ Params: { slug: string; researchId: string }; Body: { confirm?: unknown } }>(
     '/api/cases/:slug/research/:researchId',
     async (req, reply) => {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
-      return send(reply, await deleteResearch(dataRoot, req.params.slug, req.params.researchId));
+      return send(
+        reply,
+        await deleteResearch(
+          dataRoot,
+          req.params.slug,
+          req.params.researchId,
+          req.body?.confirm === true,
+        ),
+      );
     },
   );
 }

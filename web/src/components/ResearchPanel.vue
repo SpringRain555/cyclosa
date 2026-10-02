@@ -34,10 +34,12 @@ import {
   type DirectionInput,
   type FrozenDirection,
   type Research,
+  type ResearchDeletion,
   type ServiceView,
   type UnavailableReason,
 } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
+import { costBreakdown } from '../research-cost';
 
 const props = defineProps<{ slug: string }>();
 const emit = defineEmits<{
@@ -55,6 +57,7 @@ const current = ref<Research | null>(null);
 const topic = ref('');
 const said = ref('');
 const busy = ref<'' | 'start' | 'say' | 'save' | 'gate' | 'other'>('');
+const deletion = ref<ResearchDeletion | null>(null);
 /** 正在處理的那一列候選（上傳、標拿不到）。**一次只動一列**，其餘的按鈕照常可以按。 */
 const busyRow = ref<string | null>(null);
 /** 方向的本地版本。**送出去之前不動伺服器上那一份。** */
@@ -162,7 +165,14 @@ async function load(): Promise<void> {
   current.value = live ?? current.value;
 }
 
-watch(() => props.slug, load, { immediate: true });
+watch(
+  () => props.slug,
+  () => {
+    deletion.value = null;
+    void load();
+  },
+  { immediate: true },
+);
 
 // ── 蒐集中：接上作業的進度（SSE）───────────────────────────
 //
@@ -428,15 +438,39 @@ function reopen(c: Candidate): void {
 }
 
 async function remove(entry: Research): Promise<void> {
+  const slug = props.slug;
+  deletion.value = null;
   busy.value = 'other';
   report(null);
-  const res = await api.deleteResearch(props.slug, entry.id);
+  const res = await api.deleteResearch(slug, entry.id);
   busy.value = '';
+  if (props.slug !== slug) return;
   if (!res.ok) {
     report(res.error);
     return;
   }
-  if (current.value?.id === entry.id) current.value = null;
+  deletion.value = res.data;
+}
+
+async function confirmRemove(): Promise<void> {
+  const slug = props.slug;
+  const preview = deletion.value;
+  if (preview === null) return;
+  busy.value = 'other';
+  report(null);
+  const res = await api.deleteResearch(slug, preview.id, true);
+  busy.value = '';
+  if (props.slug !== slug) return;
+  if (!res.ok) {
+    report(res.error);
+    return;
+  }
+  if (!res.data.done) {
+    deletion.value = res.data;
+    return;
+  }
+  deletion.value = null;
+  if (current.value?.id === preview.id) current.value = null;
   await load();
 }
 
@@ -621,27 +655,6 @@ const costText = computed(() => {
   if (parts.length === 0) parts.push(t.research.costNone);
   return parts.join(' · ') + costBreakdown(row.costByTask);
 });
-
-/**
- * 逐任務（R29）：「（規劃 0.02、找來源 0.10、初讀 0.00）」。**跑過的任務才列**；
- * 一次都沒回報過的寫「不知道」—— 不是 0。只有一個任務跑過的時候不拆（那就是總數）。
- */
-function costBreakdown(byTask: Research['costByTask']): string {
-  const order = Object.keys(t.research.costTasks) as (keyof typeof t.research.costTasks)[];
-  const parts: string[] = [];
-  for (const task of order) {
-    const cost = byTask[task];
-    if (cost === undefined) continue;
-    if (cost.requests === 0 && cost.unpriced === 0 && (cost.costUsd ?? 0) === 0) continue;
-    const name = t.research.costTasks[task];
-    parts.push(
-      cost.costUsd === null
-        ? fill(t.research.costTaskUnknown, { task: name })
-        : fill(t.research.costTaskItem, { task: name, usd: cost.costUsd.toFixed(2) }),
-    );
-  }
-  return parts.length < 2 ? '' : fill(t.research.costBreakdown, { parts: parts.join('、') });
-}
 
 /** 一列候選的初讀那一行：判斷 ＋ 理由；還沒讀、讀失敗的照實說。 */
 function digestLineOf(c: Candidate): string {
@@ -1168,6 +1181,29 @@ const hitsText = computed(() => {
         </li>
       </ul>
       <p class="hint">{{ t.research.removeHint }}</p>
+      <section v-if="deletion !== null" aria-labelledby="research-deletion-title">
+        <h3 id="research-deletion-title">
+          {{ fill(t.research.removeTitle, { topic: deletion.topic ?? '' }) }}
+        </h3>
+        <h4>{{ t.research.willDelete }}</h4>
+        <ul>
+          <li v-for="kind in deletion.willDelete" :key="kind">
+            {{ t.research.deletionItems[kind] }}
+          </li>
+        </ul>
+        <h4>{{ t.research.willKeep }}</h4>
+        <ul>
+          <li v-for="kind in deletion.willKeep" :key="kind">
+            {{ t.research.deletionItems[kind] }}
+          </li>
+        </ul>
+        <button :disabled="busy !== ''" @click="confirmRemove">
+          {{ t.research.removeConfirm }}
+        </button>
+        <button :disabled="busy !== ''" @click="deletion = null">
+          {{ t.research.removeCancel }}
+        </button>
+      </section>
     </div>
   </section>
 </template>

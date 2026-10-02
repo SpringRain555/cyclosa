@@ -418,7 +418,7 @@
 | `POST …/research/:id/candidates/:cid/unavailable` | 不 | `{reason, note}`：你說拿不到（`paywall`／`not-found`／`blocked`／`other`，R11）|
 | `POST …/research/:id/candidates/:cid/reopen` | 不 | 標錯了，改回「要你拿」|
 | `POST …/research/:id/abandon` | 不 | 放棄。**任何還沒結束的狀態都可以**；還在跑的蒐集會先被停下來 |
-| `DELETE …/research/:id` | 不 | 刪紀錄（含那一次的模型呼叫紀錄）。**只有終態刪得掉** —— 進行中的先放棄（`RESEARCH_STEP_INVALID`）|
+| `DELETE …/research/:id` | 不 | 兩段式：沒帶 `{confirm: true}` 只回預覽 `{id, topic, done: false, willDelete, willKeep}`，兩張清單是分類鍵、由 UI 翻成文字；明確確認才刪研究紀錄及所屬模型呼叫紀錄，回同一份清單與 `done: true`。資料、關聯、出處與作業留著（作業的 `research_id` 清空）。**兩段都只准終態且所屬作業已停**，否則 `RESEARCH_STEP_INVALID` |
 
 > **規劃對話走哪個服務由「模型分工」那張表決定**（`tasks.plan`），而**三個服務都可以**
 > （ADR-0033 D5）：Claude Code 與量過會搜尋的 OpenAI 相容 API 邊查邊談，本機 Ollama 只能談。
@@ -436,7 +436,8 @@
 > **初讀的欄位**（Stage 21）：每一列候選多 `relevance`（`yes`／`no`／`unsure`／`null`）、`relevanceWhy`、
 > `digestCode`（讀失敗的原因），以及那一份資料的 `titleZh`、`summaryZh`、`digestedBy`、`digestedAt`（衍生物，原文是 `title`）。
 > `collect.work` 多 `digests`；研究多 `digestService`（閘門一那句話的後半）與 `costByTask`
-> （逐任務：`plan`、`find-sources`、`digest`……各自 `requests`／`costUsd`／`unpriced`，沒跑過的任務不出現）。
+> （逐任務：`plan`、`find-sources`、`digest`、`extract` 各自 `requests`／`costUsd`／`unpriced`，沒跑過的任務不出現）。
+> 缺口評估沿用 `plan` 任務，包含失敗與重試的花費，畫面標「規劃與缺口評估」；全部未回報顯示「不知道」，部分未回報則列已知金額與未知次數。
 >
 > **蒐集的進度走作業那一條 SSE**（`…/runs/:runId/events`，`collect.runId`）—— 研究自己沒有進度通道，
 > 做事的是那一筆作業（D3）。事件多兩種：`direction`（一條方向搜完了）、`digest`（一份讀完了，Stage 21）。

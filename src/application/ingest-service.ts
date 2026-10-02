@@ -17,6 +17,7 @@ import {
   type IngestKind,
 } from '../domain/ingest/media-type.js';
 import { settleRun, type RunStatus } from '../domain/ingest/state.js';
+import { pickTitle } from '../domain/ingest/title.js';
 import { configuredIntervalMs } from './fetch-policy.js';
 import { displayHost, normalizeUrl } from '../domain/ingest/url.js';
 import { isEmptyContent } from '../domain/ingest/extract-confidence.js';
@@ -580,7 +581,10 @@ export async function extract(
       payload: {
         extractorVersion: EXTRACTOR_VERSION,
         kind: 'pdf',
-        title: result.title ?? fileNameOf(url),
+        // 檔案裡的標題像預設名（網址、`Document1`…）就改用檔名（2026-10-02，`domain/ingest/title.ts`）。
+        // **不升 `EXTRACTOR_VERSION`**：正文沒變，升版會讓每一份 PDF 都被標成「舊版抽的」、
+        // 叫人去按一顆只改標題的按鈕；舊資料按「重算全部正文」時會一起換成新標題。
+        title: pickTitle({ embedded: result.title, fileName: fileNameOf(url) }),
         text,
         html: null,
         pages: result.pages,

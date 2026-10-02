@@ -1104,9 +1104,11 @@ function connectionSummary(kind: ConnectionKind): string {
 .state {
   color: var(--text);
 }
+/* 版本與 context 各自是一段，只在段與段之間換行 —— 不然會斷成「context」／「200,000 tokens」兩行。 */
 .state .muted {
   font-family: var(--mono);
   font-size: var(--fs-label);
+  white-space: nowrap;
 }
 /* 狀態點跟頂列同一套：實心＝可以用、空心＝還沒設定、虛線＝有問題。**靠形狀分**；
    「可以用」不上綠色（綠色留給「完成」），只有「有問題」用琥珀。 */

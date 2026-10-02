@@ -713,8 +713,9 @@ async function rebuild(): Promise<void> {
   .split {
     grid-template-columns: 1fr;
   }
+  /* `flex` 不是 `block`：頁內清單（base.css）的文字與箭頭是橫排的，`block` 會把箭頭擠到第二行。 */
   .history-select {
-    display: block;
+    display: flex;
     width: 100%;
   }
   .list .rows {

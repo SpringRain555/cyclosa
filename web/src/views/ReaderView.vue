@@ -932,7 +932,7 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
   margin: 0 0 8px;
 }
 /* 兩個下拉選單：欄夠寬就並排，不夠就各佔一行 —— 900px 寬時擠在一起，字壓到箭頭上。
-   右邊留給箭頭的那一段不能省（base.css 的 select 本來就留了）。 */
+   箭頭現在排在文字後面（base.css 的頁內清單），右邊不用再替它留 24px —— 留著的話「最近匯入」會斷成兩行。 */
 .controls {
   display: flex;
   flex-wrap: wrap;
@@ -942,7 +942,7 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
 .controls select {
   flex: 1 1 90px;
   min-width: 0;
-  padding: 5px 24px 5px 8px;
+  padding: 5px 8px;
 }
 .rows {
   list-style: none;

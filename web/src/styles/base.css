@@ -263,6 +263,58 @@ select:disabled {
   opacity: 0.55;
 }
 
+/**
+ * **下拉選單的清單畫在頁面裡，不開作業系統的清單視窗**（`appearance: base-select`，Chrome／Edge 135 起）。
+ *
+ * 2026-10-03 使用者的設定頁：清單底下多出一大塊白框。在同一台機器（顯示縮放 150%、文字放大 120%）
+ * 用 Chrome 154 量清單視窗：沒有樣式的選單 589×863、內容填滿；**選單比清單內容寬的時候**
+ * （右邊留給箭頭的 24px 就夠，或寬度撐滿一格）視窗變成 1241×1466，內容只畫在左上角，其餘塗白 ——
+ * Chrome 換算清單視窗大小時多乘了一次縮放。這一頁的選單大多撐滿一格，躲不開那個條件，
+ * 所以改成頁內清單：位置與大小都由這一頁自己排，也跟著深色主題。
+ * 不支援的瀏覽器整段略過，照舊用原生清單。
+ */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+  /* 箭頭改成選單內容的一部分（排在文字後面），不再疊在右邊的內距上，不用替它留 24px。
+     不換行：中文可以在任何字之間斷，窄的選單會斷成兩三行、連旁邊那一個一起撐高；放不下就裁掉，跟原生的一樣。 */
+  select {
+    padding-right: 10px;
+    white-space: nowrap;
+  }
+  select::picker-icon {
+    color: var(--text-muted);
+    transition: rotate 0.15s;
+  }
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+  /* 預設是「哪邊空間大往哪邊開」，常常往上蓋到頂列；改成先往下，放不下才往上，太長就捲。 */
+  ::picker(select) {
+    margin-block: 2px;
+    padding: var(--s1) 0;
+    background: var(--bg-raised);
+    color: var(--text);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    max-block-size: min(50vh, 360px);
+    position-try-order: normal;
+  }
+  option {
+    padding: var(--s1) var(--s3);
+  }
+  option:hover,
+  option:focus-visible {
+    background: var(--bg-hover);
+    outline: none;
+  }
+  option::checkmark {
+    color: var(--ui-action);
+  }
+}
+
 /* ── 按鈕 ──────────────────────────────────────────────── */
 
 button {

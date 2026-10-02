@@ -138,6 +138,7 @@ async function submitFiles(files: FileList | null): Promise<void> {
   const started = await api.startFileImport(
     batchSlug,
     selected.map((file) => file.name),
+    selected.map((file) => file.size),
   );
   if (!started.ok) {
     error.value = started.error;
@@ -149,6 +150,8 @@ async function submitFiles(files: FileList | null): Promise<void> {
   for (const [index, file] of selected.entries()) {
     const entry = started.data.items[index];
     if (entry === undefined) break;
+    // 超過上傳上限的那一列 server 已經標好了（原因寫在那一列），不傳。
+    if (entry.rejected !== null) continue;
     const result = await api.importFile(batchSlug, started.data.runId, entry.runItemId, file);
     if (!result.ok) {
       // 這一批已經收尾（你按了取消，或等太久）：每一列自己寫了原因，不再跳一個錯誤。
@@ -561,41 +564,43 @@ async function rebuild(): Promise<void> {
             }}</span>
           </p>
 
-          <!-- 沒被勾的那幾條也在這裡 —— 作業紀錄要看得出當時有哪些選項 -->
-          <table class="table">
-            <thead>
-              <tr>
-                <th>{{ t.runs.colStatus }}</th>
-                <th>{{ t.runs.colSource }}</th>
-                <th>{{ t.runs.colHost }}</th>
-                <th>{{ t.runs.colNodes }}</th>
-                <th>{{ t.runs.colEdges }}</th>
-                <th>{{ t.runs.colNote }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in runItems" :key="item.id">
-                <td>
-                  <span :class="['badge', item.outcome]">{{ t.runOutcome[item.outcome] }}</span>
-                </td>
-                <td class="src">
-                  <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
-                    {{ item.requested }}
-                  </button>
-                  <span v-else>{{ item.requested }}</span>
-                </td>
-                <td class="mono">{{ item.host ?? '' }}</td>
-                <td class="num">{{ item.newNodes }}</td>
-                <td class="num">{{ item.newEdges }}</td>
-                <td class="note">
-                  {{ noteOf(item) }}
-                  <span v-if="item.waitedMs" class="muted waited">
-                    {{ fill(t.runs.waited, { ms: item.waitedMs }) }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="table item-table">
+              <thead>
+                <tr>
+                  <th>{{ t.runs.colStatus }}</th>
+                  <th>{{ t.runs.colSource }}</th>
+                  <th class="host-column">{{ t.runs.colHost }}</th>
+                  <th>{{ t.runs.colNodes }}</th>
+                  <th>{{ t.runs.colEdges }}</th>
+                  <th>{{ t.runs.colNote }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in runItems" :key="item.id">
+                  <td>
+                    <span :class="['badge', item.outcome]">{{ t.runOutcome[item.outcome] }}</span>
+                  </td>
+                  <td class="src">
+                    <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
+                      {{ item.requested }}
+                    </button>
+                    <span v-else>{{ item.requested }}</span>
+                    <span v-if="item.host" class="inline-host mono muted">{{ item.host }}</span>
+                  </td>
+                  <td class="host-column mono">{{ item.host ?? '' }}</td>
+                  <td class="num">{{ item.newNodes }}</td>
+                  <td class="num">{{ item.newEdges }}</td>
+                  <td class="note">
+                    {{ noteOf(item) }}
+                    <span v-if="item.waitedMs" class="muted waited">
+                      {{ fill(t.runs.waited, { ms: item.waitedMs }) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
     </div>
@@ -817,8 +822,24 @@ async function rebuild(): Promise<void> {
   width: 72px;
 }
 .src {
+  min-width: 10ch;
   max-width: 320px;
-  word-break: break-all;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+.item-table th {
+  white-space: nowrap;
+}
+.inline-host {
+  display: none;
+}
+@media (max-width: 900px) {
+  .item-table .host-column {
+    display: none;
+  }
+  .inline-host {
+    display: block;
+  }
 }
 .note {
   color: var(--text-secondary);

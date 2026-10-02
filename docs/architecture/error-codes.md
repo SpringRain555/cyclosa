@@ -68,6 +68,7 @@
 | `IO_SNAPSHOT_CORRUPT` | error | 快照檔存在但雜湊對不上 —— **有人動過不可變的東西** | 這違反 ADR-0003。不要覆蓋它；把 `correlation_id` 交出來，並確認是不是同步軟體或防毒動過 `sources\` |
 | `IO_UNEXPECTED` | error | 檔案系統的未預期例外 | 把 `correlation_id` 交出來 |
 | `IO_SERVER_UNREACHABLE` | error | **只有前端會產生**：畫面連不到 Cyclosa 自己的伺服器（`fetch` 本身失敗）—— 按了「結束 Cyclosa」，或它自己停了。**沒有 `correlation_id`**（伺服器沒有回話）。v0.24.3 之前這個情況借用 `IO_UNEXPECTED` 的訊息，叫人交出一個不存在的識別碼 | 重新執行 `start_cyclosa.cmd`。如果是它自己停的，`%LOCALAPPDATA%\Cyclosa\logs\` 的 `server.log`（最後幾行）與 `server.err.log` 會說為什麼（`maintainer-notes.md` 有怎麼讀）|
+| `IO_REQUEST_FOREIGN` | error | 請求不是這個工具自己的頁面送來的（ADR-0036）：`Host` 不是 `127.0.0.1`／`localhost`／`[::1]`（DNS rebinding），或會改東西的請求帶著別的來源的 `Origin`／`Sec-Fetch-Site`。HTTP 403，被擋的請求連 body 都沒有讀；`correlation_id` 是 `foreign-host` 或 `foreign-origin` | 用 `http://127.0.0.1:7433/` 開。自訂網域指到 127.0.0.1 的那種用法不支援 |
 
 ## `FETCH_*` —— 擷取
 
@@ -79,6 +80,7 @@
 | `FETCH_RATE_LIMITED` | partial | 對方回 429 或 503，**照 `Retry-After` 等過、再試兩次還是一樣**；或這個網域在這一輪已經被放棄（`detail.why` 是 `host-limited`，沒有送請求）| 過一段時間再重跑這幾項。**同一個網域排在後面的項目也記成這個碼，其他網域照常**（ADR-0031）|
 | `FETCH_TIMEOUT` | partial | 連線或讀取逾時 | 重試那一項。反覆逾時通常是對方的問題 |
 | `FETCH_UPLOAD_TIMEOUT` | partial | 等不到下一個上傳檔案，批次匯入自動收尾 | 分頁可能已關閉或連線中斷；重新選取未上傳的檔案 |
+| `FETCH_UPLOAD_TOO_LARGE` | partial | 拖進來的檔案超過上傳上限（256 MB，`domain/ingest/upload.ts`）。批次匯入開批次時就照前端給的大小標掉那一列、其餘照常；直接上傳超過的話 server 回 413 並帶 `detail.limit`。**不是 `FETCH_TOO_LARGE`**（那一條是網路抓取的上限）| 先壓縮或拆成幾份再匯入。印成圖的 PDF 特別大，而且沒有文字層 —— 有文字的版本通常小得多 |
 | `FETCH_DNS` | partial | 網域解析不到 | 檢查網址有沒有打錯、或網路是不是斷了 |
 | `FETCH_TLS` | partial | 憑證驗證失敗 | **不提供忽略憑證的選項。** 那個網站的憑證有問題 |
 | `FETCH_HTTP_4XX` | partial | 對方回 4xx（404、403…）| 404 通常是頁面沒了；403 常見於需要登入 —— 兩者都不會自動重試 |

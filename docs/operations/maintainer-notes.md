@@ -11,6 +11,24 @@
 
 ## 建置與啟動
 
+要用第二個獨立環境，先在平常那個畫面按「結束 Cyclosa」，再跑：
+
+```powershell
+.\tools\Launch.ps1 -LocalAppData "D:\Cyclosa-Test"
+```
+
+`start_cyclosa.cmd` 也會轉傳這個參數；可搭配 `-Foreground` 看錯誤。
+啟動器印出的 `LOCALAPPDATA` 與資料根才是這次使用的位置；
+日誌在 `<指定目錄>\Cyclosa\logs`，不是平常的 `%LOCALAPPDATA%`。
+參數只替伺服器設環境，不改 shell，npm 建置仍用原環境。
+已有 `system_paths.json` 時沿用它的 `dataRoot`，所以要全新資料就指定全新的目錄。
+7433 已有 Cyclosa（即使同版本或同目錄）會拒絕、不開瀏覽器，也不替你殺行程。
+不帶參數的啟動行為不變。回到平常環境前，也先按測試環境的「結束 Cyclosa」。
+
+`LOCALAPPDATA` 只在 `Start-Process` 起 server 的那一刻換掉、起完立刻換回來
+（`Launch.ps1` 的 `Invoke-WithServerEnvironment`）；不需要改 `.cmd` 或安裝額外相依。
+**不要改成 Node 的 `detached` spawn**：server 會沒有主控台，之後每次叫 `claude.exe` 都跳一個視窗。
+
 | 症狀 | 看哪裡 | 誰守著 |
 |---|---|---|
 | 雙擊啟動器沒反應／閃退 | `tools\Launch.ps1`。它每一步都印字，看它停在哪一步 | —— |
@@ -103,7 +121,7 @@
 | `PROVIDER_SANDBOX_VIOLATION`，整批停下來 | 沙箱裡出現了放行清單以外的檔案。**那是白名單不是黑名單**，所以一個 `.csv` 也會報 | `tests/domain/provider.test.ts`、`tests/e2e/research-collect.test.ts` |
 | 找來源走 OpenAI 相容 API 停手，說缺「browse」或「沒有搜尋就交回了網址」 | **那是量出來的。** 端點收了 `web_search` 工具卻沒搜（回應裡沒有完成的 `web_search_call`），或根本沒有 `/responses`；設定頁「上網搜尋」那一行寫著原因。**沒搜就交回的網址不採用**（ADR-0034）| `tests/infrastructure/agent-openai.test.ts`、`tests/e2e/research-collect.test.ts` |
 | OpenAI 相容 API 的回應是空的、或設定頁說「還沒量過」而明明量過 | Responses API **不串流會回空的 `output`**（一律串流，`responses-api.ts`）；v0.24.1 之前的量測沒有 `protocol` 欄位，讀到就當沒量過、重量一次 | `tests/infrastructure/chat-openai.test.ts` 的「先走 Responses API」 |
-| agent 起不來，說結束碼不是 0 | **命令有空白時不要走 shell。** `needsShell` 只對 `.cmd`／`.bat` 回 true —— `shell: true` 不會替命令那一段加引號 | `agent-claude.ts` 的 `needsShell` |
+| agent 起不來，說結束碼不是 0 | 先把實際下的命令列印出來。**子程序一律不經過 shell**（2026-10-02 起）：設定裡的指令是 `.cmd`／`.bat` 時直接回「不支援、改用原生安裝的 `claude.exe`」 | `agent-claude.ts` 的 `isShellWrapper`、`tests/guards/no-shell-spawn.test.ts` |
 | 研究花費看起來少了 | 規劃與缺口評估計費紀錄，加上所有 `run.research_id` 對應作業的逐任務花費；沒回報的次數另外數 | `tests/tools/research-cost.test.ts` |
 | 畫面說「本機執行，無金額成本」但用的是 `claude` | 那句話只在 `cost_usd = 0` 時出現。**`NULL` 是「這個模型沒有回報金額」** —— 兩者不同 | `data-model.md` |
 

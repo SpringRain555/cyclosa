@@ -31,15 +31,21 @@ export function cwdTooLong(cwd: string, platform: NodeJS.Platform = process.plat
   return platform === 'win32' && cwd.length >= WINDOWS_CWD_LIMIT;
 }
 
+/**
+ * **永遠不經過 `cmd.exe`**（2026-10-02）。`shell: true` 時 Node 把命令與參數**原樣接成一個字串**
+ * 交給 `cmd.exe`（DEP0190）—— 參數裡有提示詞，提示詞裡有專題文件的段落（可能來自抓回來的網頁），
+ * 那裡面的 `&`、`|`、`"` 會被當成指令。所以這一支不收 `shell` 參數，呼叫端想開也開不了
+ * （`tests/guards/no-shell-spawn.test.ts` 守著整棵 `src/`）。
+ */
 export function spawnPiped(
   command: string,
   args: readonly string[],
-  options: { readonly cwd?: string; readonly shell: boolean },
+  options: { readonly cwd?: string } = {},
 ): ChildProcessByStdio<null, Readable, Readable> {
   const child = spawn(command, [...args], {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     stdio: ['ignore', 'pipe', 'pipe'],
-    shell: options.shell,
+    shell: false,
   });
   // 接住就好：子程序起不來的那一種失敗由 `child.on('error')` 回報（呼叫端處理），
   // 這裡的錯誤是同一件事的另一個症狀，再報一次只是噪音。

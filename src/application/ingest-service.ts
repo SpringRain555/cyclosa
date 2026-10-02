@@ -17,6 +17,8 @@ import {
   type IngestKind,
 } from '../domain/ingest/media-type.js';
 import { settleRun, type RunStatus } from '../domain/ingest/state.js';
+import { pickTitle } from '../domain/ingest/title.js';
+import { exceedsUploadLimit } from '../domain/ingest/upload.js';
 import { configuredIntervalMs } from './fetch-policy.js';
 import { displayHost, normalizeUrl } from '../domain/ingest/url.js';
 import { isEmptyContent } from '../domain/ingest/extract-confidence.js';
@@ -580,7 +582,10 @@ export async function extract(
       payload: {
         extractorVersion: EXTRACTOR_VERSION,
         kind: 'pdf',
-        title: result.title ?? fileNameOf(url),
+        // 檔案裡的標題像預設名（網址、`Document1`…）就改用檔名（2026-10-02，`domain/ingest/title.ts`）。
+        // **不升 `EXTRACTOR_VERSION`**：正文沒變，升版會讓每一份 PDF 都被標成「舊版抽的」、
+        // 叫人去按一顆只改標題的按鈕；舊資料按「重算全部正文」時會一起換成新標題。
+        title: pickTitle({ embedded: result.title, fileName: fileNameOf(url) }),
         text,
         html: null,
         pages: result.pages,
@@ -866,12 +871,24 @@ function armFileBatch(batch: FileBatch): void {
   batch.timer.unref();
 }
 
+/**
+ * 開一批檔案匯入。`sizes` 是前端報的每個檔的大小（跟 `names` 一一對應，不知道的給 `null`）：
+ * **超過上傳上限的那一列當場標成失敗**（`FETCH_UPLOAD_TOO_LARGE`）、回 `rejected` 讓前端不必傳 ——
+ * 等它傳到一半才被 `bodyLimit` 擋下的話，那一列不會有結果，整批要等閒置逾時才收尾，
+ * 而且原因會被寫成「等不到這個檔案」。
+ */
 export async function startFileImport(
   dataRoot: string,
   slug: string,
   names: readonly string[],
   idleMs = FILE_UPLOAD_IDLE_MS,
-): Promise<Result<{ runId: string; items: { runItemId: string; name: string }[] }>> {
+  sizes: readonly (number | null)[] = [],
+): Promise<
+  Result<{
+    runId: string;
+    items: { runItemId: string; name: string; rejected: 'FETCH_UPLOAD_TOO_LARGE' | null }[];
+  }>
+> {
   const cid = correlationId();
   if (names.length === 0 || names.some((name) => name.trim().length === 0))
     return err('SEARCH_QUERY_EMPTY', cid);
@@ -891,10 +908,16 @@ export async function startFileImport(
     correlationId: cid,
     now: Date.now(),
   });
-  const entries = names.map((name) => {
+  const entries = names.map((name, index) => {
     const runItemId = newId();
     runs.insertRunItem(db, { id: runItemId, runId, requested: name, host: null });
-    return { runItemId, name };
+    const rejected = exceedsUploadLimit(sizes[index] ?? null)
+      ? ('FETCH_UPLOAD_TOO_LARGE' as const)
+      : null;
+    if (rejected !== null) {
+      runs.updateRunItem(db, { id: runItemId, outcome: 'failed', code: rejected, now: Date.now() });
+    }
+    return { runItemId, name, rejected };
   });
   runs.startRun(db, runId, Date.now());
   const state = registry.register(runId);
@@ -902,7 +925,21 @@ export async function startFileImport(
   fileBatches.set(runId, batch);
   state.cancellable = { stop: () => settleFileBatch(batch) };
   state.channel.emit({ type: 'started', runId, total: names.length });
+  for (const entry of entries) {
+    if (entry.rejected === null) continue;
+    state.channel.emit({
+      type: 'item',
+      runItemId: entry.runItemId,
+      requested: entry.name,
+      host: null,
+      outcome: 'failed',
+      code: entry.rejected,
+      itemId: null,
+    });
+  }
   armFileBatch(batch);
+  // 全部都超過上限：沒有東西可等，當場收尾（不等閒置逾時）。
+  if (entries.every((entry) => entry.rejected !== null)) settleFileBatch(batch);
   return ok({ runId, items: entries }, cid);
 }
 

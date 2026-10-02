@@ -59,6 +59,9 @@ export const errorMessages: Readonly<Record<string, string>> = {
   /** 伺服器沒有回話，所以**沒有識別碼可以交** —— 這一句不能叫人交識別碼（v0.24.3）。 */
   IO_SERVER_UNREACHABLE:
     '連不到 Cyclosa 的伺服器 —— 它可能已經結束了。重新執行 start_cyclosa.cmd 之後再開這一頁。如果不是你結束的，%LOCALAPPDATA%\\Cyclosa\\logs 裡的 server.log 與 server.err.log 會記著它為什麼停。',
+  /** 正常操作看不到；看到了多半是網址不是 127.0.0.1 或 localhost（ADR-0036）。 */
+  IO_REQUEST_FOREIGN:
+    '這個請求不是從 Cyclosa 自己的頁面送來的，已經擋下。請用 http://127.0.0.1:7433/ 開啟 Cyclosa 再操作一次。',
 
   // ── 擷取 ──────────────────────────────────────────────
   FETCH_BAD_URL: '這不是一個網址。檢查看看是不是少了開頭的 https://，或貼到的是一段文字。',
@@ -75,6 +78,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   FETCH_HTTP_4XX: '對方回覆找不到或拒絕存取。404 通常是頁面沒了，403 常見於需要登入。',
   FETCH_HTTP_5XX: '對方的伺服器出錯了。稍後重試這一項。',
   FETCH_TOO_LARGE: '這個檔案超過單檔上限，跳過了。真的需要的話請自己下載後用檔案匯入。',
+  FETCH_UPLOAD_TOO_LARGE:
+    '這個檔案超過 256 MB 的上傳上限，沒有匯入，其他檔案照常。請先壓縮或拆成幾份再匯入。',
   FETCH_UNSUPPORTED_TYPE: '不支援這種檔案型別。目前支援網頁、Markdown、純文字、PDF 與圖片。',
   FETCH_LOGIN_REQUIRED:
     '這一頁需要登入或訂閱才能看。這個工具不會繞過登入與付費牆 —— 請自己登入後另存再匯入。',

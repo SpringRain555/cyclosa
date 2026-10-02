@@ -105,7 +105,13 @@
 | **跟既有狀態衝突**（`*_DUPLICATE`、`CASE_FOLDER_EXISTS`、`CASE_ARCHIVED`、`GRAPH_EVIDENCE_REQUIRED`、`PROVIDER_*`）| 409 |
 | 超過界線（`GRAPH_SUBGRAPH_TOO_LARGE`、`FETCH_TOO_LARGE`）| 413 |
 | 逾時（`*_TIMEOUT`）| 504 |
+| **不是這個工具自己的頁面送來的**（`IO_REQUEST_FOREIGN`，ADR-0036）| 403（`text/plain` 之類前端不送的型別：415）|
 | 其餘 `*_UNEXPECTED`、`IO_*` | 500 |
+
+> **每一個請求進路由之前先過 ADR-0036 的檢查**（`interface/http/request-guard.ts`）：
+> `Host` 的主機名只准 `127.0.0.1`／`localhost`／`[::1]`；POST／PUT／PATCH／DELETE 帶了 `Origin`
+> 就必須等於 `http://` ＋ 自己的 Host、帶了 `Sec-Fetch-Site` 就只准 `same-origin`／`none`。
+> body 只收 `application/json` 與 `application/octet-stream`。不帶 `Origin` 的（啟動器、`curl`）照常。
 
 > **`partial` 級別的碼不會變成 HTTP 錯誤。** 它們發生在 run 的個別項目上，
 > 整批請求本身是 `200 ok:true`，而失敗的那幾項在 run 的項目清單裡各自帶著自己的碼。
@@ -458,8 +464,8 @@
 | 端點 | 說明 |
 |---|---|
 | `POST …/import/urls` | 貼一批 URL。回一個 run |
-| `POST …/import/files` | body `{ names: string[] }`，非空檔名清單。開一筆標籤「N 個檔案」的匯入作業，每個檔案一列。回 `{ runId, items: [{ runItemId, name }] }`，順序與輸入相同 |
-| `POST …/import/files/:runId/:runItemId` | body 是原始檔案位元組、`Content-Type: application/octet-stream`、`x-file-name` 是 URI 編碼的原檔名。回 `{ runId, itemId, code, failed }`。逐列走既有匯入管線，不支援的型別記為該列失敗，不拖垮其他列 |
+| `POST …/import/files` | body `{ names: string[], sizes?: number[] }`，非空檔名清單；`sizes` 選填、跟 `names` 一一對應（位元組）。開一筆標籤「N 個檔案」的匯入作業，每個檔案一列。**超過上傳上限（256 MB）的那一列當場標成失敗**（`FETCH_UPLOAD_TOO_LARGE`），全部都超過就當場收尾。回 `{ runId, items: [{ runItemId, name, rejected }] }`，順序與輸入相同；`rejected` 不是 `null` 的那一列前端不傳 |
+| `POST …/import/files/:runId/:runItemId` | body 是原始檔案位元組、`Content-Type: application/octet-stream`、`x-file-name` 是 URI 編碼的原檔名，上限 256 MB（超過回 413 `FETCH_UPLOAD_TOO_LARGE`，`detail.limit`）。回 `{ runId, itemId, code, failed }`。逐列走既有匯入管線，不支援的型別記為該列失敗，不拖垮其他列 |
 
 一批依序上傳，同一筆作業提供 SSE 進度與既有取消控制。全部列有結果後依 `settleRun` 收成已完成／部分完成／失敗。
 取消保留已寫入的資料，未上傳列標已取消。這一批收尾之後（取消、閒置逾時、全部傳完）才送到的檔回 `RUN_ALREADY_SETTLED`，

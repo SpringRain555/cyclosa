@@ -53,28 +53,24 @@ const CLAUDE_CAPABILITIES = {
 } as const;
 
 /**
- * 要不要透過 shell 起這個子程序。
+ * **`.cmd`／`.bat` 不支援 —— 子程序一律不經過 `cmd.exe`**（2026-10-02）。
  *
- * ## 為什麼不是「Windows 上一律用 shell」
+ * Node 從 20.12 起不再直接 spawn `.cmd`／`.bat`（那是一個命令注入的修補），要起它們只能 `shell: true`；
+ * 而 `shell: true` 時 Node 把命令與參數**原樣接成一個字串**交給 `cmd.exe`（DEP0190）。
+ * 這一支的參數裡有 `-p <提示詞>`，提示詞裡有專題文件的段落（可能來自抓回來的網頁），
+ * 那裡面的 `&`、`|`、`"` 會被 `cmd.exe` 當成指令 —— **那是命令注入**。
+ * 2026-10-02 之前的寫法是「`.cmd`／`.bat` 才走 shell」，只擋掉了 `.exe` 那一半。
  *
- * 第一版是那樣寫的，而它**在路徑有空白的時候會壞掉**：
- * `shell: true` 時 Node 把命令與參數接成一個字串交給 `cmd.exe`，
- * 而**命令那一段不會被加引號** —— `C:\Program Files\nodejs\node.exe`
- * 於是被拆成兩個詞。症狀是子程序回一個非 0 的結束碼，
- * 而畫面上寫的是「連不上這個模型」。
- *
- * ## 為什麼還是需要它
- *
- * Node 從 20.12 起不再直接 spawn `.cmd`／`.bat`（那是一個命令注入的修補），
- * 而 npm 裝出來的 CLI 在 Windows 上常常就是一個 `.cmd` 包裝。
- *
- * 所以規則是：**只有真的需要的那兩種副檔名才走 shell。**
- * 使用者填的是 `.exe` 或一個絕對路徑時，一律不經過 shell ——
- * 那同時也少一條把設定字串送進 shell 的路。
+ * npm 裝的 Claude Code 在 Windows 上就是一個 `.cmd` 包裝；**原生安裝的是 `claude.exe`，不需要 shell**。
+ * 所以這兩種副檔名直接說不支援、說要怎麼改，不起子程序。
+ * （把 npm 包裝解析成 `node <script>`、提示詞改走 stdin 是模型服務改版的事。）
  */
-function needsShell(command: string): boolean {
+export function isShellWrapper(command: string): boolean {
   return /\.(cmd|bat)$/i.test(command.trim());
 }
+
+const SHELL_WRAPPER_DETAIL =
+  '不支援 .cmd／.bat 的包裝（npm 安裝的版本會經過 cmd.exe）—— 請改用 Claude Code 的原生安裝（claude.exe）';
 
 interface ResultEvent {
   readonly type?: unknown;
@@ -163,11 +159,11 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
      * 開設定頁本身不該產生費用 —— 那是一個沒有人會預期的收費。
      */
     async probe(): Promise<ProbeResult> {
+      if (isShellWrapper(options.command))
+        return { kind: 'unreachable', detail: SHELL_WRAPPER_DETAIL };
       return await new Promise<ProbeResult>((resolve) => {
         // **管線的錯誤一律接住**（`spawn-piped.ts` 的檔頭：子程序起不來不該把伺服器帶走）。
-        const child = spawnPiped(options.command, [...options.args, '--version'], {
-          shell: needsShell(options.command),
-        });
+        const child = spawnPiped(options.command, [...options.args, '--version']);
         let stdout = '';
         child.stdout.on('data', (chunk: Buffer) => {
           stdout += chunk.toString('utf8');
@@ -220,6 +216,14 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
           cost: { costUsd: null, elapsedMs: 0 },
         };
       }
+      if (isShellWrapper(options.command)) {
+        return {
+          kind: 'error',
+          code: 'PROVIDER_NOT_CONFIGURED',
+          detail: SHELL_WRAPPER_DETAIL,
+          cost: { costUsd: null, elapsedMs: 0 },
+        };
+      }
       const args = [
         ...options.args,
         '-p',
@@ -248,7 +252,6 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
         const child = spawnPiped(options.command, args, {
           // **這就是沙箱**（ADR-0006 第 4 條）。
           cwd: input.cwd,
-          shell: needsShell(options.command),
         });
 
         const lines: string[] = [];

@@ -1026,14 +1026,18 @@ export const api = {
    * 上傳一個檔案。**原始位元組直接送**，檔名走標頭 ——
    * 沒有 multipart 套件，也就不必為了拖一個檔案多一個會解析外部輸入的依賴。
    */
-  startFileImport: (slug: string, names: string[]) =>
-    request<{ runId: string; items: { runItemId: string; name: string }[] }>(
-      `/api/cases/${enc(slug)}/import/files`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ names }),
-      },
-    ),
+  /**
+   * 開一批檔案匯入。**連每個檔的大小一起送**：超過上傳上限的那一列，server 開批次時就標成失敗、
+   * 回 `rejected`，這邊就不傳它（傳到一半才被擋下的話，那一列要等閒置逾時才有結果）。
+   */
+  startFileImport: (slug: string, names: string[], sizes: number[]) =>
+    request<{
+      runId: string;
+      items: { runItemId: string; name: string; rejected: string | null }[];
+    }>(`/api/cases/${enc(slug)}/import/files`, {
+      method: 'POST',
+      body: JSON.stringify({ names, sizes }),
+    }),
 
   importFile: (slug: string, runId: string, runItemId: string, file: File) =>
     request<{ runId: string; itemId: string | null; code: string | null }>(

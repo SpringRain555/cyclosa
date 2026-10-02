@@ -13,6 +13,7 @@ import {
   startFileImport,
 } from '../../src/application/ingest-service.js';
 import { getRun, listRuns } from '../../src/application/run-service.js';
+import { MAX_UPLOAD_BYTES } from '../../src/domain/ingest/upload.js';
 
 let app: FastifyInstance;
 let sandbox = '';
@@ -216,5 +217,64 @@ describe('一批檔案是一筆作業', () => {
     expect(result.items.find((entry) => entry.requested === '空.txt')?.code).toBe(
       'PARSE_EMPTY_CONTENT',
     );
+  });
+});
+
+/**
+ * **超過上傳上限的檔案**（2026-10-02）。原本整個 server 只有 32 MB 的 `bodyLimit`，超過時
+ * Fastify 自己丟錯、落到 `IO_UNEXPECTED`，而那一列沒有結果 —— 整批要等閒置逾時、原因被寫成
+ * 「等不到這個檔案」。現在前端開批次時報大小，超過的那一列當場標掉、前端不傳。
+ */
+describe('超過上傳上限的檔案', () => {
+  async function startWithSizes(names: string[], sizes: number[]) {
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/cases/${slug}/import/files`,
+      payload: { names, sizes },
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const batch = (
+      response.json() as {
+        data: {
+          runId: string;
+          items: { runItemId: string; name: string; rejected: string | null }[];
+        };
+      }
+    ).data;
+    activeIds.push(batch.runId);
+    return batch;
+  }
+
+  it('那一列當場失敗、回 rejected；其餘照傳，整批部分完成', async () => {
+    const batch = await startWithSizes(
+      ['甲.txt', '巨大.pdf', '乙.txt'],
+      [100, MAX_UPLOAD_BYTES + 1, 100],
+    );
+    expect(batch.items.map((entry) => entry.rejected)).toEqual([
+      null,
+      'FETCH_UPLOAD_TOO_LARGE',
+      null,
+    ]);
+    await upload(batch, 0);
+    await upload(batch, 2);
+    const result = await detail(batch.runId);
+    expect(result.run).toMatchObject({ status: 'partial', succeeded: 2, failed: 1, live: false });
+    expect(result.items.find((entry) => entry.requested === '巨大.pdf')).toMatchObject({
+      outcome: 'failed',
+      code: 'FETCH_UPLOAD_TOO_LARGE',
+    });
+  });
+
+  it('全部都超過：沒有東西可等，當場收尾（不等閒置逾時）', async () => {
+    const batch = await startWithSizes(['巨大.pdf'], [MAX_UPLOAD_BYTES + 1]);
+    expect(isActive(batch.runId)).toBe(false);
+    expect((await detail(batch.runId)).run).toMatchObject({ status: 'failed', failed: 1 });
+  });
+
+  it('沒報大小（舊的前端）照舊收；報了不合法的值當成不知道', async () => {
+    const batch = await startWithSizes(['甲.txt'], [-1]);
+    expect(batch.items[0]?.rejected).toBeNull();
+    await upload(batch, 0);
+    expect((await detail(batch.runId)).run).toMatchObject({ status: 'done', succeeded: 1 });
   });
 });

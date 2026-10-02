@@ -194,9 +194,10 @@ PDF 翻頁鈕借用「上一份／下一份」、`graph-store` 回到同一專�
    不是事後掃沙箱 —— **沙箱那一層是備援**，而且它是白名單、成功失敗都掃（HTTP 那一支寫不了檔，
    沙箱永遠是空的，照樣掃）。**後者「會不會搜尋」是量的**：回應裡沒有一筆完成的 `web_search_call`
    就不採用那一次 —— 沒搜尋就交回的網址只可能來自記憶。
-4. **`shell: true` 不替命令那一段加引號。** `needsShell` 只對 `.cmd`／`.bat`
-   回 true；改回「Windows 一律用 shell」的話，路徑有空白的子程序會起不來，
-   而**畫面上的訊息會是「連不上這個模型」**。
+4. **子程序一律不經過 `cmd.exe`**（2026-10-02，`no-shell-spawn` 守門）。`spawnPiped` 不收 `shell` 參數；
+   CLI 指令是 `.cmd`／`.bat`（npm 裝的 Claude Code）直接回不支援、叫人改用原生安裝的 `claude.exe`。
+   `shell: true` 時 Node 把參數原樣接成一個字串交給 `cmd.exe` —— 提示詞裡的專題文件段落含 `&` 就是一個指令。
+   **不要為了支援 `.cmd` 把 shell 開回來**；要支援就把 npm 包裝解析成 `node <script>`。
 5. **spawn 一律走 `spawnPiped`，工作目錄一律短**（2026-09-23）。Windows 上工作目錄
    **超過 258 字元**時 `spawn` 回 `ENOENT`（看起來像「找不到指令」），**而兩條 stdio 管線
    各丟一個沒人接的 `read ENOTCONN` —— 整個伺服器會停掉**。所以：沙箱是

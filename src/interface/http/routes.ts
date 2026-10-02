@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import { httpStatusOf } from '../../domain/errors/codes.js';
 import type { ItemStatus } from '../../domain/ingest/state.js';
+import { MAX_UPLOAD_BYTES } from '../../domain/ingest/upload.js';
 import {
   changeCaseStatus,
   createCase,
@@ -514,6 +515,8 @@ function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
    */
   app.post<{ Params: { slug: string; researchId: string; candidateId: string } }>(
     '/api/cases/:slug/research/:researchId/candidates/:candidateId/upload',
+    // 使用者自己給的檔案，上限比整個 server 的 32 MB 大（`domain/ingest/upload.ts`）。
+    { bodyLimit: MAX_UPLOAD_BYTES },
     async (req, reply) => {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
@@ -632,7 +635,7 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post<{ Params: { slug: string }; Body: { names?: unknown } }>(
+  app.post<{ Params: { slug: string }; Body: { names?: unknown; sizes?: unknown } }>(
     '/api/cases/:slug/import/files',
     async (req, reply) => {
       const dataRoot = await requireDataRoot(ctx, reply);
@@ -644,12 +647,18 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
       ) {
         return reply.code(400).send({ ok: false, code: 'SEARCH_QUERY_EMPTY' });
       }
-      return send(reply, await startFileImport(dataRoot, req.params.slug, names));
+      // 每個檔的大小（選填，跟 names 一一對應）：超過上傳上限的那一列開批次時就標掉。
+      const rawSizes = req.body?.sizes;
+      const sizes = Array.isArray(rawSizes)
+        ? rawSizes.map((size) => (typeof size === 'number' && size >= 0 ? size : null))
+        : [];
+      return send(reply, await startFileImport(dataRoot, req.params.slug, names, undefined, sizes));
     },
   );
 
   app.post<{ Params: { slug: string; runId: string; runItemId: string } }>(
     '/api/cases/:slug/import/files/:runId/:runItemId',
+    { bodyLimit: MAX_UPLOAD_BYTES },
     async (req, reply) => {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;

@@ -12,6 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 
+import { MAX_UPLOAD_BYTES } from './domain/ingest/upload.js';
 import { registerRequestGuard } from './interface/http/request-guard.js';
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
 import { pdfjsRoot, registerPdfjsAssets, registerStatic } from './interface/http/static.js';
@@ -130,6 +131,18 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
       void reply
         .code(415)
         .send({ ok: false, code: 'IO_REQUEST_FOREIGN', correlationId: 'media-type' });
+      return;
+    }
+    // **上傳超過上限也不是「未預期」**：使用者拖了一個太大的檔案。批次匯入在開批次時就照大小標掉了，
+    // 走到這裡的是沒報大小的那一種 —— 說清楚上限，不叫人交識別碼（`domain/ingest/upload.ts`）。
+    if (fastifyCode(error) === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+      void reply.code(413).send({
+        ok: false,
+        code: 'FETCH_UPLOAD_TOO_LARGE',
+        correlationId: 'body-too-large',
+        // 那一條路由自己的上限（上傳是 256 MB，其他 JSON 請求是整個 server 的 32 MB）
+        detail: { limit: req.routeOptions.bodyLimit ?? MAX_UPLOAD_BYTES },
+      });
       return;
     }
     const cid = correlationId();

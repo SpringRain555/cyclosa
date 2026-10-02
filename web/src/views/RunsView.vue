@@ -149,6 +149,7 @@ async function submitFiles(files: FileList | null): Promise<void> {
   const started = await api.startFileImport(
     batchSlug,
     selected.map((file) => file.name),
+    selected.map((file) => file.size),
   );
   if (!started.ok) {
     error.value = started.error;
@@ -160,6 +161,8 @@ async function submitFiles(files: FileList | null): Promise<void> {
   for (const [index, file] of selected.entries()) {
     const entry = started.data.items[index];
     if (entry === undefined) break;
+    // 超過上傳上限的那一列 server 已經標好了（原因寫在那一列），不傳。
+    if (entry.rejected !== null) continue;
     const result = await api.importFile(batchSlug, started.data.runId, entry.runItemId, file);
     if (!result.ok) {
       // 這一批已經收尾（你按了取消，或等太久）：每一列自己寫了原因，不再跳一個錯誤。

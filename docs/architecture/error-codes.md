@@ -80,6 +80,7 @@
 | `FETCH_RATE_LIMITED` | partial | 對方回 429 或 503，**照 `Retry-After` 等過、再試兩次還是一樣**；或這個網域在這一輪已經被放棄（`detail.why` 是 `host-limited`，沒有送請求）| 過一段時間再重跑這幾項。**同一個網域排在後面的項目也記成這個碼，其他網域照常**（ADR-0031）|
 | `FETCH_TIMEOUT` | partial | 連線或讀取逾時 | 重試那一項。反覆逾時通常是對方的問題 |
 | `FETCH_UPLOAD_TIMEOUT` | partial | 等不到下一個上傳檔案，批次匯入自動收尾 | 分頁可能已關閉或連線中斷；重新選取未上傳的檔案 |
+| `FETCH_UPLOAD_TOO_LARGE` | partial | 拖進來的檔案超過上傳上限（256 MB，`domain/ingest/upload.ts`）。批次匯入開批次時就照前端給的大小標掉那一列、其餘照常；直接上傳超過的話 server 回 413 並帶 `detail.limit`。**不是 `FETCH_TOO_LARGE`**（那一條是網路抓取的上限）| 先壓縮或拆成幾份再匯入。印成圖的 PDF 特別大，而且沒有文字層 —— 有文字的版本通常小得多 |
 | `FETCH_DNS` | partial | 網域解析不到 | 檢查網址有沒有打錯、或網路是不是斷了 |
 | `FETCH_TLS` | partial | 憑證驗證失敗 | **不提供忽略憑證的選項。** 那個網站的憑證有問題 |
 | `FETCH_HTTP_4XX` | partial | 對方回 4xx（404、403…）| 404 通常是頁面沒了；403 常見於需要登入 —— 兩者都不會自動重試 |

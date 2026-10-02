@@ -128,6 +128,14 @@ export const ERROR_CODES = {
   FETCH_RATE_LIMITED: 'partial',
   FETCH_TIMEOUT: 'partial',
   FETCH_UPLOAD_TIMEOUT: 'partial',
+  /**
+   * **使用者拖進來的檔案超過上傳上限**（`domain/ingest/upload.ts`，2026-10-02）。
+   *
+   * 不是 `FETCH_TOO_LARGE`：那一條講的是從網路上抓的、訊息叫人「自己下載後用檔案匯入」——
+   * 而這一份就是自己下載的。批次匯入在開批次時就照前端給的大小把那一列標掉、整批照常；
+   * server 的 `bodyLimit` 是最後一道（413，帶上限）。
+   */
+  FETCH_UPLOAD_TOO_LARGE: 'partial',
   FETCH_DNS: 'partial',
   FETCH_TLS: 'partial',
   FETCH_HTTP_4XX: 'partial',

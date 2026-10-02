@@ -14,6 +14,7 @@ import { api, type ApiError, type RebuildReport, type Run, type RunItem } from '
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import ResearchPanel from '../components/ResearchPanel.vue';
+import ConsolidatePanel from '../components/ConsolidatePanel.vue';
 import CaseNotices from '../components/CaseNotices.vue';
 
 const route = useRoute();
@@ -34,6 +35,26 @@ const urls = ref('');
 const busy = ref(false);
 const dragging = ref(false);
 const throttleNow = ref<{ host: string; ms: number } | null>(null);
+
+/**
+ * 「抽進圖」那一塊。**清單會跟著別的事變**：一筆作業跑完（抽過的不再列）、復原（抽過的又回來）、
+ * 研究開了或結束（能不能抽）—— 這幾個時刻都叫它重新讀一次。
+ */
+const consolidatePanel = ref<InstanceType<typeof ConsolidatePanel> | null>(null);
+
+function refreshConsolidate(): void {
+  void consolidatePanel.value?.reload();
+}
+
+async function onConsolidateStarted(id: string): Promise<void> {
+  await loadRuns();
+  openRun(id);
+}
+
+function onResearchRunsChanged(): void {
+  void loadRuns();
+  refreshConsolidate();
+}
 
 let stream: EventSource | null = null;
 
@@ -83,6 +104,7 @@ function subscribe(id: string): void {
     if (event['type'] === 'settled') {
       closeStream();
       void loadRuns();
+      refreshConsolidate();
     }
   };
   stream.onerror = () => closeStream();
@@ -300,6 +322,7 @@ async function undo(): Promise<void> {
     }
   }
   undoNote.value = parts.join(' ');
+  refreshConsolidate();
   await openRun(id);
 }
 
@@ -356,7 +379,12 @@ async function rebuild(): Promise<void> {
         而匯入與舊版擴展是旁邊那兩件事。第一版排在下面，實際看過之後改上來 ——
         使用者要捲過三張卡才看得到現在正在做的那一次研究。
       -->
-      <ResearchPanel id="research" :slug="slug" @error="error = $event" @runs-changed="loadRuns" />
+      <ResearchPanel
+        id="research"
+        :slug="slug"
+        @error="error = $event"
+        @runs-changed="onResearchRunsChanged"
+      />
 
       <div class="top">
         <section class="card import" :class="{ dragging }">
@@ -395,6 +423,14 @@ async function rebuild(): Promise<void> {
             {{ t.runs.dropHint }}
           </div>
         </section>
+
+        <!-- 抽進圖（整理的第一片）：匯入完再決定哪幾份要抽，所以排在匯入的下面。 -->
+        <ConsolidatePanel
+          ref="consolidatePanel"
+          :slug="slug"
+          @error="error = $event"
+          @started="onConsolidateStarted"
+        />
       </div>
 
       <section v-if="throttleNow" class="throttle">
@@ -521,7 +557,7 @@ async function rebuild(): Promise<void> {
                 圖用的是舊焦點，而那份 PDF 一條邊都沒有。
               -->
                 <button v-if="graphFocusId !== null" @click="showOnGraph">
-                  {{ t.runs.showOnGraph }}
+                  {{ run.kind === 'consolidate' ? t.consolidate.showOnGraph : t.runs.showOnGraph }}
                 </button>
                 <!-- 研究還沒結束的作業不能復原（`RUN_OWNED_BY_RESEARCH`）：**說為什麼，不給一顆按了必定報錯的按鈕**。 -->
                 <span v-if="run.heldByResearch" class="hint">{{
@@ -541,7 +577,10 @@ async function rebuild(): Promise<void> {
           等值價格，用訂閱的話不會真的扣；金額仍記在作業紀錄裡（`cost_usd`），畫面不再顯示。
           **主題不在這裡** —— 上面那個標題已經是它了，再寫一次只是同一句話出現兩遍。
         -->
-          <p v-if="run.kind === 'extract' || run.kind === 'research'" class="budget">
+          <p
+            v-if="run.kind === 'extract' || run.kind === 'research' || run.kind === 'consolidate'"
+            class="budget"
+          >
             <span>{{ fill(t.research.requests, { n: run.requests }) }}</span>
             <span v-if="run.providers" class="mono">{{
               fill(t.research.usedProviders, { chat: providerLabel(run) })

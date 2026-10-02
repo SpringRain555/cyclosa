@@ -276,6 +276,20 @@ export const ERROR_CODES = {
   RESEARCH_CANDIDATES_OVERFLOW: 'notice',
   RESEARCH_UNEXPECTED: 'error',
 
+  // ── CONSOLIDATE_* 抽進圖（整理的第一片，v0.26.0，ADR-0033 S24）──────
+  //
+  // **不借用 `RESEARCH_*`**：那幾句話講的是「這次研究」，而抽進圖沒有開研究（S24-1）。
+  /** 這個專題有一次研究還沒結束（D4）：做完或放棄之前不能抽。 */
+  CONSOLIDATE_RESEARCH_OPEN: 'error',
+  /**
+   * 已經有一筆「抽進圖」在跑（D4）。**反過來開研究的時候也是這一碼** —— 擋住的是同一件事：
+   * 兩邊同時寫實體對齊與關聯，「這一次新增了什麼」就數不清了。
+   */
+  CONSOLIDATE_RUNNING: 'error',
+  /** 一份都沒勾，或勾的有不在「還沒抽過」清單上的（別的分頁剛抽過、剛排除）。多半是畫面舊了。 */
+  CONSOLIDATE_SELECTION_INVALID: 'error',
+  CONSOLIDATE_UNEXPECTED: 'error',
+
   // ── GRAPH_* 圖與裁決 ─────────────────────────────────────
   GRAPH_EVIDENCE_REQUIRED: 'error',
   GRAPH_HUMAN_ROW_IMMUTABLE: 'error',

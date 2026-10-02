@@ -146,6 +146,17 @@
 | `RESEARCH_CANDIDATES_OVERFLOW` | notice | 一條方向找到的候選**超過上限**（`MAX_CANDIDATES_PER_DIRECTION`），只留了前面那幾個 | 不必做什麼 —— 那一條搜完了。**要說出來**是因為不說的話你不會知道模型其實找到更多（R6 的同一條規則）|
 | `RESEARCH_UNEXPECTED` | error | 研究處理的未預期例外 | 把 `correlation_id` 交出來 |
 
+## `CONSOLIDATE_*` —— 抽進圖（整理的第一片，v0.26.0，ADR-0033 S24）
+
+**不借用 `RESEARCH_*`**：那幾句話講的是「這次研究」，而抽進圖沒有開研究（S24-1）。
+
+| 碼 | 級別 | 成因 | 使用者該做什麼 |
+|---|:--:|---|---|
+| `CONSOLIDATE_RESEARCH_OPEN` | error | 這個專題有一次研究還沒結束（D4）| 先把那次研究做完或放棄，再抽 |
+| `CONSOLIDATE_RUNNING` | error | 已經有一筆「抽進圖」在跑（D4）；**開新研究時撞到的也是這一碼** | 等它跑完，或到「歷次紀錄」取消它 |
+| `CONSOLIDATE_SELECTION_INVALID` | error | 一份都沒勾，或勾的有不在「還沒抽過」清單上的（別的分頁剛抽過、剛排除）| **多半是畫面舊了** —— 重新整理再勾一次 |
+| `CONSOLIDATE_UNEXPECTED` | error | 抽進圖的未預期例外 | 把 `correlation_id` 交出來 |
+
 ## `GRAPH_*` —— 圖與裁決
 
 | 碼 | 級別 | 成因 | 使用者該做什麼 |

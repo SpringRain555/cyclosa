@@ -79,6 +79,39 @@ export function setItemExtracted(
   );
 }
 
+/** 復原一筆作業時，把那一筆寫的「抽過了」清回去（`domain/research/consolidate.ts` 的 `extractedByRun`）。 */
+export function clearItemExtracted(db: DatabaseSync, id: string, now: number): void {
+  db.prepare(
+    'UPDATE item SET extracted_at = NULL, extracted_by = NULL, updated_at = ? WHERE id = ?',
+  ).run(now, id);
+}
+
+/**
+ * 「還沒抽過」清單的底稿（整理的第一片，ADR-0033 S24-1）：`extracted_at` 是空的、可能有正文的資料，
+ * 連同**有幾筆機器建的關聯拿它當出處**。v12 以前抽過的資料那一欄是空的，要靠後者認出來；
+ * 有沒有正文要讀檔，這一層不做 —— 最後的判斷在 `isUnextracted`。
+ */
+export function listExtractionCandidates(
+  db: DatabaseSync,
+): readonly { readonly item: ItemRow; readonly machineEvidence: number }[] {
+  const rows = db
+    .prepare(
+      `SELECT i.*,
+              (SELECT COUNT(*) FROM edge_evidence ev JOIN edge e ON e.id = ev.edge_id
+                WHERE ev.item_id = i.id AND e.origin = 'machine') AS machine_evidence
+         FROM item i
+        WHERE i.extracted_at IS NULL
+          AND i.kind NOT IN ('reference', 'note')
+          AND i.status IN ('parsed', 'included')
+        ORDER BY i.created_at, i.id`,
+    )
+    .all() as Raw[];
+  return rows.map((row) => ({
+    item: toItem(row),
+    machineEvidence: Number(row['machine_evidence']),
+  }));
+}
+
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
 

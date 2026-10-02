@@ -570,7 +570,7 @@ v12 當時先提供欄位、repository 與純函式；目前建圖作業、畫�
 
 | 表 | 欄 | 說明 |
 |---|---|---|
-| `item` | `extracted_at INTEGER`、`extracted_by TEXT` | 可為 `NULL`；記錄抽取時間與實際模型，分得出「抽過但零條關聯」與「沒抽過」 |
+| `item` | `extracted_at INTEGER`、`extracted_by TEXT` | 可為 `NULL`；記錄抽取時間與實際模型，分得出「抽過但零條關聯」與「沒抽過」。研究建圖與**抽進圖**（v0.26.0）寫它；**復原那一筆作業時清回 `NULL`**（只清時間落在那一筆區間裡的，ADR-0033 S24-5）。v12 以前抽過的資料這一欄是空的 —— 「還沒抽過」另外要看有沒有機器建的關聯拿它當出處（S24-3）|
 | `item` | `bib_json TEXT` | 可為 `NULL`；書目節點的作者、年份、出處，repository 原樣讀回 JSON 字串 |
 | `research_candidate` | `decision TEXT` | CHECK 只收 `include`／`reference`／`discard` 或 `NULL`。**只存使用者改過的；`NULL` ＝ 照預設**（ADR-0033 D10），不是「確認之前」。確認階段（`reviewing`）可以改；選得跟預設相同仍是人的選擇 |
 | `research_candidate` | `cited_by_json TEXT NOT NULL DEFAULT '[]'` | 這份被這次研究裡哪幾份候選引用，存候選 id 的 JSON 陣列 |

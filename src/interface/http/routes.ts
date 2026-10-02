@@ -34,6 +34,7 @@ import {
   startUrlImport,
 } from '../../application/ingest-service.js';
 import { undoRun } from '../../application/undo-service.js';
+import { listUnextracted, startConsolidate } from '../../application/consolidate-service.js';
 import { listCaseNotices, dismissCaseNotice } from '../../application/notice-service.js';
 import { activeCount } from '../../application/run-registry.js';
 import { describeFetchPolicy } from '../../application/fetch-policy.js';
@@ -711,6 +712,25 @@ function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
           new Uint8Array(body),
         ),
       );
+    },
+  );
+
+  /**
+   * 抽進圖（整理的第一片，ADR-0033 S24）。**清單不呼叫模型**；開作業才呼叫，
+   * 而開之前先檢查抽取那一支配不配得上（跟閘門三同一支 `checkExtract`）。
+   */
+  app.get<{ Params: { slug: string } }>('/api/cases/:slug/consolidate', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(reply, await listUnextracted(dataRoot, req.params.slug));
+  });
+
+  app.post<{ Params: { slug: string }; Body: { itemIds?: unknown } }>(
+    '/api/cases/:slug/consolidate',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await startConsolidate(dataRoot, req.params.slug, req.body?.itemIds));
     },
   );
 

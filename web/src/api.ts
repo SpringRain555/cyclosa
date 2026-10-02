@@ -367,6 +367,26 @@ export interface ServiceView {
   costs: boolean;
 }
 
+/** 「還沒抽過」清單上的一份（`consolidate-service.ts`）。 */
+export interface UnextractedItem {
+  id: string;
+  title: string;
+  titleZh: string | null;
+  kind: string;
+  /** 衍生正文多少字；抽取只讀開頭 12,000 字，超過的畫面要說。 */
+  chars: number;
+  createdAt: number;
+}
+
+export interface ConsolidateView {
+  items: UnextractedItem[];
+  extractService: ServiceView;
+  /** 正在跑的那一筆「抽進圖」；有的話不能再開一筆。 */
+  runId: string | null;
+  /** 有一次研究還沒結束：做完或放棄之前不能抽。 */
+  researchOpen: boolean;
+}
+
 export interface CollectState {
   runId: string | null;
   live: boolean;
@@ -1052,6 +1072,15 @@ export const api = {
         body: file,
       },
     ),
+
+  // ── 抽進圖（整理的第一片，ADR-0033 S24）─────────────────
+  /** 「還沒抽過」的清單與現在能不能抽。**不呼叫模型。** */
+  consolidate: (slug: string) => request<ConsolidateView>(`/api/cases/${enc(slug)}/consolidate`),
+  startConsolidate: (slug: string, itemIds: string[]) =>
+    request<{ runId: string }>(`/api/cases/${enc(slug)}/consolidate`, {
+      method: 'POST',
+      body: JSON.stringify({ itemIds }),
+    }),
 
   // ── 作業紀錄 ────────────────────────────────────────────
   notices: (slug: string) => request<CaseNotice[]>(`/api/cases/${enc(slug)}/notices`),

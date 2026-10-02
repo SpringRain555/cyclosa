@@ -26,11 +26,12 @@
  */
 import { join } from 'node:path';
 
-import { isOpen } from '../domain/research/index.js';
+import { extractedByRun, isOpen } from '../domain/research/index.js';
 import { keptAnything, type UndoPlan } from '../domain/run/index.js';
 import { applyUndoPlan, planUndoRuns } from '../infrastructure/db/undo-core.js';
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
+import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { removeDerived } from '../infrastructure/fs/case-files.js';
@@ -54,6 +55,23 @@ export interface UndoReport {
   readonly keptAsEvidence: number;
   /** 有東西被留下來。**畫面上要說出這件事。** */
   readonly partial: boolean;
+}
+
+/**
+ * **「抽過了」跟著那一筆作業一起退**（v0.26.0）。
+ *
+ * 抽出來的關聯被復原掉之後，那一份如果還標著「抽過了」，就不會出現在「抽進圖」的清單上 ——
+ * 它從此再也抽不到，而畫面上看不出為什麼。只清**這一筆作業寫的**那一個（`extractedByRun`）；
+ * 後來別的作業又抽過一次的，那個標記是後來那一次的。
+ */
+function clearExtractedBy(db: DatabaseSync, run: runs.RunRow, deleted: ReadonlySet<string>): void {
+  const now = Date.now();
+  for (const entry of runs.listRunItems(db, run.id)) {
+    if (entry.itemId === null || deleted.has(entry.itemId)) continue;
+    const item = items.getItem(db, entry.itemId);
+    if (item !== null && extractedByRun(item.extractedAt, run, now))
+      items.clearItemExtracted(db, item.id, now);
+  }
 }
 
 export async function undoRun(
@@ -104,6 +122,7 @@ export async function undoRun(
     try {
       plan = planUndoRuns(db, [runId]);
       deletedEntities = applyUndoPlan(db, plan);
+      clearExtractedBy(db, run, new Set(plan.deleteItems));
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');

@@ -6,7 +6,7 @@ import {
   type WorkOutcome,
 } from '../domain/ingest/state.js';
 import { levelOf } from '../domain/errors/codes.js';
-import { chargeTask, missingFor, TASK_EXTRACT, type TaskCosts } from '../domain/provider/index.js';
+import { chargeTask, type TaskCosts } from '../domain/provider/index.js';
 import {
   DECISIONS,
   effectiveDecision,
@@ -28,7 +28,7 @@ import type { ChatProvider } from '../infrastructure/providers/types.js';
 import { correlationId, newId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
-import { callExtract } from './extraction-call.js';
+import { callExtract, checkExtract } from './extraction-call.js';
 import { applyExtraction } from './extraction-service.js';
 import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
 import { recordModelCall } from './model-call-log.js';
@@ -104,37 +104,6 @@ export async function editCandidateDecision(
   } finally {
     db.close();
   }
-}
-
-async function checkExtract(
-  providers: Providers,
-  cid: string,
-): Promise<Result<{ chat: ChatProvider; mode: string }>> {
-  const who = { role: 'chat', task: 'extract' };
-  const chat = providers.chatFor('extract');
-  if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, who);
-  const probe = await chat.probe();
-  if (probe.kind === 'not-configured') return err('PROVIDER_NOT_CONFIGURED', cid, who);
-  if (probe.kind === 'unreachable')
-    return err('PROVIDER_UNREACHABLE', cid, { ...who, at: probe.detail });
-  const match = missingFor(TASK_EXTRACT, probe.capabilities);
-  if (match.kind === 'missing')
-    return err('PROVIDER_CAPABILITY_MISSING', cid, {
-      ...who,
-      missing: match.flags,
-      ...(match.context === null
-        ? {}
-        : { needContextTokens: match.context[0], haveContextTokens: match.context[1] }),
-    });
-  let format = await chat.jsonMode();
-  if (format.mode === 'unchecked' && chat.checkJson !== undefined) {
-    const checked = await chat.checkJson();
-    if (checked.kind === 'error') return err(checked.code, cid, who);
-    format = checked.value;
-  }
-  if (format.mode === 'none' || format.mode === 'unchecked')
-    return err('PROVIDER_JSON_UNSUPPORTED', cid, who);
-  return ok({ chat, mode: format.mode }, cid);
 }
 
 export async function startBuilding(

@@ -3,7 +3,8 @@
 **這份是端點、請求／回應形狀與錯誤對映的權威。**
 業務規則在 `domain/`（見 `overview.md` 的分層），錯誤碼的意義在 `error-codes.md`。
 
-> **現況（2026-09-30，Stage 19–22 已完成、尚未出貨）**：研究與建圖端點見正文；以下版本條目是沿革，舊 `POST /runs`、角度選擇與草稿刪除端點已移除。
+> **現況（2026-10-03，v0.26.0）**：研究與建圖端點見正文；**抽進圖**（`GET`／`POST …/consolidate`，整理的第一片）是 v0.26.0 新增。
+> 以下版本條目是沿革，舊 `POST /runs`、角度選擇與草稿刪除端點已移除。研究與作業的花費仍在回應裡（`costUsd`、`costByTask`），畫面不顯示（2026-10-03）。
 >
 > **已經存在**：系統（`/healthz`、資料根）、專題（清單／建立／封存）、
 > **匯入**（`/import/urls`、`/import/files`、`/import/files/:runId/:runItemId`）、**作業紀錄**（`/runs`、`/runs/:id`、
@@ -472,6 +473,19 @@
 畫面停下來、不另外報錯；別的專題的作業回 `RUN_NOT_FOUND`；已經用過的列、檔名不符、同一批同時傳兩個檔回 `GRAPH_TRANSITION_INVALID`（前端不會這樣送）。
 等下一個檔案超過 `FILE_UPLOAD_IDLE_MS`（五分鐘）就自動收尾；未上傳列記 `FETCH_UPLOAD_TIMEOUT`，算失敗而不是使用者取消。
 正在處理的檔案不計入閒置時間。關分頁或連線中斷由這個期限接住，不靠瀏覽器保證送出關閉通知。舊的 `POST …/import/file` 已移除。
+
+### 抽進圖（整理的第一片，v0.26.0，ADR-0033 S24）
+
+| 端點 | 呼叫模型？| 說明 |
+|---|:--:|---|
+| `GET …/consolidate` | 不 | `{ items: [{ id, title, titleZh, kind, chars, createdAt }], extractService: { via, model, costs }, runId, researchOpen }`。`items` 是「還沒抽過」的資料（S24-3），照匯入順序；`chars` 是衍生正文的字數（抽取只讀開頭 12,000 字）；`runId` 是正在跑的那一筆抽進圖（沒有是 `null`）；`researchOpen` 是有一次研究還沒結束 |
+| `POST …/consolidate` | 會 | body `{ itemIds: string[] }`。先檢查抽取那一支配不配得上（跟閘門三同一支），再開一筆 `kind='consolidate'`、標籤「抽進圖」的作業，每一份一列（一開始就帶 `itemId`）。回 `{ runId }` |
+
+- 一份都沒勾、或勾的有一份不在清單上 → `CONSOLIDATE_SELECTION_INVALID`，**整批不收**、不開作業
+- 研究沒結束 → `CONSOLIDATE_RESEARCH_OPEN`；已經有一筆在跑 → `CONSOLIDATE_RUNNING`（**開新研究時撞到的也是這一碼**，D4 的另一半在 `startResearch`）
+- 進度、取消、暫停、復原都走作業那一套（`…/runs/:runId/…`）。逐份送 `item` 與 `progress` 事件；
+  一份抽壞不影響其餘，勾的時候還在、跑到時已被排除或復原掉的那一份記 `PARSE_EMPTY_CONTENT`
+- **復原會把那一筆寫的「抽過了」清回去**（S24-5），那幾份回到清單上
 
 ### 筆記與點註
 

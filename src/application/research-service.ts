@@ -57,6 +57,7 @@ import { correlationId, newId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { prepareSandbox, scanSandbox } from './agent-sandbox.js';
+import { activeConsolidateRun } from './consolidate-service.js';
 import { recordModelCall } from './model-call-log.js';
 import { checkDigest, checkFindSources, launchCollect } from './research-collect.js';
 import {
@@ -166,6 +167,9 @@ export async function startResearch(
      */
     const open = research.openResearch(db);
     if (open !== null) return err('RESEARCH_ALREADY_OPEN', cid, { researchId: open.id });
+    // 「抽進圖」（整理的第一片）不開殼，索引擋不到它 —— D4 的另一半在這裡查（`consolidate-service.ts` 檔頭）。
+    const consolidating = activeConsolidateRun(db);
+    if (consolidating !== null) return err('CONSOLIDATE_RUNNING', cid, { runId: consolidating });
 
     const id = newId();
     const now = Date.now();

@@ -143,6 +143,11 @@ export const errorMessages: Readonly<Record<string, string>> = {
     '找不到這一筆候選。重新整理這一頁 —— 它可能屬於另一次研究，或那次研究已經被刪掉了。',
   RESEARCH_CANDIDATES_OVERFLOW: '這條方向找到的超過一次留得下的上限，只留了前面那幾份。',
   RESEARCH_UNEXPECTED: '處理這次研究時出了預期外的問題。請把下面的識別碼交出來。',
+  CONSOLIDATE_RESEARCH_OPEN: '這個專題有一次研究還沒結束。先在上面把它做完或放棄，再把資料抽進圖。',
+  CONSOLIDATE_RUNNING: '有一筆「抽進圖」的作業還在跑。等它跑完，或到「歷次紀錄」取消它，再試一次。',
+  CONSOLIDATE_SELECTION_INVALID:
+    '勾的資料裡有已經抽過、已經排除或不在清單上的（也可能一份都沒勾）。重新整理這一頁再勾一次。',
+  CONSOLIDATE_UNEXPECTED: '抽進圖時出了預期外的問題。請把下面的識別碼交出來。',
   GRAPH_EVIDENCE_REQUIRED:
     '這條關聯沒有任何引文，不能標成已確認。請先補一筆出處，或改成自己手動建立一條。',
   GRAPH_HUMAN_ROW_IMMUTABLE:
@@ -784,6 +789,32 @@ export const t = {
     throttleBackoff: '收到 429／503 照 Retry-After 退避，最多再試 {n} 次',
     throttleRobots: '遵守 robots.txt',
     throttleNow: '正在等 {host}（{ms} 毫秒）',
+  },
+
+  /**
+   * 抽進圖（整理的第一片，v0.26.0，ADR-0033 S24）。
+   *
+   * 匯入不抽關聯、研究建圖只抽它找來的那幾份 —— 其餘「還沒抽過」的資料在這裡列給你勾，**預設不勾**（Q10）。
+   * 「只讀開頭」那一句要在按下去之前就看得到：一本書的一章只會抽到開頭那一段。
+   */
+  consolidate: {
+    title: '把還沒抽過的資料抽進圖',
+    what: '匯入的資料不會自動抽關聯，研究建圖也只抽它自己找來的那幾份。勾選的資料會用「從正文抽實體與關係」那個模型抽成實體與帶引文的關聯：規則跟研究建圖一樣，引文在原文裡找不到就沒有那一條，抽出來的都是待查證、要你裁決。',
+    head: '每一份只讀正文開頭約 12,000 字 —— 比這長的（例如書的一章）只會抽到開頭那一段。',
+    service: '抽取走{service}',
+    count: '還沒抽過的：{n} 份',
+    empty: '專題裡有正文的資料都抽過了。',
+    selectAll: '全選',
+    selectNone: '全不選',
+    start: '抽進圖（{n} 份）',
+    starting: '開始中…',
+    running: '有一筆「抽進圖」正在跑，跑完之前不能再開一筆。',
+    runningLink: '看進度',
+    researchOpen: '上面有一次研究還沒結束。做完或放棄之後才能抽。',
+    chars: '{n} 字',
+    partial: '只讀開頭',
+    /** 作業紀錄那一頁：跑完之後回到圖上看，焦點放在這一次新增關聯最多的那一份。 */
+    showOnGraph: '在關聯圖上看這一次抽出來的',
   },
 
   runControl: {

@@ -242,11 +242,21 @@ export function insertRunItem(
     readonly runId: string;
     readonly requested: string;
     readonly host: string | null;
+    /** 一開始就知道是哪一份的（抽進圖：對象是專題裡既有的資料）。匯入要抓完才知道，所以是選填。 */
+    readonly itemId?: string | null;
   },
 ): void {
   db.prepare(
-    "INSERT INTO run_item (id, run_id, requested, host, outcome) VALUES (?, ?, ?, ?, 'queued')",
-  ).run(input.id, input.runId, input.requested, input.host);
+    "INSERT INTO run_item (id, run_id, requested, host, item_id, outcome) VALUES (?, ?, ?, ?, ?, 'queued')",
+  ).run(input.id, input.runId, input.requested, input.host, input.itemId ?? null);
+}
+
+/** 這個專題裡**正在跑的**某一種作業（資料庫說在跑；呼叫端再問 `isActive`）。 */
+export function listRunningRunIdsOfKind(db: DatabaseSync, kind: RunKind): readonly string[] {
+  const rows = db
+    .prepare("SELECT id FROM run WHERE kind = ? AND status IN ('queued','running')")
+    .all(kind) as Raw[];
+  return rows.map((r) => String(r['id']));
 }
 
 export function updateRunItem(

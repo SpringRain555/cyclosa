@@ -759,40 +759,43 @@ async function rebuild(): Promise<void> {
             </tbody>
           </table>
 
-          <table class="table">
-            <thead>
-              <tr>
-                <th>{{ t.runs.colStatus }}</th>
-                <th>{{ t.runs.colSource }}</th>
-                <th>{{ t.runs.colHost }}</th>
-                <th>{{ t.runs.colNodes }}</th>
-                <th>{{ t.runs.colEdges }}</th>
-                <th>{{ t.runs.colNote }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in runItems" :key="item.id">
-                <td>
-                  <span :class="['badge', item.outcome]">{{ t.runOutcome[item.outcome] }}</span>
-                </td>
-                <td class="src">
-                  <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
-                    {{ item.requested }}
-                  </button>
-                  <span v-else>{{ item.requested }}</span>
-                </td>
-                <td class="mono">{{ item.host ?? '' }}</td>
-                <td class="num">{{ item.newNodes }}</td>
-                <td class="num">{{ item.newEdges }}</td>
-                <td class="note">
-                  {{ noteOf(item) }}
-                  <span v-if="item.waitedMs" class="muted waited">
-                    {{ fill(t.runs.waited, { ms: item.waitedMs }) }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table class="table item-table">
+              <thead>
+                <tr>
+                  <th>{{ t.runs.colStatus }}</th>
+                  <th>{{ t.runs.colSource }}</th>
+                  <th class="host-column">{{ t.runs.colHost }}</th>
+                  <th>{{ t.runs.colNodes }}</th>
+                  <th>{{ t.runs.colEdges }}</th>
+                  <th>{{ t.runs.colNote }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in runItems" :key="item.id">
+                  <td>
+                    <span :class="['badge', item.outcome]">{{ t.runOutcome[item.outcome] }}</span>
+                  </td>
+                  <td class="src">
+                    <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
+                      {{ item.requested }}
+                    </button>
+                    <span v-else>{{ item.requested }}</span>
+                    <span v-if="item.host" class="inline-host mono muted">{{ item.host }}</span>
+                  </td>
+                  <td class="host-column mono">{{ item.host ?? '' }}</td>
+                  <td class="num">{{ item.newNodes }}</td>
+                  <td class="num">{{ item.newEdges }}</td>
+                  <td class="note">
+                    {{ noteOf(item) }}
+                    <span v-if="item.waitedMs" class="muted waited">
+                      {{ fill(t.runs.waited, { ms: item.waitedMs }) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
     </div>
@@ -1064,8 +1067,24 @@ async function rebuild(): Promise<void> {
   width: 72px;
 }
 .src {
+  min-width: 10ch;
   max-width: 320px;
-  word-break: break-all;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+.item-table th {
+  white-space: nowrap;
+}
+.inline-host {
+  display: none;
+}
+@media (max-width: 900px) {
+  .item-table .host-column {
+    display: none;
+  }
+  .inline-host {
+    display: block;
+  }
 }
 .note {
   color: var(--text-secondary);

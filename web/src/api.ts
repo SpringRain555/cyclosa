@@ -453,6 +453,8 @@ export interface Research {
     total: number;
     mayResume: boolean;
     mayFinish: boolean;
+    /** 「在關聯圖上看這一次新增的」的焦點：這次研究寫進最多關聯的那一份；一條都沒寫是 `null`。 */
+    focusItemId: string | null;
   };
   id: string;
   kind: 'research' | 'consolidate';

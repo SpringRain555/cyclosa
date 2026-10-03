@@ -94,6 +94,8 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
     expect(summary.edges).toBeGreaterThan(0);
     expect(view.build.done).toBe(8);
     expect(view.candidates.every((c) => c.buildState === 'done')).toBe(true);
+    // 「在關聯圖上看這一次新增的」的焦點（R22）：寫進最多關聯的那一份。
+    expect(view.build.focusItemId).not.toBeNull();
   });
 
   it('停在半路的兩種：蒐集與建圖的作業被掃成停在半路，研究還在那一步', async () => {

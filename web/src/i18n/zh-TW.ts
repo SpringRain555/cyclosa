@@ -1193,6 +1193,13 @@ export const t = {
     citedBy: '被哪幾份引用',
     reviewTally:
       '找到 {found}、拿到 {acquired}、只留書目／留著不抽 {reference}、丟掉 {discard}、進圖 {include}',
+    /** 從「歷次研究」點開一次已經結束的研究（唯讀，v0.26.0）。 */
+    finishedClose: '收起',
+    finishedSummary:
+      '進圖 {include} 份、只留書目 {reference} 份、只留著不抽 {keep} 份、丟掉 {discard} 份。',
+    finishedShowOnGraph: '在關聯圖上看這一次新增的',
+    finalDecision: '最後的決定：{decision}',
+    finishedPlanOnly: '規劃到一半就放棄了，方向沒有落成表。當時的規劃：',
     title: '新的研究',
     topicLabel: '這次想研究什麼',
     topicPlaceholder: '一個主題、一個問題、一個人',

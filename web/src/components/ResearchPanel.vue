@@ -481,6 +481,50 @@ function readItem(itemId: string): void {
   void router.push(`/case/${encodeURIComponent(props.slug)}/reader/${encodeURIComponent(itemId)}`);
 }
 
+/**
+ * 已經結束的那一次（從「歷次研究」點開）：**唯讀**。
+ *
+ * v0.25.0 的畫面只認還沒結束的那一次（`open`），點開一次做完的研究只看得到缺口評估 ——
+ * 方向、候選、每一列最後的決定、「在關聯圖上看這一次新增的」（R22）都不見了。
+ * 2026-10-03 用合成資料截「完成」那一格才看到。這一塊沒有任何會動資料的按鈕。
+ */
+const finished = computed(() =>
+  current.value !== null &&
+  (current.value.status === 'done' || current.value.status === 'abandoned')
+    ? current.value
+    : null,
+);
+
+function finishedRowsOf(d: FrozenDirection): Candidate[] {
+  return (finished.value?.candidates ?? []).filter((c) => c.directionIds[0] === d.id);
+}
+
+/** 一列最後的決定，用確認畫面上那四種說法（有正文的中間那一格叫「只留著，不抽」）。 */
+function finalLabelOf(c: Candidate): string {
+  if (c.effectiveDecision === 'include') return t.research.decisionInclude;
+  if (c.effectiveDecision === 'discard') return t.research.decisionDiscard;
+  return c.hasBody ? t.research.decisionKeep : t.research.decisionReference;
+}
+
+const finishedSummary = computed(() => {
+  const r = finished.value;
+  if (r === null) return '';
+  const count = (pick: (c: Candidate) => boolean): number => r.candidates.filter(pick).length;
+  return fill(t.research.finishedSummary, {
+    include: count((c) => c.effectiveDecision === 'include'),
+    reference: count((c) => c.effectiveDecision === 'reference' && !c.hasBody),
+    keep: count((c) => c.effectiveDecision === 'reference' && c.hasBody),
+    discard: count((c) => c.effectiveDecision === 'discard'),
+  });
+});
+
+/** 焦點是這次研究寫進最多關聯的那一份（伺服器算的，`build.focusItemId`）。 */
+function showFinishedOnGraph(): void {
+  const focus = finished.value?.build.focusItemId ?? null;
+  if (focus === null) return;
+  void router.push({ path: `/case/${encodeURIComponent(props.slug)}`, query: { focus } });
+}
+
 /** 「其他」要寫一句 —— 那一格空著的時候按鈕不給按。 */
 function mayMark(c: Candidate): boolean {
   const reason = reasonDraft.value[c.id] ?? 'paywall';
@@ -1123,6 +1167,91 @@ const hitsText = computed(() => {
       </footer>
     </template>
 
+    <!-- 已經結束的那一次（從「歷次研究」點開）：唯讀，沒有任何會動資料的按鈕。 -->
+    <section v-if="finished !== null" class="finished">
+      <header class="live-head">
+        <strong class="topic">{{ finished.topic }}</strong>
+        <span class="badge">{{ t.research.status[finished.status] }}</span>
+        <button class="quiet small" type="button" @click="current = null">
+          {{ t.research.finishedClose }}
+        </button>
+      </header>
+      <template v-if="finished.directions.length > 0">
+        <p v-if="finished.status === 'done'" class="callout">{{ finishedSummary }}</p>
+        <div v-if="finished.build.focusItemId !== null" class="actions">
+          <button type="button" @click="showFinishedOnGraph">
+            {{ t.research.finishedShowOnGraph }}
+          </button>
+        </div>
+        <ol class="collect-directions">
+          <li
+            v-for="d in finished.directions.filter((entry) => entry.adopted)"
+            :key="d.id"
+            class="collect-direction"
+          >
+            <div class="direction-line">
+              <strong>{{ d.title }}</strong>
+              <span v-if="d.origin === 'human'" class="badge human">{{ t.research.edited }}</span>
+              <span class="muted small">{{ fill(t.research.reviewTally, { ...d.tally }) }}</span>
+            </div>
+            <ul v-if="finishedRowsOf(d).length > 0" class="candidates">
+              <li v-for="c in finishedRowsOf(d)" :key="c.id" :class="['candidate', c.acquisition]">
+                <div class="cand-head">
+                  <span :class="['badge', 'acq', c.acquisition]">
+                    {{ t.research.acquisition[c.acquisition] }}
+                  </span>
+                  <button
+                    v-if="
+                      c.itemId !== null &&
+                      (c.acquisition === 'fetched' || c.acquisition === 'uploaded')
+                    "
+                    class="link cand-title"
+                    :title="t.research.openInReader"
+                    @click="readItem(c.itemId)"
+                  >
+                    {{ c.title.length > 0 ? c.title : c.url }}
+                  </button>
+                  <a
+                    v-else
+                    class="cand-title"
+                    :href="c.url"
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    {{ c.title.length > 0 ? c.title : c.url }}
+                  </a>
+                  <span class="muted small host">{{ c.host }}</span>
+                </div>
+                <p class="hint">
+                  {{ fill(t.research.finalDecision, { decision: finalLabelOf(c) }) }}
+                  <template v-if="c.decision !== null"> · {{ t.research.decisionEdited }}</template>
+                </p>
+                <p v-if="c.buildCode" class="hint">
+                  {{ errorMessages[c.buildCode] ?? c.buildCode }}
+                </p>
+                <p v-if="c.titleZh !== null && c.titleZh !== c.title" class="small zh-title">
+                  {{ c.titleZh }}
+                </p>
+                <p
+                  v-if="digestLineOf(c).length > 0"
+                  :class="['small', 'digest', c.relevance ?? 'none']"
+                >
+                  {{ digestLineOf(c) }}
+                </p>
+              </li>
+            </ul>
+          </li>
+        </ol>
+      </template>
+      <!-- 規劃到一半就放棄：方向還沒落成表，列當時的規劃。 -->
+      <template v-else>
+        <p class="hint">{{ t.research.finishedPlanOnly }}</p>
+        <ol class="finished-plan">
+          <li v-for="(d, i) in finished.plan.directions" :key="i">{{ d.title }}</li>
+        </ol>
+      </template>
+    </section>
+
     <section v-if="current?.gap" class="gap-assessment">
       <h3>{{ t.research.gapOpinion }}</h3>
       <p class="gap-opinion">{{ current.gap.opinion }}</p>
@@ -1179,6 +1308,17 @@ const hitsText = computed(() => {
 <style scoped>
 .gap-opinion {
   white-space: pre-wrap;
+}
+
+/* 已經結束的那一次：跟上面的輸入框隔開，看得出是另一塊。 */
+.finished {
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line-subtle);
+}
+.finished-plan {
+  margin: var(--s2) 0 0;
+  padding-left: var(--s5);
 }
 
 .live-head {

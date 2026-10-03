@@ -216,6 +216,11 @@ export interface ResearchView {
     readonly total: number;
     readonly mayResume: boolean;
     readonly mayFinish: boolean;
+    /**
+     * 「在關聯圖上看這一次新增的」的焦點：這次研究的作業裡**寫進最多關聯的那一份**（R22，v0.23.0 那顆按鈕的做法）。
+     * 續跑會另開一筆作業（S7-3），所以看的是這次研究的每一筆，不只最後一筆。一條都沒寫是 `null`。
+     */
+    readonly focusItemId: string | null;
   };
   readonly id: string;
   readonly kind: ResearchKind;
@@ -343,6 +348,19 @@ export async function hasCandidateBody(folder: string, itemId: string | null): P
 
 export function bodyAvailable(derived: { readonly text: string } | null): boolean {
   return derived !== null && derived.text.trim().length > 0;
+}
+
+/** 這次研究的作業裡寫進最多關聯的那一份（見 `ResearchView.build.focusItemId`）。 */
+function focusOf(db: DatabaseSync, researchId: string): string | null {
+  let best: { readonly itemId: string; readonly edges: number } | null = null;
+  for (const runId of research.listResearchRunIds(db, researchId)) {
+    for (const entry of runs.listRunItems(db, runId)) {
+      if (entry.itemId === null || entry.newEdges <= 0) continue;
+      if (best === null || entry.newEdges > best.edges)
+        best = { itemId: entry.itemId, edges: entry.newEdges };
+    }
+  }
+  return best?.itemId ?? null;
 }
 
 export async function viewOf(
@@ -477,6 +495,7 @@ export async function viewOf(
           ? 'cancelled'
           : 'interrupted',
       ),
+      focusItemId: focusOf(db, row.id),
     },
     costUsd: cost.costUsd,
     unknownCost: cost.unknown,

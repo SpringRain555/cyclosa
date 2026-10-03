@@ -444,7 +444,10 @@
 > `digestCode`（讀失敗的原因），以及那一份資料的 `titleZh`、`summaryZh`、`digestedBy`、`digestedAt`（衍生物，原文是 `title`）。
 > `collect.work` 多 `digests`；研究多 `digestService`（閘門一那句話的後半）與 `costByTask`
 > （逐任務：`plan`、`find-sources`、`digest`、`extract` 各自 `requests`／`costUsd`／`unpriced`，沒跑過的任務不出現）。
-> 缺口評估沿用 `plan` 任務，包含失敗與重試的花費，畫面標「規劃與缺口評估」；全部未回報顯示「不知道」，部分未回報則列已知金額與未知次數。
+> 缺口評估沿用 `plan` 任務，包含失敗與重試的花費（2026-10-03 起畫面不顯示金額，API 照舊回）。
+>
+> **`build.focusItemId`**（v0.26.0）：這次研究的作業裡寫進最多關聯的那一份（續跑另開的作業也算）；
+> 「在關聯圖上看這一次新增的」拿它當焦點，一條都沒寫是 `null`。
 >
 > **蒐集的進度走作業那一條 SSE**（`…/runs/:runId/events`，`collect.runId`）—— 研究自己沒有進度通道，
 > 做事的是那一筆作業（D3）。事件多兩種：`direction`（一條方向搜完了）、`digest`（一份讀完了，Stage 21）。

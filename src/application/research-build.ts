@@ -340,10 +340,9 @@ async function processBuild(
           if (decision === 'discard' && itemId !== null)
             items.setStatus(activeDb, itemId, 'excluded', Date.now());
           if (decision === 'reference' && !body) {
-            if (itemId === null || items.getItem(activeDb, itemId)?.kind !== 'reference') {
-              itemId = newId();
-              items.insertReference(activeDb, {
-                id: itemId,
+            const current = itemId === null ? null : items.getItem(activeDb, itemId);
+            if (itemId === null || current?.kind !== 'reference') {
+              const reference = {
                 title: candidate.title,
                 url: candidate.url,
                 runId: state.runId,
@@ -357,16 +356,39 @@ async function processBuild(
                   acquisition: candidate.acquisition,
                   expectedAccess: candidate.expectedAccess,
                 }),
-              });
+              };
+              // 這個網址可能已經有一列：蒐集抓不到正文時留下的（例如被機器人驗證擋下）。
+              // `requested_url` 是唯一的 —— 再插一列同網址的書目會撞唯一索引、整批建圖中止（2026-10-03 錄影撞到）。
+              const sameUrl = items.findByRequestedUrl(activeDb, candidate.url);
+              if (sameUrl?.kind === 'reference') {
+                itemId = sameUrl.id; // 別的候選已經替同一個網址建過書目
+              } else if (
+                sameUrl !== null &&
+                sameUrl.sha256 === null &&
+                (sameUrl.status === 'failed' || sameUrl.status === 'pending')
+              ) {
+                itemId = sameUrl.id; // 抓不到正文留下的那一列：就地改成書目節點
+                items.convertToReference(activeDb, { id: itemId, ...reference });
+                newNodes = 1;
+              } else {
+                // 沒有同網址的列；或同網址已經有一份有快照的資料（正文空白）——書目另立一列，不搶它的網址
+                itemId = newId();
+                items.insertReference(activeDb, {
+                  id: itemId,
+                  ...reference,
+                  requestedUrl: sameUrl === null ? candidate.url : null,
+                });
+                newNodes = 1;
+              }
               research.setCandidateItem(activeDb, candidate.id, itemId, Date.now());
-              indexText(activeDb, {
-                ownerKind: 'item',
-                ownerId: itemId,
-                lang: 'und',
-                title: candidate.title,
-                text: '',
-              });
-              newNodes = 1;
+              if (newNodes === 1)
+                indexText(activeDb, {
+                  ownerKind: 'item',
+                  ownerId: itemId,
+                  lang: 'und',
+                  title: candidate.title,
+                  text: '',
+                });
             }
             for (const citingId of candidate.citedBy) {
               const citing = research.getCandidate(activeDb, citingId);

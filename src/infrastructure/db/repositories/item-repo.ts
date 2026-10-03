@@ -50,7 +50,16 @@ type Raw = Record<string, unknown>;
 
 export function insertReference(
   db: DatabaseSync,
-  input: { id: string; title: string; url: string; bibJson: string; runId: string; now: number },
+  input: {
+    id: string;
+    title: string;
+    url: string;
+    bibJson: string;
+    runId: string;
+    now: number;
+    /** 預設跟 `url` 一樣；同網址已經有一份有快照的資料時傳 `null`（`requested_url` 是唯一的）。 */
+    requestedUrl?: string | null;
+  },
 ): void {
   db.prepare(
     `INSERT INTO item (id, kind, title, requested_url, source_url, status, bib_json, run_id, created_at, updated_at)
@@ -58,13 +67,29 @@ export function insertReference(
   ).run(
     input.id,
     input.title,
-    input.url,
+    input.requestedUrl === undefined ? input.url : input.requestedUrl,
     input.url,
     input.bibJson,
     input.runId,
     input.now,
     input.now,
   );
+}
+
+/**
+ * 把同網址那一列**改成**書目節點，不另插一列（`requested_url` 有唯一索引）。
+ * 只用在沒有正文的那一列：抓失敗或還沒抓（建圖「只留書目」時，蒐集已經替那個網址留了一列）。
+ * 跟「替一個網址上傳」接手失敗的那一列同一個道理 —— 那一列從此屬於這一筆作業（`run_id`，「復原」看的是它）。
+ */
+export function convertToReference(
+  db: DatabaseSync,
+  input: { id: string; title: string; url: string; bibJson: string; runId: string; now: number },
+): void {
+  db.prepare(
+    `UPDATE item SET kind = 'reference', title = ?, source_url = ?, status = 'included', bib_json = ?,
+       error_code = NULL, run_id = ?, updated_at = ?
+     WHERE id = ?`,
+  ).run(input.title, input.url, input.bibJson, input.runId, input.now, input.id);
 }
 
 export function setItemExtracted(

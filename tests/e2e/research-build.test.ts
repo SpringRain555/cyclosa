@@ -213,6 +213,78 @@ afterEach(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
+it('「要你拿」那一列抓失敗時留下的那一列，建圖把它改成書目節點 —— 不另插一列、不中止整批', async () => {
+  // 2026-10-03 錄影時撞到：網址被機器人驗證擋下（FETCH_BOT_CHALLENGE），蒐集已經為它留了一列失敗的 web；
+  // 建圖照「只留書目」再插一列同網址的書目 → item.requested_url 的唯一索引擋下 → 整批 RESEARCH_UNEXPECTED。
+  const failedId = newId();
+  await inDb((db) => {
+    items.insertPendingItem(db, {
+      id: failedId,
+      kind: 'web',
+      requestedUrl: 'https://example.test/3',
+      title: 'https://example.test/3',
+      runId: newId(),
+      now: Date.now(),
+    });
+    items.markFailed(db, failedId, 'FETCH_BOT_CHALLENGE', Date.now());
+    research.setCandidateItem(db, candidateIds[3]!, failedId, Date.now());
+  });
+  const started = await startBuilding(root, slug, researchId);
+  expect(started.ok, JSON.stringify(started)).toBe(true);
+  await idle();
+  const end = await view();
+  expect(end.status).toBe('done');
+  expect(end.build.done).toBe(4);
+  await inDb((db) => {
+    expect(research.getCandidate(db, candidateIds[3]!)!.itemId).toBe(failedId);
+    expect(items.getItem(db, failedId)).toMatchObject({
+      kind: 'reference',
+      status: 'included',
+      title: '合成候選 3',
+      sourceUrl: 'https://example.test/3',
+      requestedUrl: 'https://example.test/3',
+    });
+    expect(JSON.parse(items.getItem(db, failedId)!.bibJson!)).toMatchObject({ why: '測試理由' });
+    expect(
+      db
+        .prepare('SELECT COUNT(*) AS total FROM item WHERE requested_url = ?')
+        .get('https://example.test/3'),
+    ).toMatchObject({ total: 1 });
+    expect(
+      db
+        .prepare("SELECT origin, status FROM edge WHERE target_id = ? AND rel = '引用'")
+        .get(failedId),
+    ).toMatchObject({ origin: 'human', status: 'confirmed' });
+  });
+});
+
+it('同網址已有一份有快照、但正文空白的資料：書目另立一列、不搶它的網址', async () => {
+  const folder = join(root, 'cases', slug);
+  const derived = await readDerived(folder, itemIds[1]!);
+  await writeDerived(folder, itemIds[1]!, { ...derived!, text: '   \n' });
+  await inDb((db) =>
+    db
+      .prepare('UPDATE item SET requested_url = ? WHERE id = ?')
+      .run('https://example.test/1', itemIds[1]!),
+  );
+  const started = await startBuilding(root, slug, researchId);
+  expect(started.ok, JSON.stringify(started)).toBe(true);
+  await idle();
+  expect((await view()).status).toBe('done');
+  await inDb((db) => {
+    const referenceId = research.getCandidate(db, candidateIds[1]!)!.itemId!;
+    expect(referenceId).not.toBe(itemIds[1]);
+    expect(items.getItem(db, referenceId)).toMatchObject({
+      kind: 'reference',
+      requestedUrl: null,
+      sourceUrl: 'https://example.test/1',
+    });
+    expect(items.getItem(db, itemIds[1]!)).toMatchObject({
+      requestedUrl: 'https://example.test/1',
+    });
+  });
+});
+
 it('進圖走真抽取；書目、人建引用、排除、留著不抽與花費都有紀錄', async () => {
   const started = await startBuilding(root, slug, researchId);
   expect(started.ok, JSON.stringify(started)).toBe(true);

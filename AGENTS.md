@@ -114,7 +114,9 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 > 要看四層與四種畫法而手上沒有模型，用 `tools/dev/seed-graph.ts`
 > （它只肯往空專題寫）；要範例資料就用設定頁「資料位置」分頁那顆
 > 「重建範例專題」（走真的匯入管線）；要把一份人抽的結果寫進專題，
-> 用 `tools/dev/apply-extraction.ts`（走 `applyExtraction`，規則一條都不繞）。
+> 用 `tools/dev/apply-extraction.ts`（走 `applyExtraction`，規則一條都不繞）；
+> 要截研究的中間狀態，用 `tools/dev/seed-research.ts --state <狀態>`（一個狀態一個空專題，不呼叫模型；
+> 停在半路的兩種**不要按「繼續」**，那會真的呼叫模型）。
 
 `src/` 有 domain／application／infrastructure／interface 四層與 `web/` 前端，
 守門測試在 `tests/guards/`，資料庫規格看 `docs/architecture/data-model.md` 與 migrations。

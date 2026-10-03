@@ -91,12 +91,22 @@ const modelName = computed(() =>
     ? serviceName.value
     : service.value.model,
 );
+/**
+ * 談一輪底下那句：走哪個服務、哪個模型、會不會用到額度。模型名空著（走 CLI 自己的預設）另有一句 ——
+ * 套進「「服務」上的 {model}」會變成「Claude Code 上的 Claude Code」。
+ */
+const sayHint = computed(() => {
+  const s = service.value;
+  if (s === null || !s.costs) return fill(t.research.sayFree, { model: modelName.value });
+  if (s.model.length === 0) return fill(t.research.sayCostsDefault, { service: serviceName.value });
+  return fill(t.research.sayCosts, { service: serviceName.value, model: s.model });
+});
 /** 「Claude Code · 模型」—— 模型名空著代表走那個服務自己的預設，只寫服務。 */
 function serviceNameOf(s: ServiceView): string {
   const name = t.settings.connectionNames[s.via];
   return s.model.length === 0 ? name : `${name} · ${s.model}`;
 }
-/** 「「服務」· 會花錢」—— 閘門與「繼續蒐集」旁邊，每一步各自說（ADR-0033 D2）。 */
+/** 「「服務」· 會用到額度」—— 閘門與「繼續蒐集」旁邊，每一步各自說（ADR-0033 D2）。 */
 function costLabelOf(s: ServiceView): string {
   return fill(s.costs ? t.research.serviceCosts : t.research.serviceFree, {
     service: serviceNameOf(s),
@@ -775,13 +785,7 @@ const hitsText = computed(() => {
             <span>{{ t.research.sayLabel }}</span>
             <textarea v-model="said" rows="3" :placeholder="t.research.sayPlaceholder"></textarea>
           </label>
-          <p class="hint">
-            {{
-              service?.costs
-                ? fill(t.research.sayCosts, { service: serviceName, model: modelName })
-                : fill(t.research.sayFree, { model: modelName })
-            }}
-          </p>
+          <p class="hint">{{ sayHint }}</p>
           <p v-if="service !== null && !service.browses" class="hint">{{ t.research.noBrowse }}</p>
           <div class="actions">
             <button :disabled="busy !== ''" @click="talk">

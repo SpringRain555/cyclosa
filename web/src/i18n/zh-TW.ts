@@ -1168,6 +1168,7 @@ export const t = {
    *
    * 每一步按下去之前要說得出「會不會用到線上的模型」—— 這個流程存在的理由就是「花錢之前停下來」。
    * **不寫金額**（2026-10-03 使用者決定）：Claude Code 回報的是等值價格，用訂閱的話不會真的扣這筆錢。
+   * 同一天「會花錢」也改成「**會用到額度**」：用訂閱的話，用掉的是額度不是錢。本機的照舊寫「不花錢」。
    */
   research: {
     open: '研究',
@@ -1217,8 +1218,10 @@ export const t = {
     sayPlaceholder: '例如：我要的是標準文件，不是新聞報導',
     say: '談一輪',
     saying: '模型在想…',
-    sayCosts: '談一輪會用到「{service}」上的 {model}，這一步會花錢。',
+    sayCosts: '談一輪走「{service}」上的 {model}，這一步會用到額度。',
     sayFree: '談一輪會用到本機的 {model}，不花錢。',
+    /** 模型名空著（走 CLI 自己的預設）時用這一句 —— 套進上面那句會變成「Claude Code 上的 Claude Code」。 */
+    sayCostsDefault: '談一輪走「{service}」上的預設模型，這一步會用到額度。',
     noBrowse: '這個服務不會上網查 —— 它只能用你專題裡已經有的東西談。',
     you: '你',
     model: '模型',
@@ -1241,9 +1244,9 @@ export const t = {
     gateOneHint: '按下去之前，一次搜尋、一次擷取都還沒有發生。',
     gateOneNext:
       '按下去之後會照這 {n} 條方向去找來源，把找到的抓回來，再把拿到的每一份初讀一次（有沒有關、繁中標題與摘要）。',
-    /** 閘門旁邊先說接下來哪幾步花錢、走哪個服務（ADR-0033 D2）。 */
+    /** 閘門旁邊先說接下來哪幾步會用到額度、走哪個服務（ADR-0033 D2）。 */
     gateOneRuns: '接下來會跑：找來源（{find}）、抓取（不花錢）、初讀（{digest}）。',
-    serviceCosts: '「{service}」· 會花錢',
+    serviceCosts: '「{service}」· 會用到額度',
     serviceFree: '「{service}」· 不花錢',
     gateOneNotReady: '至少要有一條方向。',
     frozenNotAdopted: '沒採用',
@@ -1449,7 +1452,7 @@ export const t = {
     sectionTasksWhat: '每個任務交給哪個服務上的哪個模型做。服務在下面設定一次，這裡挑。',
     testAll: '儲存並測試',
     testAllWhat:
-      '「儲存並測試」會先存這一頁，再對每一個設好的任務真的打一次。Claude Code 與線上服務會花錢，本機不會。',
+      '「儲存並測試」會先存這一頁，再對每一個設好的任務真的打一次。Claude Code 與線上服務會用到額度，本機不會。',
     testAllBusy: '測試中（{done}／{total}）…',
     testAllDone: '{ok}／{total} 個任務能用（{time}）',
     testSkipped: '還沒設定，略過',

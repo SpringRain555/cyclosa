@@ -423,4 +423,3 @@ model API，模型自己宣告的欄位）、**Ollama 上的下載大小**（reg
    而心智圖寫在另一頁。**「說明文件裡沒有」只能推到「那一頁沒有」。**
 3. **GitHub API 的 `NOASSERTION` 第二次不代表沒有授權** —— Zotero 是商標條款讓分類器放棄，
    SurfSense 是一個 repo 裡兩種授權。兩次都要讀 `LICENSE` 才知道答案。
-

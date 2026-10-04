@@ -2521,3 +2521,19 @@ HTML 每次抓都不同，雜湊也比不了。**那兩句話在寫下的那一�
 > 彩排的那一天沒遇到，就等於沒測過。測試的固定資料要照「真的會留下什麼」來造 —— 這一次缺的就是「抓失敗會留下一列」。
 
 **影響範圍**：`research-build.ts`（書目節點那一段）、`item-repo.ts`（`convertToReference`、`insertReference` 的 `requestedUrl`）
+
+## `npm audit fix` 說修好了、`npm ls` 也列出新版本，實際載入的還是舊版
+
+**發生了什麼**（2026-10-05）：處理公開前記下的 `npm audit`（fastify、fast-uri、brace-expansion）。`npm audit fix` 印的是「up to date」與 0 個，
+`package-lock.json` 改了 18 行，`npm ls` 也列出 fastify 5.12.5 —— 但 `node_modules/fastify/package.json` 還是 5.12.3（09-12 裝的那一份），
+`node -p "require('./node_modules/fastify/package.json').version"` 也是 5.12.3。
+`node_modules/.package-lock.json`（npm 用來快速讀「已經裝了什麼」的快取）已經寫成新版本，npm 照它判斷已經裝好，所以一個檔案都沒換；
+`npm ls` 與 `npm audit` 讀的也是那份快取，**兩個工具一起說修好了**。之前先跑過一次 `npm audit fix --dry-run`，懷疑是它寫了快取（沒有重現）。
+
+**怎麼修的**（v0.26.2）：刪掉 `node_modules/.package-lock.json` 這一個檔，再 `npm install` —— npm 改從磁碟讀已經裝了什麼，換了 6 個套件。
+沒有用 `npm ci`（它會整個刪掉 `node_modules`）。
+
+> **通則**：**升級相依之後，驗的是實際載入的版本，不是套件管理器的帳。** 讀 `node_modules/<套件>/package.json` 或 `require` 一次；
+> `npm ls`、`npm audit` 可能讀的是同一份過期的快取，兩個一起對也不算數。
+
+**影響範圍**：全域（所有 npm 專案；這一次只影響維護時的操作，`package-lock.json` 本身是對的）

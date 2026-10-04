@@ -149,4 +149,4 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 | D1（近似） | 從 clone 出來的乾淨副本跑 `npm ci`（8 秒）→ `npm run build`（5 秒）→ 用空的 `LOCALAPPDATA` 起 server：範例專題自動建好（8 份、6 個實體、13 條關聯，引文全部對到），`/healthz` 回 0.26.1，首頁與前端 JS 都是 200。**沒有從檔案總管雙擊**（那條會開瀏覽器），所以 D1 仍是 🟡 |
 | 人工看到、腳本查不到的 | 研究文件裡有一個**第三方代理服務的網域**（使用者給金鑰量測的那一個）。腳本掃的是我們自己的路徑與名字，別人的私人服務不在規則裡。第一次推之前連歷史一起換成文字描述（使用者決定） |
 | 跟產品無關的決策 | 對外活動的安排（日程、文件要求、組別這類）不屬於產品文件：第一次推之前改寫成只講產品，連歷史一起（使用者決定）|
-| 不擋公開、之後處理 | `npm audit`：執行期 2 個 moderate（fastify 的 HTTP/2 trailer 問題 —— 這裡只跑本機 HTTP/1.1；fast-uri 的網址正規化），開發工具 1 個 high（brace-expansion） |
+| 不擋公開、之後處理 | `npm audit`：執行期 2 個 moderate（fastify 的 HTTP/2 trailer 問題 —— 這裡只跑本機 HTTP/1.1；fast-uri 的網址正規化），開發工具 1 個 high（brace-expansion）。**2026-10-05 升級之後 0 個**（v0.26.2，見 changelog） |

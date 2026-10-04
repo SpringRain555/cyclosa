@@ -3,9 +3,23 @@
 **記「那一版改了什麼、為什麼」。** 未來的計畫在 `roadmap.md`，
 踩到什麼坑在 `lessons.md`。
 
-目前是 **v0.26.1**（2026-10-03：研究建圖不再因為抓不到正文的那一列中止）。
+目前是 **v0.26.2**（2026-10-05：升級有安全通報的三個相依套件）。
 
 ---
+
+## v0.26.2 —— 2026-10-05　升級有安全通報的三個相依套件
+
+**第一次公開前記下、排在之後處理的 `npm audit`**（`operations/release-checklist.md` 最後一節）。三個都在原本的版本範圍裡，
+`package.json` 的相依沒有改，只動 `package-lock.json`；授權都沒變（MIT、BSD-3-Clause）。升級之後 `npm audit` 0 個。
+
+| 套件 | 版本 | 在哪裡用到 | 通報 |
+|---|---|---|---|
+| `fastify` | 5.12.3 → 5.12.5 | 本機伺服器（執行期） | HTTP/2 trailer 回應的例外沒被接住，服務會停掉（GHSA-4mh8-r7rc-xpvc）。這裡只跑本機 HTTP/1.1、碰不到，照樣升 |
+| `fast-uri` | 3.1.7 → 3.1.8、4.1.4 → 4.2.1 | fastify 的 JSON schema 驗證（執行期） | 百分比編碼讓 host 的大小寫正規化不一致（GHSA-hrr3-gc8f-f4qj）、mailto 的標頭注入（GHSA-jvvf-x445-j334） |
+| `brace-expansion` | 5.0.9 → 5.0.12 | eslint 底下的 minimatch（只在開發時） | 特定的大括號樣式讓展開吃光 CPU 或堆疊（GHSA-q2hr-2g5m-vwhr、GHSA-qhr7-859c-m2p7、GHSA-6j4f-fj2g-mc7p） |
+
+- `npm audit fix` 第一次只改了 `package-lock.json`、沒有換 `node_modules` 裡的檔案，`npm ls` 卻照樣列出新版本 —— 見 `lessons.md` 最後一條
+- 驗證：`Verify.ps1` 全綠；`npm run build` 之後用空的 `LOCALAPPDATA` 起 server，`/healthz` 回 0.26.2，別的網站的 `Host` 照樣被擋
 
 ## v0.26.1 —— 2026-10-03　研究建圖不再因為「要你拿」的那一列中止
 

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "_readme": [
     "複製成 .claude/settings.json 再把佔位符換成實際路徑。那一份不進版控 ——",
-    "它列的是本機私人資料夾的實際名稱。這個 repo 預期會公開，所以更要守住。",
+    "它列的是本機私人資料夾的實際名稱。這個 repo 是公開的，所以更要守住。",
     "",
     "使用者層（~\\.claude\\settings.json）已經把整棵私人樹的讀寫設成 ask，",
     "並用不綁專案名的葉子 pattern 擋掉 *.sqlite / *.db / **/backups/**。",

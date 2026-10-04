@@ -265,7 +265,7 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 | 資料（不公開） | `<資料根目錄>` |
 | 指標檔 | `%LOCALAPPDATA%\Cyclosa\system_paths.json`（第一次啟動自動寫；預設資料根在它旁邊的 `data\`，之後可從設定頁搬走）|
 
-**`<資料根目錄>` 與 `<私人資料樹>` 是佔位符**，因為這個 repo 預期會公開 ——
+**`<資料根目錄>` 與 `<私人資料樹>` 是佔位符**，因為這個 repo 是公開的 ——
 把私人資料夾的實際名稱寫進版控，等於把那份清單一起發佈出去。
 實際路徑的權威來源是 `_meta\cards\cyclosa.md` 的 `data_root` 欄位，
 以及本機那份 `.claude\settings.json`（**不進版控**，範本是 `.claude\settings.example.json`）。

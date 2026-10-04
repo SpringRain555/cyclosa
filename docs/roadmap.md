@@ -44,7 +44,7 @@
 
 **2　公開 GitHub**（2026-09-29 使用者定了：**要公開**）：公開前照 CONVENTIONS §13 準備、跑 Stage 13 的公開前自檢，
 另外掃工作樹與整段歷史裡的個人資料（公開前自檢的腳本沒有這一條）；**建 repo 與每一次 push 都先問使用者**。
-**公開在 GitHub**（main 與 v0.25.0／v0.26.0／v0.26.1 三個 tag）：第一次推之前（2026-10-04）照 `operations/release-checklist.md` 過了一輪，結果在那份最後一節。
+**公開在 GitHub**（main 與 v0.25.0／v0.26.0／v0.26.1／v0.26.2 四個 tag）：第一次推之前（2026-10-04）照 `operations/release-checklist.md` 過了一輪，結果在那份最後一節。
 
 **3　接上 AMD 的雲端 LLM**（2026-10-03 使用者定）：AMD 給的雲端 LLM 範例是 vLLM＋GPT-OSS-120B 的 OpenAI 相容端點，
 v0.26.0 的「OpenAI 相容 API」那一格就接得上（金鑰變數可以留空）；實際相容性 —— Responses API 串流、JSON schema、推理模型多出來的輸出、

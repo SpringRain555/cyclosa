@@ -6,6 +6,7 @@
  * 那種偵測在 Windows 上特別脆（`file://` URL vs 絕對路徑、大小寫、正反斜線），
  * 而它壞掉的方式是「測試 import 它時默默起了一個真的 server」。
  */
+import { probeHealthz } from '@local-app/lifecycle/healthz';
 import { buildServer, HOST, PORT, VERSION } from './server.js';
 import { shutdownSequence, targetOf } from './interface/http/shutdown.js';
 import { installCrashTrace } from './shared/crash-trace.js';
@@ -22,15 +23,13 @@ installCrashTrace();
  * 那一份不能拿掉，它要在**啟動之前**就決定要不要開瀏覽器。
  */
 async function whoHasThePort(): Promise<'cyclosa' | 'other'> {
-  try {
-    const res = await fetch(`http://${HOST}:${PORT}/healthz`, {
-      signal: AbortSignal.timeout(2_000),
-    });
-    const body = (await res.json()) as { app?: unknown };
-    return body?.app === 'cyclosa' ? 'cyclosa' : 'other';
-  } catch {
-    return 'other';
-  }
+  const result = await probeHealthz({
+    url: `http://${HOST}:${PORT}/healthz`,
+    identityKey: 'app',
+    identityValue: 'cyclosa',
+    timeoutMs: 2_000,
+  });
+  return result.owner === 'ours' ? 'cyclosa' : 'other';
 }
 
 const { app } = await buildServer();

@@ -55,6 +55,11 @@ param(
 $ErrorActionPreference = 'Stop'
 # 這支住在 tools\，專案根目錄是它的上一層。
 $root = Split-Path -Parent $PSScriptRoot
+$lifecycleModule = Join-Path $root 'vendor\AppLifecycle.psm1'
+if (-not (Test-Path -LiteralPath $lifecycleModule -PathType Leaf)) {
+    throw '找不到共用生命週期套件。請先在專案根目錄執行 npm ci。'
+}
+Import-Module -Name $lifecycleModule -Force
 $port = 7433
 $url = "http://127.0.0.1:$port/"
 $separateEnvironment = $PSBoundParameters.ContainsKey('LocalAppData')
@@ -107,8 +112,11 @@ function Get-RepoVersion {
 # 回傳 'cyclosa' / 'stale' / 'other' / 'free'
 function Get-PortOwner {
     try {
-        $res = Invoke-WebRequest -Uri "$url`healthz" -UseBasicParsing -TimeoutSec 2
-        $body = $res.Content | ConvertFrom-Json
+        $health = Get-AppLifecycleHealthz -Uri "${url}healthz" -TimeoutSeconds 2
+        if (-not $health.Reachable -or $health.StatusCode -ne 200) {
+            throw 'Health endpoint is not ready.'
+        }
+        $body = $health.Body
         # **一定要看可辨識的欄位。** 只看「有沒有回 200」會把別人跑在 7433 的
         # 服務誤認成自己，然後把瀏覽器開到一個不相干的網頁。
         if ($body.app -eq 'cyclosa') {

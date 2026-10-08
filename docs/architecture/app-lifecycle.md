@@ -3,6 +3,8 @@
 **這一份是「這個程式怎麼開起來、怎麼結束」的權威。** 資料怎麼流見
 [`walkthrough.md`](walkthrough.md)，程式怎麼分層見 [`overview.md`](overview.md)。
 
+Node 本機 app 共用機制使用 `@local-app/lifecycle@0.1.0`：healthz 探測與有上限的關閉序列由套件提供，PowerShell launcher 載入本 repo 的 `vendor\AppLifecycle.psm1`。此 repo 同時版控 `vendor/local-app-lifecycle-0.1.0.tgz`，因此單獨 clone 仍可 `npm ci`；套件升版時同步更新 Cyclosa、Polistes、Rubricator 的 tarball 與 lock 檔。各 app 的 identity、readiness 與清理 callbacks 仍由本 repo 決定。
+
 > **為什麼要有這一份。**
 >
 > 生命週期原本散在四個地方：ADR-0020（埠與單一實例）、ADR-0025（啟動器退場）、

@@ -5,6 +5,10 @@
 
 ---
 
+## 共用 Node app 生命週期（完成 2026-10-08）
+
+`@local-app/lifecycle@0.1.0` 共用 healthz 探測與 bounded shutdown sequence；Cyclosa、Polistes、Rubricator 各自版控 tarball 與 `vendor\AppLifecycle.psm1`，獨立 clone 可安裝。app identity、readiness、資料清理仍由各 repo 負責。
+
 ## 待處理（2026-10-03 依 v0.25.0 出貨更新）
 
 **這一張是入口，細節不在這裡。** 每一列指向細節所在的那一節，那一節的 ⬜ 才是權威。

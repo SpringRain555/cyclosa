@@ -21,6 +21,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@local-app/lifecycle": "file:vendor/local-app-lifecycle-0.1.0.tgz",
     "@mozilla/readability": "^0.6.0",
     "3d-force-graph": "^1.80.0",
     "d3-force-3d": "^3.0.6",

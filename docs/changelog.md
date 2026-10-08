@@ -7,6 +7,14 @@
 
 ---
 
+## 未發行
+
+### 共用 Node app 生命週期（2026-10-08）
+
+- 採用 `@local-app/lifecycle@0.1.0` 的 healthz probe 與 bounded shutdown sequence；Cyclosa 保留自己的 health identity、版本判斷與 Fastify／任務取消 adapter。
+- `tools\Launch.ps1` 載入版控的 `vendor\AppLifecycle.psm1`；tarball 與 package lock 一併版控，單獨 clone 不需 Polistes repo。
+- 驗證：typecheck、lint、121 個測試檔／1,412 項測試通過；完整 `Verify.ps1` 與本機 launcher E2E 待階段收尾。
+
 ## v0.26.2 —— 2026-10-05　升級有安全通報的三個相依套件
 
 **第一次公開前記下、排在之後處理的 `npm audit`**（`operations/release-checklist.md` 最後一節）。三個都在原本的版本範圍裡，

@@ -82,7 +82,7 @@ report() {
 # 1. 作者與提交者身分 —— 去掉 > 之後的時間戳
 for who in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
 	ident=$(git var "$who" 2>/dev/null | sed 's/>.*$/>/')
-	if private_contains "$(printf '%s' "$ident" | private_normalize)"; then
+	if private_contains "$ident"; then
 		case "$who" in
 			GIT_AUTHOR_IDENT) report "commit 作者（git config user.name／user.email）" ;;
 			*)                report "commit 提交者（git config user.name／user.email）" ;;
@@ -93,11 +93,11 @@ done
 # 2. staged 的檔名與新增內容。core.quotepath=false：非 ASCII 檔名才不會被跳脫成對不上的路徑
 while IFS= read -r file; do
 	[ -n "$file" ] || continue
-	if private_contains "$(printf '%s' "$file" | private_normalize)"; then
+	if private_contains "$file"; then
 		report "某個 staged 檔案的檔名（用 git diff --cached --name-only 自己看）"
 	fi
 	added=$(git diff --cached --no-color --no-ext-diff -U0 -- "$file" | sed -n '/^+++ /d; s/^+//p')
-	if private_contains "$(printf '%s' "$added" | private_normalize)"; then
+	if private_contains "$added"; then
 		report "$file"
 	fi
 done <<EOF

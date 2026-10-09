@@ -10,7 +10,7 @@
 private_load_terms || exit 0
 
 # git 編輯器範本裡 # 開頭的註解行不算訊息
-msg=$(grep -v '^#' "$1" | private_normalize)
+msg=$(grep -v '^#' "$1")
 if private_contains "$msg"; then
 	cat <<'MSG'
 

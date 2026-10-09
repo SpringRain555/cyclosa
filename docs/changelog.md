@@ -38,6 +38,8 @@
   **它是參考，不是合併的條件** —— 「必須先過 CI」的規則會連維護者直接推 main 一起擋
 - **hooks**：私人清單守門 —— `pre-commit`（在共用段之後）查作者與提交者身分、staged 的檔名與新增內容，`commit-msg` 查訊息；
   清單在 `.git/info/private-terms.txt`，不在工作樹、永遠進不了 commit；命中只印位置、不印詞；沒有清單就提示、放行。
+  **兩種詞兩種比法**：含中文的詞去掉 ASCII 的空白與標點再比子字串；純英數的詞照字的邊界比、各段之間可以夾任何分隔 ——
+  第一版一律「黏成一串再比」，第一次用正式清單掃 vendor 的 tarball，一個三個字母的縮寫就在 `healthz.js` 裡湊了出來（誤報）。
   `pre-push` 擋推 main，維護者的 clone 設 `cyclosa.mainPusher=true`。三支設成可執行（WSL 的 git 會略過沒有執行位元的 hook）。
   改寫自 sandbox-spectrum（同一作者）
 - `.gitattributes` 補 `*.yml`／`*.yaml` 的 `eol=lf`：prettier 也查 YAML，Windows 簽出成 CRLF 會讓 CI 一開始就紅

@@ -117,6 +117,7 @@ ollama pull hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16
 - `docs/index.md`：文件總覽與閱讀路線。
 - `docs/roadmap.md`、`docs/changelog.md`：開發進度與已出貨的變更。
 - `AGENTS.md` 或 `CLAUDE.md`：修改程式前必讀的分層、資料邊界與守門規則；兩份內容相同，只有標題與互指聲明不同。
+- `CONTRIBUTING.md`：一起開發的流程 —— 分支、PR、誰合併，以及哪些東西不能進公開的 repo。
 - `docs/architecture/glossary.md`：專題、資料、關聯等用語與命名規則。
 - `docs/lessons.md`：已踩過的坑與原因。
 - `docs/research/market-scan.md`：相關工具的概念比較，區分借鑑概念與使用程式碼。

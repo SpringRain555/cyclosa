@@ -25,6 +25,10 @@
 > 「最近的那一份勝出」—— 失敗方向是「Codex 讀不到上游規則」，所以**這一份必須自給自足**
 > （§14）。完整脈絡見 `_meta\cards\cyclosa.md`。
 
+> **clone 這個 repo 的協作者**：協作流程（分支、PR、誰合併、哪些東西不能進公開的 repo）在 `CONTRIBUTING.md`。
+> 這份文件提到的 `D:\Projects\…`、`_meta\…`（含上面那張卡片）是維護者本機的治理資料夾，**你的電腦上沒有** ——
+> 以本 repo 的文件為準；找不到的就是不存在，不用去建。
+
 ## 這是什麼
 
 從一個「點」（主題／人物／事件／一批檔案）出發，用 LLM 主動擴展成一張
@@ -367,7 +371,7 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 
 | | 現況 |
 |---|:--:|
-| `.\tools\Verify.ps1` | ✅ 2026-09-13 實跑全綠 |
+| `.\tools\Verify.ps1` | ✅ 2026-10-09 實跑全綠；GitHub Actions 在每個 PR 與每次推 main 也跑同一支（`.github/workflows/verify.yml`）|
 | `start_cyclosa.cmd`／`.\tools\Launch.ps1` | ✅ 起 server、開瀏覽器；共用 healthz 與關閉序列在 `@local-app/lifecycle@0.1.0`，PowerShell helper 由 `vendor\AppLifecycle.psm1` 載入 |
 | `npm test` | ✅ **數量不寫在這裡** —— 寫死的數字每一版都會漂 |
 | `npm run build` | ✅ |

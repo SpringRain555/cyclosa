@@ -3,16 +3,16 @@
 **這份是分層規則、擷取流程與檔案地圖的權威。** 欄位細節在 `data-model.md`，
 狀態轉移在 `state-machines.md`，兩者都不要在這裡重複。
 
-> **現況（2026-09-08）**：下面的檔案地圖**每一格都存在了**
-> —— 除了 `domain/note/`，它實際上叫 `domain/annotation/`（v0.6.0 改的名，
-> 因為它裝的是選擇器與錨點解析，不是「筆記」這個概念）。
-> v0.8.0 另外加了 `domain/export/`。
+> **現況（2026-10-09 照實際的樹重畫）**：下面的檔案地圖**只畫到資料夾那一層**（少數單檔例外）——
+> 個別檔案每一版都會加，寫到檔名的話這張圖每一版都會過期。2026-10-09 對的時候，它還列著四處不存在的資料夾
+> （`src/config/`、`interface/sse/`、`providers/` 底下三個、`components/` 底下三個），漏了 `domain/research/`、`domain/run/`、
+> `infrastructure/sources/` 與 `components/pdf/`（`lessons.md`）。
+> `domain/annotation/` 在設計時叫 `domain/note/`（v0.6.0 改的名，因為它裝的是選擇器與錨點解析，不是「筆記」這個概念）。
 >
 > **一次完整流程的順序**（從匯入到匯出，以及每一步用不用模型）在
 > `walkthrough.md`，不在這一份。
 >
-> 守門測試從 v0.1.0 起有四條，v0.3.0 加第五條（沒有整圖端點），
-> v0.7.0 再加三條（版本號、schema 版本、i18n 純文字）—— **現在八條**。
+> 守門測試在 `tests/guards/`，**條數不寫在這裡**（這一段曾寫「現在八條」，而那個數字早就過期了）。
 > **每一條都注入過真實違規驗證它會紅。**
 
 ---
@@ -102,10 +102,11 @@ flowchart TB
 
 ```
 src/
-├─ main.ts                建 server、掛路由、開資料庫、註冊 provider
-├─ config/                設定載入、指標檔、預設值
-├─ domain/                純邏輯，不 import infrastructure
-│  ├─ case/               專題生命週期與狀態機
+├─ main.ts                單一實例檢查（healthz）、listen、關閉序列（@local-app/lifecycle）
+├─ server.ts              建 Fastify app、掛路由；HOST／PORT／VERSION
+├─ assets/                範例專題的語料（sample-corpus.json）與它的說明
+├─ domain/                純邏輯，不 import infrastructure，也不 import 任何 npm 套件
+│  ├─ case/               專題的狀態機與 slug 規則
 │  ├─ graph/              node／edge 型別、四層、可信度、邊的狀態機、
 │  │                      墓碑比對鍵、出處規則、投影三段 ←【零依賴】
 │  ├─ ingest/             擷取階段的狀態機與規則；節流與退避的數字（唯一宣告處）
@@ -113,31 +114,38 @@ src/
 │  ├─ text/               空白等價的比對與原文座標 ←【引文與點註共用同一支】
 │  ├─ entity/             實體識別鍵、別名比對、合併建議
 │  ├─ sources/            來源網站的可讀性判定（歷史優先）
+│  ├─ research/           研究的規則：蒐集、建圖、缺口評估，以及抽進圖（consolidate）
+│  ├─ run/                作業的復原計畫（planUndo）
 │  ├─ export/             證據包的形狀與它的 Markdown／JSONL ←【純函式】
 │  ├─ search/             查詢解析、bigram 切分、混合排序 ←【純函式】
-│  ├─ provider/           能力宣告與任務需求的配對規則
+│  ├─ provider/           能力宣告與任務需求的配對規則、花費加總
 │  └─ errors/             錯誤碼常數 ← error-codes.md 的單一真實來源
-├─ application/           用例編排，一律回 Result{ok,code,correlationId}
+├─ application/           用例編排（*-service.ts、research-*.ts），一律回 Result{ok,code,correlationId}
 ├─ infrastructure/
-│  ├─ db/                 node:sqlite、migrations/、repositories/
+│  ├─ db/                 node:sqlite、migrations/、repositories/、復原的刪除核心、舊擴展的清除
 │  ├─ fetch/              節流器、限流時的退避重試、robots、快照寫入、manifest.jsonl
 │  ├─ extract/            readability＋linkedom、pdfjs、語言偵測、抽取信心
 │  ├─ index/              bigram 表寫入、FTS5、title_rank、向量 BLOB
-│  ├─ providers/          agent/ chat/ embed/
-│  └─ fs/                 資料根、指標檔、備份
-├─ interface/http/ sse/
-└─ shared/                Result、log、id、時間
+│  ├─ providers/          模型服務（一層，不分子資料夾）：agent-*（Claude Code CLI、OpenAI 相容 API、
+│  │                      把對話服務包成規劃用的 agent）、chat-*（Ollama、OpenAI 相容）、embed-ollama、
+│  │                      設定與建議值（config.ts）、JSON 能力的量測紀錄、spawn-piped（子程序不經 shell）
+│  ├─ sources/            內建的來源網站清單與使用者的設定
+│  └─ fs/                 資料根與指標檔的路徑、專題的檔案、模型呼叫紀錄
+├─ interface/http/        路由（routes.ts）、請求來源檢查（request-guard.ts，ADR-0036）、靜態檔、關閉
+└─ shared/                Result、log、id、crash-trace
 
 web/src/
 ├─ views/                 專題清單／關聯圖／閱讀器／作業紀錄／設定
-├─ components/graph/      GraphView.vue（包住 3d-force-graph）、圖例、篩選器、2D 切換
+├─ components/            面板（一層）：研究、抽進圖、點註、來源、資料位置、狀態說明、錯誤面板、原文／繁中切換…
+├─ components/graph/      GraphView.vue（包住 3d-force-graph）、圖例、選取與關聯面板、合併、搜尋、證據包匯出
 │                         objects.ts —— three.js 的幾何與材質工廠（顏色仍然只從 tokens.css 讀）
-├─ components/reader/ notes/ common/
-│                         graph/ExportPanel.vue —— 證據包匯出
+├─ components/pdf/        PDF 的版面檢視（PdfPages.vue）與 pdf.js 的載入
 ├─ workers/layout.worker.ts
-├─ stores/
+├─ stores/                專題、圖、模型狀態、原文／繁中切換
+├─ types/                 手寫的型別宣告（d3-force-3d）
+├─ api.ts                 前端唯一呼叫 HTTP 的地方
 ├─ i18n/zh-TW.ts          **所有 UI 字串的唯一來源**
-└─ styles/tokens.css      **顏色與記號的唯一來源**（ADR-0018）
+└─ styles/                tokens.css —— **顏色與記號的唯一來源**（ADR-0018）；base.css —— 按鈕、輸入框與版面的基礎
 ```
 
 > **`domain/search/` 是純函式，`infrastructure/index/` 才碰資料庫。**
@@ -156,7 +164,8 @@ web/src/
 
 ## 錯誤處理
 
-碼分組 `FETCH_*`／`PARSE_*`／`PROVIDER_*`／`GRAPH_*`／`CASE_*`／`IO_*`。
+碼的前綴就是分組（`FETCH_*`、`PARSE_*`、`PROVIDER_*`、`RESEARCH_*`、`CONSOLIDATE_*`……）。
+**完整的碼只在 `src/domain/errors/codes.ts`**，這裡不列 —— 這一行原本列了六組，而實際已經有十二組。
 **UI 只顯示繁中訊息，碼只進日誌**；每次操作帶 `correlation_id`。
 
 **絕不因為單一項目失敗讓整批失敗** —— `部分失敗` 是一等公民（見 `state-machines.md`）。

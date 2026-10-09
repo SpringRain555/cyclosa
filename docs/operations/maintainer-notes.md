@@ -122,8 +122,8 @@
 | 找來源走 OpenAI 相容 API 停手，說缺「browse」或「沒有搜尋就交回了網址」 | **那是量出來的。** 端點收了 `web_search` 工具卻沒搜（回應裡沒有完成的 `web_search_call`），或根本沒有 `/responses`；設定頁「上網搜尋」那一行寫著原因。**沒搜就交回的網址不採用**（ADR-0034）| `tests/infrastructure/agent-openai.test.ts`、`tests/e2e/research-collect.test.ts` |
 | OpenAI 相容 API 的回應是空的、或設定頁說「還沒量過」而明明量過 | Responses API **不串流會回空的 `output`**（一律串流，`responses-api.ts`）；v0.24.1 之前的量測沒有 `protocol` 欄位，讀到就當沒量過、重量一次 | `tests/infrastructure/chat-openai.test.ts` 的「先走 Responses API」 |
 | agent 起不來，說結束碼不是 0 | 先把實際下的命令列印出來。**子程序一律不經過 shell**（2026-10-02 起）：設定裡的指令是 `.cmd`／`.bat` 時直接回「不支援、改用原生安裝的 `claude.exe`」 | `agent-claude.ts` 的 `isShellWrapper`、`tests/guards/no-shell-spawn.test.ts` |
-| 研究花費看起來少了 | 規劃與缺口評估計費紀錄，加上所有 `run.research_id` 對應作業的逐任務花費；沒回報的次數另外數 | `tests/tools/research-cost.test.ts` |
-| 畫面說「本機執行，無金額成本」但用的是 `claude` | 那句話只在 `cost_usd = 0` 時出現。**`NULL` 是「這個模型沒有回報金額」** —— 兩者不同 | `data-model.md` |
+| 研究的花費（紀錄與 API —— 畫面 2026-10-03 起不顯示金額）看起來少了 | 規劃與缺口評估計費紀錄，加上所有 `run.research_id` 對應作業的逐任務花費；沒回報的次數另外數 | `tests/infrastructure/research-repo.test.ts`（`costSoFar`）|
+| 紀錄或 API 的 `cost_usd` 是 0，但用的是 `claude` | `0` 是「回報了 0」；**`NULL` 是「這個模型沒有回報金額」** —— 兩者不同。畫面不顯示金額（2026-10-03），這一列只跟紀錄與 API 有關 | `data-model.md` |
 
 ## 證據包匯出
 

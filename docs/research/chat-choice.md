@@ -62,7 +62,7 @@ schema 的 `enum` 一個都沒攔到 —— **它保證了格式，沒有保證�
 
 ## 怎麼量
 
-- **走真的會出貨的那幾支**：提示詞用 `application/expansion-prompts.ts`、
+- **走真的會出貨的那幾支**：提示詞用 `application/expansion-prompts.ts`（v0.25.0 舊擴展退場時刪掉，抽取的提示詞搬到 `extraction-prompts.ts`）、
   正規化用 `domain/provider/`、引文定位用 `locateQuote`、
   `num_ctx` 用 `REQUIRED_CONTEXT_TOKENS` —— 跟擴展作業實際跑的是同一條路。
 - **每個任務重複三次，而且每一次換一份文件。** 同一份跑三次的話，
@@ -315,7 +315,8 @@ schema 的 `enum` 一個都沒攔到 —— **它保證了格式，沒有保證�
 > 覆寫之後那不再是實際會跑的東西，所以把抽取覆寫到一個 context 不夠的模型上
 > 會一路通過 —— 跟 2026-09-09 修掉的那個缺口是同一種形狀，
 > 只是這一次「被檢查的」與「實際跑的」差在模型而不是任務。
-> `tests/e2e/expansion-flow.test.ts` 的「chat 的逐任務覆寫」三條守著它。
+> `tests/e2e/expansion-flow.test.ts` 的「chat 的逐任務覆寫」三條守著它
+> （那一支在 v0.25.0 舊擴展退場時刪掉；逐任務覆寫的測試現在在 `tests/e2e/provider-tasks.test.ts`）。
 
 ---
 

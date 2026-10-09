@@ -48,6 +48,18 @@ jobs:
       - name: 安裝相依（照 lock 檔）
         run: npm ci
 
+      # 只印、不改任何東西。CI 才失敗、才慢的時候，先看這台 runner 跟開發機差在哪
+      # （2026-10-09 第一次跑：本機全綠的測試在這裡 276 條失敗、卡到逾時）。
+      # 字串用英文：Windows PowerShell 5.1 讀這段暫存腳本時不認 UTF-8，中文會變亂碼。
+      - name: runner 的環境
+        shell: powershell
+        continue-on-error: true
+        run: |
+          "cores: $([Environment]::ProcessorCount)"
+          "culture: $((Get-Culture).Name)  timezone: $((Get-TimeZone).Id)"
+          try { "realtime scanning: $((Get-MpComputerStatus).RealTimeProtectionEnabled)" } catch { "realtime scanning: unknown ($($_.Exception.Message))" }
+          Get-PSDrive -PSProvider FileSystem | ForEach-Object { "drive $($_.Name): free $([math]::Round($_.Free / 1GB, 1)) GB" }
+
       - name: Verify.ps1
         shell: powershell
         run: .\tools\Verify.ps1

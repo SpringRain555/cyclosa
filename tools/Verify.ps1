@@ -61,7 +61,10 @@ try {
     Invoke-Check 'prettier' { & npx prettier --check . }
     Invoke-Check '型別（server 與測試）' { & npx tsc -p tsconfig.json --noEmit }
     Invoke-Check '型別（web）' { & npx vue-tsc -p tsconfig.web.json --noEmit }
-    Invoke-Check '測試（含守門）' { & npx vitest run --reporter=dot }
+    # GitHub Actions 上逐條印、失敗變成標註：dot 會把一整行緩衝到結束才印，卡住或被取消的時候
+    # 看不出是哪一條（2026-10-09 第一次跑 CI：276 條失敗、卡到 30 分鐘被取消，紀錄裡只有一行點）。
+    $reporters = if ($env:GITHUB_ACTIONS -eq 'true') { @('--reporter=verbose', '--reporter=github-actions') } else { @('--reporter=dot') }
+    Invoke-Check '測試（含守門）' { & npx vitest run @reporters }
     Invoke-Check '兩份 agent 檔逐字相同' { & (Join-Path $root 'tools\Sync-AgentDocs.ps1') -Check }
 
     # 圖表過期只是提醒，不擋 —— 產圖需要網路與 npx 下載 Chromium，

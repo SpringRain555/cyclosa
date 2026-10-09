@@ -566,7 +566,7 @@ v10 補三欄 **`search_state`**（`pending`／`done`／`failed`）、`search_co
 ### 確認與建圖的欄位（v12，Stage 22 的資料基礎）
 
 `012-research-build.sql` 只做 `ADD COLUMN` 與 `CREATE TABLE`，外鍵保持開啟，不清除舊資料。
-v12 當時先提供欄位、repository 與純函式；目前建圖作業、畫面與 v13 清除均已接上，尚未出貨。
+v12 當時先提供欄位、repository 與純函式；建圖作業、畫面與 v13 清除後來都接上了，v0.25.0 出貨。
 
 | 表 | 欄 | 說明 |
 |---|---|---|
@@ -644,8 +644,9 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 
 ## 實作分期與尚待實作的整理（Stage 19–24）
 
-> Stage 19–22 的欄位與流程已實作（尚未出貨），權威欄位定義在上面正文。
-> 下表是分期摘要；筆記檔與整理仍待 Stage 23–24，不能把保留的 kind 或欄位視為入口已存在。
+> Stage 19–22 的欄位與流程在 v0.25.0 出貨，權威欄位定義在上面正文。
+> 下表是分期摘要。整理只出了第一片「抽進圖」（v0.26.0：一筆 `run.kind='consolidate'`，**不開 `research` 的殼**，ADR-0033 S24-1）；
+> 筆記檔（Stage 23）與整理的其餘部分仍待實作，不能把保留的 kind 或欄位視為入口已存在。
 
 | 表 | 存什麼 | 關鍵約束 |
 |---|---|---|
@@ -689,8 +690,8 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | ✅ 19 | v9 | `research`、`research_message`、`research_direction`（**做完了，搬到上面正文**）|
 | ✅ 20 | v10 | `research_candidate`（取得狀態那一半）；`research_direction` 的搜尋狀態；`item` 重建（`reference`、拿掉 `paper`）；`run` 重建（`kind`、`research_id`、`unpriced`）。**`item.bib_json` 挪到 v12**（書目節點在那時才建）|
 | ✅ 21 | v11 | `item` 的初讀四欄；`research_candidate` 的 `relevance`／`relevance_why`／`digest_code`；**每一筆作業逐任務的花費**（`task_costs_json`）（**做完了，搬到上面正文**）|
-| ✅ 22 | **✅ v12** | 欄位、通知表與 repository 已完成，見上面正文；Stage 22 流程已接上，尚未出貨 |
-| ✅ 22 | ✅ v13 前置步驟 | 已完成，清理規則、通知與冪等見正文；Stage 22 流程已接上，尚未出貨 |
+| ✅ 22 | **✅ v12** | 欄位、通知表與 repository 已完成，見上面正文；Stage 22 流程 v0.25.0 出貨 |
+| ✅ 22 | ✅ v13 前置步驟 | 已完成，清理規則、通知與冪等見正文；v0.25.0 出貨 |
 | ✅ 22 | ✅ v13 | 已完成，`run` 重建與 `run_angle` 移除見正文 |
 
 **為什麼 Stage 22 是兩個 migration 夾一段程式**（2026-09-29 定，原本寫「v12 一份、`run` 要不要重建再定」）：

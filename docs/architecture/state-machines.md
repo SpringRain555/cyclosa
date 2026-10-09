@@ -7,7 +7,7 @@
 > 「從 A 能不能到 B」這個問題，但表可以。
 
 > **現況（2026-09-23）**：`Case`、`Item`、`Run`、**`Research` 與候選的取得狀態**都已實作
-> （後兩個在 `src/domain/research/`，Stage 19–22，已完成、尚未出貨）。以下是 2026-09-07 寫的那一段：
+> （後兩個在 `src/domain/research/`，Stage 19–22，v0.25.0 出貨）。以下是 2026-09-07 寫的那一段：
 >
 > **現況（2026-09-07）**：`Case`、`Item`、`Run` 三個狀態機**已實作**
 > （`src/domain/case/state.ts`、`src/domain/ingest/state.ts`），轉移表就是程式裡那幾張表。
@@ -286,7 +286,7 @@ stateDiagram-v2
 顯示層跟著同一條規則：**那個值沒有意義的地方就不顯示它**
 （`domain/graph/render-rules.ts` 的 `edgePanelFieldsFor`）。
 
-## 研究 Research（ADR-0033，Stage 19–22，已完成、尚未出貨）
+## 研究 Research（ADR-0033，Stage 19–22，v0.25.0 出貨）
 
 **研究的狀態與作業的狀態是兩件事**（D3）：做事的是 `run`（蒐集一筆、建圖一筆），
 `research.status` 記的是**工作流停在哪**。分開的理由很具體：「等你上傳」可以等好幾天，

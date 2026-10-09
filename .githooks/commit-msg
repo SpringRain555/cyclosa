@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# cyclosa 專屬：commit 訊息的私人清單守門。pre-commit 查不到訊息 —— 它跑的時候訊息還不存在。
+# 規則與清單的位置在 lib/private-terms.sh；沒有清單的提示由 pre-commit 印過了，這裡安靜放行。
+#
+# 啟用：git config core.hooksPath .githooks（與 pre-commit 同一個設定）
+
+. "$(dirname "$0")/lib/private-terms.sh"
+
+private_load_terms || exit 0
+
+# git 編輯器範本裡 # 開頭的註解行不算訊息
+msg=$(grep -v '^#' "$1" | private_normalize)
+if private_contains "$msg"; then
+	cat <<'MSG'
+
+✗ 提交被擋下：commit 訊息裡有私人清單裡的詞（刻意不印出是哪個詞）
+
+  這個 repo 是公開的，commit 訊息推上去就拿不掉。改掉那個詞再 commit 一次
+  （剛才的訊息還在 .git/COMMIT_EDITMSG，可以照著改）。不要用 --no-verify。
+
+MSG
+	exit 1
+fi
+
+exit 0

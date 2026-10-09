@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# cyclosa 專屬：main 只由維護者更新（CONTRIBUTING.md）。
+#
+# 組員的改動推到自己的分支、開 PR，維護者審過之後在本機合併再推。這一道擋的是「忘了開分支，直接推 main」。
+# GitHub 上的 main 有規則擋著（只有維護者能更新；任何人都不能強推或刪除）；這一道保留，
+# 是因為被擋的訊息出現得比較早，也比較好懂。這是防手滑，不是權限 —— --no-verify 繞得過，**不要繞**。
+#
+# 維護者的 clone 設一次：git config cyclosa.mainPusher true（只存在本機的 .git/config，不進版控）。
+#
+# 啟用：git config core.hooksPath .githooks（與 pre-commit 同一個設定）
+# 改寫自 sandbox-spectrum 的 pre-push（同一作者）。
+
+[ "$(git config --bool cyclosa.mainPusher)" = "true" ] && exit 0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+	if [ "$remote_ref" = "refs/heads/main" ]; then
+		cat >&2 <<'MSG'
+
+✗ 推送被擋下：main 只由維護者更新
+
+  請推到自己的分支，再開 PR（流程見 CONTRIBUTING.md）：
+    git switch -c <issue 編號>-<簡述>
+    git push -u origin <issue 編號>-<簡述>
+
+  已經在本機的 main 上 commit 了也沒關係：照上面兩行開分支推上去，
+  再用 git branch -f main origin/main 把本機的 main 對回遠端（commit 已經在新分支上，不會丟）。
+  不要用 --no-verify 繞過。
+
+MSG
+		exit 1
+	fi
+done
+exit 0

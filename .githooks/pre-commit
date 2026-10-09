@@ -50,4 +50,73 @@ MSG
 	exit 1
 fi
 
+# ============================================================================
+# 以下為 cyclosa 專屬。**上面那一段是 D:\Projects 的共用慣例，不要改它。**
+#
+# 私人清單守門：這個 repo 是公開的，清單裡的詞（真實姓名、學校、信箱網域這類）永遠不進 git。
+# 規則與清單的位置在 .githooks/lib/private-terms.sh，流程在 CONTRIBUTING.md。
+# 這裡查三樣：commit 的作者與提交者身分、staged 的檔名、staged 的新增內容。
+# commit 訊息由 commit-msg 那一支查（pre-commit 跑的時候訊息還不存在）。
+# 查不到的：二進位檔的內容（圖片、PDF）—— 截圖由人看（CONTRIBUTING.md）。
+# ============================================================================
+
+. "$(dirname "$0")/lib/private-terms.sh"
+
+if ! private_load_terms; then
+	echo "  提示：沒有 $PRIVATE_TERMS_FILE，略過私人清單守門（向維護者拿清單，放到這個位置）。"
+	exit 0
+fi
+
+# 旗標要在目前這個 shell 裡改：不要把 report 放進 pipe 的右邊（subshell 會把 HIT=1 吃掉）
+HIT=0
+report() {
+	if [ "$HIT" -eq 0 ]; then
+		echo ""
+		echo "✗ 提交被擋下：以下地方有私人清單裡的詞（刻意不印出是哪個詞）"
+		echo ""
+	fi
+	HIT=1
+	echo "    $1"
+}
+
+# 1. 作者與提交者身分 —— 去掉 > 之後的時間戳
+for who in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
+	ident=$(git var "$who" 2>/dev/null | sed 's/>.*$/>/')
+	if private_contains "$(printf '%s' "$ident" | private_normalize)"; then
+		case "$who" in
+			GIT_AUTHOR_IDENT) report "commit 作者（git config user.name／user.email）" ;;
+			*)                report "commit 提交者（git config user.name／user.email）" ;;
+		esac
+	fi
+done
+
+# 2. staged 的檔名與新增內容。core.quotepath=false：非 ASCII 檔名才不會被跳脫成對不上的路徑
+while IFS= read -r file; do
+	[ -n "$file" ] || continue
+	if private_contains "$(printf '%s' "$file" | private_normalize)"; then
+		report "某個 staged 檔案的檔名（用 git diff --cached --name-only 自己看）"
+	fi
+	added=$(git diff --cached --no-color --no-ext-diff -U0 -- "$file" | sed -n '/^+++ /d; s/^+//p')
+	if private_contains "$(printf '%s' "$added" | private_normalize)"; then
+		report "$file"
+	fi
+done <<EOF
+$(git -c core.quotepath=false diff --cached --name-only --diff-filter=ACMR)
+EOF
+
+if [ "$HIT" -ne 0 ]; then
+	cat <<'MSG'
+
+  這個 repo 是公開的：推上去的 commit 就算刪掉分支也還查得到，所以在 commit 的時候擋。
+
+  處理方式：
+    1. 內容或檔名：改掉那個詞，再 git add
+    2. 作者身分：git config user.name  <GitHub 帳號>
+                 git config user.email <帳號的 noreply 信箱>
+    3. 確定是誤報（例如某個詞剛好也是一般用語）→ 跟維護者說、調整清單；不要用 --no-verify
+
+MSG
+	exit 1
+fi
+
 exit 0

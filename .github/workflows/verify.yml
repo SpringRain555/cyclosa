@@ -34,7 +34,8 @@ concurrency:
 jobs:
   verify:
     runs-on: windows-latest
-    timeout-minutes: 30
+    # 測試在 4 核的 runner 上要十幾分鐘（本機 70 秒）；時間上限的理由在 vitest.config.ts 的 ON_CI
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v7

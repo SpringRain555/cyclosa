@@ -22,6 +22,16 @@ export const SANDBOX_LOCALAPPDATA = fileURLToPath(
 );
 
 /**
+ * **GitHub Actions 上的時間上限放寬到 60 秒，本機照舊。**
+ *
+ * GitHub 的 Windows runner 只有 4 核，e2e 慢兩到四倍：每條測試的 `beforeEach` 都要起一個 server，
+ * 第一次啟動還會走真的匯入管線建範例專題。2026-10-09 第一次跑 CI，「hook 超過 10 秒」約 250 次，
+ * 接著清理時刪不掉還開著的 `case.sqlite`（`EBUSY`），一路連帶失敗了 21 個檔 —— 本機同一份 clone 全綠。
+ * **本機不放寬**：開發機上變慢是要被看見的訊號，不該被一個為了 CI 調大的上限吃掉。
+ */
+const ON_CI = process.env['GITHUB_ACTIONS'] === 'true';
+
+/**
  * 測試。**與 vite 同一套 pipeline**，所以版本要跟著走
  * （`docs/environment/versions.md` 的「三組要一起升」第一組）。
  */
@@ -30,7 +40,9 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'node',
     // 守門測試會掃整棵原始碼樹，比純函式測試慢一點
-    testTimeout: 20_000,
+    testTimeout: ON_CI ? 60_000 : 20_000,
+    // 預設 10 秒；e2e 的 beforeEach 在 CI 上撐不過（見上面的 ON_CI）
+    hookTimeout: ON_CI ? 60_000 : 10_000,
     globalSetup: ['tests/global-setup.ts'],
     env: {
       // e2e 測試刻意製造失敗（指標檔壞掉之類），app 的 warn 會塞滿輸出。

@@ -110,6 +110,10 @@ main 只由維護者在本機合併之後推上來，「必須先過 CI」的規
 - **`core.autocrlf = true` 的機器**：工作樹簽出是 CRLF，`.gitattributes` 對原始碼宣告 `eol=lf` 才擋得住
   prettier 全紅（§3）。
 - **使用者的 Temp 慢**（C: 上的即時掃描）：沙箱不在那裡（§3）。
+- **GitHub 的 Windows runner 比開發機慢兩到四倍**（4 核、en-US、UTC、即時掃描是關的 —— 2026-10-09 量的）。
+  e2e 的 `beforeEach` 要起 server、第一次啟動還建範例專題，撐不過預設 10 秒的 hook 上限，於是
+  `vitest.config.ts` 在 `GITHUB_ACTIONS` 底下把上限放寬到 60 秒（本機不放寬），workflow 的上限是 45 分鐘。
+  CI 上的測試因此要十幾分鐘；**本機全綠、CI 才紅的時候先看 workflow 那一步「runner 的環境」**。
 - **編碼**：`.ps1` 必須有 UTF-8 BOM（PS 5.1 否則當 Big5 讀）；`.md`／`.json` 不要 BOM；`.cmd` 純 ASCII。
 
 ## 環境快照

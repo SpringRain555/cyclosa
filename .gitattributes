@@ -80,3 +80,8 @@ package-lock.json text eol=lf linguist-generated=true
 
 # migration 的 SQL 也是原始碼：一份 migration 在兩台機器上不該長得不一樣。
 *.sql  text eol=lf
+
+# GitHub 的 workflow 與 issue 範本設定（2026-10-09 加）：prettier 也會檢查 YAML，而 Windows 上
+# 共用段落的 text=auto 會簽出成 CRLF —— 沒有這兩行，CI（windows-latest）一 checkout 就 prettier 紅。
+*.yml  text eol=lf
+*.yaml text eol=lf

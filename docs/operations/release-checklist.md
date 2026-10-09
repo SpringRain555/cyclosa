@@ -23,6 +23,9 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 `Test-PublishReadiness.ps1` 掃：個資格式、寫死的私人路徑、金鑰與 `.env`、
 `LICENSE` 存不存在、README 的未填佔位符、`.gitignore` 涵蓋度。
 
+**GitHub Actions 也會在每個 PR 與每次推 main 跑 `Verify.ps1` ＋建置**（2026-10-09 起，`.github/workflows/verify.yml`）——
+那是第二道，不代替這一輪：它查不到私人清單，也不跑 `Test-PublishReadiness.ps1`（那一支在 repo 外）。
+
 **它會掃 git 歷史，不只工作區** —— 私人路徑一旦進過 commit 就永遠在那裡，
 把工作區清乾淨完全沒有用（`git log -S` 是唯一問得出來的方法）。
 

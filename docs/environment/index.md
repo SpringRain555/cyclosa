@@ -62,6 +62,11 @@ npm run build      # server（dist/）＋ 前端（web/dist/）
 要單獨跑某一段：`npm test`、`npm run typecheck`（`tsc` ＋ `vue-tsc`）、`npm run lint`
 （`eslint` ＋ `prettier --check`）、`npm run build`。
 
+**GitHub 上也跑同一支**（2026-10-09 起，`.github/workflows/verify.yml`）：每個 PR 與每次推 main，在 `windows-latest` 上
+`npm ci` → `.\tools\Verify.ps1` → `npm run build`。Node 版本取自 `.node-version`（`24` → runner 上最新的 24.x，可能比本機新）。
+**CI 綠不代替本機的 `Verify.ps1`**：私人清單的守門只在本機（`CONTRIBUTING.md`），而 CI 也不是合併的必要條件 ——
+main 只由維護者在本機合併之後推上來，「必須先過 CI」的規則會連那一推一起擋。
+
 **最常紅的兩種，都不是程式壞了**：
 
 - **prettier 對一堆沒動過的檔報格式錯** —— 行尾。`.gitattributes` 對原始碼宣告了 `eol=lf`；

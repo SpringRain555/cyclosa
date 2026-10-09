@@ -1,0 +1,56 @@
+# 對應 tools/Verify.ps1 的整條閘門，外加一次建置。
+#
+# **直接呼叫 tools/Verify.ps1，不在這裡重列步驟。** 這個專案只支援 Windows（啟動器與
+# Verify.ps1 都是 Windows PowerShell 5.1），所以 runner 也用 Windows，閘門只有一份。
+# tagcor-ledger 是反過來的（Linux runner、步驟重列），理由是它的 Verify.ps1 會讀本機的指標檔；
+# 這一支不讀 —— 測試的 LOCALAPPDATA 由 vitest.config.ts 釘在 repo 自己的 tmp/vitest/。
+#
+# **CI 是參考，不是合併的條件。** main 只由維護者在本機合併之後推上來（CONTRIBUTING.md），
+# 而「必須先過 CI」的規則會連維護者直接推 main 一起擋。所以紅燈要人看：PR 上紅了，維護者不合。
+# 它也查不到私人清單（.githooks/lib/private-terms.sh）—— 那一道只在本機。
+#
+# 建置不在 Verify.ps1 裡（那一支只回答「原始碼有沒有問題」），這裡另外跑一次 npm run build，
+# 擋住「型別過了、vite build 卻壞了」。
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# **GITHUB_TOKEN 只給讀取。** 這個 workflow 只 checkout、裝套件、跑測試，用不到任何寫入權限；
+# repo 是公開的，一個帶寫入權限的 token 交到測試程式碼與它裝的第三方套件手上，沒有任何好處。
+permissions:
+  contents: read
+
+# 同一個分支連推幾次，只跑最新的那一次
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # .node-version 寫的是 24，解出來是 runner 上最新的 24.x
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: 安裝相依（照 lock 檔）
+        run: npm ci
+
+      - name: Verify.ps1
+        shell: powershell
+        run: .\tools\Verify.ps1
+
+      - name: 建置
+        run: npm run build

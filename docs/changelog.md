@@ -14,6 +14,12 @@
 - 採用 `@local-app/lifecycle@0.1.0` 的 healthz probe 與 bounded shutdown sequence；Cyclosa 保留自己的 health identity、版本判斷與 Fastify／任務取消 adapter。
 - `tools\Launch.ps1` 載入版控的 `vendor\AppLifecycle.psm1`；tarball 與 package lock 一併版控，單獨 clone 不需 Polistes repo。
 - 驗證：typecheck、lint、121 個測試檔／1,412 項測試通過；完整 `Verify.ps1` 與本機 launcher E2E 待階段收尾。
+- **2026-10-09 收尾**：`Verify.ps1` 全綠（121 檔／1412 條；第一次跑的時候 `research-build.test.ts` 的工作行程以 `0xC0000409` 結束 ——
+  roadmap「五」記的那個 Node 24.15 的 libuv 問題 —— 單獨重跑 23／23、整包重跑全綠）；`npm run build` 過。
+  用空的 `LOCALAPPDATA` 起 `dist/main.js`：`/healthz` 回 `{"app":"cyclosa","version":…}`、外站的 `Host` 與 `Origin` 都是 403、
+  關閉不帶 `force` 只回報、帶了才關，行程結束、埠釋放、行程表沒有殘留。**啟動器**（`tools\Launch.ps1 -LocalAppData <沙箱>`）
+  五個檢查全 OK、開瀏覽器、exit 0；`server.log` 記到「關閉序列完成」（`settled`、`closed`）與結束碼 0，`server.err.log` 是空的。
+- `versions.md` 補記這個相依：同一作者、隨本 repo 以 MIT 釋出；tarball 的 `package.json` 沒有 `license` 欄，下次升版在來源補上。
 
 ## v0.26.2 —— 2026-10-05　升級有安全通報的三個相依套件
 

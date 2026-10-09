@@ -34,7 +34,8 @@ concurrency:
 jobs:
   verify:
     runs-on: windows-latest
-    # 測試在 4 核的 runner 上要十幾分鐘（本機 70 秒）；時間上限的理由在 vitest.config.ts 的 ON_CI
+    # 測試在 4 核的 runner 上要 25 分鐘左右（本機 70 秒；2026-10-09 第一次全綠那一輪 1521 秒）；
+    # 時間上限的理由在 vitest.config.ts 的 ON_CI
     timeout-minutes: 45
 
     steps:

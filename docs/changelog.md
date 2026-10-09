@@ -3,11 +3,17 @@
 **記「那一版改了什麼、為什麼」。** 未來的計畫在 `roadmap.md`，
 踩到什麼坑在 `lessons.md`。
 
-目前是 **v0.26.2**（2026-10-05：升級有安全通報的三個相依套件）。
+目前是 **v0.26.3**（2026-10-09：共用本機 App 生命週期、跟組員協作的基礎、文件對齊現況）。
 
 ---
 
 ## 未發行
+
+（還沒有。PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
+
+## v0.26.3 —— 2026-10-09　共用本機 App 生命週期、跟組員協作的基礎、文件對齊現況
+
+**沒有使用者看得到的功能變更。** 這一版把 10-08 的生命週期整合驗收完，加上跟組員一起開發需要的東西，並把過期的文件對齊現況。
 
 ### 共用 Node app 生命週期（2026-10-08）
 
@@ -20,6 +26,38 @@
   關閉不帶 `force` 只回報、帶了才關，行程結束、埠釋放、行程表沒有殘留。**啟動器**（`tools\Launch.ps1 -LocalAppData <沙箱>`）
   五個檢查全 OK、開瀏覽器、exit 0；`server.log` 記到「關閉序列完成」（`settled`、`closed`）與結束碼 0，`server.err.log` 是空的。
 - `versions.md` 補記這個相依：同一作者、隨本 repo 以 MIT 釋出；tarball 的 `package.json` 沒有 `license` 欄，下次升版在來源補上。
+
+### 跟組員協作的基礎
+
+- **GitHub 上的 main 有兩條規則**（repo 設定，不在版控裡）：**只有維護者能更新 main**（組員推不進去，合併鈕也按不了）；
+  **任何人都不能強推或刪除 main**（連維護者也一樣，要改寫歷史時先暫時停用）。合併只留 merge commit，Wiki 關掉
+- **`CONTRIBUTING.md`**：開工前只做一次的五項、一輪流程、PR 要一起帶的、不要改的、公開 repo 的注意事項、會擋你的東西、
+  跟 agent 一起做、WSL、write 權限做得到但不要做的事、維護者怎麼合併。**合併由維護者在本機做**（`--no-ff`）
+- **issue 與 PR 範本**（`.github/`）：工作項目、問題回報，不開空白 issue；PR 的檢查清單含五條規則與公開內容
+- **CI**：`.github/workflows/verify.yml` 在 `windows-latest` 跑 `npm ci` → `Verify.ps1` → `npm run build`，token 只給讀取。
+  **它是參考，不是合併的條件** —— 「必須先過 CI」的規則會連維護者直接推 main 一起擋
+- **hooks**：私人清單守門 —— `pre-commit`（在共用段之後）查作者與提交者身分、staged 的檔名與新增內容，`commit-msg` 查訊息；
+  清單在 `.git/info/private-terms.txt`，不在工作樹、永遠進不了 commit；命中只印位置、不印詞；沒有清單就提示、放行。
+  `pre-push` 擋推 main，維護者的 clone 設 `cyclosa.mainPusher=true`。三支設成可執行（WSL 的 git 會略過沒有執行位元的 hook）。
+  改寫自 sandbox-spectrum（同一作者）
+- `.gitattributes` 補 `*.yml`／`*.yaml` 的 `eol=lf`：prettier 也查 YAML，Windows 簽出成 CRLF 會讓 CI 一開始就紅
+- `CLAUDE.md` 加一段給協作者：文中的 `D:\Projects\…`、`_meta\…` 是維護者本機的資料夾，以 repo 內的文件為準
+
+### 文件對齊現況
+
+- 七份文件 14 處還寫「尚未出貨」，改成 v0.25.0 出貨；`index.md` 與 `data-model.md` 的「整理仍待」改成先說抽進圖已經出了
+- `overview.md` 的檔案地圖照實際的樹重畫（只畫到資料夾）；守門與錯誤碼不再寫數字（原本寫「八條」「六組」）
+- `maintainer-notes.md` 指著 10-03 刪掉的測試、`chat-choice.md` 指著舊擴展的檔名 —— 改成現在守著它的那一支
+- roadmap：生命週期那段從入口表前面歸位、AMD 端點已拿到（抽取比較排在 v0.27.0）、Stage 23／24 的分工；README 的 Stage 24 清單補齊
+- **Stage 23 動手前的細節**寫回 ADR-0033（Q16–Q17、D14-1～D14-10）、REQ-0009 與 `ui-workflows.md`（標明還沒實作）：
+  在點註欄讀、唯讀、重新附上就新增一則、只收 `.md`、上限 1 MB、書目節點也可以附
+- `lessons.md` 一條：出貨的時候「尚未出貨」沒有人回頭清，而版本守門只釘標題
+
+### 怎麼驗的
+
+- `Verify.ps1` 全綠（121 檔／1412 條，圖表都是最新的），在這一版所有文件與版本號改完之後跑
+- 上面「共用 Node app 生命週期」那一節的驗收；hooks 的每一種違規都注入過、確認會被擋（測試清單只放合成詞）
+- 文件裡反引號寫的 repo 路徑用腳本掃過一輪：回報的 9 個扣掉 MIME 型別、別的專案的檔名與刻意寫的歷史，真的過期的 3 處都改了
 
 ## v0.26.2 —— 2026-10-05　升級有安全通報的三個相依套件
 

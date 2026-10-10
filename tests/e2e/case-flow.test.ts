@@ -54,6 +54,16 @@ describe('健康檢查', () => {
 });
 
 describe('指標檔的失敗各自說得出原因', () => {
+  // 這一組測的就是「第一次啟動」—— 包括範例專題。其他 e2e 由 vitest.config.ts 跳過它（太慢、用不到）。
+  let savedSkipSample: string | undefined;
+  beforeEach(() => {
+    savedSkipSample = process.env['CYCLOSA_SKIP_SAMPLE'];
+    delete process.env['CYCLOSA_SKIP_SAMPLE'];
+  });
+  afterEach(() => {
+    if (savedSkipSample !== undefined) process.env['CYCLOSA_SKIP_SAMPLE'] = savedSkipSample;
+  });
+
   /**
    * **這一條在 v0.17.0 換了方向。**
    *

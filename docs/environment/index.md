@@ -89,6 +89,7 @@ main 只由維護者在本機合併之後推上來，「必須先過 CI」的規
 |---|---|---|
 | `CYCLOSA_NODE` | `tools\Launch.ps1` | 指定 `node.exe`，優先於 PATH。PATH 上不是 24.x 時設一次：`setx CYCLOSA_NODE "X:\path\to\node24\node.exe"` |
 | `CYCLOSA_FETCH_INTERVAL_MS` | `src/application/fetch-policy.ts` | 同網域請求間隔（毫秒）。沒設用預設；**小於下限會被夾到下限**，不是照做；不是數字當成沒設。數字與理由在 [`fetch-policy.md`](../architecture/fetch-policy.md)。測試裡由 `vitest.config.ts` 清成預設 |
+| `CYCLOSA_SKIP_SAMPLE` | `src/application/bootstrap-service.ts` | **只給測試用**：`1` 表示第一次啟動不建範例專題。`vitest.config.ts` 預設打開（e2e 換到自己的資料根之後用不到範例，卻佔掉 e2e 四成的時間），測第一次啟動的 `case-flow.test.ts` 那一組自己關掉。使用者不需要設 |
 | `CYCLOSA_LOG_LEVEL` | `src/shared/log.ts` | 日誌門檻；`silent` 完全不寫（測試用它，因為 e2e 刻意製造失敗） |
 | `CYCLOSA_LOG_FILE` | `src/shared/log.ts` | 同時寫一份日誌到這個檔。`tools\Launch.ps1` 把它設成 `%LOCALAPPDATA%\Cyclosa\logs\server.log` —— 隱藏視窗跑的行程沒有 stderr |
 | `LOCALAPPDATA` | `src/infrastructure/fs/paths.ts` | 指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 與預設資料根的位置；非 Windows 退回 `XDG_DATA_HOME` |
@@ -113,7 +114,8 @@ main 只由維護者在本機合併之後推上來，「必須先過 CI」的規
 - **GitHub 的 Windows runner 比開發機慢兩到四倍**（4 核、en-US、UTC、即時掃描是關的 —— 2026-10-09 量的）。
   e2e 的 `beforeEach` 要起 server、第一次啟動還建範例專題，撐不過預設 10 秒的 hook 上限，於是
   `vitest.config.ts` 在 `GITHUB_ACTIONS` 底下把上限放寬到 60 秒（本機不放寬），workflow 的上限是 75 分鐘。
-  CI 上的測試因此要 25～45 分鐘（1521 秒與 2581 秒兩輪，本機 70 秒）；
+  CI 上的測試要 25～45 分鐘（1521 秒與 2581 秒兩輪，本機 70 秒）。2026-10-10 起 e2e 不建範例專題（`CYCLOSA_SKIP_SAMPLE`，§5），
+  本機的 e2e 從 71 秒降到 41 秒，CI 的數字等下一輪再記；
   **本機全綠、CI 才紅的時候先看 workflow 那一步「runner 的環境」**。
 - **編碼**：`.ps1` 必須有 UTF-8 BOM（PS 5.1 否則當 Big5 讀）；`.md`／`.json` 不要 BOM；`.cmd` 純 ASCII。
 

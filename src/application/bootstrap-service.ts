@@ -90,7 +90,11 @@ export async function resolveOrCreateDataRoot(
   const made = await initDataRoot(defaultDataRoot(env), env);
   // **只有這一條路會放範例專題** —— 資料根是這一次才建出來的，
   // 所以「使用者刪過了」不需要另外記一個旗標。理由在 `seedSampleIfEmpty`。
-  if (made.ok) await seedSampleIfEmpty(made.data.dataRoot);
+  //
+  // `CYCLOSA_SKIP_SAMPLE=1` 只給測試用（`vitest.config.ts` 預設打開，測範例專題的那幾條自己關掉）：
+  // e2e 幾乎每一條都從空的 LOCALAPPDATA 起 server、再換到自己的資料根，範例專題建了也用不到，
+  // 卻佔掉 e2e 四成的時間 —— CI 的 4 核 runner 上一輪要 25～45 分鐘（2026-10-10 量的）。
+  if (made.ok && env['CYCLOSA_SKIP_SAMPLE'] !== '1') await seedSampleIfEmpty(made.data.dataRoot);
   return made;
 }
 

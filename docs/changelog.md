@@ -13,6 +13,11 @@
 
 - **`@local-app/lifecycle` 升到 0.1.1**（2026-10-10）：只在 `package.json` 補上 `"license": "MIT"`，程式碼跟 0.1.0 逐位元組相同；
   `vendor/` 的 tarball 換成 0.1.1、lock 檔只動這個套件。Polistes、Rubricator 同一天一起換（`versions.md`）
+- **e2e 不再每條都建範例專題**（2026-10-10）：幾乎每條 e2e 都從空的 `LOCALAPPDATA` 起 server，第一次啟動照規矩建範例專題，
+  接著換到自己的資料根 —— 範例建了也用不到，卻佔掉 e2e 四成的時間。新增只給測試用的 `CYCLOSA_SKIP_SAMPLE`
+  （`vitest.config.ts` 預設打開，`case-flow.test.ts` 測第一次啟動的那一組自己關掉）。本機 e2e 71 秒 → 41 秒，360 條照樣全過；
+  CI 上一輪要 25～45 分鐘，就是為了這個。使用者的第一次啟動不受影響
+- CI 的 job 上限 45 → 75 分鐘（同一種 runner 測試時間差到將近一倍）；研究合成資料的七種狀態拆成七條測試（擠在一條會撞到時間上限）
 
 ## v0.26.3 —— 2026-10-09　共用本機 App 生命週期、跟組員協作的基礎、文件對齊現況
 

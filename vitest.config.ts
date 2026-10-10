@@ -51,6 +51,9 @@ export default defineConfig({
       CYCLOSA_LOG_LEVEL: 'silent',
       // 節流間隔一律用預設值：開發機上設了這個變數的話，e2e 的間隔量測與整包的時間都會跟著變。
       CYCLOSA_FETCH_INTERVAL_MS: '',
+      // 第一次啟動不建範例專題：e2e 換到自己的資料根之後用不到它，卻佔掉 e2e 四成的時間。
+      // 測「第一次啟動」的那幾條（`case-flow.test.ts`）自己把它拿掉（`bootstrap-service.ts`）。
+      CYCLOSA_SKIP_SAMPLE: '1',
       // `os.tmpdir()` 在 Windows 上讀這兩個。沙箱一律進 repo 的 tmp/vitest/。
       TMP: SANDBOX_ROOT,
       TEMP: SANDBOX_ROOT,

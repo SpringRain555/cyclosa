@@ -9,7 +9,10 @@
 
 ## 未發行
 
-（還沒有。PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
+（PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
+
+- **`@local-app/lifecycle` 升到 0.1.1**（2026-10-10）：只在 `package.json` 補上 `"license": "MIT"`，程式碼跟 0.1.0 逐位元組相同；
+  `vendor/` 的 tarball 換成 0.1.1、lock 檔只動這個套件。Polistes、Rubricator 同一天一起換（`versions.md`）
 
 ## v0.26.3 —— 2026-10-09　共用本機 App 生命週期、跟組員協作的基礎、文件對齊現況
 

@@ -759,7 +759,7 @@ D10 的三個數字在 1280／1024／900／768 四種寬度都過，截圖逐張
 
 ### ✅ 共用 Node app 生命週期（不編 Stage 號，2026-10-08 做、2026-10-09 驗收，v0.26.3）
 
-`@local-app/lifecycle@0.1.0` 共用 healthz 探測與有上限的關閉序列；Cyclosa、Polistes、Rubricator 各自版控 tarball 與 `vendor\AppLifecycle.psm1`，
+`@local-app/lifecycle@0.1.1` 共用 healthz 探測與有上限的關閉序列；Cyclosa、Polistes、Rubricator 各自版控 tarball 與 `vendor\AppLifecycle.psm1`，
 獨立 clone 可安裝。app 的識別、readiness、資料清理仍由各 repo 負責。驗收的數字在 changelog。
 （這一段 10-08 寫在這份文件的最上面、待處理那張表的前面 —— 那裡是入口，10-09 搬到這裡。）
 

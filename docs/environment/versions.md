@@ -61,13 +61,13 @@
 | `linkedom` | `^0.18` | **ISC** | 給 readability 一個 DOM，不用 jsdom（輕很多）|
 | `franc` | `^6.2` | MIT | 語言偵測。偵測不出來記 `und`，不猜 |
 | `pdfjs-dist` | `^6.3` | **Apache-2.0** | PDF 的文字層與頁碼。**第一版就要**（REQ-0006 ＋ ADR-0019 的頁碼錨點）|
-| `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.1.0.tgz` | 本 repo 的 MIT（見下）| healthz 探測與有上限的關閉序列，幾個本機 app 共用（`architecture/app-lifecycle.md`）|
+| `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.1.1.tgz` | 本 repo 的 MIT（見下）| healthz 探測與有上限的關閉序列，幾個本機 app 共用（`architecture/app-lifecycle.md`）|
 
 > **`@local-app/lifecycle` 不是從 npm 裝的**（2026-10-08 加，2026-10-09 補記在這裡）：tarball 與 `package-lock.json` 一起版控在
 > `vendor/`，單獨 clone 也 `npm ci` 得起來；PowerShell 那一半（`vendor/AppLifecycle.psm1`）給啟動器載入。
-> **它是同一個作者的程式**，隨這個 repo 以 MIT 釋出 —— 但 tarball 裡的 `package.json` **沒有 `license` 欄**、也沒有附 `LICENSE`。
-> 那不是「沒有授權」，是沒寫：**下次升版時在來源補上 `"license": "MIT"`**，再重打 tarball。
-> 2026-10-09 開過 tarball：六個檔（兩支 `.js`、兩份 `.d.ts`、`package.json`、`tools/AppLifecycle.psm1`），沒有任何相依、沒有私人路徑。
+> **它是同一個作者的程式**，以 MIT 釋出。0.1.0 的 `package.json` 沒有 `license` 欄（沒寫，不是沒有授權）——
+> **0.1.1（2026-10-10）補上了 `"license": "MIT"`**，程式碼跟 0.1.0 逐位元組相同；三個 app 同一天一起換。
+> 開過 tarball：六個檔（兩支 `.js`、兩份 `.d.ts`、`package.json`、`tools/AppLifecycle.psm1`），沒有任何相依、沒有私人路徑。
 
 > **這四個在 2026-09-07 寫進 `package.json` 那天重查了一次**（這份文件自己要求的）：
 > `@mozilla/readability` 0.6.0 Apache-2.0、`linkedom` 0.18.13 ISC、

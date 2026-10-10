@@ -373,7 +373,7 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 | | 現況 |
 |---|:--:|
 | `.\tools\Verify.ps1` | ✅ 2026-10-09 實跑全綠；GitHub Actions 在每個 PR 與每次推 main 也跑同一支（`.github/workflows/verify.yml`）|
-| `start_cyclosa.cmd`／`.\tools\Launch.ps1` | ✅ 起 server、開瀏覽器；共用 healthz 與關閉序列在 `@local-app/lifecycle@0.1.0`，PowerShell helper 由 `vendor\AppLifecycle.psm1` 載入 |
+| `start_cyclosa.cmd`／`.\tools\Launch.ps1` | ✅ 起 server、開瀏覽器；共用 healthz 與關閉序列在 `@local-app/lifecycle@0.1.1`，PowerShell helper 由 `vendor\AppLifecycle.psm1` 載入 |
 | `npm test` | ✅ **數量不寫在這裡** —— 寫死的數字每一版都會漂 |
 | `npm run build` | ✅ |
 

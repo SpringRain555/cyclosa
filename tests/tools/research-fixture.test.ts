@@ -56,12 +56,12 @@ async function seed(state: SeedState) {
 }
 
 describe('研究各狀態的合成資料，畫面讀得懂', () => {
-  it('七種狀態都寫得進去、讀回來就是那個狀態', async () => {
-    for (const state of SEED_STATES) {
-      const { view } = await seed(state);
-      expect(view.status, state).toBe(state);
-      expect(view.topic.startsWith('合成'), state).toBe(true);
-    }
+  // 一個狀態一條：七種擠在同一條測試裡，在 CI 的 4 核 runner 上要 50～60 秒、撞到時間上限（2026-10-10）。
+  // 拆開之後每條各自計時，失敗時也看得出是哪一種狀態。
+  it.each(SEED_STATES)('%s：寫得進去、讀回來就是那個狀態', async (state) => {
+    const { view } = await seed(state);
+    expect(view.status, state).toBe(state);
+    expect(view.topic.startsWith('合成'), state).toBe(true);
   });
 
   it('規劃中：兩輪對話、四條方向（一條是人提的）、刻意不查的範圍', async () => {

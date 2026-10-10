@@ -115,7 +115,7 @@ main 只由維護者在本機合併之後推上來，「必須先過 CI」的規
   e2e 的 `beforeEach` 要起 server、第一次啟動還建範例專題，撐不過預設 10 秒的 hook 上限，於是
   `vitest.config.ts` 在 `GITHUB_ACTIONS` 底下把上限放寬到 60 秒（本機不放寬），workflow 的上限是 75 分鐘。
   CI 上的測試要 25～45 分鐘（1521 秒與 2581 秒兩輪，本機 70 秒）。2026-10-10 起 e2e 不建範例專題（`CYCLOSA_SKIP_SAMPLE`，§5），
-  本機的 e2e 從 71 秒降到 41 秒，CI 的數字等下一輪再記；
+  本機的 e2e 從 71 秒降到 41 秒，CI 的測試降到 578 秒（第一輪）；
   **本機全綠、CI 才紅的時候先看 workflow 那一步「runner 的環境」**。
 - **編碼**：`.ps1` 必須有 UTF-8 BOM（PS 5.1 否則當 Big5 讀）；`.md`／`.json` 不要 BOM；`.cmd` 純 ASCII。
 

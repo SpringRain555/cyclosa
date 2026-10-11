@@ -507,7 +507,9 @@ watch(
 </script>
 
 <template>
-  <div ref="host" class="canvas">
+  <div class="canvas">
+    <!-- 套件初始化會清空 host；Vue 管的讀數必須放在它外面。 -->
+    <div ref="host" class="graph-host"></div>
     <!-- 量測用，`?fps=1` 才出現。數字而已 —— i18n 不需要進來。 -->
     <p v-if="fpsOn" class="fps">{{ fps }} fps &middot; {{ nodes.length }}</p>
   </div>
@@ -520,6 +522,11 @@ watch(
   min-height: 0;
   position: relative;
   overflow: hidden;
+}
+
+.graph-host {
+  width: 100%;
+  height: 100%;
 }
 
 .fps {

@@ -306,7 +306,8 @@ export const t = {
     programFolder: '放在程式資料夾裡',
     programFolderWhy:
       '跟著 Cyclosa 的資料夾走：整個資料夾搬到哪裡都找得到。換新版時要把 userdata 一起帶到新的資料夾。',
-    programFolderOff: '找不到 Cyclosa 的程式資料夾，這個選項不能用。',
+    programFolderOff:
+      '這次不能用：找不到 Cyclosa 的程式資料夾，或這是用 -LocalAppData 開的獨立環境。',
     userFolder: '放在這台電腦的使用者資料夾',
     userFolderWhy: '跟程式分開：換新版、重新下載都不會動到它。',
     other: '其他位置⋯',

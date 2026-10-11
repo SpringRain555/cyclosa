@@ -69,8 +69,7 @@ v0.17.0 讓第一次啟動「一個問題都不必回答」：指標檔不存在
 - **ADR-0004 那句「結構上不可能洩漏」對「放在程式資料夾裡」不成立。** 那個選項的資料在 repo 底下，
   安全性押在 `/userdata/` 那一行與 `Verify.ps1` 的檢查上。維護者本機一律走指標檔（第 1 步），不用這個選項。
 - 選程式資料夾的人換新版（解到新的資料夾）時，要自己把 `userdata` 帶過去 —— 畫面與 README 都寫了。
-- `tools\Launch.ps1 -LocalAppData` 換不到程式資料夾：獨立環境裡選了程式資料夾，之後的獨立環境都會找到那一份
-  （`maintainer-notes.md` 寫了）。
+- ~~`tools\Launch.ps1 -LocalAppData` 換不到程式資料夾~~ —— 同日修掉，見文末追記。
 - 測試多一個要隔離的位置（`CYCLOSA_PROGRAM_DIR`）。沒隔離的話不只會碰到真的 `userdata\`：
   所有沙箱都在 repo 的 `tmp/vitest/` 底下，會被當成「程式資料夾裡面」擋掉。
 - 依賴一個 vendored 的共用套件，升版要重打 tarball、複製、**明確重裝**（同名的 tarball npm 會說 up to date）。
@@ -87,3 +86,8 @@ v0.17.0 讓第一次啟動「一個問題都不必回答」：指標檔不存在
   在資料根頂層，舊的寫法對它等於沒擋 —— 挑到另一份資料根的 `cases` 會在真的那份裡面另建一份空的，指標檔還指過去。
   所以這裡變成擋四種。搬家時目標在**現在這一份**裡面照舊報 `IO_DATA_ROOT_TARGET_INVALID` 的 `nested`（比較具體），
   在別的資料根裡面才報 `inside-data-root`。決定本身不變。
+- **2026-10-11（獨立環境）**：`tools\Launch.ps1 -LocalAppData` 原本只換指標檔與使用者資料夾，第 2 步還是看這個 repo 的
+  `userdata\`：平常資料放在那裡的人，獨立環境會直接打開平常那一份；沒放過的人，第一次啟動頁預選程式資料夾，
+  按確定就把資料放進 repo。issue #2 的 fps 量測步驟因此會量到錯的資料。修法：獨立環境的伺服器帶
+  `CYCLOSA_NO_PROGRAM_FOLDER=1`，`programRoot()` 回 `null` —— 當作沒有程式資料夾，那個選項關著，預選落到
+  `<指定目錄>\Cyclosa\data`。只在 `Launch.ps1` 起 server 的那一刻帶上、起完換回來（`tests/infrastructure/isolated-environment.test.ts`）。

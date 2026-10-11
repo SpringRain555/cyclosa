@@ -88,8 +88,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  *
  * `CYCLOSA_PROGRAM_DIR` **只給測試用**：`vitest.config.ts` 把它指到沙箱 ——
  * 否則第 2 步會去看真的 repo 底下的 `userdata\`。
+ *
+ * `CYCLOSA_NO_PROGRAM_FOLDER=1`：**`tools\Launch.ps1 -LocalAppData` 的獨立環境**。那個環境換掉了指標檔與
+ * 使用者資料夾，但程式資料夾還是這個 repo —— 沒有這一條的話，第 2 步會找到平常放在 repo `userdata\` 的那一份，
+ * 第一次啟動也會預選它，獨立環境就不獨立了（2026-10-11，issue #2 的量測步驟因此會量到別份資料）。
+ * 這時當作沒有程式資料夾：那個選項關著，預選落到獨立環境的使用者資料夾。
  */
 export function programRoot(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env['CYCLOSA_NO_PROGRAM_FOLDER'] === '1') return null;
   const override = env['CYCLOSA_PROGRAM_DIR'];
   if (override !== undefined && override.trim() !== '') return resolve(override);
   let dir = HERE;

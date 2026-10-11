@@ -11,6 +11,11 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **`-LocalAppData` 的獨立環境不再看程式資料夾**（2026-10-11，ADR-0037 追記）：原本只換指標檔與使用者資料夾，
+  四步的第 2 步還是會找到 repo `userdata\` 裡平常那一份，第一次啟動頁也預選程式資料夾 —— issue #2 的 fps 量測會量到錯的資料。
+  現在 `tools\Launch.ps1 -LocalAppData` 讓伺服器帶 `CYCLOSA_NO_PROGRAM_FOLDER=1`：那個選項關著（畫面寫出原因），
+  預選 `<指定目錄>\Cyclosa\data`。測試：`tests/infrastructure/isolated-environment.test.ts`（4 條）。
+
 - **「其他位置」也擋既有資料根裡面的資料夾**（2026-10-11，ADR-0037 追記）：上游 CONVENTIONS §11 把第三種拒絕從
   「marker 所在的那一層」改成「任何一層上層有 marker」。Cyclosa 的 marker 在頂層，舊寫法對它等於沒擋 —— 挑到另一份資料根的
   `cases` 會在真的那份裡面另建一份空的，指標檔還指過去。共用套件升 `@local-app/lifecycle` 0.3.0（原因代碼 `inside-data-root`）；

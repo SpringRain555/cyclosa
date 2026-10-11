@@ -39,8 +39,9 @@
 .PARAMETER LocalAppData
     使用另一個 LOCALAPPDATA 啟動獨立環境，不改目前 shell 的環境變數。
     7433 已有 Cyclosa 時拒絕啟動，請先用畫面上的「結束 Cyclosa」。
-    **換掉的是四步的第 1、3 步**（指標檔與使用者資料夾）；第 2 步看的仍是這個 repo 底下的 userdata\ ——
-    在獨立環境裡選了「放在程式資料夾裡」，之後的獨立環境都會找到那一份（ADR-0037）。
+    換掉指標檔與使用者資料夾，**而且不看程式資料夾**（server 帶 CYCLOSA_NO_PROGRAM_FOLDER=1）：
+    第 2 步不會找到平常放在這個 repo userdata\ 的那一份，第一次啟動頁「放在程式資料夾裡」關著，
+    預選的是 <LocalAppData>\Cyclosa\data（ADR-0037 追記）。
 
 .EXAMPLE
     .\tools\Launch.ps1
@@ -275,6 +276,8 @@ if (Test-Path -LiteralPath $pointerPath) {
     } catch {
         Write-Note "資料根：無法讀取指標檔（$pointerPath），由伺服器回報問題。"
     }
+} elseif ($separateEnvironment) {
+    Write-Note '資料根：沒有指標檔 —— 獨立環境不看程式資料夾，伺服器只找這個 LOCALAPPDATA 底下的 Cyclosa\data，沒有就在畫面上問。'
 } else {
     Write-Note '資料根：沒有指標檔 —— 伺服器會找程式資料夾的 userdata 與使用者資料夾的 data，都沒有就在畫面上問。'
 }
@@ -315,14 +318,20 @@ try {
 # libuv 在 Windows 上把 `detached` 做成 `DETACHED_PROCESS` —— server **完全沒有主控台**，
 # 之後它每起一個主控台程式（`claude.exe`）都會被 Windows 配一個看得見的新視窗。
 # 下面的 `-WindowStyle Hidden` 是「自己的、隱藏的主控台」，子行程繼承那一個，所以不會跳窗。
+#
+# 獨立環境另外帶 `CYCLOSA_NO_PROGRAM_FOLDER=1`：只換 `LOCALAPPDATA` 的話，四步的第 2 步還是看這個 repo 的
+# `userdata\` —— 平常的資料放那裡的人，獨立環境會直接打開平常那一份（2026-10-11，issue #2 的量測步驟）。
 function Invoke-WithServerEnvironment {
     param([scriptblock]$Action)
     $saved = $env:LOCALAPPDATA
+    $savedNoProgram = $env:CYCLOSA_NO_PROGRAM_FOLDER
     try {
         $env:LOCALAPPDATA = $serverLocalAppData
+        if ($separateEnvironment) { $env:CYCLOSA_NO_PROGRAM_FOLDER = '1' }
         & $Action
     } finally {
         $env:LOCALAPPDATA = $saved
+        $env:CYCLOSA_NO_PROGRAM_FOLDER = $savedNoProgram
     }
 }
 

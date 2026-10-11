@@ -11,6 +11,9 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **補齊首次上手檢查**：README 說明 Windows 端須同時找得到 Node.js 24 與 npm、
+  `npm.ps1` 被執行原則擋下時可用 `npm.cmd`，並列出不設定模型的閱讀器、點註、關聯圖、全文檢索與重啟驗收步驟。
+
 - **`-LocalAppData` 的獨立環境不再看程式資料夾**（2026-10-11，ADR-0037 追記）：原本只換指標檔與使用者資料夾，
   四步的第 2 步還是會找到 repo `userdata\` 裡平常那一份，第一次啟動頁也預選程式資料夾 —— issue #2 的 fps 量測會量到錯的資料。
   現在 `tools\Launch.ps1 -LocalAppData` 讓伺服器帶 `CYCLOSA_NO_PROGRAM_FOLDER=1`：那個選項關著（畫面寫出原因），

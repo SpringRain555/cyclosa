@@ -11,6 +11,12 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **「其他位置」也擋既有資料根裡面的資料夾**（2026-10-11，ADR-0037 追記）：上游 CONVENTIONS §11 把第三種拒絕從
+  「marker 所在的那一層」改成「任何一層上層有 marker」。Cyclosa 的 marker 在頂層，舊寫法對它等於沒擋 —— 挑到另一份資料根的
+  `cases` 會在真的那份裡面另建一份空的，指標檔還指過去。共用套件升 `@local-app/lifecycle` 0.3.0（原因代碼 `inside-data-root`）；
+  第一次啟動與搬家共用這一條，搬進**現在這一份**裡面照舊報 `nested`。畫面上的錯誤訊息補上這一種。
+  測試：`first-run.test.ts` 的表多兩列、`data-root-move.test.ts` 多一條（搬進另一份資料根 → `inside-data-root`）。
+
 - **第一次啟動改成三選一，沒有指標檔時照四步找**（2026-10-11，ADR-0037）：上游 CONVENTIONS §11 把 8 個本機 app
   「沒有指標檔時」的做法統一成 `tagcor-ledger` ADR-0018 的形狀。依序找指標檔 → 程式資料夾的 `userdata\` →
   `%LOCALAPPDATA%\Cyclosa\data\`（認的是頂層的 `data-root.json`），都沒有才在清單頁問：放在程式資料夾裡（預選）／

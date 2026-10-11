@@ -262,13 +262,20 @@ describe('選：三選一', () => {
     expect(await caseNames()).toEqual([]);
   });
 
-  it('其他位置擋三種：整顆磁碟、程式資料夾裡面（連 userdata）、不是完整路徑 —— 都不寫指標檔', async () => {
+  it('其他位置擋四種：整顆磁碟、程式資料夾裡面（連 userdata）、既有資料根裡面、不是完整路徑 —— 都不寫指標檔', async () => {
     await boot();
+    // 一份既有的資料根（marker 是頂層的 data-root.json）。2026-10-11 之前這一種沒擋：
+    // 挑到它的 cases 會在真的那份裡面另建一份空的，指標檔還指過去（上游 CONVENTIONS §11）。
+    const existing = join(sandbox, 'Existing');
+    await mkdir(existing, { recursive: true });
+    await writeFile(join(existing, 'data-root.json'), '{"app":"cyclosa","version":1}\n');
     const cases: [string, string][] = [
       [parse(sandbox).root, 'drive-root'],
       [program, 'inside-program-folder'],
       [programData(), 'inside-program-folder'],
       [join(program, '別的資料夾'), 'inside-program-folder'],
+      [join(existing, 'cases'), 'inside-data-root'],
+      [join(existing, 'cases', '某個專題'), 'inside-data-root'],
       ['相對\\路徑', 'not-absolute'],
     ];
     for (const [folder, reason] of cases) {
@@ -278,6 +285,7 @@ describe('選：三選一', () => {
     }
     expect(await exists(pointerFile())).toBe(false);
     expect(await exists(program)).toBe(false);
+    expect(await exists(join(existing, 'cases'))).toBe(false);
   });
 
   it('認不得的 choice → 400；其他位置沒給路徑 → 400', async () => {

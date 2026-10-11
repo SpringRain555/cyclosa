@@ -259,8 +259,8 @@
 > 接上既有的不放，所以「使用者刪過了」不需要另外記旗標 ——
 > **marker 已經是那個旗標**。做法與理由在 `sample-service.ts`。
 >
-> 「其他位置」與 `move` 共用三種擋法（`IO_DATA_ROOT_LOCATION_INVALID`，`detail.reason` 是
-> `drive-root`／`inside-program-folder`／`not-absolute`）。`move` 另外擋：有作業在跑（`IO_DATA_ROOT_BUSY`）、
+> 「其他位置」與 `move` 共用四種擋法（`IO_DATA_ROOT_LOCATION_INVALID`，`detail.reason` 是
+> `drive-root`／`inside-program-folder`／`inside-data-root`／`not-absolute`；`move` 的目標在現在這一份裡面時改報下面的 `nested`）。`move` 另外擋：有作業在跑（`IO_DATA_ROOT_BUSY`）、
 > 目標不能用（`IO_DATA_ROOT_TARGET_INVALID`，`detail.reason` 是 `same`／`nested`／`not-empty`）。
 > **搬完才寫指標檔** —— 失敗時舊的地方原封不動，指標檔也還指著它；搬成功之後一律寫指標檔，
 > 不管原本是從哪一步找到的。

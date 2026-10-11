@@ -89,8 +89,9 @@ export const ERROR_CODES = {
   /**
    * **這種位置不能當資料根**，與它空不空無關（ADR-0037）。第一次啟動的「其他位置」與搬家共用。
    * `detail.reason`：`drive-root`（整顆磁碟）、`inside-program-folder`（程式資料夾裡面 ——
-   * 連 `userdata` 也算：要放那裡就選「放在程式資料夾裡」）、`not-absolute`（不是完整路徑）、
-   * `program-folder-unavailable`（找不到程式資料夾）。
+   * 連 `userdata` 也算：要放那裡就選「放在程式資料夾裡」）、`inside-data-root`（在一份既有的資料根裡面 ——
+   * 上層有 `data-root.json`；搬家時那一份正好是現在這一份的話改報 `IO_DATA_ROOT_TARGET_INVALID` 的 `nested`）、
+   * `not-absolute`（不是完整路徑）、`program-folder-unavailable`（找不到程式資料夾）。
    */
   IO_DATA_ROOT_LOCATION_INVALID: 'error',
   /** 資料根搬不動 —— 有東西開著它。**資料完整留在原地。** */

@@ -251,8 +251,9 @@ async function isEmptyOrAbsent(p: string): Promise<boolean> {
  *
  * ## 先擋掉的目標
  *
- * 位置本身不能用的（整顆磁碟、程式資料夾裡面、不是完整路徑）與第一次啟動的「其他位置」同一套
- * （`IO_DATA_ROOT_LOCATION_INVALID`）。另外三種是搬家才有的：`same` 什麼都不用做；
+ * 位置本身不能用的（整顆磁碟、程式資料夾裡面、既有資料根裡面、不是完整路徑）與第一次啟動的「其他位置」
+ * 同一套（`IO_DATA_ROOT_LOCATION_INVALID`）—— 只有「在現在這一份裡面」改報下面的 `nested`。
+ * 另外三種是搬家才有的：`same` 什麼都不用做；
  * `nested` 是**把一個資料夾搬進它自己底下**，而那在檔案系統上會變成一個沒有終點的動作；
  * `not-empty` 會蓋掉別人的東西 —— 那個「別人」很可能是使用者的另一份資料。
  */
@@ -269,6 +270,15 @@ export async function moveDataRoot(
 
   const target = await inspectTargetFolder(toRaw.trim(), env);
   if (!target.ok) {
+    // 共用套件把「既有資料根裡面」一律擋成 `inside-data-root`。那一份正好是現在要搬的這一份時，
+    // 它就是搬家才有的 `nested`（搬進自己底下）—— 那個說法比較具體，照舊用它。
+    if (
+      target.code === 'inside-data-root' &&
+      target.existingRoot !== undefined &&
+      samePath(target.existingRoot, resolve(from))
+    ) {
+      return err('IO_DATA_ROOT_TARGET_INVALID', cid, { reason: 'nested' });
+    }
     return err('IO_DATA_ROOT_LOCATION_INVALID', cid, {
       reason: target.code,
       ...(target.dataRoot === undefined ? {} : { dataRoot: target.dataRoot }),

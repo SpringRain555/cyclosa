@@ -3,7 +3,7 @@
 **這一份是「這個程式怎麼開起來、怎麼結束」的權威。** 資料怎麼流見
 [`walkthrough.md`](walkthrough.md)，程式怎麼分層見 [`overview.md`](overview.md)。
 
-Node 本機 app 共用機制使用 `@local-app/lifecycle@0.2.0`：healthz 探測、有上限的關閉序列與資料根的四步（`data-location`，ADR-0037）由套件提供，PowerShell launcher 載入本 repo 的 `vendor\AppLifecycle.psm1`。此 repo 同時版控 `vendor/local-app-lifecycle-0.2.0.tgz`，因此單獨 clone 仍可 `npm ci`；套件升版時同步更新各個使用它的 app（Cyclosa、Polistes、Rubricator、NetPulse）的 tarball 與 lock 檔。各 app 的 identity、readiness、清理 callbacks、資料根的 marker 與版面仍由本 repo 決定。
+Node 本機 app 共用機制使用 `@local-app/lifecycle@0.3.0`：healthz 探測、有上限的關閉序列與資料根的四步（`data-location`，ADR-0037）由套件提供，PowerShell launcher 載入本 repo 的 `vendor\AppLifecycle.psm1`。此 repo 同時版控 `vendor/local-app-lifecycle-0.3.0.tgz`，因此單獨 clone 仍可 `npm ci`；套件升版時同步更新各個使用它的 app（Cyclosa、Polistes、Rubricator、NetPulse）的 tarball 與 lock 檔。各 app 的 identity、readiness、清理 callbacks、資料根的 marker 與版面仍由本 repo 決定。
 
 > **為什麼要有這一份。**
 >

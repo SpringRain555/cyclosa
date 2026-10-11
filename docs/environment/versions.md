@@ -61,7 +61,7 @@
 | `linkedom` | `^0.18` | **ISC** | 給 readability 一個 DOM，不用 jsdom（輕很多）|
 | `franc` | `^6.2` | MIT | 語言偵測。偵測不出來記 `und`，不猜 |
 | `pdfjs-dist` | `^6.3` | **Apache-2.0** | PDF 的文字層與頁碼。**第一版就要**（REQ-0006 ＋ ADR-0019 的頁碼錨點）|
-| `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.2.0.tgz` | 本 repo 的 MIT（見下）| healthz 探測、有上限的關閉序列、資料根的四步（`data-location`，0.2.0 起；ADR-0037），幾個本機 app 共用（`architecture/app-lifecycle.md`）|
+| `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.3.0.tgz` | 本 repo 的 MIT（見下）| healthz 探測、有上限的關閉序列、資料根的四步（`data-location`，0.2.0 起；0.3.0 起「其他位置」也擋既有資料根裡面；ADR-0037），幾個本機 app 共用（`architecture/app-lifecycle.md`）|
 
 > **`@local-app/lifecycle` 不是從 npm 裝的**（2026-10-08 加，2026-10-09 補記在這裡）：tarball 與 `package-lock.json` 一起版控在
 > `vendor/`，單獨 clone 也 `npm ci` 得起來；PowerShell 那一半（`vendor/AppLifecycle.psm1`）給啟動器載入。

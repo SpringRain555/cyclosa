@@ -121,10 +121,27 @@ describe('換一個資料根', () => {
   it('搬進自己底下 → nested，而且是在動任何檔案之前擋掉', async () => {
     const { body } = await move(join(dataRoot, '子資料夾'));
     expect(body.ok).toBe(false);
+    expect(body.code).toBe('IO_DATA_ROOT_TARGET_INVALID');
     expect(body.detail?.['reason']).toBe('nested');
     // 原本的東西一個都沒少。
     expect((await readdir(dataRoot)).sort()).toEqual(LAYOUT);
     expect(await caseNames()).toEqual(['既有專題']);
+  });
+
+  /**
+   * **搬進另一份資料根裡面也不行**（上游 CONVENTIONS §11，2026-10-11）。共用套件把它擋成
+   * `inside-data-root`；只有那一份正好是現在這一份時才改報上面那條 `nested`。
+   */
+  it('搬進另一份資料根裡面 → LOCATION_INVALID 的 inside-data-root，在動任何檔案之前擋掉', async () => {
+    const other = join(sandbox, 'Other');
+    await mkdir(other, { recursive: true });
+    await writeFile(join(other, 'data-root.json'), '{"app":"cyclosa","version":1}\n');
+    const { body } = await move(join(other, 'cases'));
+    expect(body.code).toBe('IO_DATA_ROOT_LOCATION_INVALID');
+    expect(body.detail?.['reason']).toBe('inside-data-root');
+    expect((await readdir(dataRoot)).sort()).toEqual(LAYOUT);
+    expect(await caseNames()).toEqual(['既有專題']);
+    expect(await pointerTarget()).toBe(dataRoot);
   });
 
   /**

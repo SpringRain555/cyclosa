@@ -131,7 +131,7 @@ export function detectDataRoot(
 
 /**
  * 「其他位置」與搬家目標共用的擋法：整顆磁碟、程式資料夾裡面（**連 `userdata` 也擋**）、
- * 不是完整路徑。只看。
+ * 既有資料根裡面（上層有 `data-root.json`，`inside-data-root`）、不是完整路徑。只看。
  */
 export function inspectTargetFolder(
   folder: string,

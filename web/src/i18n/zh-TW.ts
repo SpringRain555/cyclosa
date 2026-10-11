@@ -47,7 +47,7 @@ export const errorMessages: Readonly<Record<string, string>> = {
   IO_DATA_ROOT_TARGET_INVALID:
     '不能搬到那個位置：它可能就是現在的位置、在現在這個資料夾底下，或者那裡已經有別的東西了。請換一個空的資料夾。',
   IO_DATA_ROOT_LOCATION_INVALID:
-    '這個位置不能放資料：整顆磁碟的根目錄、Cyclosa 的程式資料夾裡面（要放那裡請選「放在程式資料夾裡」），或不是完整路徑（例如 D:\\Cyclosa\\data）。請換一個資料夾。',
+    '這個位置不能放資料：整顆磁碟的根目錄、Cyclosa 的程式資料夾裡面（要放那裡請選「放在程式資料夾裡」）、另一份 Cyclosa 資料的裡面（要接上那一份，請選有 data-root.json 的那一層），或不是完整路徑（例如 D:\\Cyclosa\\data）。請換一個資料夾。',
   IO_DATA_ROOT_MOVE_BLOCKED:
     '資料搬不過去 —— 原本的資料完整留在原地，設定也沒有改。先讓執行中的作業跑完，或關掉開著那個資料夾的視窗，再試一次。',
   IO_DISK_FULL: '磁碟空間不足。清出空間再試一次 —— 已經寫進去的資料不會壞。',

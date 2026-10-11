@@ -22,21 +22,21 @@
     "三個極限：(1) 攔不住 shell；(2) 這是 Node 專案，node -e 完全繞得過 Read 的 deny，",
     "成文規則才是界線；(3) 不能假設什麼時候生效 —— 要驗就用全新 session 驗。",
     "",
-    "沒有使用者層基線的人（例如剛 clone 的人），把下面 ask 那五條也加進來：",
-    "  ask: Read/Glob/Grep/Edit/Write(<私人資料樹>/**)",
-    "  deny: Edit/Write(<私人資料樹>/**/*.sqlite)、(<私人資料樹>/**/backups/**)"
+    "沒有使用者層基線的人（例如剛 clone 的人），把下面 ask 那兩條也加進來：",
+    "  ask: Read(<私人資料樹>/**)、Edit(<私人資料樹>/**)",
+    "  deny: Edit(<私人資料樹>/**/*.sqlite)、Edit(<私人資料樹>/**/backups/**)",
+    "",
+    "規則只寫 Read(...) 與 Edit(...)：Claude Code 只比對這兩種（Edit 涵蓋所有寫檔的工具，Read 也套到 Grep／Glob）。",
+    "寫成 Write(...)／Glob(...)／Grep(...) 的規則會被收下、但從來不比對（2026-10-11 實測，CONVENTIONS §11）。",
+    "有使用者層基線時，這裡的 allow 蓋不過基線的 ask（ask 優先於 allow，具體程度不改變順序）—— 讀資料根照樣會先問。"
   ],
   "permissions": {
     "allow": [
-      "Read(<資料根目錄>/**)",
-      "Glob(<資料根目錄>/**)",
-      "Grep(<資料根目錄>/**)"
+      "Read(<資料根目錄>/**)"
     ],
     "deny": [
       "Edit(<資料根目錄>/cases/**)",
-      "Write(<資料根目錄>/cases/**)",
-      "Edit(<資料根目錄>/backups/**)",
-      "Write(<資料根目錄>/backups/**)"
+      "Edit(<資料根目錄>/backups/**)"
     ]
   }
 }

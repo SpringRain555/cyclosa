@@ -18,10 +18,11 @@ import {
   renameCase,
 } from '../../application/case-service.js';
 import {
-  initDataRoot,
+  chooseDataRoot,
+  isDataRootChoice,
   moveDataRoot,
+  openDataRoot,
   resolveDataRootOrExplain,
-  resolveOrCreateDataRoot,
 } from '../../application/bootstrap-service.js';
 import { createSampleCase } from '../../application/sample-service.js';
 import {
@@ -163,15 +164,14 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get('/healthz', async () => ({ app: 'cyclosa', version: ctx.version }));
 
   /**
-   * **前端每次進清單頁第一個打的就是這一支**，所以自動建立掛在這裡 ——
-   * 啟動時建失敗（磁碟滿了、剛好沒權限）之後，重新整理一次就會再試。
+   * **前端每次進清單頁第一個打的就是這一支**：照四步再找一次（ADR-0037）。
+   * 啟動時找不到的（隨身碟沒插），接回來之後重新整理一次就會接上。
    *
-   * 底下其他端點的 `resolveDataRootOrExplain` **刻意不換成這一支**：
-   * 那些地方要的是「說出為什麼不能服務你」，
-   * 而「順手建一個資料根」不該是查一份專題清單的副作用。
+   * **它不建資料根。** 四步都沒找到就回 `IO_POINTER_MISSING`（帶著三選一要顯示的位置），
+   * 由使用者在畫面上選 —— 選是下面那一支 `POST`。找到的時候會補齊版面與 marker（`openDataRoot`）。
    */
   app.get('/api/system/data-root', async (_req, reply) => {
-    const r = await resolveOrCreateDataRoot();
+    const r = await openDataRoot();
     if (r.ok) ctx.dataRoot = r.data.dataRoot;
     return send(reply, r);
   });
@@ -184,20 +184,33 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
     reply.code(200).send({ ok: true, data: describeFetchPolicy(), correlationId: 'fetch-policy' }),
   );
 
-  app.post<{ Body: { dataRoot?: unknown } }>('/api/system/data-root', async (req, reply) => {
-    const value = req.body?.dataRoot;
-    if (typeof value !== 'string' || value.trim().length === 0) {
-      return reply.code(400).send({ ok: false, code: 'IO_POINTER_MALFORMED' });
-    }
-    const r = await initDataRoot(value.trim());
-    if (r.ok) ctx.dataRoot = r.data.dataRoot;
-    return send(reply, r);
-  });
+  /**
+   * 三選一（ADR-0037）：`{ choice, dataRoot? }`。`choice` 是 `program-folder`／`user-folder`／`other`，
+   * **沒給就當成 `other`** —— 2026-10-11 之前的請求只有 `dataRoot`，那就是「其他位置」。
+   * `other` 要帶 `dataRoot`；另外兩個不看它。
+   */
+  app.post<{ Body: { choice?: unknown; dataRoot?: unknown } }>(
+    '/api/system/data-root',
+    async (req, reply) => {
+      const choice = req.body?.choice ?? 'other';
+      if (!isDataRootChoice(choice)) {
+        return reply.code(400).send({ ok: false, code: 'IO_DATA_ROOT_LOCATION_INVALID' });
+      }
+      const value = req.body?.dataRoot;
+      const folder = typeof value === 'string' ? value.trim() : '';
+      if (choice === 'other' && folder.length === 0) {
+        return reply.code(400).send({ ok: false, code: 'IO_POINTER_MALFORMED' });
+      }
+      const r = await chooseDataRoot(choice, choice === 'other' ? folder : undefined);
+      if (r.ok) ctx.dataRoot = r.data.dataRoot;
+      return send(reply, r);
+    },
+  );
 
   /**
    * 重建範例專題。
    *
-   * 第一次啟動會自動放一份；刪掉之後**不會自己回來**，
+   * 第一次選好資料位置時會放一份；刪掉之後**不會自己回來**，
    * 而這一支是那個「我想要回來」的明確動作。
    * 已經有一份的時候回 `CASE_NAME_DUPLICATE` —— 重建不該悄悄產生第二份。
    */

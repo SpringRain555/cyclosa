@@ -65,6 +65,10 @@ export const ERROR_CODES = {
   CASE_UNEXPECTED: 'error',
 
   // ── IO_* 檔案系統與資料根 ────────────────────────────────
+  /**
+   * 沒有指標檔，程式資料夾的 `userdata` 與使用者資料夾的 `data` 裡也沒有資料根（上游 CONVENTIONS §11 四步）。
+   * **第一次啟動就是這個狀態**，畫面據此顯示三選一 —— 所以 `detail` 帶著那兩個固定位置。
+   */
   IO_POINTER_MISSING: 'error',
   IO_POINTER_MALFORMED: 'error',
   IO_DATA_ROOT_MISSING: 'error',
@@ -82,6 +86,13 @@ export const ERROR_CODES = {
    * `not-empty`（那裡已經有東西，蓋過去會毀掉別人的資料）。
    */
   IO_DATA_ROOT_TARGET_INVALID: 'error',
+  /**
+   * **這種位置不能當資料根**，與它空不空無關（ADR-0037）。第一次啟動的「其他位置」與搬家共用。
+   * `detail.reason`：`drive-root`（整顆磁碟）、`inside-program-folder`（程式資料夾裡面 ——
+   * 連 `userdata` 也算：要放那裡就選「放在程式資料夾裡」）、`not-absolute`（不是完整路徑）、
+   * `program-folder-unavailable`（找不到程式資料夾）。
+   */
+  IO_DATA_ROOT_LOCATION_INVALID: 'error',
   /** 資料根搬不動 —— 有東西開著它。**資料完整留在原地。** */
   IO_DATA_ROOT_MOVE_BLOCKED: 'error',
   IO_DISK_FULL: 'error',

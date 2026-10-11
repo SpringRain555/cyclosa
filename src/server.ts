@@ -16,7 +16,7 @@ import { MAX_UPLOAD_BYTES } from './domain/ingest/upload.js';
 import { registerRequestGuard } from './interface/http/request-guard.js';
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
 import { pdfjsRoot, registerPdfjsAssets, registerStatic } from './interface/http/static.js';
-import { resolveOrCreateDataRoot } from './application/bootstrap-service.js';
+import { openDataRoot } from './application/bootstrap-service.js';
 import { correlationId } from './shared/id.js';
 import { logger } from './shared/log.js';
 
@@ -108,12 +108,18 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
     }
   });
 
-  // **第一次啟動自動建，不問**。故障的那三種仍然照原樣往上回 ——
-  // 理由在 `resolveOrCreateDataRoot` 的註解裡。
-  const resolved = await resolveOrCreateDataRoot();
+  // **照四步找，找不到也不建**（ADR-0037）。四步都沒找到時 server 照樣起來，
+  // 由清單頁問三選一；指標檔故障的那三種也照原樣往上回 —— 理由在 `resolveDataRootOrExplain`。
+  const resolved = await openDataRoot();
   if (resolved.ok) {
     ctx.dataRoot = resolved.data.dataRoot;
-    logger.info('資料根已就緒', { correlationId: resolved.correlationId });
+    logger.info('資料根已就緒', {
+      correlationId: resolved.correlationId,
+      source: resolved.data.source,
+    });
+  } else if (resolved.code === 'IO_POINTER_MISSING') {
+    // 第一次啟動的正常狀態，不是故障。
+    logger.info('還沒有資料根，等畫面上三選一', { correlationId: resolved.correlationId });
   } else {
     // **不是啟動失敗。** 清單頁要顯示「指標檔在哪、指到哪、那個路徑怎麼了」，
     // 而顯示那件事需要 server 活著（REQ-0001）。

@@ -66,6 +66,9 @@ try {
     $reporters = if ($env:GITHUB_ACTIONS -eq 'true') { @('--reporter=verbose', '--reporter=github-actions') } else { @('--reporter=dot') }
     Invoke-Check '測試（含守門）' { & npx vitest run @reporters }
     Invoke-Check '兩份 agent 檔逐字相同' { & (Join-Path $root 'tools\Sync-AgentDocs.ps1') -Check }
+    # 「放在程式資料夾裡」的資料根是 repo 底下的 userdata\（ADR-0037）。整個被忽略是那個選項成立的前提，
+    # 所以拿一個裡面會有、而且不是 *.sqlite 的檔問 git —— 只有 /userdata/ 那一行擋得住它。
+    Invoke-Check '程式資料夾的 userdata 不進版控' { & git check-ignore -q 'userdata/exports/evidence.md' }
 
     # 圖表過期只是提醒，不擋 —— 產圖需要網路與 npx 下載 Chromium，
     # 而驗證閘門不該依賴網路。

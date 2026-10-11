@@ -235,31 +235,35 @@
 | `POST /api/providers/test` | `{task}`：**實際打一次那個任務實際會跑的那一支**。回 `{task, ok, code, costUsd, elapsedMs, jsonMode, browse}`。**走 OpenAI 相容端點的任務，這一次會先重量格式支援**並記進 `provider-checks.json` —— 所以這顆按鈕同時是「重新檢查」，也因此會多花一到兩次很小的請求。找來源走 OpenAI 相容 API 時，量的是「會不會上網搜尋」（一個帶搜尋的小請求，v0.24.2）。設定頁的「儲存並測試」逐任務叫它 |
 | `POST /api/providers/connections/:kind/models` | `kind` 是 `ollama` 或 `openai`，body `{baseUrl, apiKeyEnv}`。**只列模型、不寫設定檔** —— 填了位址就能看到那個端點有哪些模型。回 `{kind, models, auth}`。v0.24.1 起設定頁改了就存，按這顆之前會先存；這一支本身仍然不寫檔 |
 | `GET /api/system/fetch-policy` | 對外抓取的規矩：同網域間隔（以及它是預設值還是環境變數給的）、下限、限流時最多再試幾次、預設退避、`Retry-After` 上限。**設定頁「狀態說明」從這裡讀數字**，不寫死在 i18n 裡（ADR-0031）；匯入與研究只在抓取等待時顯示節流狀態 |
-| `GET /api/system/data-root` | 現在的資料根與指標檔位置。**指標檔不存在時會自動建一個預設的**（見下）|
-| `POST /api/system/data-root` | 指一個資料根（**還沒有的時候**）。只寫指標檔，不搬東西 |
+| `GET /api/system/data-root` | 照四步找資料根（ADR-0037）：回 `{dataRoot, pointerPath, source}`，`source` 是 `pointer`／`program-folder`／`user-folder`。**都沒找到回 `IO_POINTER_MISSING`，不建任何東西**（見下）|
+| `POST /api/system/data-root` | 三選一：`{choice, dataRoot?}`，`choice` 是 `program-folder`／`user-folder`／`other`。**沒給 `choice` 當成 `other`**（2026-10-11 之前的請求只有 `dataRoot`）。`other` 要帶 `dataRoot`，沒帶是 400；認不得的 `choice` 也是 400。不搬東西 |
 | `POST /api/system/data-root/move` | 換一個資料根，**既有的東西跟著搬過去**|
 | `POST /api/system/sample` | 重建範例專題。已經有一份時回 `CASE_NAME_DUPLICATE` —— **重建不該悄悄產生第二份** |
 
-> ### 第一次啟動不問任何問題
+> ### 第一次啟動：四步找，都沒有才問（ADR-0037）
 >
-> `GET /api/system/data-root` 在**指標檔不存在**時自動建
-> `%LOCALAPPDATA%\Cyclosa\data` 並寫指標檔 —— 前端每次進清單頁第一個打的就是它。
+> `GET /api/system/data-root` 照上游 CONVENTIONS §11 的四步找：指標檔 → `<程式資料夾>\userdata` 裡的
+> `data-root.json` → `%LOCALAPPDATA%\Cyclosa\data` 裡的 `data-root.json`。**都沒有就回 `IO_POINTER_MISSING`，
+> `detail` 帶著 `pointerPath`、`programDataRoot`（`null` 代表那個選項不能用）、`userDataRoot`** ——
+> 前端每次進清單頁第一個打的就是它，看到這個碼就顯示三選一，不當成故障。找到的時候會補齊版面與 marker。
 >
-> **只有「指標檔不存在」走自動建立。** 另外三種失敗
-> （`IO_POINTER_MALFORMED`、`IO_DATA_ROOT_MISSING`、`IO_DATA_ROOT_NOT_WRITABLE`）
-> 一律照原樣回，因為**它們後面可能有一整份資料**：
-> 指標檔指到 `E:\…` 而隨身碟沒插的時候自動頂替一個空資料夾，
-> 使用者會看到一個乾淨的空清單、一個字都沒說。
-> 那正是 REQ-0001 花四個錯誤碼在擋的事。
+> **2026-10-11 之前這裡是「不問就建 `%LOCALAPPDATA%\Cyclosa\data`」**（v0.17.0 開箱即用）。換掉的理由：
+> 指標檔遺失（重灌、清 AppData）時那會默默生出一份空的資料根，看起來就像資料全部不見了。
 >
-> **自動建立的同時會放一份範例專題**。它只發生在這一條路上，
-> 所以「使用者刪過了」不需要另外記旗標 ——
-> **「資料根存不存在」已經是那個旗標**。做法與理由在 `sample-service.ts`。
+> 指標檔的三種故障（`IO_POINTER_MALFORMED`、`IO_DATA_ROOT_MISSING`、`IO_DATA_ROOT_NOT_WRITABLE`）
+> 一律照原樣回、**不往下找**，因為**它們後面可能有一整份資料**：
+> 指標檔指到 `E:\…` 而隨身碟沒插的時候用程式資料夾那一份頂替，
+> 使用者會看到另一份清單、一個字都沒說。那正是 REQ-0001 花四個錯誤碼在擋的事。
 >
-> `move` 的守門：有作業在跑（`IO_DATA_ROOT_BUSY`）、目標不能用
-> （`IO_DATA_ROOT_TARGET_INVALID`，`detail.reason` 是
-> `same`／`nested`／`not-empty`）。**搬完才寫指標檔** ——
-> 失敗時舊的地方原封不動，指標檔也還指著它。
+> **範例專題只放進這一次才建出來的資料根**（`POST` 選完、選之前那裡沒有 marker）。
+> 接上既有的不放，所以「使用者刪過了」不需要另外記旗標 ——
+> **marker 已經是那個旗標**。做法與理由在 `sample-service.ts`。
+>
+> 「其他位置」與 `move` 共用三種擋法（`IO_DATA_ROOT_LOCATION_INVALID`，`detail.reason` 是
+> `drive-root`／`inside-program-folder`／`not-absolute`）。`move` 另外擋：有作業在跑（`IO_DATA_ROOT_BUSY`）、
+> 目標不能用（`IO_DATA_ROOT_TARGET_INVALID`，`detail.reason` 是 `same`／`nested`／`not-empty`）。
+> **搬完才寫指標檔** —— 失敗時舊的地方原封不動，指標檔也還指著它；搬成功之後一律寫指標檔，
+> 不管原本是從哪一步找到的。
 > 唯一的例外在跨磁碟區（複製再刪）：**複製完成之後**刪舊的途中失敗，舊的已經少了一部分，
 > 所以照常指到新位置、殘骸留在舊位置 —— 不會回頭刪掉唯一完整的那一份。
 

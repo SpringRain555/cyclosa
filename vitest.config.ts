@@ -22,6 +22,19 @@ export const SANDBOX_LOCALAPPDATA = fileURLToPath(
 );
 
 /**
+ * 測試行程看到的**程式資料夾**（`CYCLOSA_PROGRAM_DIR`）。理由同上：資料根照四步找（ADR-0037），
+ * 第 2 步看的是 `<程式資料夾>\userdata`，而沒有這一行的話程式資料夾就是這個 repo ——
+ * 測試會去看（選「放在程式資料夾裡」時還會去建）真的 `userdata\`。
+ *
+ * 還有第二個理由：所有沙箱都在 `tmp/vitest/` 裡，也就是 repo 底下。程式資料夾是 repo 的話，
+ * 每一條測試指定的資料根都會被當成「程式資料夾裡面」擋掉。
+ *
+ * **會真的選「放在程式資料夾裡」的測試，各自換成自己沙箱裡的一份**（`first-run.test.ts`）——
+ * 這一個是整個測試行程共用的，在這裡建了 `userdata`，別的測試的第 2 步就會找到它。
+ */
+export const SANDBOX_PROGRAM = fileURLToPath(new URL('./tmp/vitest/Program/', import.meta.url));
+
+/**
  * **GitHub Actions 上的時間上限放寬到 60 秒，本機照舊。**
  *
  * GitHub 的 Windows runner 只有 4 核，e2e 慢兩到四倍：每條測試的 `beforeEach` 都要起一個 server，
@@ -51,14 +64,16 @@ export default defineConfig({
       CYCLOSA_LOG_LEVEL: 'silent',
       // 節流間隔一律用預設值：開發機上設了這個變數的話，e2e 的間隔量測與整包的時間都會跟著變。
       CYCLOSA_FETCH_INTERVAL_MS: '',
-      // 第一次啟動不建範例專題：e2e 換到自己的資料根之後用不到它，卻佔掉 e2e 四成的時間。
-      // 測「第一次啟動」的那幾條（`case-flow.test.ts`）自己把它拿掉（`bootstrap-service.ts`）。
+      // 選好資料位置時不建範例專題：e2e 換到自己的資料根之後用不到它，卻佔掉 e2e 四成的時間。
+      // 測「第一次啟動」的那幾條（`case-flow.test.ts`、`first-run.test.ts`）自己把它拿掉（`bootstrap-service.ts`）。
       CYCLOSA_SKIP_SAMPLE: '1',
       // `os.tmpdir()` 在 Windows 上讀這兩個。沙箱一律進 repo 的 tmp/vitest/。
       TMP: SANDBOX_ROOT,
       TEMP: SANDBOX_ROOT,
       // 指標檔從這個推導 —— 理由在上面的 SANDBOX_LOCALAPPDATA。
       LOCALAPPDATA: SANDBOX_LOCALAPPDATA,
+      // 四步的第 2 步看這個 —— 理由在上面的 SANDBOX_PROGRAM。
+      CYCLOSA_PROGRAM_DIR: SANDBOX_PROGRAM,
     },
   },
 });

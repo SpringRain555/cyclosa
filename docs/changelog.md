@@ -11,6 +11,17 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **第一次啟動改成三選一，沒有指標檔時照四步找**（2026-10-11，ADR-0037）：上游 CONVENTIONS §11 把 8 個本機 app
+  「沒有指標檔時」的做法統一成 `tagcor-ledger` ADR-0018 的形狀。依序找指標檔 → 程式資料夾的 `userdata\` →
+  `%LOCALAPPDATA%\Cyclosa\data\`（認的是頂層的 `data-root.json`），都沒有才在清單頁問：放在程式資料夾裡（預選）／
+  使用者資料夾／其他位置。**問之前什麼都不建** —— v0.17.0 起的「不問就建」在指標檔遺失（重灌、清 AppData）時
+  會默默生出一份空的資料根，看起來就像資料全部不見了。只有「其他位置」寫指標檔，key 換成 `data_root`
+  （舊的 `dataRoot` 照樣讀）；範例專題只放進這一次才建出來的資料根。「其他位置」與搬家共用新錯誤碼
+  `IO_DATA_ROOT_LOCATION_INVALID`（整顆磁碟、程式資料夾裡面、不是完整路徑）；設定頁「資料位置」改說「程式怎麼找到它」。
+  `/userdata/` 進 `.gitignore`，`Verify.ps1` 多一步 `git check-ignore`；測試多隔離一個位置（`CYCLOSA_PROGRAM_DIR`）。
+  **既有的安裝不受影響**：指標檔照舊走第 1 步，打開時補上 marker
+- **`@local-app/lifecycle` 升到 0.2.0**（2026-10-11）：多一個 `data-location` 模組（上一條的機制），healthz 與關閉序列不變；
+  `vendor/` 的 tarball 換成 0.2.0、lock 檔只動這個套件（`versions.md`）
 - **`@local-app/lifecycle` 升到 0.1.1**（2026-10-10）：只在 `package.json` 補上 `"license": "MIT"`，程式碼跟 0.1.0 逐位元組相同；
   `vendor/` 的 tarball 換成 0.1.1、lock 檔只動這個套件。Polistes、Rubricator 同一天一起換（`versions.md`）
 - **e2e 不再每條都建範例專題**（2026-10-10）：幾乎每條 e2e 都從空的 `LOCALAPPDATA` 起 server，第一次啟動照規矩建範例專題，

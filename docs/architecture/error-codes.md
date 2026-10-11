@@ -55,12 +55,13 @@
 
 | 碼 | 級別 | 成因 | 使用者該做什麼 |
 |---|:--:|---|---|
-| `IO_POINTER_MISSING` | error | `%LOCALAPPDATA%\Cyclosa\system_paths.json` 不存在（第一次啟動，或被刪掉）| 選一個資料根目錄，程式會把它記進指標檔 |
+| `IO_POINTER_MISSING` | error | 四步都沒找到：`%LOCALAPPDATA%\Cyclosa\system_paths.json` 不存在，程式資料夾的 `userdata\` 與 `%LOCALAPPDATA%\Cyclosa\data\` 裡也沒有 `data-root.json`（第一次啟動，或指標檔被刪掉而資料不在那兩個固定位置）。`detail` 帶著那兩個位置（`programDataRoot` 是 `null` 時程式資料夾那個選項不能用）。**畫面不把它當故障顯示**，而是三選一（ADR-0037）| 三選一：程式資料夾（預選）／使用者資料夾／其他位置。只有「其他位置」寫指標檔。資料其實在別的地方的話，選「其他位置」指回那個資料夾就接上了 |
 | `IO_POINTER_MALFORMED` | error | 指標檔存在但不是合法 JSON，或缺 `data_root` 欄 | 訊息裡有指標檔的完整路徑。刪掉它重新選一次，或手動修好 |
 | `IO_DATA_ROOT_MISSING` | error | 指標檔指到的路徑不存在（外接硬碟沒插、資料夾被搬走）| 訊息會寫「指標檔在哪、它指到哪」。把那個路徑接回來，或重新選一個 |
 | `IO_DATA_ROOT_NOT_WRITABLE` | error | 資料根存在但寫不進去（權限、唯讀磁碟）| 檢查那個資料夾的權限，或換一個位置 |
 | `IO_DATA_ROOT_BUSY` | error | 有作業在跑的時候要搬資料根。搬家會把 `case.sqlite` 從一個正在寫它的行程底下抽走 | 等作業跑完或先取消它。`detail.activeRuns` 是還在跑的數量 |
 | `IO_DATA_ROOT_TARGET_INVALID` | error | 要搬過去的位置不能用。`detail.reason`：`same`（就是現在這個）、`nested`（在現在這個底下，等於搬進自己）、`not-empty`（那裡已經有東西，蓋過去會毀掉它）| 換一個空的資料夾 |
+| `IO_DATA_ROOT_LOCATION_INVALID` | error | **這種位置不能當資料根**，與它空不空無關。第一次啟動的「其他位置」與搬家共用（ADR-0037）。`detail.reason`：`drive-root`（整顆磁碟的根目錄）、`inside-program-folder`（Cyclosa 的程式資料夾裡面，**連 `userdata` 也算** —— 從這裡選會把一個資料夾一搬就失效的絕對路徑寫進指標檔，而程式資料夾裡只有 `userdata` 被 git 忽略）、`not-absolute`（不是完整路徑）、`program-folder-unavailable`（找不到程式資料夾）| 換一個資料夾。要放在程式資料夾裡，就選「放在程式資料夾裡」那個選項 |
 | `IO_DATA_ROOT_MOVE_BLOCKED` | error | 資料根搬不動（有東西開著它），或跨磁碟區複製失敗 | **原本的資料完整留在原地，指標檔也沒有改。** 關掉開著那個資料夾的東西再試一次 |
 | `IO_DISK_FULL` | error | 寫入時磁碟空間不足 | 清出空間再重試。**已經寫進去的東西不會壞** —— 交易沒有完成就不會留下半筆 |
 | `IO_PATH_TOO_LONG` | error | 子程序的工作目錄（agent 的沙箱，在資料根底下）超過 Windows 的上限（`WINDOWS_CWD_LIMIT`，248 字元）。那時 `spawn` 回的是 `ENOENT`，**原本會被報成「沒設定」**（2026-09-23 實跑撞到，而且管線的錯誤讓整個伺服器停掉 —— 見 `spawn-piped.ts`）| 把資料根搬到短一點的位置（設定頁「資料位置」）|

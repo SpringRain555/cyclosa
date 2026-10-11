@@ -45,10 +45,14 @@ async function caseNames(): Promise<string[]> {
   return (res.json() as { data: { name: string }[] }).data.map((c) => c.name);
 }
 
+/** 指標檔的 key 是 `data_root`（上游 CONVENTIONS §11；2026-10-11 之前是 `dataRoot`）。 */
 async function pointerTarget(): Promise<string> {
   const raw = await readFile(join(localAppData, 'Cyclosa', 'system_paths.json'), 'utf8');
-  return (JSON.parse(raw) as { dataRoot: string }).dataRoot;
+  return (JSON.parse(raw) as { data_root: string }).data_root;
 }
+
+/** 頂層的五個資料夾 ＋ marker（ADR-0037）。 */
+const LAYOUT = ['backups', 'cases', 'data-root.json', 'exports', 'logs', 'tmp'];
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'cyclosa-move-'));
@@ -87,10 +91,10 @@ describe('換一個資料根', () => {
     expect(await pointerTarget()).toBe(to);
   });
 
-  it('搬完之後五個頂層資料夾都在', async () => {
+  it('搬完之後五個頂層資料夾與 marker 都在', async () => {
     const to = join(sandbox, 'After');
     await move(to);
-    expect((await readdir(to)).sort()).toEqual(['backups', 'cases', 'exports', 'logs', 'tmp']);
+    expect((await readdir(to)).sort()).toEqual(LAYOUT);
   });
 
   it('目標還不存在也可以 —— 連中間那幾層一起建起來', async () => {
@@ -119,13 +123,39 @@ describe('換一個資料根', () => {
     expect(body.ok).toBe(false);
     expect(body.detail?.['reason']).toBe('nested');
     // 原本的東西一個都沒少。
-    expect((await readdir(dataRoot)).sort()).toEqual([
-      'backups',
-      'cases',
-      'exports',
-      'logs',
-      'tmp',
-    ]);
+    expect((await readdir(dataRoot)).sort()).toEqual(LAYOUT);
+    expect(await caseNames()).toEqual(['既有專題']);
+  });
+
+  /**
+   * **程式資料夾裡面不能搬進去，連 `userdata` 也不行**（ADR-0037）。
+   *
+   * 搬過去的地方會寫進指標檔，而指標檔記的是絕對路徑 —— 程式資料夾一搬就指錯地方，
+   * 而且程式資料夾裡只有 `userdata` 被 git 忽略。要放那裡是第一次啟動「放在程式資料夾裡」那個選項的事。
+   * 程式資料夾換成這一條自己的沙箱：萬一擋不住，搬進去的也不會是別的測試看得到的那一個。
+   */
+  it('搬進程式資料夾裡 → LOCATION_INVALID，在動任何檔案之前擋掉', async () => {
+    const savedProgram = process.env['CYCLOSA_PROGRAM_DIR'];
+    const program = join(sandbox, 'Program');
+    process.env['CYCLOSA_PROGRAM_DIR'] = program;
+    try {
+      for (const to of [join(program, 'userdata'), join(program, '別的資料夾')]) {
+        const { body } = await move(to);
+        expect(body.code, to).toBe('IO_DATA_ROOT_LOCATION_INVALID');
+        expect(body.detail?.['reason']).toBe('inside-program-folder');
+      }
+      expect((await readdir(dataRoot)).sort()).toEqual(LAYOUT);
+      expect(await pointerTarget()).toBe(dataRoot);
+    } finally {
+      if (savedProgram === undefined) delete process.env['CYCLOSA_PROGRAM_DIR'];
+      else process.env['CYCLOSA_PROGRAM_DIR'] = savedProgram;
+    }
+  });
+
+  it('不是完整路徑 → LOCATION_INVALID，不會以伺服器的工作目錄為準去搬', async () => {
+    const { body } = await move('相對\\路徑');
+    expect(body.code).toBe('IO_DATA_ROOT_LOCATION_INVALID');
+    expect(body.detail?.['reason']).toBe('not-absolute');
     expect(await caseNames()).toEqual(['既有專題']);
   });
 

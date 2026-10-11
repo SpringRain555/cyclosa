@@ -90,9 +90,19 @@ export interface CaseSummary {
   folder: string;
 }
 
+/**
+ * 資料根是從四步裡的哪一步找到的（ADR-0037）。**只有 `pointer` 真的有指標檔** ——
+ * 另外兩種每次啟動從固定位置找，`pointerPath` 只是「它會在哪」。
+ */
+export type DataRootSource = 'pointer' | 'program-folder' | 'user-folder';
+
+/** 第一次啟動的三選一。 */
+export type DataRootChoice = 'program-folder' | 'user-folder' | 'other';
+
 export interface DataRootInfo {
   dataRoot: string;
   pointerPath: string;
+  source: DataRootSource;
 }
 
 /** 對外抓取的規矩。**數字從程式讀**，畫面不自己寫一份。 */
@@ -992,10 +1002,14 @@ export interface ExportSummary {
 export const api = {
   dataRoot: () => request<DataRootInfo>('/api/system/data-root'),
   fetchPolicy: () => request<FetchPolicy>('/api/system/fetch-policy'),
-  setDataRoot: (dataRoot: string) =>
+  /**
+   * 第一次啟動的三選一。`other` 要帶 `dataRoot`，另外兩個不帶 ——
+   * 它們的位置由伺服器決定（`IO_POINTER_MISSING` 的 `detail` 裡有）。
+   */
+  chooseDataRoot: (choice: DataRootChoice, dataRoot?: string) =>
     request<DataRootInfo>('/api/system/data-root', {
       method: 'POST',
-      body: JSON.stringify({ dataRoot }),
+      body: JSON.stringify(dataRoot === undefined ? { choice } : { choice, dataRoot }),
     }),
   cases: () => request<CaseSummary[]>('/api/cases'),
   createCase: (name: string, seed?: string) =>
@@ -1006,7 +1020,7 @@ export const api = {
   /**
    * 換一個資料根，**既有的東西跟著搬過去**。
    *
-   * 與 `setDataRoot` 是兩件事：那一支是「還沒有的時候指一個」，
+   * 與 `chooseDataRoot` 是兩件事：那一支是「還沒有的時候選一個」，
    * 這一支是「已經有了，連同裡面的東西換個地方」。
    */
   moveDataRoot: (dataRoot: string) =>

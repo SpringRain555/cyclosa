@@ -80,12 +80,17 @@ async function exists(p: string): Promise<boolean> {
 
 async function pointerTarget(): Promise<string> {
   const raw = await fs.readFile(join(env['LOCALAPPDATA']!, 'Cyclosa', 'system_paths.json'), 'utf8');
-  return (JSON.parse(raw) as { dataRoot: string }).dataRoot;
+  return (JSON.parse(raw) as { data_root: string }).data_root;
 }
 
 beforeEach(async () => {
   sandbox = await fs.mkdtemp(join(tmpdir(), 'cyclosa-exdev-'));
-  env = { LOCALAPPDATA: join(sandbox, 'LocalAppData') };
+  // **程式資料夾也要換掉。** 沙箱在 repo 的 `tmp/vitest/` 底下，而沒有這一行的話程式資料夾就是 repo 本身 ——
+  // 這裡的每一個路徑都會被當成「程式資料夾裡面」擋掉（ADR-0037）。
+  env = {
+    LOCALAPPDATA: join(sandbox, 'LocalAppData'),
+    CYCLOSA_PROGRAM_DIR: join(sandbox, 'Program'),
+  };
   from = join(sandbox, 'Before');
   to = join(sandbox, 'After');
 
@@ -145,5 +150,8 @@ describe('跨磁碟區搬資料根', () => {
     expect(await pointerTarget()).toBe(to);
     // 舊位置刪不乾淨的殘骸留著 —— 失敗方向是「多一份垃圾」，不是「少一份資料」。
     expect(await exists(from)).toBe(true);
+    // **但殘骸不帶 marker**：指標檔哪天遺失時，四步不能把那半份當成資料根接上（ADR-0037）。
+    expect(await exists(join(from, 'data-root.json'))).toBe(false);
+    expect(await exists(join(to, 'data-root.json'))).toBe(true);
   });
 });

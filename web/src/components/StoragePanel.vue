@@ -4,11 +4,11 @@
  *
  * ## 這一頁的第一個工作是「告訴你它在哪」
  *
- * v0.17.0 之後**第一次啟動不會問資料要放哪裡** —— 它自己建在
- * `%LOCALAPPDATA%\Cyclosa\data`。方便的代價是使用者可能完全不知道
- * 自己的東西在哪個資料夾裡，而那些東西是他花時間蒐集來的。
+ * 第一次啟動問過一次三選一（ADR-0037），之後就再也不會提起 ——
+ * 使用者可能早就忘了自己的東西在哪個資料夾裡，而那些東西是花時間蒐集來的。
  *
- * 所以這一頁把路徑**印出來**（連同記著它的那個指標檔），
+ * 所以這一頁把路徑**印出來**，連同「程式怎麼找到它」：記在指標檔裡，
+ * 或者從程式資料夾／使用者資料夾那兩個固定位置找到（那兩種沒有指標檔）。
  * 換位置反而是次要的功能。
  *
  * ## 搬家的門在伺服器端
@@ -99,10 +99,23 @@ onMounted(load);
       <dd>
         <code class="mono">{{ root.dataRoot }}</code>
       </dd>
-      <dt>{{ t.settings.storage.pointer }}</dt>
-      <dd>
-        <code class="mono small">{{ root.pointerPath }}</code>
-      </dd>
+      <!-- **只有記在指標檔裡的才說「記在哪」** —— 另外兩種根本沒有那個檔，印出它的路徑會讓人去找一個不存在的檔。 -->
+      <template v-if="root.source === 'pointer'">
+        <dt>{{ t.settings.storage.pointer }}</dt>
+        <dd>
+          <code class="mono small">{{ root.pointerPath }}</code>
+        </dd>
+      </template>
+      <template v-else>
+        <dt>{{ t.settings.storage.foundBy }}</dt>
+        <dd class="small">
+          {{
+            root.source === 'program-folder'
+              ? t.settings.storage.foundInProgramFolder
+              : t.settings.storage.foundInUserFolder
+          }}
+        </dd>
+      </template>
     </dl>
 
     <h2>{{ t.settings.storage.moveTitle }}</h2>

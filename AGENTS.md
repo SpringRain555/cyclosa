@@ -95,8 +95,8 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 診斷模式預設關閉；開啟後 `model-calls/<run-id>.jsonl` 記 `plan`（含缺口評估）、`find-sources`、`digest`、`extract`，
 不記 `embed`、不記金鑰。已知限制仍是解析後的 JSON，不是原始位元組。
 
-一條走得完的路：**雙擊啟動（第一次不問任何問題，資料根自動建，
-清單上已經有一份範例專題）→ 建專題 → 貼網址或拖檔案匯入 → 走完擷取管線 →
+一條走得完的路：**雙擊啟動（第一次啟動問一題三選一：程式資料夾〔預選〕／使用者資料夾／其他位置，
+選完清單上已經有一份範例專題；ADR-0037）→ 建專題 → 貼網址或拖檔案匯入 → 走完擷取管線 →
 在閱讀器裡讀正文、選一段存成點註 → 在 3D 關聯圖上瀏覽（可切 2D 檢視）→
 手動連線與確認／否決／撤回／改判，每一次留稽核紀錄 →
 輸入主題 → 規劃方向 → 蒐集與初讀 → 逐筆確認 → 建圖（三道閘門） → 全文／語意／混合檢索 →
@@ -268,19 +268,24 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 |---|---|
 | 程式（可公開） | 這個 repo |
 | 資料（不公開） | `<資料根目錄>` |
-| 指標檔 | `%LOCALAPPDATA%\Cyclosa\system_paths.json`（第一次啟動自動寫；預設資料根在它旁邊的 `data\`，之後可從設定頁搬走）|
+| 指標檔 | `%LOCALAPPDATA%\Cyclosa\system_paths.json`（key `data_root`，舊的 `dataRoot` 也讀得懂）。**只有「其他位置」與搬家寫它** |
+| 沒有指標檔時 | 照上游 CONVENTIONS §11 的四步找（ADR-0037）：`<程式資料夾>\userdata` → `%LOCALAPPDATA%\Cyclosa\data`，認的是頂層的 `data-root.json`；都沒有就在清單頁問三選一，**問之前什麼都不建** |
 
 **`<資料根目錄>` 與 `<私人資料樹>` 是佔位符**，因為這個 repo 是公開的 ——
 把私人資料夾的實際名稱寫進版控，等於把那份清單一起發佈出去。
 實際路徑的權威來源是 `_meta\cards\cyclosa.md` 的 `data_root` 欄位，
 以及本機那份 `.claude\settings.json`（**不進版控**，範本是 `.claude\settings.example.json`）。
 
-資料根目錄底下四個頂層資料夾：`cases\`（每個專題一個子資料夾）、`backups\`、`logs\`、`tmp\`。
+資料根目錄底下：marker `data-root.json` 與五個頂層資料夾 `cases\`（每個專題一個子資料夾）、`backups\`、`logs\`、`tmp\`、`exports\`。
+
+**這個 repo 底下如果有 `userdata\`，那就是一份資料根**（有人在第一次啟動選了「放在程式資料夾裡」）。
+它整個被 `.gitignore` 忽略（`Verify.ps1` 守著），而且**照資料根的規則對待** —— 不是 repo 的內容。
+維護者本機一律走指標檔，不用這個選項。
 
 ### agent 的讀寫規則
 
 - **可讀**：本專案全部 ＋ `<資料根目錄>\**`。
-- **不可寫**：`<資料根目錄>` 底下的一切。**資料只由 App 自己寫，agent 永遠不需要寫。**
+- **不可寫**：`<資料根目錄>` 底下的一切（包括 repo 底下的 `userdata\`）。**資料只由 App 自己寫，agent 永遠不需要寫。**
 - **不可讀、不可寫**：`<私人資料樹>\` 底下**其他任何**資料夾。
 - **即使在允許範圍內，也不要把實際內容貼進對話。** 分兩級（CONVENTIONS §11）：
   - **摘要式比對可以直接說** —— 筆數、日期範圍、欄位名、「幾處不符」。
@@ -373,7 +378,7 @@ infrastructure/ db／fetch／extract／index／providers／fs，只實作 domain
 | | 現況 |
 |---|:--:|
 | `.\tools\Verify.ps1` | ✅ 2026-10-09 實跑全綠；GitHub Actions 在每個 PR 與每次推 main 也跑同一支（`.github/workflows/verify.yml`）|
-| `start_cyclosa.cmd`／`.\tools\Launch.ps1` | ✅ 起 server、開瀏覽器；共用 healthz 與關閉序列在 `@local-app/lifecycle@0.1.1`，PowerShell helper 由 `vendor\AppLifecycle.psm1` 載入 |
+| `start_cyclosa.cmd`／`.\tools\Launch.ps1` | ✅ 起 server、開瀏覽器；共用 healthz、關閉序列與資料根的四步在 `@local-app/lifecycle@0.2.0`，PowerShell helper 由 `vendor\AppLifecycle.psm1` 載入 |
 | `npm test` | ✅ **數量不寫在這裡** —— 寫死的數字每一版都會漂 |
 | `npm run build` | ✅ |
 

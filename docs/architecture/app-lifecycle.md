@@ -3,7 +3,7 @@
 **這一份是「這個程式怎麼開起來、怎麼結束」的權威。** 資料怎麼流見
 [`walkthrough.md`](walkthrough.md)，程式怎麼分層見 [`overview.md`](overview.md)。
 
-Node 本機 app 共用機制使用 `@local-app/lifecycle@0.1.1`：healthz 探測與有上限的關閉序列由套件提供，PowerShell launcher 載入本 repo 的 `vendor\AppLifecycle.psm1`。此 repo 同時版控 `vendor/local-app-lifecycle-0.1.1.tgz`，因此單獨 clone 仍可 `npm ci`；套件升版時同步更新 Cyclosa、Polistes、Rubricator 的 tarball 與 lock 檔。各 app 的 identity、readiness 與清理 callbacks 仍由本 repo 決定。
+Node 本機 app 共用機制使用 `@local-app/lifecycle@0.2.0`：healthz 探測、有上限的關閉序列與資料根的四步（`data-location`，ADR-0037）由套件提供，PowerShell launcher 載入本 repo 的 `vendor\AppLifecycle.psm1`。此 repo 同時版控 `vendor/local-app-lifecycle-0.2.0.tgz`，因此單獨 clone 仍可 `npm ci`；套件升版時同步更新各個使用它的 app（Cyclosa、Polistes、Rubricator、NetPulse）的 tarball 與 lock 檔。各 app 的 identity、readiness、清理 callbacks、資料根的 marker 與版面仍由本 repo 決定。
 
 > **為什麼要有這一份。**
 >
@@ -19,8 +19,12 @@ Node 本機 app 共用機制使用 `@local-app/lifecycle@0.1.1`：healthz 探測
 `start_cyclosa.cmd -LocalAppData "D:\Cyclosa-Test"` 或
 `.\tools\Launch.ps1 -LocalAppData "D:\Cyclosa-Test"` 使用另一個設定與資料環境；
 也可以搭配 `-Foreground` 或 `-SkipBuild`。相對路徑以目前 shell 的位置解析。
-啟動時印出所用的 `LOCALAPPDATA` 與資料根：有指標檔就讀它的 `dataRoot`，
-沒有則顯示 `<指定目錄>\Cyclosa\data`（首次啟動預設）；指標壞掉則明說無法讀取。
+啟動時印出所用的 `LOCALAPPDATA` 與資料根：有指標檔就讀它的 `data_root`（舊的 `dataRoot` 也認），
+沒有則說「伺服器會找程式資料夾的 `userdata` 與使用者資料夾的 `data`，都沒有就在畫面上問」；指標壞掉則明說無法讀取。
+**找資料根是 server 的事**（四步，ADR-0037），啟動器只是印出來，不做第二份。
+
+`-LocalAppData` 換掉的是四步的第 1、3 步（指標檔與使用者資料夾）。**第 2 步看的仍是這個 repo 底下的 `userdata\`** ——
+在獨立環境裡選了「放在程式資料夾裡」，之後的獨立環境都會從第 2 步找到那一份。要每次都從零開始，選「使用者資料夾」。
 
 `LOCALAPPDATA` 只放進伺服器子行程的環境，不改目前 shell、使用者或系統設定。
 指標檔、`providers.json`、模型量測與啟動日誌都在指定目錄的 `Cyclosa\` 底下；

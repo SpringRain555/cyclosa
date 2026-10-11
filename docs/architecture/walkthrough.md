@@ -34,7 +34,8 @@
 ## 〇 · 啟動
 
 雙擊 `start_cyclosa.cmd` → `tools\Launch.ps1` → `node dist/main.js` → `127.0.0.1:7433`。
-指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 說資料在哪。
+資料在哪照四步找（ADR-0037）：指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` → 程式資料夾的 `userdata\` →
+`%LOCALAPPDATA%\Cyclosa\data\`；都沒有就在清單頁問三選一。
 **埠被佔用時開既有的那一個，不報錯**（ADR-0020）。
 
 ## 一 · 建專題

@@ -609,7 +609,7 @@ function connectionSummary(kind: ConnectionKind): string {
             {{ t.settings.tabs.guide }}
           </button>
           <!--
-            **資料位置。** 第一次啟動不再問「資料要放哪」，
+            **資料位置。** 「資料要放哪」只在第一次啟動問一次（ADR-0037），
             所以這一頁存在的第一個理由是**告訴使用者它在哪**。
           -->
           <button :class="{ on: tab === 'storage' }" @click="tab = 'storage'">

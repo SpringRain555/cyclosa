@@ -1,18 +1,27 @@
 /**
- * 指標檔與資料根的啟動流程。
+ * 資料根的啟動流程：找、選、搬。
  *
- * **這一層的全部工作是把四種失敗轉成四個不同的錯誤碼**，
- * 因為使用者要做的事完全不同（REQ-0001：不要顯示一個空清單）。
+ * **找**照上游 CONVENTIONS §11 的四步（ADR-0037）：指標檔 → 程式資料夾的 `userdata` →
+ * 使用者資料夾的 `data` → 都沒有就回 `IO_POINTER_MISSING`，由畫面問三選一。
+ * **這一層的工作是把每一種結果轉成一個錯誤碼**，因為使用者要做的事完全不同
+ * （REQ-0001：不要顯示一個空清單）。
  */
 import { cp, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
-import { dirname, resolve, sep } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
+
+import type { DataLocationSource, PreparedLocation } from '@local-app/lifecycle/data-location';
 
 import {
-  defaultDataRoot,
+  DATA_ROOT_CHOICES,
+  DATA_ROOT_MARKER,
+  LayoutError,
+  detectDataRoot,
   ensureDataRootLayout,
-  resolveDataRoot,
-  writePointerFile,
-  type ResolveOutcome,
+  inspectTargetFolder,
+  pointerFilePath,
+  prepareDataRoot,
+  type DataRootChoice,
+  type DataRootSource,
 } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
@@ -21,87 +30,179 @@ import { seedSampleIfEmpty } from './sample-service.js';
 
 export interface DataRootInfo {
   readonly dataRoot: string;
+  /** 指標檔**會在**哪裡。`source` 不是 `pointer` 的時候它不存在 —— 那兩種不寫指標檔。 */
   readonly pointerPath: string;
+  readonly source: DataRootSource;
+}
+
+export type { DataRootChoice };
+
+/** 請求裡的 `choice` 認不認得。route 用它擋掉別的字串。 */
+export function isDataRootChoice(value: unknown): value is DataRootChoice {
+  return typeof value === 'string' && (DATA_ROOT_CHOICES as readonly string[]).includes(value);
+}
+
+/** Cyclosa 不傳覆寫給共用套件，所以 `override` 不會出現；型別上要把它收掉。 */
+function sourceOf(source: DataLocationSource): DataRootSource {
+  if (source === 'override') throw new Error('Cyclosa 沒有資料根覆寫，不該走到這裡');
+  return source;
 }
 
 /**
- * 每一種失敗都帶著**指標檔在哪**，而路徑相關的那幾種還帶著**它指到哪**。
+ * 四步裡的「找」。**只看，不建任何東西。**
  *
+ * 每一種失敗都帶著**指標檔在哪**（有指標檔的時候），路徑相關的那幾種還帶著**它指到哪**。
  * 這些欄位會一路帶到 UI —— 訊息本身在 `web/src/i18n/zh-TW.ts`，
  * 這裡只提供它需要的變數。**碼不進 UI，訊息不進這裡。**
+ *
+ * 「都沒有」回 `IO_POINTER_MISSING`，帶著三選一要顯示的兩個固定位置
+ * （`programDataRoot` 是 `null` 的時候，程式資料夾那個選項不能用）。
  */
 export async function resolveDataRootOrExplain(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Result<DataRootInfo>> {
   const cid = correlationId();
-  const outcome: ResolveOutcome = await resolveDataRoot(env);
+  const found = await detectDataRoot(env);
 
-  switch (outcome.kind) {
-    case 'ok':
-      return ok({ dataRoot: outcome.dataRoot, pointerPath: outcome.pointerPath }, cid);
+  switch (found.kind) {
+    case 'found':
+      return ok(
+        {
+          dataRoot: found.dataRoot,
+          pointerPath: found.pointerPath,
+          source: sourceOf(found.source),
+        },
+        cid,
+      );
 
-    case 'pointer-missing':
-      return err('IO_POINTER_MISSING', cid, { pointerPath: outcome.pointerPath });
-
-    case 'pointer-malformed':
-      return err('IO_POINTER_MALFORMED', cid, {
-        pointerPath: outcome.pointerPath,
-        reason: outcome.reason,
+    case 'choose':
+      return err('IO_POINTER_MISSING', cid, {
+        pointerPath: found.pointerPath,
+        programDataRoot: found.programDataRoot,
+        userDataRoot: found.userDataRoot,
       });
 
-    case 'data-root-missing':
-      return err('IO_DATA_ROOT_MISSING', cid, {
-        pointerPath: outcome.pointerPath,
-        dataRoot: outcome.dataRoot,
-      });
-
-    case 'data-root-not-writable':
-      return err('IO_DATA_ROOT_NOT_WRITABLE', cid, {
-        pointerPath: outcome.pointerPath,
-        dataRoot: outcome.dataRoot,
-      });
+    case 'error': {
+      // 「指標檔在哪」只在真的有指標檔的時候說 —— 從固定位置找到的資料根沒有那個檔。
+      const where = found.source === 'pointer' ? { pointerPath: found.pointerPath } : {};
+      switch (found.code) {
+        case 'pointer-malformed':
+          return err('IO_POINTER_MALFORMED', cid, {
+            pointerPath: found.pointerPath,
+            reason: found.reason ?? '',
+          });
+        case 'data-root-missing':
+          return err('IO_DATA_ROOT_MISSING', cid, { ...where, dataRoot: found.dataRoot ?? '' });
+        case 'data-root-not-writable':
+          return err('IO_DATA_ROOT_NOT_WRITABLE', cid, {
+            ...where,
+            dataRoot: found.dataRoot ?? '',
+          });
+      }
+    }
   }
 }
 
 /**
- * 開箱即用：**第一次啟動不問任何問題。**
+ * 啟動時與清單頁進來時：找到了就**補齊版面與 marker**。
  *
- * ## 只有「指標檔不存在」走自動建立
- *
- * 這是這個函式唯一需要小心的地方，而它值得一段字。
- * 另外三種失敗**一律照原樣往上回**：
- *
- * - `pointer-malformed` —— 指標檔在，但讀不懂。它指到的地方可能有一整份資料
- * - `data-root-missing` —— 指標檔指到 `E:\...`，而那顆隨身碟沒插
- * - `data-root-not-writable` —— 指到的地方在，但寫不進去
- *
- * **這三種如果也自動建一個空的預設資料根，使用者會看到一個空的專題清單** ——
- * 而他上一次關掉程式的時候那裡有 20 個專題。那正是 REQ-0001
- * 花了四個錯誤碼在擋的那件事，不能被一個「貼心的預設值」從後門放進來。
- *
- * 「指標檔不存在」則是唯一一種**可以確定沒有任何舊資料**的狀態。
+ * 2026-10-11 之前建的資料根沒有 marker；補上之後，它在指標檔遺失時也認得出來。
+ * **補不起來不擋** —— 那個資料根照樣能用，只是那一種情況下認不得它（日誌會說）。
  */
-export async function resolveOrCreateDataRoot(
+export async function openDataRoot(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Result<DataRootInfo>> {
-  const first = await resolveDataRootOrExplain(env);
-  if (first.ok || first.code !== 'IO_POINTER_MISSING') return first;
+  const r = await resolveDataRootOrExplain(env);
+  if (!r.ok) return r;
+  try {
+    await ensureDataRootLayout(r.data.dataRoot);
+  } catch (e) {
+    logger.warn('資料根的版面或 marker 補不起來', {
+      correlationId: r.correlationId,
+      reason: String((e as Error).message),
+    });
+  }
+  return r;
+}
 
-  const made = await initDataRoot(defaultDataRoot(env), env);
-  // **只有這一條路會放範例專題** —— 資料根是這一次才建出來的，
-  // 所以「使用者刪過了」不需要另外記一個旗標。理由在 `seedSampleIfEmpty`。
-  //
-  // `CYCLOSA_SKIP_SAMPLE=1` 只給測試用（`vitest.config.ts` 預設打開，測範例專題的那幾條自己關掉）：
-  // e2e 幾乎每一條都從空的 LOCALAPPDATA 起 server、再換到自己的資料根，範例專題建了也用不到，
-  // 卻佔掉 e2e 四成的時間 —— CI 的 4 核 runner 上一輪要 25～45 分鐘（2026-10-10 量的）。
-  if (made.ok && env['CYCLOSA_SKIP_SAMPLE'] !== '1') await seedSampleIfEmpty(made.data.dataRoot);
-  return made;
+/** 選完之後的結果，外加「這個資料根是不是這一次才建出來的」（決定要不要放範例專題）。 */
+interface Prepared {
+  readonly info: DataRootInfo;
+  readonly fresh: boolean;
+}
+
+/** `PreparedLocation` 的失敗 → 錯誤碼。位置本身不能用的那幾種都是 `IO_DATA_ROOT_LOCATION_INVALID`。 */
+function explainRejection(
+  r: Extract<PreparedLocation, { ok: false }>,
+  cid: string,
+): Result<Prepared> {
+  if (r.code === 'data-root-not-writable') {
+    return err('IO_DATA_ROOT_NOT_WRITABLE', cid, { dataRoot: r.dataRoot ?? '' });
+  }
+  return err('IO_DATA_ROOT_LOCATION_INVALID', cid, {
+    reason: r.code,
+    ...(r.dataRoot === undefined ? {} : { dataRoot: r.dataRoot }),
+  });
+}
+
+async function prepare(
+  choice: DataRootChoice,
+  folder: string | undefined,
+  env: NodeJS.ProcessEnv,
+): Promise<Result<Prepared>> {
+  const cid = correlationId();
+  let r: PreparedLocation;
+  try {
+    r = await prepareDataRoot(choice, folder, env);
+  } catch (e) {
+    if (e instanceof LayoutError) {
+      if (e.errno === 'ENOSPC') return err('IO_DISK_FULL', cid, { dataRoot: e.dataRoot });
+      return err('IO_DATA_ROOT_NOT_WRITABLE', cid, { dataRoot: e.dataRoot });
+    }
+    // 版面建好了、指標檔寫不進去。**資料根是好的**，只是下次啟動找不到它。
+    logger.error('指標檔寫不進去', { correlationId: cid, reason: String((e as Error).message) });
+    return err('IO_UNEXPECTED', cid, { at: 'write-pointer' });
+  }
+  if (!r.ok) return explainRejection(r, cid);
+  return ok(
+    {
+      info: { dataRoot: r.dataRoot, pointerPath: pointerFilePath(env), source: r.source },
+      fresh: !r.hasData,
+    },
+    cid,
+  );
 }
 
 /**
- * 使用者選了一個資料根之後：建四個頂層資料夾，寫指標檔。
+ * 第一次啟動的三選一（上游 CONVENTIONS §11，ADR-0037）。
  *
- * **順序不能反** —— 先確認建得起來再寫指標檔，
+ * - **程式資料夾**、**使用者資料夾**：不寫指標檔 —— 下次從同一個固定位置找到 marker 就用
+ * - **其他位置**：那裡已經有 marker 就接上它，沒有就建一份新的。**版面建好才寫指標檔**
+ *
+ * **範例專題只放進這一次才建出來的資料根**（選之前沒有 marker）。接上既有的不放 ——
+ * 「資料根是不是新的」就是那個旗標，不另外記（理由在 `seedSampleIfEmpty`）。
+ *
+ * `CYCLOSA_SKIP_SAMPLE=1` 只給測試用（`vitest.config.ts` 預設打開，測範例專題的那幾條自己關掉）：
+ * e2e 換到自己的資料根之後用不到範例，卻佔掉 e2e 四成的時間 —— CI 的 4 核 runner 上一輪要 25～45 分鐘（2026-10-10 量的）。
+ */
+export async function chooseDataRoot(
+  choice: DataRootChoice,
+  folder: string | undefined,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Result<DataRootInfo>> {
+  const r = await prepare(choice, folder, env);
+  if (!r.ok) return r;
+  if (r.data.fresh && env['CYCLOSA_SKIP_SAMPLE'] !== '1') {
+    await seedSampleIfEmpty(r.data.info.dataRoot);
+  }
+  return ok(r.data.info, r.correlationId);
+}
+
+/**
+ * 指定一個資料夾當資料根 ——「其他位置」那一種，**不放範例專題**。
+ * 搬家的最後一步用它，測試也用它。
+ *
+ * **順序不能反**（共用套件守著）：先確認建得起來再寫指標檔，
  * 否則會留下一個指向建不起來的地方的指標檔，而下次啟動看到的是
  * `IO_DATA_ROOT_NOT_WRITABLE` 而不是「你上次選的地方不能用」。
  */
@@ -109,21 +210,8 @@ export async function initDataRoot(
   dataRoot: string,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Result<DataRootInfo>> {
-  const cid = correlationId();
-  try {
-    await ensureDataRootLayout(dataRoot);
-  } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    if (code === 'ENOSPC') return err('IO_DISK_FULL', cid, { dataRoot });
-    return err('IO_DATA_ROOT_NOT_WRITABLE', cid, { dataRoot });
-  }
-
-  try {
-    const pointerPath = await writePointerFile(dataRoot, env);
-    return ok({ dataRoot, pointerPath }, cid);
-  } catch {
-    return err('IO_UNEXPECTED', cid, { at: 'write-pointer' });
-  }
+  const r = await prepare('other', dataRoot, env);
+  return r.ok ? ok(r.data.info, r.correlationId) : r;
 }
 
 /** Windows 的路徑比對不分大小寫，而這個工具就是在 Windows 上跑的。 */
@@ -159,12 +247,14 @@ async function isEmptyOrAbsent(p: string): Promise<boolean> {
  *
  * 與 `initDataRoot` 同一條理由。搬失敗的時候指標檔還指著舊的地方，
  * 而舊的地方**原封不動** —— 使用者按重新整理就回到搬之前的狀態。
+ * 搬過去的地方一律寫指標檔（「其他位置」那一種），不管原本是從哪一步找到的。
  *
- * ## 三個先擋掉的目標
+ * ## 先擋掉的目標
  *
- * `same` 什麼都不用做；`nested` 是**把一個資料夾搬進它自己底下**，
- * 而那在檔案系統上會變成一個沒有終點的動作；`not-empty` 會蓋掉別人的東西 ——
- * 那個「別人」很可能是使用者的另一份資料。
+ * 位置本身不能用的（整顆磁碟、程式資料夾裡面、不是完整路徑）與第一次啟動的「其他位置」同一套
+ * （`IO_DATA_ROOT_LOCATION_INVALID`）。另外三種是搬家才有的：`same` 什麼都不用做；
+ * `nested` 是**把一個資料夾搬進它自己底下**，而那在檔案系統上會變成一個沒有終點的動作；
+ * `not-empty` 會蓋掉別人的東西 —— 那個「別人」很可能是使用者的另一份資料。
  */
 export async function moveDataRoot(
   from: string,
@@ -177,7 +267,15 @@ export async function moveDataRoot(
   // **有作業在跑就不搬。** 搬家會把 `case.sqlite` 從一個正在寫它的行程底下抽走。
   if (activeRuns > 0) return err('IO_DATA_ROOT_BUSY', cid, { activeRuns });
 
-  const to = resolve(toRaw.trim());
+  const target = await inspectTargetFolder(toRaw.trim(), env);
+  if (!target.ok) {
+    return err('IO_DATA_ROOT_LOCATION_INVALID', cid, {
+      reason: target.code,
+      ...(target.dataRoot === undefined ? {} : { dataRoot: target.dataRoot }),
+    });
+  }
+  // 兩邊都正規化過才比得了 —— 共用套件給的 `to` 已經 `resolve` 過。
+  const to = target.dataRoot;
   const src = resolve(from);
 
   if (samePath(to, src)) return err('IO_DATA_ROOT_TARGET_INVALID', cid, { reason: 'same' });
@@ -218,6 +316,9 @@ export async function moveDataRoot(
       // 複製完成之後，**新位置是唯一確定完整的一份**。刪舊的途中失敗（某個檔被別的程式開著）
       // 時舊的已經少了一部分 —— 這時候回頭刪新的，就是兩邊都不完整（2026-09-13 之前就是這樣寫的）。
       // 所以照常改指標檔，殘骸留在舊位置：失敗方向是「多一份垃圾」，不是「少一份資料」。
+      //
+      // **marker 先刪**：殘骸要是還帶著它，指標檔哪天遺失時，四步的第 2、3 步會把那半份當成資料根接上。
+      await rm(join(src, DATA_ROOT_MARKER), { force: true }).catch(() => undefined);
       await rm(src, { recursive: true, force: true }).catch((e3: unknown) => {
         logger.warn('資料根已搬到新位置，但舊位置沒刪乾淨', {
           correlationId: cid,
@@ -230,6 +331,6 @@ export async function moveDataRoot(
     }
   }
 
-  // 搬過去的可能是一個舊版面（少了 `exports\`），所以補齊再寫指標檔。
+  // 搬過去的可能是一個舊版面（少了 `exports\` 或 marker），所以補齊再寫指標檔。
   return initDataRoot(to, env);
 }

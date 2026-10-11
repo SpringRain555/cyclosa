@@ -43,7 +43,12 @@ coverage/
 # 基底把 .vscode/* 全忽略，這裡只放行這一個檔。
 !.vscode/settings.json
 
-# 專題資料一律在 repo 外的資料根目錄（見 AGENTS.md）。這幾條是保險 ——
+# 第一次啟動選「放在程式資料夾裡」時的資料根（ADR-0037）。**整個**忽略 ——
+# 對那個選項來說這一行不是保險，是它成立的前提：匯出的證據包、快照都不是 *.sqlite。
+# tools\Verify.ps1 用 git check-ignore 守著這一行。
+/userdata/
+
+# 其他選項的資料根在 repo 外（見 AGENTS.md）。這幾條是保險 ——
 # 萬一有人把資料夾指錯地方，至少不會直接進版控。
 *.sqlite
 *.sqlite3

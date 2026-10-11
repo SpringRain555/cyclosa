@@ -64,42 +64,72 @@ describe('指標檔的失敗各自說得出原因', () => {
     if (savedSkipSample !== undefined) process.env['CYCLOSA_SKIP_SAMPLE'] = savedSkipSample;
   });
 
+  /** 第一次啟動的三選一裡選「使用者資料夾」—— 這一組要的是一個真的會放範例專題的新資料根。 */
+  async function chooseUserFolder(): Promise<void> {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/system/data-root',
+      payload: { choice: 'user-folder' },
+    });
+    expect(res.json().ok, res.body).toBe(true);
+  }
+
   /**
-   * **這一條在 v0.17.0 換了方向。**
+   * **這一條換過兩次方向。**
    *
-   * 原本是「指標檔不存在 → `IO_POINTER_MISSING`」，而那個碼現在只在
-   * 自動建立**也失敗**的時候才會出現（`bootstrap-service.ts`）。
+   * v0.17.0 之前：指標檔不存在 → `IO_POINTER_MISSING`，畫面要你打一個路徑。
+   * v0.17.0（開箱即用）：不問，直接建 `%LOCALAPPDATA%\Cyclosa\data`。
+   * 2026-10-11（ADR-0037）：照上游 CONVENTIONS §11 的四步找，**都沒有才問三選一，而且問之前什麼都不建** ——
+   * 「不問就建」在指標檔遺失時會默默生出一份空的資料根，看起來就像資料全部不見了。
    *
-   * 換掉的是行為不是原則：REQ-0001 要擋的一直是
-   * **「明明有資料，卻看到一個空清單」**，
-   * 而「全新安裝看到一個空清單」正是它應該有的樣子。
-   * 底下三條（指標檔壞掉、指到的地方不見了、寫不進去）**一條都沒有動** ——
-   * 那三種都可能有一整份舊資料在後面，它們才是那條要擋的線。
+   * 換掉的是行為不是原則：REQ-0001 要擋的一直是 **「明明有資料，卻看到一個空清單」**。
+   * 底下四條（指標檔壞掉、缺欄位、指到的地方不見了、不頂替）**一條都沒有動**。
    */
-  it('指標檔不存在 → 自動建一個預設資料根，不問任何問題', async () => {
+  it('四步都沒找到 → IO_POINTER_MISSING，帶著三選一的位置，而且什麼都沒建', async () => {
     await boot();
-    const res = await app.inject({ method: 'GET', url: '/api/cases' });
-    const body = res.json();
-    expect(body.ok, JSON.stringify(body)).toBe(true);
+    const body = (await app.inject({ method: 'GET', url: '/api/system/data-root' })).json();
+    expect(body.code, JSON.stringify(body)).toBe('IO_POINTER_MISSING');
+    expect(body.detail.userDataRoot).toBe(join(localAppData, 'Cyclosa', 'data'));
+    expect(String(body.detail.programDataRoot)).toMatch(/userdata$/);
+    expect(String(body.detail.pointerPath)).toContain('system_paths.json');
+
+    // 清單頁也說同一件事，**不是回一個空清單**。
+    expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().code).toBe(
+      'IO_POINTER_MISSING',
+    );
+    // 問之前一個檔都沒寫：連 `%LOCALAPPDATA%\Cyclosa` 都還不存在。
+    expect(await readdir(localAppData)).toEqual([]);
+  });
+
+  it('選了使用者資料夾 → 建在指標檔隔壁、放一份範例專題、不寫指標檔', async () => {
+    await boot();
+    await chooseUserFolder();
+
+    const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json();
+    expect(listed.ok, JSON.stringify(listed)).toBe(true);
     // **不是空的** —— 裡面有一份範例專題。
-    expect(body.data.map((c: { name: string }) => c.name)).toEqual([
+    expect(listed.data.map((c: { name: string }) => c.name)).toEqual([
       expect.stringContaining('範例'),
     ]);
 
-    // 而且它真的落在磁碟上、就在指標檔隔壁。
     const root = (await app.inject({ method: 'GET', url: '/api/system/data-root' })).json();
     expect(root.data.dataRoot).toBe(join(localAppData, 'Cyclosa', 'data'));
+    expect(root.data.source).toBe('user-folder');
     expect((await readdir(root.data.dataRoot)).sort()).toEqual([
       'backups',
       'cases',
+      'data-root.json',
       'exports',
       'logs',
       'tmp',
     ]);
+    // 指標檔**沒有**寫 —— 下次啟動從同一個固定位置找到 marker 就用。
+    expect(await readdir(join(localAppData, 'Cyclosa'))).toEqual(['data']);
   });
 
-  it('自動建完之後直接建得起專題 —— 開箱即用的那句話就是這一條', async () => {
+  it('選完之後直接建得起專題 —— 開箱即用的那句話現在是這一條', async () => {
     await boot();
+    await chooseUserFolder();
     const made = await app.inject({ method: 'POST', url: '/api/cases', payload: { name: '開箱' } });
     expect(made.json().ok, made.body).toBe(true);
     // 自己建的那一個 ＋ 範例。
@@ -113,11 +143,15 @@ describe('指標檔的失敗各自說得出原因', () => {
    * 放範例只發生在資料根是這一次才建出來的時候。
    * 一個少一份狀態的設計不會有「旗標與現實對不上」這種狀態。
    *
+   * 2026-10-11 起重新啟動時找到它的是四步的**第 3 步**（使用者資料夾裡的 marker），不是指標檔 ——
+   * 專題全刪光了，marker 還在，所以不會再問一次、也不會再放一次範例。
+   *
    * > 一個會自己長回來的範例專題，使用者第二次刪它的時候
    * > 就不會再相信這個程式的任何一顆刪除鍵。
    */
   it('範例專題刪掉之後，重新啟動不會自己回來', async () => {
     await boot();
+    await chooseUserFolder();
     const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json().data as {
       slug: string;
       name: string;
@@ -132,14 +166,17 @@ describe('指標檔的失敗各自說得出原因', () => {
     });
     expect(gone.json().ok, gone.body).toBe(true);
 
-    // 重新啟動一次 —— 指標檔已經在了，所以不會再走自動建立那條路。
+    // 重新啟動一次 —— 使用者資料夾裡的 marker 還在，所以不會再問、也不會再建。
     await app.close();
     await boot();
-    expect((await app.inject({ method: 'GET', url: '/api/cases' })).json().data).toEqual([]);
+    const after = (await app.inject({ method: 'GET', url: '/api/cases' })).json();
+    expect(after.ok, JSON.stringify(after)).toBe(true);
+    expect(after.data).toEqual([]);
   });
 
   it('但按下「重建範例專題」就會回來', async () => {
     await boot();
+    await chooseUserFolder();
     const listed = (await app.inject({ method: 'GET', url: '/api/cases' })).json().data as {
       slug: string;
       name: string;
@@ -164,7 +201,7 @@ describe('指標檔的失敗各自說得出原因', () => {
     expect(String(body.detail.pointerPath)).toContain('system_paths.json');
   });
 
-  it('缺 dataRoot 欄位也是 IO_POINTER_MALFORMED', async () => {
+  it('缺 data_root 欄位（舊的 dataRoot 也沒有）也是 IO_POINTER_MALFORMED', async () => {
     await mkdir(join(localAppData, 'Cyclosa'), { recursive: true });
     await writeFile(
       join(localAppData, 'Cyclosa', 'system_paths.json'),

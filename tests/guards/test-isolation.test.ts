@@ -16,11 +16,19 @@
  *
  * 所以隔離不靠每一條測試記得換回來，靠 `vitest.config.ts` 讓整個測試行程的
  * `LOCALAPPDATA` 本來就在 `tmp/vitest/` 裡。
+ *
+ * **2026-10-11 起還有第二個位置要換**：資料根照四步找（ADR-0037），第 2 步看的是
+ * `<程式資料夾>\userdata` —— 沒換的話是真的 repo 底下那一個。
  */
 import { describe, expect, it } from 'vitest';
 import { isAbsolute, relative } from 'node:path';
 
-import { pointerFilePath } from '../../src/infrastructure/fs/paths.js';
+import {
+  pointerFilePath,
+  programDataRoot,
+  programRoot,
+  userDataRoot,
+} from '../../src/infrastructure/fs/paths.js';
 import { SANDBOX_ROOT } from '../../vitest.config.js';
 
 function insideSandbox(p: string | undefined): boolean {
@@ -48,5 +56,25 @@ describe('測試行程的 LOCALAPPDATA', () => {
     ).toBe(false);
     expect(insideSandbox(SANDBOX_ROOT)).toBe(false);
     expect(insideSandbox(undefined)).toBe(false);
+  });
+});
+
+describe('測試行程的程式資料夾與使用者資料夾（四步的第 2、3 步）', () => {
+  it('程式資料夾與它底下的 userdata 都在 tmp/vitest/ 底下', () => {
+    expect(insideSandbox(programRoot() ?? undefined), String(programRoot())).toBe(true);
+    expect(insideSandbox(programDataRoot() ?? undefined), String(programDataRoot())).toBe(true);
+  });
+
+  it('使用者資料夾那個選項也在沙箱裡', () => {
+    expect(insideSandbox(userDataRoot()), userDataRoot()).toBe(true);
+  });
+
+  it('判準認得出真的位置 —— 沒有覆寫時程式資料夾就是 repo 本身', () => {
+    // 不帶 CYCLOSA_PROGRAM_DIR 的環境：往上找到 name 是 cyclosa 的 package.json。
+    // 那正是上面兩條要擋的位置，所以它在這裡必須是「沙箱外」。
+    const real = programRoot({});
+    expect(real).not.toBeNull();
+    expect(insideSandbox(real ?? undefined)).toBe(false);
+    expect(insideSandbox(programDataRoot({}) ?? undefined)).toBe(false);
   });
 });

@@ -89,10 +89,11 @@ main 只由維護者在本機合併之後推上來，「必須先過 CI」的規
 |---|---|---|
 | `CYCLOSA_NODE` | `tools\Launch.ps1` | 指定 `node.exe`，優先於 PATH。PATH 上不是 24.x 時設一次：`setx CYCLOSA_NODE "X:\path\to\node24\node.exe"` |
 | `CYCLOSA_FETCH_INTERVAL_MS` | `src/application/fetch-policy.ts` | 同網域請求間隔（毫秒）。沒設用預設；**小於下限會被夾到下限**，不是照做；不是數字當成沒設。數字與理由在 [`fetch-policy.md`](../architecture/fetch-policy.md)。測試裡由 `vitest.config.ts` 清成預設 |
-| `CYCLOSA_SKIP_SAMPLE` | `src/application/bootstrap-service.ts` | **只給測試用**：`1` 表示第一次啟動不建範例專題。`vitest.config.ts` 預設打開（e2e 換到自己的資料根之後用不到範例，卻佔掉 e2e 四成的時間），測第一次啟動的 `case-flow.test.ts` 那一組自己關掉。使用者不需要設 |
+| `CYCLOSA_SKIP_SAMPLE` | `src/application/bootstrap-service.ts` | **只給測試用**：`1` 表示第一次選好資料位置時不建範例專題。`vitest.config.ts` 預設打開（e2e 換到自己的資料根之後用不到範例，卻佔掉 e2e 四成的時間），測第一次啟動的 `case-flow.test.ts` 那一組與 `first-run.test.ts` 的一條自己關掉。使用者不需要設 |
+| `CYCLOSA_PROGRAM_DIR` | `src/infrastructure/fs/paths.ts` | **只給測試用**：換掉程式資料夾（「放在程式資料夾裡」那個選項的 `userdata\` 在它底下，四步的第 2 步看它）。`vitest.config.ts` 在整個測試行程釘在 `tmp/vitest/Program/` —— 否則測試會去看真的 repo 底下的 `userdata\`，而且所有沙箱都在 repo 底下，會被當成「程式資料夾裡面」擋掉（ADR-0037）。使用者不需要設 |
 | `CYCLOSA_LOG_LEVEL` | `src/shared/log.ts` | 日誌門檻；`silent` 完全不寫（測試用它，因為 e2e 刻意製造失敗） |
 | `CYCLOSA_LOG_FILE` | `src/shared/log.ts` | 同時寫一份日誌到這個檔。`tools\Launch.ps1` 把它設成 `%LOCALAPPDATA%\Cyclosa\logs\server.log` —— 隱藏視窗跑的行程沒有 stderr |
-| `LOCALAPPDATA` | `src/infrastructure/fs/paths.ts` | 指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 與預設資料根的位置；非 Windows 退回 `XDG_DATA_HOME` |
+| `LOCALAPPDATA` | `src/infrastructure/fs/paths.ts` | 指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 與「使用者資料夾」那個選項（`…\Cyclosa\data`）的位置；非 Windows 退回 `XDG_DATA_HOME` |
 | `<設定頁填的環境變數名>` | `src/infrastructure/providers/http.ts` | 線上 chat 端點的金鑰。**存的是變數名不是值**，值只在送出請求那一刻讀一次 |
 | `OLLAMA_HOST` | `tools/research/eval-*.ts` | 只有量測腳本讀；App 本身用設定頁的端點位址 |
 | `TMP`／`TEMP` | vitest | 測試沙箱的位置，由 `vitest.config.ts` 釘在 `tmp/vitest/`（§3） |

@@ -9,7 +9,14 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { api, type ApiError, type CaseDeletion, type CaseSummary, type DataRootInfo } from '../api';
+import {
+  api,
+  type ApiError,
+  type CaseDeletion,
+  type CaseSummary,
+  type DataRootChoice,
+  type DataRootInfo,
+} from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 
@@ -24,20 +31,34 @@ const newSeed = ref('');
 const createError = ref<ApiError | null>(null);
 
 const setupPath = ref('');
+const setupChoice = ref<DataRootChoice>('program-folder');
+const setupBusy = ref(false);
+// **選的時候出的錯留在這一區裡** —— 蓋掉 `error` 的話整個三選一會換成一塊錯誤面板，
+// 使用者要按重試才回得來。
+const setupError = ref<ApiError | null>(null);
 
 // **第一次啟動不是「出了問題」。** 兩種情況的下一步都是「選一個資料夾」，
-// 但成因完全不同：指標檔不存在是全新安裝的正常狀態，指標檔壞掉才是故障。
+// 但成因完全不同：四步都沒找到是全新安裝的正常狀態，指標檔壞掉才是故障。
 // 對前者顯示紅邊面板與識別碼，會讓一個順利的第一次啟動看起來像壞了
 // （2026-09-07 使用者第一次手動驗收時就是這個反應）。
 const isFirstRun = computed(() => error.value?.code === 'IO_POINTER_MISSING');
 const pointerBroken = computed(() => error.value?.code === 'IO_POINTER_MALFORMED');
 const needsSetup = computed(() => isFirstRun.value || pointerBroken.value);
 
-// 指標檔的路徑在兩種情況下都要說 —— 差別只在用什麼語氣說。
-const pointerPath = computed(() => {
-  const v = error.value?.detail?.['pointerPath'];
+function detailPath(key: string): string | null {
+  const v = error.value?.detail?.[key];
   return typeof v === 'string' ? v : null;
-});
+}
+
+// 指標檔的路徑在兩種情況下都要說 —— 差別只在用什麼語氣說。
+const pointerPath = computed(() => detailPath('pointerPath'));
+// 三選一的前兩個是固定位置，伺服器算好帶過來（ADR-0037）。程式資料夾是 `null` 時那個選項關掉。
+const programDataRoot = computed(() => detailPath('programDataRoot'));
+const userDataRoot = computed(() => detailPath('userDataRoot'));
+
+const canSubmitSetup = computed(
+  () => setupChoice.value !== 'other' || setupPath.value.trim().length > 0,
+);
 
 const totals = computed(() => ({
   cases: cases.value.length,
@@ -58,6 +79,12 @@ async function load(): Promise<void> {
   if (!r.ok) {
     root.value = null;
     error.value = r.error;
+    // **預選程式資料夾**（上游 CONVENTIONS §11）；它不能用時退到使用者資料夾。
+    // 指標檔壞掉時只有「其他位置」—— 另外兩個不寫指標檔，壞掉的那一份下次啟動還在。
+    if (pointerBroken.value) setupChoice.value = 'other';
+    else if (isFirstRun.value) {
+      setupChoice.value = programDataRoot.value === null ? 'user-folder' : 'program-folder';
+    }
     loading.value = false;
     return;
   }
@@ -70,10 +97,17 @@ async function load(): Promise<void> {
 }
 
 async function submitSetup(): Promise<void> {
-  if (setupPath.value.trim().length === 0) return;
-  const r = await api.setDataRoot(setupPath.value.trim());
+  if (!canSubmitSetup.value || setupBusy.value) return;
+  setupBusy.value = true;
+  setupError.value = null;
+  const choice = setupChoice.value;
+  const r = await api.chooseDataRoot(
+    choice,
+    choice === 'other' ? setupPath.value.trim() : undefined,
+  );
+  setupBusy.value = false;
   if (r.ok) await load();
-  else error.value = r.error;
+  else setupError.value = r.error;
 }
 
 async function submitCreate(): Promise<void> {
@@ -313,21 +347,83 @@ onMounted(load);
 
     <p v-if="loading" class="muted">{{ t.common.loading }}</p>
 
-    <!-- 第一次啟動：先決定資料放哪裡 -->
+    <!--
+      第一次啟動：先決定資料放哪裡 —— 三選一，程式資料夾預選（ADR-0037）。
+      **三個選項永遠都在**：不能用的那一個是關掉，不是拿掉（上游 CONVENTIONS §11）。
+    -->
     <section v-else-if="needsSetup" class="setup">
       <h2>{{ t.setup.title }}</h2>
       <p class="muted">{{ t.setup.body }}</p>
       <!-- 只有「指標檔壞掉」是故障，要給路徑與識別碼；第一次啟動不給故障面板 -->
-      <ErrorPanel v-if="pointerBroken" :error="error!" />
-      <p v-else-if="pointerPath" class="muted pointer-note">
-        {{ t.setup.pointerNote }} <code class="mono">{{ pointerPath }}</code>
-      </p>
-      <label class="field">
+      <template v-if="pointerBroken">
+        <ErrorPanel :error="error!" />
+        <p class="muted">{{ t.setup.brokenBody }}</p>
+      </template>
+      <div v-else class="root-choices" role="radiogroup">
+        <label class="root-choice" :class="{ off: programDataRoot === null }">
+          <input
+            v-model="setupChoice"
+            type="radio"
+            name="data-root-choice"
+            value="program-folder"
+            :disabled="setupBusy || programDataRoot === null"
+          />
+          <span class="root-choice-text">
+            <b>{{ t.setup.programFolder }}</b>
+            <span class="muted small">{{
+              programDataRoot === null ? t.setup.programFolderOff : t.setup.programFolderWhy
+            }}</span>
+            <code v-if="programDataRoot" class="mono small">{{ programDataRoot }}</code>
+          </span>
+        </label>
+        <label class="root-choice">
+          <input
+            v-model="setupChoice"
+            type="radio"
+            name="data-root-choice"
+            value="user-folder"
+            :disabled="setupBusy"
+          />
+          <span class="root-choice-text">
+            <b>{{ t.setup.userFolder }}</b>
+            <span class="muted small">{{ t.setup.userFolderWhy }}</span>
+            <code v-if="userDataRoot" class="mono small">{{ userDataRoot }}</code>
+          </span>
+        </label>
+        <label class="root-choice">
+          <input
+            v-model="setupChoice"
+            type="radio"
+            name="data-root-choice"
+            value="other"
+            :disabled="setupBusy"
+          />
+          <span class="root-choice-text">
+            <b>{{ t.setup.other }}</b>
+            <span class="muted small">{{ t.setup.otherWhy }}</span>
+          </span>
+        </label>
+      </div>
+      <label v-if="setupChoice === 'other'" class="field">
         <span>{{ t.setup.pathLabel }}</span>
-        <input v-model="setupPath" type="text" @keyup.enter="submitSetup" />
+        <input
+          v-model="setupPath"
+          type="text"
+          :placeholder="t.setup.pathPlaceholder"
+          :disabled="setupBusy"
+          @keyup.enter="submitSetup"
+        />
       </label>
-      <button class="primary" :disabled="setupPath.trim().length === 0" @click="submitSetup">
-        {{ t.setup.submit }}
+      <!-- 只有「其他位置」寫指標檔，所以「這個位置會記在哪」只對它說。 -->
+      <p class="muted pointer-note">
+        <template v-if="setupChoice === 'other'">
+          {{ t.setup.pointerNote }} <code class="mono">{{ pointerPath }}</code>
+        </template>
+        <template v-else>{{ t.setup.noPointerNote }}</template>
+      </p>
+      <ErrorPanel v-if="setupError" :error="setupError" />
+      <button class="primary" :disabled="!canSubmitSetup || setupBusy" @click="submitSetup">
+        {{ setupBusy ? t.setup.busy : t.setup.submit }}
       </button>
     </section>
 
@@ -667,6 +763,40 @@ tbody tr.picked {
   font-size: var(--fs-small);
 }
 .pointer-note code {
+  word-break: break-all;
+}
+
+/* 三選一：一個選項一張卡，**直排** —— 每一張都有一句理由與一條路徑，並排放不下。
+   base.css 的 `.choices` 是並排的短選項，這裡不借它。 */
+.root-choices {
+  display: grid;
+  gap: var(--s2);
+}
+.root-choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--s2) var(--s3);
+  align-items: start;
+  padding: var(--s3);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+/* 選中的那一張用「選取」的青色框（ADR-0018），與清單上選取一列同一個意思。 */
+.root-choice:has(:checked) {
+  border-color: var(--ui-selected);
+  background: var(--bg-raised);
+}
+.root-choice.off {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.root-choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.root-choice-text code {
   word-break: break-all;
 }
 .modal {

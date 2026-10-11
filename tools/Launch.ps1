@@ -39,6 +39,8 @@
 .PARAMETER LocalAppData
     使用另一個 LOCALAPPDATA 啟動獨立環境，不改目前 shell 的環境變數。
     7433 已有 Cyclosa 時拒絕啟動，請先用畫面上的「結束 Cyclosa」。
+    **換掉的是四步的第 1、3 步**（指標檔與使用者資料夾）；第 2 步看的仍是這個 repo 底下的 userdata\ ——
+    在獨立環境裡選了「放在程式資料夾裡」，之後的獨立環境都會找到那一份（ADR-0037）。
 
 .EXAMPLE
     .\tools\Launch.ps1
@@ -261,17 +263,20 @@ Write-Ok '產物就緒'
 # rubricator 2026-09-04 實測踩過，記在它的 docs\lessons.md。
 Write-Step '啟動'
 Write-Note "LOCALAPPDATA：$serverLocalAppData"
+# **只是印出來給人看**，找資料根是 server 的事（四步，ADR-0037）—— 這裡不做第二份。
+# key 是 data_root（2026-10-11 起）；之前寫的指標檔是 dataRoot，兩個都認。
 $pointerPath = Join-Path $serverLocalAppData 'Cyclosa\system_paths.json'
 if (Test-Path -LiteralPath $pointerPath) {
     try {
         $pointer = Get-Content -Raw -Encoding UTF8 -LiteralPath $pointerPath | ConvertFrom-Json
-        if ($pointer.dataRoot -isnot [string] -or -not $pointer.dataRoot) { throw '缺少 dataRoot' }
-        Write-Note "資料根：$($pointer.dataRoot)"
+        $pointed = if ($pointer.data_root) { $pointer.data_root } else { $pointer.dataRoot }
+        if ($pointed -isnot [string] -or -not $pointed) { throw '缺少 data_root' }
+        Write-Note "資料根：$pointed"
     } catch {
         Write-Note "資料根：無法讀取指標檔（$pointerPath），由伺服器回報問題。"
     }
 } else {
-    Write-Note "資料根：$(Join-Path $serverLocalAppData 'Cyclosa\data')（首次啟動預設）"
+    Write-Note '資料根：沒有指標檔 —— 伺服器會找程式資料夾的 userdata 與使用者資料夾的 data，都沒有就在畫面上問。'
 }
 
 # **背景執行沒有主控台，所以 server 的輸出要有個去處。**
@@ -401,7 +406,7 @@ Write-Ok "已啟動：$url"
 Start-Process $url
 
 Write-Host ''
-Write-Host '  資料存在專案外的資料根目錄 —— 第一次啟動不問任何問題，自動建在 %LOCALAPPDATA%\Cyclosa\data；' -ForegroundColor DarkGray
+Write-Host '  資料存在資料根目錄 —— 第一次啟動在畫面上三選一：程式資料夾／使用者資料夾／其他位置；' -ForegroundColor DarkGray
 Write-Host '  要換位置用設定頁的「資料位置」（會複製、驗證、寫指標，最後才刪舊的）。' -ForegroundColor DarkGray
 # **要結束的路只有一條，而且不在這裡。** 這個視窗等一下就不見了，
 # 所以它不能是關掉 Cyclosa 的方法 —— 那件事在畫面右上角。

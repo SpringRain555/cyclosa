@@ -61,13 +61,17 @@
 | `linkedom` | `^0.18` | **ISC** | 給 readability 一個 DOM，不用 jsdom（輕很多）|
 | `franc` | `^6.2` | MIT | 語言偵測。偵測不出來記 `und`，不猜 |
 | `pdfjs-dist` | `^6.3` | **Apache-2.0** | PDF 的文字層與頁碼。**第一版就要**（REQ-0006 ＋ ADR-0019 的頁碼錨點）|
-| `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.1.1.tgz` | 本 repo 的 MIT（見下）| healthz 探測與有上限的關閉序列，幾個本機 app 共用（`architecture/app-lifecycle.md`）|
+| `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.2.0.tgz` | 本 repo 的 MIT（見下）| healthz 探測、有上限的關閉序列、資料根的四步（`data-location`，0.2.0 起；ADR-0037），幾個本機 app 共用（`architecture/app-lifecycle.md`）|
 
 > **`@local-app/lifecycle` 不是從 npm 裝的**（2026-10-08 加，2026-10-09 補記在這裡）：tarball 與 `package-lock.json` 一起版控在
 > `vendor/`，單獨 clone 也 `npm ci` 得起來；PowerShell 那一半（`vendor/AppLifecycle.psm1`）給啟動器載入。
 > **它是同一個作者的程式**，以 MIT 釋出。0.1.0 的 `package.json` 沒有 `license` 欄（沒寫，不是沒有授權）——
 > **0.1.1（2026-10-10）補上了 `"license": "MIT"`**，程式碼跟 0.1.0 逐位元組相同；三個 app 同一天一起換。
 > 開過 tarball：六個檔（兩支 `.js`、兩份 `.d.ts`、`package.json`、`tools/AppLifecycle.psm1`），沒有任何相依、沒有私人路徑。
+> **0.2.0（2026-10-11）多一個 `data-location`**（「沒有指標檔時的四步」的機制，上游 CONVENTIONS §11；ADR-0037），
+> 其餘兩個模組與 `AppLifecycle.psm1` 不變。重開過：八個檔（三支 `.js`、三份 `.d.ts`、`package.json`、`AppLifecycle.psm1`），
+> 照樣沒有相依、沒有私人路徑。同名重打的 tarball npm 會說 up to date，所以換的時候要明確
+> `npm install @local-app/lifecycle@file:vendor/local-app-lifecycle-0.2.0.tgz`，再比對裝進去的檔與來源的雜湊。
 
 > **這四個在 2026-09-07 寫進 `package.json` 那天重查了一次**（這份文件自己要求的）：
 > `@mozilla/readability` 0.6.0 Apache-2.0、`linkedom` 0.18.13 ISC、

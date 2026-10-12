@@ -40,7 +40,12 @@ import {
   type Selector,
 } from '../domain/annotation/index.js';
 import type { ErrorCode } from '../domain/errors/codes.js';
-import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
+import {
+  openCaseDatabase,
+  withTransaction,
+  type DatabaseSync,
+} from '../infrastructure/db/database.js';
+import { parseNoteFile, type NoteFileInput } from './note-file-input.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as notes from '../infrastructure/db/repositories/note-repo.js';
@@ -190,9 +195,12 @@ export async function resolveNotes(
     const snapshotChanged =
       note.snapshotSha256 !== null && item.sha256 !== null && note.snapshotSha256 !== item.sha256;
 
-    const hit: AnchorHit = snapshotChanged
-      ? { kind: 'not-found' }
-      : resolveAnchor(targetOf(item, derived), selectors);
+    const hit: AnchorHit =
+      selectors.length === 0
+        ? { kind: 'exact', start: 0, end: 0, page: null }
+        : snapshotChanged
+          ? { kind: 'not-found' }
+          : resolveAnchor(targetOf(item, derived), selectors);
 
     out.push({ note, hit, quote, targetTitle: item.title, edgeCount: edges.get(note.id) ?? 0 });
   }
@@ -460,6 +468,87 @@ export async function createNote(
   });
 }
 
+/** D14：使用者指定整份資料的附件，不呼叫模型，也不需要來源正文。 */
+export async function attachNoteFile(
+  dataRoot: string,
+  slug: string,
+  itemId: string,
+  input: NoteFileInput,
+): Promise<Result<CreatedNote>> {
+  // application 的入口同樣驗證，避免非 HTTP 呼叫繞過限制。
+  const checked = parseNoteFile(input.fileName, new TextEncoder().encode(input.body));
+  if (!checked.ok) return checked;
+  // HTTP 已移除編碼 BOM；保留正文中其餘的 U+FEFF，不再解碼一次。
+  const { fileName, body } = input;
+  return withCase(dataRoot, slug, async (db, folder) => {
+    const cid = correlationId();
+    const item = items.getItem(db, itemId);
+    if (item === null) return err('GRAPH_NODE_NOT_FOUND', cid);
+    if (item.kind === 'note') return err('NOTE_TARGET_MISSING', cid, { why: 'note-on-note' });
+    const title = /^# (.+)$/m.exec(body)?.[1]?.trim() || fileName.replace(/\.md$/i, '');
+    const id = newId();
+    const now = Date.now();
+    const path = join(notesDir(folder), `${id}.md`);
+    const metadataPath = join(notesDir(folder), `${id}.filename.json`);
+    let wroteBody = false;
+    let wroteMetadata = false;
+    try {
+      await mkdir(notesDir(folder), { recursive: true });
+      await writeFile(path, body, { encoding: 'utf8', flag: 'wx' });
+      wroteBody = true;
+      await writeFile(metadataPath, JSON.stringify({ fileName }), { encoding: 'utf8', flag: 'wx' });
+      wroteMetadata = true;
+      withTransaction(db, () => {
+        notes.insertNote(db, {
+          id,
+          itemId,
+          title,
+          body,
+          selectorJson: '[]',
+          snapshotSha256: null,
+          anchorOk: true,
+          now,
+        });
+        notes.setMdPath(db, id, path);
+        items.setExcerpt(db, id, body);
+        indexText(db, { ownerKind: 'item', ownerId: id, lang: item.lang, title, text: body });
+        insertEdge(
+          db,
+          {
+            layer: 'named',
+            rel: ANCHOR_REL,
+            source: id,
+            sourceKind: 'item',
+            target: itemId,
+            targetKind: 'item',
+            origin: 'human',
+            confidence: 1,
+          },
+          now,
+        );
+      });
+    } catch {
+      if (wroteBody) await rm(path, { force: true });
+      if (wroteMetadata) await rm(metadataPath, { force: true });
+      return err('NOTE_UNEXPECTED', cid);
+    }
+    const stored = notes.getNote(db, id) as notes.NoteRow;
+    return ok(
+      {
+        note: {
+          note: stored,
+          hit: { kind: 'exact', start: 0, end: 0, page: null },
+          quote: '',
+          targetTitle: item.title,
+          edgeCount: 0,
+        },
+        notice: null,
+      },
+      cid,
+    );
+  });
+}
+
 // ── 讀 ────────────────────────────────────────────────────
 
 export async function listNotesForItem(
@@ -560,6 +649,9 @@ export async function deleteNote(
     // 純文字那一份跟著走。**刪不掉不算失敗** —— 資料庫那邊已經沒有它了。
     if (existing.mdPath !== null) await rm(existing.mdPath, { force: true }).catch(() => undefined);
     else await rm(join(notesDir(folder), `${noteId}.md`), { force: true }).catch(() => undefined);
+    await rm(join(notesDir(folder), `${noteId}.filename.json`), { force: true }).catch(
+      () => undefined,
+    );
 
     return ok({ id: noteId, removedEdges }, cid);
   });

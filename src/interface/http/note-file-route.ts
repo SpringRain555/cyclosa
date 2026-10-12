@@ -15,7 +15,7 @@ interface NoteFileTarget {
 }
 
 /**
- * Stage 23 步驟 2：接收層。步驟 3 接上真正的儲存服務後才在主路由註冊。
+ * Stage 23：接收層，由主路由接上真正的筆記儲存服務。
  * 不提供假成功的預設 handler；測試可以注入服務來驗證 HTTP 邊界。
  * 沿用 server 的 octet-stream parser 與本機請求守門。
  */

@@ -505,6 +505,22 @@
 | `DELETE …/notes/:noteId` | 刪掉。回 `removedEdges` —— 順便拿掉的線有幾條 |
 | `POST …/rebuild` | **`derived/` 整批重算**，回重抽了幾份、每個點註的錨點解得怎麼樣，以及（v0.24.0）**每條關聯引文的位置對回去了幾條、找不到幾條**（`evidence`）—— 引文記的是「在正文的第幾個字」，抽取器一改就全部平移。找不到的原樣留著，不刪 |
 
+### 筆記檔上傳（Stage 23，接收層已備妥，尚未開放）
+
+預定端點：`POST /api/cases/:slug/items/:itemId/note-files`（ADR-0033 D14-10）。
+目前 `registerNoteFileRoute` 已可獨立驗證請求；**尚未在主程式註冊**，要等筆記儲存服務接上才開放。
+因此這一階段對正式伺服器呼叫此路徑仍是 404，不會宣稱已保存筆記。
+
+- `Content-Type: application/octet-stream`；body 為單一檔案的位元組。
+- `x-file-name` 為 URI 編碼的檔名，只收 `.md`（不分大小寫），拒絕路徑及控制字元。
+- UTF-8 必須有效；可含開頭 BOM，解碼時移除。內文其餘部分原樣保留，不渲染 Markdown。
+- 上限為 1,048,576 bytes（1 MB，包含 BOM）；即使未宣告 Content-Length，讀取串流時仍受相同上限保護。
+- 超限：HTTP 413／`NOTE_FILE_TOO_LARGE`；副檔名、UTF-8 或檔名標頭不合法：HTTP 400／`NOTE_FILE_UNSUPPORTED`。
+- 驗證成功後交給筆記服務；完成步驟 3 時回傳新建點註，目標檢查、複本、關聯與索引都由該服務負責。
+- 主程式接線時沿用本機請求守門；不新增 multipart 或 text/plain 解析器。
+
+### 一般點註的位置
+
 > **建立點註時前端不送引文，只送位置。**
 >
 > 引文與前後文由伺服器從 `derived/` 切出來。那個分工不是為了省頻寬 ——

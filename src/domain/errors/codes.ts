@@ -330,6 +330,8 @@ export const ERROR_CODES = {
   NOTE_ANCHOR_UNRESOLVED: 'notice',
   NOTE_TARGET_MISSING: 'error',
   NOTE_MD_WRITE_FAILED: 'partial',
+  NOTE_FILE_TOO_LARGE: 'error',
+  NOTE_FILE_UNSUPPORTED: 'error',
   NOTE_UNEXPECTED: 'error',
 
   // ── SEARCH_* 檢索 ────────────────────────────────────────
@@ -367,7 +369,13 @@ export function httpStatusOf(code: ErrorCode): number {
   if (ERROR_CODES[code] !== 'error') return 200;
   if (code.endsWith('_NOT_FOUND')) return 404;
   if (code.endsWith('_TIMEOUT')) return 504;
-  if (code === 'GRAPH_SUBGRAPH_TOO_LARGE' || code === 'FETCH_TOO_LARGE') return 413;
+  if (
+    code === 'GRAPH_SUBGRAPH_TOO_LARGE' ||
+    code === 'FETCH_TOO_LARGE' ||
+    code === 'NOTE_FILE_TOO_LARGE'
+  )
+    return 413;
+  if (code === 'NOTE_FILE_UNSUPPORTED') return 400;
   // 不是「伺服器出錯」（IO_ 預設的 500），是「這個請求不准」。
   if (code === 'IO_REQUEST_FOREIGN') return 403;
   // 400 只給**請求本身就不合法**的：空字串、自己連自己。

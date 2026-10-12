@@ -181,6 +181,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   NOTE_TARGET_MISSING: '這則註記指向的資料已經不在了。註記本身仍然保存在 notes 資料夾裡。',
   NOTE_MD_WRITE_FAILED: '註記已經存進資料庫，但那份純文字副本寫不出去。檢查資料夾的權限。',
   NOTE_UNEXPECTED: '註記操作出了預期外的問題。請把下面的識別碼交出來。',
+  NOTE_FILE_TOO_LARGE: '筆記檔超過 1 MB，請縮小檔案後再附上。',
+  NOTE_FILE_UNSUPPORTED: '請選擇以 UTF-8 編碼儲存的 .md 筆記檔。',
 
   // ── 檢索 ──────────────────────────────────────────────
   SEARCH_QUERY_EMPTY: '請輸入要找的內容。',

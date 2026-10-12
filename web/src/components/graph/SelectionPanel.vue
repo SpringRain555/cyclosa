@@ -22,6 +22,7 @@ import { useTranslationStore } from '../../stores/translation-store';
 import TranslationSwitch from '../TranslationSwitch.vue';
 import TranslationNotice from '../TranslationNotice.vue';
 import ErrorPanel from '../ErrorPanel.vue';
+import AttachNoteFile from '../AttachNoteFile.vue';
 
 const props = defineProps<{
   slug: string;
@@ -33,6 +34,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
+  (event: 'attached'): void;
   (event: 'focus', id: string): void;
   (event: 'open-reader', id: string): void;
   (event: 'open-edge', id: string): void;
@@ -196,6 +198,13 @@ function relLabel(edge: SubgraphEdge): string {
       </div>
 
       <!-- ── 手動連一條線 ────────────────────────────────── -->
+      <AttachNoteFile
+        v-if="node.kind === 'item' && node.subKind !== 'note'"
+        :key="`${slug}/${node.id}`"
+        :slug="slug"
+        :item-id="node.id"
+        @attached="emit('attached')"
+      />
       <div v-if="pickingTarget" class="connect">
         <p class="pair">
           <span class="muted">{{ t.graph.connect.from }}</span> {{ connectFromTitle }}

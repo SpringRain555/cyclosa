@@ -505,10 +505,11 @@
 | `DELETE …/notes/:noteId` | 刪掉。回 `removedEdges` —— 順便拿掉的線有幾條 |
 | `POST …/rebuild` | **`derived/` 整批重算**，回重抽了幾份、每個點註的錨點解得怎麼樣，以及（v0.24.0）**每條關聯引文的位置對回去了幾條、找不到幾條**（`evidence`）—— 引文記的是「在正文的第幾個字」，抽取器一改就全部平移。找不到的原樣留著，不刪 |
 
-### 筆記檔上傳（Stage 23，API 已開放，畫面尚未接線）
+### 筆記檔上傳（Stage 23）
 
 端點：`POST /api/cases/:slug/items/:itemId/note-files`（ADR-0033 D14-10）。
 成功回傳 `{ note: ResolvedNote, notice: null }`，包在一般 `Result` 的 `data` 中。
+附件的 `ResolvedNote.fileName` 為原檔名；若舊附件沒有檔名中繼資料則為 `null`，正文仍可讀取。
 
 - `Content-Type: application/octet-stream`；body 為單一檔案的位元組。
 - `x-file-name` 為 URI 編碼的檔名，只收 `.md`（不分大小寫），拒絕路徑及控制字元。
@@ -519,7 +520,9 @@
 - 標題取第一個 `# ` 標題，沒有則用去掉 `.md` 的檔名。全文原樣存入 body 與 `notes/<noteId>.md`，原檔名存於同 ID 的 `.filename.json`（`{ fileName }`），不修改資料庫結構。
 - `selector_json='[]'` 表示整份資料的附件；不依賴正文位置或快照，重建後仍可定位。每次上傳建立新筆記，不覆寫既有附件。
 - 筆記節點、全文索引及 `named`／`註於`／`human`／`confirmed` 關聯在同一交易寫入。失敗時回滾並清理本次複本；刪除筆記同時清除複本、檔名資料、索引與關聯。
-- 沿用本機請求守門；不新增 multipart 或 text/plain 解析器。附件清單與唯讀顯示仍待畫面步驟完成。
+- 閱讀器清單將附件排在一般點註之前，顯示原檔名及純文字全文，不提供編輯或正文定位。直接呼叫 `PATCH …/notes/:noteId` 修改附件也會回 HTTP 409／`NOTE_FILE_READ_ONLY`。
+- 閱讀器點註欄與關聯圖的資料節點面板均提供附檔入口；不在筆記或實體節點提供。上傳成功會重新載入清單或圖。
+- 沿用本機請求守門；不新增 multipart 或 text/plain 解析器。
 
 ### 一般點註的位置
 

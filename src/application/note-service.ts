@@ -26,7 +26,7 @@
  * 只是純文字那一份沒寫成（`NOTE_MD_WRITE_FAILED`，級別 `partial`）。
  */
 import { join } from 'node:path';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 
 import {
   anchorOk,
@@ -117,6 +117,7 @@ async function withCase<T>(
 
 /** 一則點註 ＋ **它現在解到哪裡**。位置是算出來的，不存。 */
 export interface ResolvedNote {
+  readonly fileName?: string | null;
   readonly note: notes.NoteRow;
   readonly hit: AnchorHit;
   /** 引文（從選擇器讀出來的，不是重新切的）。清單上要顯示它。 */
@@ -159,12 +160,24 @@ export async function resolveNotes(
 
   for (const note of rows) {
     const selectors = parseSelectors(note.selectorJson);
+    let fileName: string | null = null;
+    if (note.selectorJson === '[]') {
+      try {
+        const metadata = JSON.parse(
+          await readFile(join(notesDir(folder), `${note.id}.filename.json`), 'utf8'),
+        ) as { fileName?: unknown };
+        if (typeof metadata.fileName === 'string') fileName = metadata.fileName;
+      } catch {
+        /* 舊附件或中繼資料遺失仍可讀正文。 */
+      }
+    }
     const quote = selectors.find((s) => s.type === 'TextQuoteSelector')?.exact ?? '';
 
     if (note.itemId === null) {
       // 標的那一份被刪掉了。**註記本身還在**（error-codes 的 `NOTE_TARGET_MISSING`）。
       out.push({
         note,
+        fileName,
         hit: NOT_FOUND,
         quote,
         targetTitle: null,
@@ -177,6 +190,7 @@ export async function resolveNotes(
     if (item === null) {
       out.push({
         note,
+        fileName,
         hit: NOT_FOUND,
         quote,
         targetTitle: null,
@@ -196,13 +210,20 @@ export async function resolveNotes(
       note.snapshotSha256 !== null && item.sha256 !== null && note.snapshotSha256 !== item.sha256;
 
     const hit: AnchorHit =
-      selectors.length === 0
+      note.selectorJson === '[]'
         ? { kind: 'exact', start: 0, end: 0, page: null }
         : snapshotChanged
           ? { kind: 'not-found' }
           : resolveAnchor(targetOf(item, derived), selectors);
 
-    out.push({ note, hit, quote, targetTitle: item.title, edgeCount: edges.get(note.id) ?? 0 });
+    out.push({
+      note,
+      fileName,
+      hit,
+      quote,
+      targetTitle: item.title,
+      edgeCount: edges.get(note.id) ?? 0,
+    });
   }
   return sortByPlace(out);
 }
@@ -222,6 +243,10 @@ function sortByPlace(rows: readonly ResolvedNote[]): readonly ResolvedNote[] {
     return [0, r.hit.page ?? 0, r.hit.start];
   };
   return [...rows].sort((a, b) => {
+    const attachments = Number(b.note.selectorJson === '[]') - Number(a.note.selectorJson === '[]');
+    if (attachments !== 0) return attachments;
+    if (a.note.selectorJson === '[]')
+      return a.note.createdAt - b.note.createdAt || a.note.id.localeCompare(b.note.id);
     const ka = key(a);
     const kb = key(b);
     return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2];
@@ -538,6 +563,7 @@ export async function attachNoteFile(
         note: {
           note: stored,
           hit: { kind: 'exact', start: 0, end: 0, page: null },
+          fileName,
           quote: '',
           targetTitle: item.title,
           edgeCount: 0,
@@ -586,6 +612,7 @@ export async function updateNote(
     const cid = correlationId();
     const existing = notes.getNote(db, noteId);
     if (existing === null) return err('GRAPH_NODE_NOT_FOUND', cid, { noteId });
+    if (existing.selectorJson === '[]') return err('NOTE_FILE_READ_ONLY', cid);
 
     const now = Date.now();
     notes.updateBody(db, noteId, body, now);

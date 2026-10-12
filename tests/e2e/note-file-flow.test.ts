@@ -9,6 +9,8 @@ import { createCase } from '../../src/application/case-service.js';
 import { importFile } from '../../src/application/ingest-service.js';
 import {
   deleteNote,
+  createNote,
+  updateNote,
   listNotesForItem,
   type CreatedNote,
 } from '../../src/application/note-service.js';
@@ -70,6 +72,33 @@ async function attach(body: string, name?: string) {
 }
 
 describe('筆記檔的真實接收、儲存與關聯', () => {
+  it('附件排在一般點註前、讀回原檔名，並拒絕繞過畫面的編輯請求', async () => {
+    const ordinary = await createNote(root, slug, itemId, { body: '手寫點註', start: 2, end: 4 });
+    expect(ordinary.ok).toBe(true);
+    const file = await attach('# 附件\n保留原文', '原始檔名.md');
+    const listed = await listNotesForItem(root, slug, itemId);
+    expect(listed.ok && listed.data[0]).toMatchObject({
+      fileName: '原始檔名.md',
+      note: { id: file.id },
+    });
+    const changed = await app.inject({
+      method: 'PATCH',
+      url: `/api/cases/${slug}/notes/${file.id}`,
+      payload: { body: '不准覆寫' },
+    });
+    expect(changed.statusCode).toBe(409);
+    expect(changed.json()).toMatchObject({ code: 'NOTE_FILE_READ_ONLY' });
+    expect(await readFile(file.mdPath!, 'utf8')).toBe('# 附件\n保留原文');
+    if (!ordinary.ok) throw new Error('ordinary note failed');
+    expect((await updateNote(root, slug, ordinary.data.note.note.id, '仍可改')).ok).toBe(true);
+    await rm(join(folder, 'notes', `${file.id}.filename.json`));
+    const withoutMetadata = await listNotesForItem(root, slug, itemId);
+    expect(withoutMetadata.ok && withoutMetadata.data[0]).toMatchObject({
+      fileName: null,
+      note: { body: '# 附件\n保留原文' },
+    });
+  });
+
   it('主伺服器拒絕外站、超限及不合法 UTF-8，且不留下筆記', async () => {
     const url = `/api/cases/${slug}/items/${itemId}/note-files`;
     const headers = { 'content-type': 'application/octet-stream', 'x-file-name': 'x.md' };

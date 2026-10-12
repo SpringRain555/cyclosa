@@ -187,6 +187,7 @@
 | `NOTE_UNEXPECTED` | error | 點註的未預期例外 | 把 `correlation_id` 交出來 |
 | `NOTE_FILE_TOO_LARGE` | error | 筆記檔超過 1 MB（1,048,576 bytes，含 BOM）| 縮小檔案後再附上；HTTP 413 |
 | `NOTE_FILE_UNSUPPORTED` | error | 不是 `.md`、UTF-8 無效或檔名標頭不合法 | 選擇 UTF-8 的 `.md`，檔名以 URI 編碼傳送；HTTP 400 |
+| `NOTE_FILE_READ_ONLY` | error | 嘗試編輯唯讀的筆記附件 | 修改原檔後重新附上，再刪除舊筆記；HTTP 409 |
 
 ## `SEARCH_*` —— 檢索
 

@@ -881,6 +881,7 @@ export type AnchorHit =
   | { readonly kind: 'not-found' };
 
 export interface ResolvedNote {
+  readonly fileName?: string | null;
   readonly note: NoteRow;
   readonly hit: AnchorHit;
   readonly quote: string;
@@ -1321,6 +1322,15 @@ export const api = {
   // ── 筆記與點註 ──────────────────────────────────────────
 
   /** **只送位置，不送引文** —— 引文由後端從 `derived/` 切（note-service）。 */
+  attachNoteFile: (slug: string, itemId: string, file: File) =>
+    request<CreatedNote>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/note-files`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+      body: file,
+    }),
   createNote: (
     slug: string,
     itemId: string,

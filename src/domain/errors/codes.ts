@@ -332,6 +332,7 @@ export const ERROR_CODES = {
   NOTE_MD_WRITE_FAILED: 'partial',
   NOTE_FILE_TOO_LARGE: 'error',
   NOTE_FILE_UNSUPPORTED: 'error',
+  NOTE_FILE_READ_ONLY: 'error',
   NOTE_UNEXPECTED: 'error',
 
   // ── SEARCH_* 檢索 ────────────────────────────────────────
@@ -376,6 +377,7 @@ export function httpStatusOf(code: ErrorCode): number {
   )
     return 413;
   if (code === 'NOTE_FILE_UNSUPPORTED') return 400;
+  if (code === 'NOTE_FILE_READ_ONLY') return 409;
   // 不是「伺服器出錯」（IO_ 預設的 500），是「這個請求不准」。
   if (code === 'IO_REQUEST_FOREIGN') return 403;
   // 400 只給**請求本身就不合法**的：空字串、自己連自己。

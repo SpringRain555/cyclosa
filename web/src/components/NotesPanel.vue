@@ -19,6 +19,7 @@ import { computed, ref, watch } from 'vue';
 import { api, type ApiError, type ResolvedNote } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from './ErrorPanel.vue';
+import AttachNoteFile from './AttachNoteFile.vue';
 
 const props = defineProps<{
   slug: string;
@@ -28,6 +29,7 @@ const props = defineProps<{
   pending: { start: number; end: number; page: number | null; preview: string } | null;
   pendingRect: { x: number; y: number; w: number; h: number } | null;
   isImage: boolean;
+  canAttach: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -84,6 +86,7 @@ async function save(): Promise<void> {
 }
 
 function startEdit(note: ResolvedNote): void {
+  if (note.note.selectorJson === '[]') return;
   editingId.value = note.note.id;
   body.value = note.note.body;
 }
@@ -148,6 +151,14 @@ const unresolvedCount = computed(
         </template>
       </p>
     </header>
+    <AttachNoteFile
+      v-if="canAttach"
+      :key="`${slug}/${itemId}`"
+      :slug="slug"
+      :item-id="itemId"
+      @attached="emit('changed')"
+    />
+    <ErrorPanel v-if="error && !hasPending && editingId === null" :error="error" />
 
     <!-- 註記框：**選了東西才出現**。沒選的時候那裡是一句怎麼開始的話。 -->
     <form v-if="hasPending || editingId !== null" class="composer" @submit.prevent="save">
@@ -183,6 +194,9 @@ const unresolvedCount = computed(
 
     <ul v-else class="rows">
       <li v-for="n in notes" :key="n.note.id" class="note">
+        <p v-if="n.note.selectorJson === '[]'" class="file-label">
+          {{ fill(t.notes.fileLabel, { name: n.fileName ?? t.notes.unknownFile }) }}
+        </p>
         <blockquote v-if="n.quote" class="quote">{{ n.quote }}</blockquote>
         <p v-if="n.note.body" class="body">{{ n.note.body }}</p>
 
@@ -191,16 +205,25 @@ const unresolvedCount = computed(
           <span class="mark" aria-hidden="true">{{
             n.hit.kind === 'not-found' ? '×' : n.hit.kind === 'shifted' ? '→' : '·'
           }}</span>
-          {{ anchorLabel(n) }}
+          {{
+            n.note.selectorJson === '[]' && n.hit.kind !== 'not-found'
+              ? t.notes.wholeDocument
+              : anchorLabel(n)
+          }}
           <span v-if="placeLabel(n)" class="muted">· {{ placeLabel(n) }}</span>
         </p>
         <p v-if="anchorWhy(n)" class="muted why">{{ anchorWhy(n) }}</p>
 
         <div class="row">
-          <button v-if="n.hit.kind !== 'not-found' && !isImage" @click="emit('locate', n)">
+          <button
+            v-if="n.note.selectorJson !== '[]' && n.hit.kind !== 'not-found' && !isImage"
+            @click="emit('locate', n)"
+          >
             {{ t.notes.locate }}
           </button>
-          <button @click="startEdit(n)">{{ t.notes.edit }}</button>
+          <button v-if="n.note.selectorJson !== '[]'" @click="startEdit(n)">
+            {{ t.notes.edit }}
+          </button>
           <button @click="remove(n)">{{ t.notes.remove }}</button>
         </div>
       </li>
@@ -311,6 +334,9 @@ const unresolvedCount = computed(
 }
 
 .body {
+  overflow-wrap: anywhere;
+  max-height: 24rem;
+  overflow-y: auto;
   margin: 0;
   font-size: var(--fs-small);
   line-height: 1.6;

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { FastifyInstance } from 'fastify';
 import { beforeEach, afterEach, describe, expect, it } from 'vitest';
@@ -17,6 +18,7 @@ import {
 import { searchCase } from '../../src/application/search-service.js';
 import { rebuildDerived } from '../../src/application/rebuild-service.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
+import { insertReference } from '../../src/infrastructure/db/repositories/item-repo.js';
 import type { Result } from '../../src/shared/result.js';
 
 let root: string;
@@ -125,6 +127,9 @@ describe('筆記檔的真實接收、儲存與關聯', () => {
     });
     expect(invalid.statusCode).toBe(400);
     expect(invalid.json()).toMatchObject({ code: 'NOTE_FILE_UNSUPPORTED' });
+    const extension = await upload('valid UTF-8', 'not-markdown.txt');
+    expect(extension.statusCode).toBe(400);
+    expect(extension.json()).toMatchObject({ code: 'NOTE_FILE_UNSUPPORTED' });
     expect(db.prepare('SELECT count(*) AS n FROM note').get()).toMatchObject({ n: 0 });
   });
 
@@ -142,6 +147,9 @@ describe('筆記檔的真實接收、儲存與關聯', () => {
 
   it('移除 BOM，保存全文、原檔名、首個 H1，建立可搜尋的人工已確認關聯', async () => {
     const body = '前言\r\n# 附件標題\r\nneedleattachment 獨特內容\r\n# 第二標題';
+    expect(db.prepare('SELECT kind FROM item WHERE id = ?').get(itemId)).toMatchObject({
+      kind: 'text',
+    });
     const note = await attach(`\uFEFF${body}`);
     expect(note).toMatchObject({ body, selectorJson: '[]', anchorOk: true, itemId });
     expect(note.mdPath).toBe(join(folder, 'notes', `${note.id}.md`));
@@ -192,7 +200,18 @@ describe('筆記檔的真實接收、儲存與關聯', () => {
   });
 
   it('書目不需要正文也能附；筆記與不存在的目標不能附', async () => {
-    db.prepare("UPDATE item SET kind = 'reference' WHERE id = ?").run(itemId);
+    const source = db.prepare('SELECT run_id FROM item WHERE id = ?').get(itemId) as {
+      run_id: string;
+    };
+    itemId = randomUUID();
+    insertReference(db, {
+      id: itemId,
+      title: '沒有快照的書目',
+      url: 'https://example.org/reference',
+      bibJson: '{}',
+      runId: source.run_id,
+      now: Date.now(),
+    });
     const note = await attach('書目筆記');
     expect((await upload('不可巢狀', 'x.md', note.id)).json()).toMatchObject({
       ok: false,

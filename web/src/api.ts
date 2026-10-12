@@ -1322,15 +1322,19 @@ export const api = {
   // ── 筆記與點註 ──────────────────────────────────────────
 
   /** **只送位置，不送引文** —— 引文由後端從 `derived/` 切（note-service）。 */
-  attachNoteFile: (slug: string, itemId: string, file: File) =>
-    request<CreatedNote>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/note-files`, {
+  attachNoteFile: (slug: string, itemId: string, file: File): Promise<ApiResult<CreatedNote>> => {
+    // 避免瀏覽器仍在送大檔時連線已被伺服器拒絕，掩蓋真正的大小錯誤。
+    if (file.size > 1024 * 1024)
+      return Promise.resolve({ ok: false, error: toError({ code: 'NOTE_FILE_TOO_LARGE' }) });
+    return request<CreatedNote>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/note-files`, {
       method: 'POST',
       headers: {
         'content-type': 'application/octet-stream',
         'x-file-name': encodeURIComponent(file.name),
       },
       body: file,
-    }),
+    });
+  },
   createNote: (
     slug: string,
     itemId: string,

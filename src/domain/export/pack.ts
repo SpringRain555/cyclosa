@@ -393,13 +393,13 @@ export function renderPack(pack: EvidencePack): string {
 
   if (pack.notes.length > 0) {
     lines.push(`## 點註（${String(pack.notes.length)} 則）`, '');
-    lines.push('**這一組是你自己寫的**，不是抓回來的。它們的引文一樣可以回溯。', '');
+    lines.push('**這一組是你自己寫的**，不是抓回來的。有引文的會一併列出回溯資訊。', '');
     pack.notes.forEach((note, i) => {
       lines.push(`### ${String(i + 1)} · \`${note.id}\``, '');
       if (note.quote !== null) {
         lines.push(...quoteBlock(note.quote), '');
       } else {
-        lines.push('這一則沒有錨在任何一份上。', '');
+        lines.push('這一則沒有可回溯的原文引文。', '');
       }
       if (note.body.trim().length > 0) lines.push(note.body.trim(), '');
     });

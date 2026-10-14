@@ -197,7 +197,7 @@ function relLabel(edge: SubgraphEdge): string {
         </button>
       </div>
 
-      <!-- ── 手動連一條線 ────────────────────────────────── -->
+      <!-- ── 筆記檔附件 ──────────────────────────────────── -->
       <AttachNoteFile
         v-if="node.kind === 'item' && node.subKind !== 'note'"
         :key="`${slug}/${node.id}`"
@@ -205,6 +205,7 @@ function relLabel(edge: SubgraphEdge): string {
         :item-id="node.id"
         @attached="emit('attached')"
       />
+      <!-- ── 手動連一條線 ────────────────────────────────── -->
       <div v-if="pickingTarget" class="connect">
         <p class="pair">
           <span class="muted">{{ t.graph.connect.from }}</span> {{ connectFromTitle }}

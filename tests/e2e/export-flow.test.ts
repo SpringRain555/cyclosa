@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 
 import { buildServer } from '../../src/server.js';
-import { createNote } from '../../src/application/note-service.js';
+import { attachNoteFile, createNote } from '../../src/application/note-service.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
 import {
   insertEdge,
@@ -342,6 +342,46 @@ describe('匯出的每條引文都能回溯到 item 與字元區間', () => {
     expect(rows.every((row) => row.quote.length > 0)).toBe(true);
     // 三條邊，但只有兩條帶引文（已否決的不進來）。
     expect(rows.filter((row) => row.kind === 'edge')).toHaveLength(3);
+  });
+});
+
+describe('整份筆記附件匯出', () => {
+  it('保留附件與來源，但不增加已核對引文或產生空白引文', async () => {
+    const before = (await exportPack()).data as Summary;
+    const originalRows = await readRows(before.folder);
+    const body = '# 合成附件\n這是整份資料的補充筆記，沒有選取原文。';
+    const attached = await attachNoteFile(dataRoot, slug, 'itm-a', {
+      fileName: '合成附件.md',
+      body,
+    });
+    if (!attached.ok) throw new Error(attached.code);
+    const id = attached.data.note.note.id;
+
+    const result = await exportPack();
+    expect(result.ok).toBe(true);
+    const after = result.data as Summary;
+    expect(after.noteCount).toBe(before.noteCount + 1);
+    expect(after.quoteCount).toBe(before.quoteCount);
+    expect(after.verified).toBe(before.verified);
+    expect(await readRows(after.folder)).toEqual(originalRows);
+    const md = await readFile(join(after.folder, 'evidence-pack.md'), 'utf8');
+    expect(md).toContain(body);
+    expect(md).not.toMatch(/^>\s*$/m);
+
+    // 只選附件，來源不在選取範圍，也必須出現在來源清單。
+    const only = await exportPack({ nodeIds: [id] });
+    expect(only.ok).toBe(true);
+    const summary = only.data as Summary;
+    expect(summary).toMatchObject({ noteCount: 1, sourceCount: 1, quoteCount: 0, verified: 0 });
+    expect(await readRows(summary.folder)).toEqual([]);
+    const onlyMd = await readFile(join(summary.folder, 'evidence-pack.md'), 'utf8');
+    expect(onlyMd).toContain(body);
+    expect(onlyMd.split('## 點註')[1]).not.toMatch(/^>/m);
+    expect(onlyMd).not.toContain('字元 0–0');
+    expect(onlyMd).not.toContain('沒有錨在任何一份上');
+    const sources = await readFile(join(summary.folder, 'sources.md'), 'utf8');
+    expect(sources).toContain('itm-a');
+    expect(sources).toContain('https://example.test/a');
   });
 });
 

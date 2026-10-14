@@ -282,7 +282,9 @@ async function buildPack(
     const recordedEnd = position?.end ?? 0;
 
     let quote: PackQuote | null = null;
-    if (r.note.itemId !== null) {
+    if (r.note.itemId !== null && !cited.includes(r.note.itemId)) cited.push(r.note.itemId);
+    // 整份資料附件仍列出來源，但成功定位整份資料不代表有原文引文。
+    if (r.note.itemId !== null && r.note.selectorJson !== '[]') {
       const hit = r.hit;
       quote = {
         itemId: r.note.itemId,
@@ -298,7 +300,6 @@ async function buildPack(
         page: hit.kind === 'exact' || hit.kind === 'shifted' ? hit.page : null,
         rect: hit.kind === 'rect' ? hit.rect : null,
       };
-      if (!cited.includes(r.note.itemId)) cited.push(r.note.itemId);
     }
     return { id: r.note.id, body: r.note.body, createdAt: r.note.createdAt, quote };
   });

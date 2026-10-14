@@ -1321,7 +1321,7 @@ export const api = {
 
   // ── 筆記與點註 ──────────────────────────────────────────
 
-  /** **只送位置，不送引文** —— 引文由後端從 `derived/` 切（note-service）。 */
+  /** 上傳筆記檔，附在整份資料上。 */
   attachNoteFile: (slug: string, itemId: string, file: File): Promise<ApiResult<CreatedNote>> => {
     // 避免瀏覽器仍在送大檔時連線已被伺服器拒絕，掩蓋真正的大小錯誤。
     if (file.size > 1024 * 1024)
@@ -1335,6 +1335,7 @@ export const api = {
       body: file,
     });
   },
+  /** **只送位置，不送引文** —— 引文由後端從 `derived/` 切（note-service）。 */
   createNote: (
     slug: string,
     itemId: string,

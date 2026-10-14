@@ -11,6 +11,9 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **修正 Claude Code 用量事件的判讀**：原本從 `rate_limit_event` 最上層讀欄位，且不看 `status`，讓每次呼叫都被記成撞到限制、重置時間顯示為 `?`。
+  現在從 `rate_limit_info` 解析狀態與用量資料；`allowed` 不記錄，接近上限寫 info，其餘狀態寫 warn，只有遭拒時才用它作錯誤細節。測試：`tests/infrastructure/agent-claude-stream.test.ts`。
+
 - **修正關聯圖的 FPS 讀數消失**：網址加上 `?fps=1` 後，讀數原本會被圖形套件初始化時清掉。
   將讀數與套件的繪圖容器分開，保留原有 `onEngineTick` 計數方式，供互動效能量測使用。
   筆電各連續拖曳 10 秒的最低讀數為 1,893 節點 **33 fps**、7,720 節點 **7 fps**；後者已觸發 ADR-0007。

@@ -79,21 +79,89 @@ interface ResultEvent {
   readonly structured_output?: unknown;
   readonly total_cost_usd?: unknown;
   readonly is_error?: unknown;
+  readonly rate_limit_info?: unknown;
+}
+
+export interface RateLimitInfo {
+  readonly status: string;
+  readonly type: string | null;
+  readonly resetsAt: number | null;
+  readonly utilization: number | null;
+}
+
+export interface RateLimitLog {
+  readonly level: 'info' | 'warn';
+  readonly msg: string;
+  readonly fields: {
+    readonly type: string | null;
+    readonly utilization: number | null;
+    readonly resetsAt: string | null;
+    readonly status?: string;
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function resetsAtIso(resetsAt: number | null): string | null {
+  if (resetsAt === null) return null;
+  try {
+    return new Date(resetsAt * 1000).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/** 將 provider 的用量事件轉成日誌資料；正常的 `allowed` 不留日誌。 */
+export function rateLimitLog(info: RateLimitInfo): RateLimitLog | null {
+  if (info.status === 'allowed') return null;
+
+  const resetsAt = resetsAtIso(info.resetsAt);
+  if (info.status === 'allowed_warning') {
+    return {
+      level: 'info',
+      msg: 'Claude Code 的用量接近上限',
+      fields: { type: info.type, utilization: info.utilization, resetsAt },
+    };
+  }
+  return {
+    level: 'warn',
+    msg: 'agent 撞到 provider 自己的用量限制',
+    fields: { status: info.status, type: info.type, utilization: info.utilization, resetsAt },
+  };
+}
+
+/** 只有 provider 明確拒絕時，才用用量事件取代 stderr 作為錯誤細節。 */
+export function rateLimitDetail(info: RateLimitInfo): string | null {
+  if (info.status !== 'rejected') return null;
+
+  const type = info.type === null ? '' : ` ${info.type}`;
+  const resetsAt = resetsAtIso(info.resetsAt);
+  return `用量限制${type}${resetsAt === null ? '' : `，重置於 ${resetsAt}`}`;
 }
 
 /**
  * 一次呼叫的解析結果。
  *
- * **`rateLimit` 要單獨帶出來**：撞到對方的用量限制時，畫面要說得出
- * 「是對方的用量限制，某某時間重置」，而不是一個泛泛的失敗
+ * **`rateLimit` 要單獨帶出來**：撞到對方的用量限制時，日誌與錯誤要說得出
+ * 「是對方的用量限制，某某時間重置」—— 那是 provider 的限制，不是我們設的預算上限
  * （ADR-0006 的補記，2026-09-06 實測看到 `rate_limit_event`）。
+ *
+ * **每一次呼叫都會送這個事件**，資料在 `rate_limit_info` 裡、`status` 才說有沒有撞到
+ * （2026-10-14 錄的真樣本見 `tests/infrastructure/agent-claude-stream.test.ts`）。
+ * 之前從最上層讀又不看 `status`，日誌每次都寫「撞到用量限制 ? / ?」。
  */
 interface StreamSummary {
   text: string | null;
   structured: unknown;
   costUsd: number | null;
   isError: boolean;
-  rateLimit: string | null;
+  rateLimit: RateLimitInfo | null;
 }
 
 export function parseStreamJson(lines: readonly string[]): StreamSummary {
@@ -116,8 +184,15 @@ export function parseStreamJson(lines: readonly string[]): StreamSummary {
       continue;
     }
     if (event.type === 'rate_limit_event') {
-      const raw = event as unknown as { rateLimitType?: unknown; resetsAt?: unknown };
-      out.rateLimit = `${String(raw.rateLimitType ?? '?')} / ${String(raw.resetsAt ?? '?')}`;
+      if (!isRecord(event.rate_limit_info)) continue;
+      const raw = event.rate_limit_info;
+      if (typeof raw['status'] !== 'string') continue;
+      out.rateLimit = {
+        status: raw['status'],
+        type: typeof raw['rateLimitType'] === 'string' ? raw['rateLimitType'] : null,
+        resetsAt: finiteNumberOrNull(raw['resetsAt']),
+        utilization: finiteNumberOrNull(raw['utilization']),
+      };
       continue;
     }
     if (event.type !== 'result') continue;
@@ -304,9 +379,9 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
           const cost = { costUsd: summary.costUsd, elapsedMs: Date.now() - started };
 
           if (summary.rateLimit !== null) {
-            // **那是對方的限制，不是我們設的上限** —— 所以它進日誌也進 detail，
-            // 而不是被當成我們自己的預算用完了。
-            logger.info('agent 撞到 provider 自己的用量限制', { rateLimit: summary.rateLimit });
+            const entry = rateLimitLog(summary.rateLimit);
+            if (entry?.level === 'info') logger.info(entry.msg, entry.fields);
+            if (entry?.level === 'warn') logger.warn(entry.msg, entry.fields);
           }
 
           if (killedBy === 'timeout') {
@@ -321,7 +396,9 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
             settle({
               kind: 'error',
               code: 'PROVIDER_BUDGET_EXCEEDED',
-              detail: summary.rateLimit ?? stderr.slice(0, 200),
+              detail:
+                (summary.rateLimit === null ? null : rateLimitDetail(summary.rateLimit)) ??
+                stderr.slice(0, 200),
               cost,
             });
             return;

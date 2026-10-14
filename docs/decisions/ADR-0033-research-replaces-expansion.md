@@ -394,3 +394,21 @@ Stage 23 要開給組員實作，D14 沒寫到的細節先定下來 —— **設
 | D14-8 | 唯讀的樣子：點註欄的那一則**沒有「編輯」、只有刪除**，標「筆記檔：〈檔名〉」，排在那份資料所有點註的最前面（它沒有位置）| Q17；手寫的點註與附上的檔案要分得出來 |
 | D14-9 | 入口有兩個：閱讀器的點註欄、關聯圖的節點面板（選取一份資料時）。**匯入頁拖進來的 `.md` 仍然是資料節點**，兩邊的說明各自寫清楚是哪一種（R25）| R24／R25 |
 | D14-10 | 端點 `POST …/items/:itemId/note-files`：body 是檔案的位元組（`application/octet-stream`，檔名用 URI 編碼放在 `x-file-name`，跟逐檔上傳同一種請求），回新建的那一則點註。實作時寫進 `api-contract.md` | ADR-0036：body 只收 JSON 與 octet-stream，不為這個開 multipart |
+
+## 你定的（2026-10-14，Stage 24 骨架動手前）
+
+整理的殼與操作清單（issue #4）動手前，D13 沒寫到的地方逐題看過，**十題都照建議**。
+各種操作的執行（#5～#8）與「只有一條出處的關聯」清單（#9）照 C10 的接口各自加，不改殼。
+
+| # | 題 | 定了什麼 | 為什麼 |
+|---|---|---|---|
+| **C1** | 操作清單存哪？| **新表 `consolidate_op`（v14）**，一條一列：`research_id`（CASCADE）、`ord`、`kind`、`payload_json`、`why`、`checked`（預設 0，Q10）、`state` ∈ `proposed`／`done`／`failed`／`stale`／`skipped`、`code`、`run_id`、`undo_json`、`executed_at`。**沒勾的也留著** | 每一條要各自記勾了沒、做了沒、錯誤碼、怎麼退；塞進 `research.plan_json` 的話改一條就要整包重寫，部分失敗記不清。留沒勾的跟 `research_direction.adopted=0` 同一個理由 |
+| **C2** | 五種操作的內容 | `merge` `{keep, drop}`、`extract` `{itemIds[]}`、`add-edge` `{source, target, rel, itemId, quote}`、`retype` `{entityId, to}`（`from` 由程式記）、`digest` `{itemIds[]}`。**交出來時就驗**：id 一律對回資料庫、`extract` 必須在 `listUnextracted` 裡、`add-edge` 的引文 `locateQuote` 找不到就不列；不過的丟掉，**畫面說丟了幾條、為什麼** | 模型交的 id 不猜；一條指不到原文的關聯在清單上出現過，就會被當成「機器查過了」 |
+| **C3** | 殼的狀態 | 沿用 `research.status` 的四個：`planning`（模型交清單；失敗可以再按）→ `reviewing`（你勾）→ `building`（執行勾的）→ `done`；任何時候 `abandoned`。整理**不用** `collecting`／`awaiting-user` | 不加狀態就不用動 CHECK |
+| **C4** | D4 有了殼之後 | 殼對殼、殼對研究：**`research.open_key` 部分唯一索引**（v9 就在）。殼對不開殼的「抽進圖」：**照 S24-2 兩邊互查**。**不開殼的「抽進圖」卡片保留** | 哪幾份沒抽過是事實，不該要先花模型的額度才看得到 |
+| **C5** | 規劃走哪個任務 | **走 `plan` 的服務與模型、不給任何工具**（同 S7-4 缺口評估），設定頁不多一列；花費照 R29 記在 `research_message` | 模型讀的是專題裡已經有的東西，不需要搜尋 |
+| **C6** | 給模型看多少 | 每段有上限（程式常數，不是設定項）：實體取提及最多的 300 個 ＋ `listMergeCandidates` 的候選對（優先）；只有一條出處的關聯 100 條（附引文）；還沒抽過的資料全部的標題與字數；筆記每則前 2,000 字、合計 40,000 字。**畫面說這次給模型看的是哪一部分** | 上千個實體送不進去；截掉了卻不說，等於讓人以為模型看過全部 |
+| **C7** | 執行與「交出清單之後圖變了」| 一次執行開**一筆** `run.kind='consolidate'`（帶 `research_id`），固定順序 **合併 → 改型別 → 抽 → 加關聯 → 補繁中**；每一條執行前**再驗一次**，不成立的標 `stale`（`CONSOLIDATE_OP_STALE`，partial），其餘照做。**加關聯走 `applyProposal` → 進待查證（`pending`）**，墓碑照規則擋 | 合併在前，加關聯的端點才對得上；你勾的是「讓它提這一條」，不是「確認這一條」（規則 1） |
+| **C8** | 怎麼退 | 第一版：抽與加關聯用「復原這次作業」（ADR-0023，S24-5 照舊清 `extracted_at`）；合併用 `unmergeEntity`、改型別改回 `undo_json` 記的舊值，各自在實體面板上退；補繁中是衍生物 | 不另做逐條復原的畫面 |
+| **C9** | 「只有一條出處的關聯」放哪 | 殼的確認畫面、清單底下一個收合的區塊；即時算、不存 | D13：它是給人看的清單，不是操作 |
+| **C10** | 給各操作的接口 | `application/consolidate-ops/<kind>.ts` 各匯出 `{ kind, schema, validate, execute, undoInfo }`，登記在一張表。**#4 只實作 `extract`**（接到既有的抽進圖）；其餘由 #5～#8 各加一個檔。新錯誤碼 `CONSOLIDATE_OP_STALE`（partial）、`CONSOLIDATE_PLAN_INVALID`（模型交的清單 schema 不過）實作時照三邊守門加 | 組員可以並行，不用改殼 |

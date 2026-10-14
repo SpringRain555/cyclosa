@@ -358,6 +358,14 @@ stateDiagram-v2
 `decision=NULL` 是使用預設，不是未決；閘門三檢查的是 `effectiveDecision`。
 沒正文不得選進圖；有正文的 `reference` 是保留資料不抽，不另建書目節點。
 
+### 整理的殼（`kind='consolidate'`，Stage 24，⬜ 還沒實作）
+
+ADR-0033 C3：同一張 `research` 表，只走其中四格 —— **規劃中**（模型交操作清單；那一輪失敗可以再按）→
+**確認中**（你逐條勾）→ **建圖中**（執行勾的那幾條，一筆 `run.kind='consolidate'`）→ **已完成**；
+任何沒結束的都可以放棄。**不經過蒐集中與等你。** 跟研究互斥照 D4（`open_key`）；
+跟不開殼的「抽進圖」作業兩邊互查（S24-2）。每一條操作自己的狀態在 `consolidate_op.state`
+（`proposed` → `done`／`failed`／`stale`／`skipped`），一條失敗不影響其餘。
+
 ### 一個候選的取得狀態（`research_candidate.acquisition`，v10）
 
 **這一條線跟研究的狀態是兩件事**：它說的是「這一份拿到了沒有」，

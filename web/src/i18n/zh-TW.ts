@@ -181,6 +181,9 @@ export const errorMessages: Readonly<Record<string, string>> = {
   NOTE_TARGET_MISSING: '這則註記指向的資料已經不在了。註記本身仍然保存在 notes 資料夾裡。',
   NOTE_MD_WRITE_FAILED: '註記已經存進資料庫，但那份純文字副本寫不出去。檢查資料夾的權限。',
   NOTE_UNEXPECTED: '註記操作出了預期外的問題。請把下面的識別碼交出來。',
+  NOTE_FILE_TOO_LARGE: '筆記檔超過 1 MB，請縮小檔案後再附上。',
+  NOTE_FILE_UNSUPPORTED: '請選擇以 UTF-8 編碼儲存的 .md 筆記檔。',
+  NOTE_FILE_READ_ONLY: '筆記附件是唯讀的。請修改原檔後重新附上，再刪除舊的一則。',
 
   // ── 檢索 ──────────────────────────────────────────────
   SEARCH_QUERY_EMPTY: '請輸入要找的內容。',
@@ -489,6 +492,14 @@ export const t = {
 
   /** 筆記與點註。 */
   notes: {
+    attach: '附上筆記檔…',
+    attaching: '正在附上…',
+    attached: '筆記檔已附上。',
+    attachHint:
+      '選擇 UTF-8 的 .md（上限 1 MB），成為這份資料的筆記附件。重新附上會新增一則，舊的可自行刪除。',
+    fileLabel: '筆記檔：{name}',
+    unknownFile: '原檔名未留存',
+    wholeDocument: '整份資料的筆記附件（唯讀）',
     panelTitle: '這一份上的點註',
     empty: '這一份還沒有點註。在正文裡選一段文字，或在圖片上框一塊。',
     emptyImage: '在圖片上按住拖曳，框出要註記的那一塊。',
@@ -786,7 +797,8 @@ export const t = {
     urlsLabel: '貼上網址（一行一個）',
     urlsPlaceholder: 'https://example.com/一篇文章',
     submitUrls: '開始匯入',
-    dropHint: '或把檔案拖到這裡（網頁存檔、Markdown、純文字、PDF、圖片）',
+    dropHint:
+      '或把檔案拖到這裡（網頁存檔、Markdown、純文字、PDF、圖片）。這裡匯入的 .md 會成為資料節點；要附為筆記，請在閱讀器或關聯圖選取資料後按「附上筆記檔」。',
     picking: '選檔案（可多選）',
     uploading: '上傳中…',
     cancel: '取消這次作業',

@@ -881,6 +881,7 @@ export type AnchorHit =
   | { readonly kind: 'not-found' };
 
 export interface ResolvedNote {
+  readonly fileName?: string | null;
   readonly note: NoteRow;
   readonly hit: AnchorHit;
   readonly quote: string;
@@ -1320,6 +1321,20 @@ export const api = {
 
   // ── 筆記與點註 ──────────────────────────────────────────
 
+  /** 上傳筆記檔，附在整份資料上。 */
+  attachNoteFile: (slug: string, itemId: string, file: File): Promise<ApiResult<CreatedNote>> => {
+    // 避免瀏覽器仍在送大檔時連線已被伺服器拒絕，掩蓋真正的大小錯誤。
+    if (file.size > 1024 * 1024)
+      return Promise.resolve({ ok: false, error: toError({ code: 'NOTE_FILE_TOO_LARGE' }) });
+    return request<CreatedNote>(`/api/cases/${enc(slug)}/items/${enc(itemId)}/note-files`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+      body: file,
+    });
+  },
   /** **只送位置，不送引文** —— 引文由後端從 `derived/` 切（note-service）。 */
   createNote: (
     slug: string,

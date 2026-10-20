@@ -40,7 +40,7 @@ interface Origin {
   readonly checked: string;
 }
 
-/** 日期指 HF API 查證；明確的待查標記代表任務單提供資料、尚待 Claude 核對。 */
+/** 2026-09-29 查證（`docs/research/sources/manifest.jsonl` 當日的 HF API 各列）；gpt-oss 另於 2026-10-20 由 Claude 查證 HF API。 */
 const ALLOWED: readonly Origin[] = [
   {
     family: 'granite',
@@ -120,7 +120,7 @@ const ALLOWED: readonly Origin[] = [
     country: '美國',
     base: 'gpt-oss（OpenAI 自己的，沒有外部底座）',
     license: 'Apache-2.0',
-    checked: '待 Claude 核對 HF 頁',
+    checked: '2026-10-20',
   },
 ];
 
@@ -166,9 +166,7 @@ describe('建議值只從非中國來源的模型挑（ADR-0035）', () => {
       expect(
         o.publisher.length * o.country.length * o.base.length * o.license.length,
       ).toBeGreaterThan(0);
-      expect(o.checked === '待 Claude 核對 HF 頁' || /^\d{4}-\d{2}-\d{2}$/.test(o.checked)).toBe(
-        true,
-      );
+      expect(o.checked).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
   });
 });

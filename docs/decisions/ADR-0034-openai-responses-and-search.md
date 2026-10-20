@@ -118,4 +118,4 @@ gpt-oss 可能在 Chat Completions 的 `message.reasoning` 欄位，或 Response
 
 抽取品質與耗時不以一次 endpoint check 判定。`tools/dev/measure-extract.ts` 以三份指定資料逐份呼叫 `callExtract`，比較 OpenAI 相容 gpt-oss-120b 與 Ollama gemma4:12b 的 schema 有效性、關聯數、引文命中數與時間；結果只供觀察，不設門檻，報告不含正文或端點 URL。量測判準與空表先提交於 `docs/research/gpt-oss-extract-measurement.md`。
 
-gpt-oss 的 OpenAI／Apache-2.0 與底座資料目前依任務單提供的資訊列為候選，`tests/guards/model-origin.test.ts` 明確標示「待 Claude 核對 HF 頁」；核對前不把它說成已完成來源查證。
+2026-10-20 由 Claude 查證 Hugging Face API：`openai/gpt-oss-120b` 的 author 為 `openai`、license 為 `apache-2.0`，沒有 `base_model` 欄位。查證日已回寫 `tests/guards/model-origin.test.ts`；來源表每列仍要求日期，不接受待查標記。

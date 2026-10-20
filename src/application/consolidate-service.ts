@@ -21,6 +21,7 @@ import {
   nextRunStatus,
   settleWork,
   workOutcome,
+  type RunStatus,
   type WorkOutcome,
 } from '../domain/ingest/state.js';
 import { chargeTask, type TaskCosts } from '../domain/provider/index.js';
@@ -40,7 +41,7 @@ import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { callExtract, checkExtract } from './extraction-call.js';
 import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
-import { applyExtraction } from './extraction-service.js';
+import { executeExtractOperation } from './consolidate-ops/extract.js';
 import { recordModelCall } from './model-call-log.js';
 import {
   bodyAvailable,
@@ -81,7 +82,10 @@ export function activeConsolidateRun(db: DatabaseSync): string | null {
   );
 }
 
-async function unextracted(db: DatabaseSync, folder: string): Promise<UnextractedItem[]> {
+export async function listUnextractedItems(
+  db: DatabaseSync,
+  folder: string,
+): Promise<UnextractedItem[]> {
   const out: UnextractedItem[] = [];
   for (const { item, machineEvidence } of items.listExtractionCandidates(db)) {
     const derived = await readDerived(folder, item.id);
@@ -121,7 +125,7 @@ export async function listUnextracted(
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
-    const list = await unextracted(db, join(casesDir(dataRoot), slug));
+    const list = await listUnextractedItems(db, join(casesDir(dataRoot), slug));
     return ok(
       {
         items: list,
@@ -164,7 +168,9 @@ export async function startConsolidate(
     const blocked = gate(db, cid);
     if (blocked !== null) return blocked;
 
-    const listed = new Map((await unextracted(db, folder)).map((entry) => [entry.id, entry]));
+    const listed = new Map(
+      (await listUnextractedItems(db, folder)).map((entry) => [entry.id, entry]),
+    );
     const chosen = wanted.flatMap((id) => {
       const entry = listed.get(id);
       return entry === undefined ? [] : [entry];
@@ -210,16 +216,52 @@ export async function startConsolidate(
           itemId: entry.itemId,
         });
     });
-    const state = registry.register(runId);
-    void processConsolidate(dataRoot, slug, providers, checked.data.chat, state, plan).catch(
-      (error: unknown) => {
-        logger.error('抽進圖作業意外中止', { runId, reason: String(error) });
-      },
-    );
+    launchConsolidateWorker({ dataRoot, slug, providers, chat: checked.data.chat, runId, plan });
     return ok({ runId }, cid);
   } finally {
     db.close();
   }
+}
+
+export interface ConsolidateWorkerPlanEntry {
+  readonly runItemId: string;
+  readonly itemId: string;
+  readonly title: string;
+  readonly opId?: string;
+}
+
+export interface ConsolidateWorkerHooks {
+  readonly onItemSettled?: (
+    db: DatabaseSync,
+    entry: ConsolidateWorkerPlanEntry,
+    code: ErrorCode | null,
+    outcome: WorkOutcome,
+  ) => void;
+  readonly onRunSettled?: (db: DatabaseSync, status: RunStatus) => void;
+}
+
+/** 啟動共用抽取 worker；整理殼和原本「抽進圖」都走同一支 callExtract/applyExtraction。 */
+export function launchConsolidateWorker(input: {
+  readonly dataRoot: string;
+  readonly slug: string;
+  readonly providers: Providers;
+  readonly chat: ChatProvider;
+  readonly runId: string;
+  readonly plan: readonly ConsolidateWorkerPlanEntry[];
+  readonly hooks?: ConsolidateWorkerHooks;
+}): void {
+  const state = registry.register(input.runId);
+  void processConsolidate(
+    input.dataRoot,
+    input.slug,
+    input.providers,
+    input.chat,
+    state,
+    input.plan,
+    input.hooks,
+  ).catch((error: unknown) => {
+    logger.error('抽進圖作業意外中止', { runId: input.runId, reason: String(error) });
+  });
 }
 
 /** D4 的兩個方向在這一邊的那一半：研究沒結束、或已經有一筆在跑。 */
@@ -247,7 +289,8 @@ async function processConsolidate(
   providers: Providers,
   chat: ChatProvider,
   state: registry.ActiveRun,
-  plan: readonly { readonly runItemId: string; readonly itemId: string; readonly title: string }[],
+  plan: readonly ConsolidateWorkerPlanEntry[],
+  hooks?: ConsolidateWorkerHooks,
 ): Promise<void> {
   let db: DatabaseSync | null = null;
   const outcomes: WorkOutcome[] = [];
@@ -276,15 +319,21 @@ async function processConsolidate(
       let newEdges = 0;
       const derived = await readDerived(folder, entry.itemId);
       if (state.cancelled) break;
-      // 勾的時候還在，跑到這一份之前可能已經被排除或復原掉了 —— 那一份照實記，不中斷整批。
-      const item = items.getItem(db, entry.itemId);
-      if (
-        item === null ||
-        item.status === 'excluded' ||
-        derived === null ||
-        !bodyAvailable(derived)
-      )
-        code = 'PARSE_EMPTY_CONTENT';
+      // 規劃之後資料可能被抽過、排除或復原；執行前重查「還沒抽過」事實。
+      const candidate = items
+        .listExtractionCandidates(db)
+        .find(({ item }) => item.id === entry.itemId);
+      const eligible =
+        candidate !== undefined &&
+        derived !== null &&
+        isUnextracted({
+          kind: candidate.item.kind,
+          status: candidate.item.status,
+          extractedAt: candidate.item.extractedAt,
+          machineEvidence: candidate.machineEvidence,
+          hasBody: bodyAvailable(derived),
+        });
+      if (!eligible) code = 'CONSOLIDATE_OP_STALE';
       else {
         const called = await callExtract(chat, derived, abort);
         taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);
@@ -318,13 +367,13 @@ async function processConsolidate(
         if (called.kind === 'error') code = called.code;
         else {
           try {
-            const applied = applyExtraction(
+            const applied = executeExtractOperation({
               db,
-              entry.itemId,
-              state.runId,
-              derived.text,
-              called.extraction,
-              (result) => {
+              itemId: entry.itemId,
+              runId: state.runId,
+              text: derived.text,
+              extraction: called.extraction,
+              completed: (result) => {
                 items.setItemExtracted(activeDb, {
                   id: entry.itemId,
                   extractedBy: chat.name,
@@ -339,7 +388,7 @@ async function processConsolidate(
                 });
                 runs.setRunItemEdges(activeDb, entry.runItemId, result.newEdges);
               },
-            );
+            });
             newEdges = applied.newEdges;
             code = applied.code;
           } catch (error) {
@@ -355,6 +404,7 @@ async function processConsolidate(
         produced: newEdges > 0,
       });
       outcomes.push(outcome);
+      hooks?.onItemSettled?.(db, entry, code, outcome);
       runs.updateRunItem(db, {
         id: entry.runItemId,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
@@ -390,6 +440,7 @@ async function processConsolidate(
       endedReason: state.cancelReason,
       now: Date.now(),
     });
+    hooks?.onRunSettled?.(db, status);
     registry.unregister(state.runId);
     state.channel.emit({ type: 'settled', status, succeeded, failed });
   } catch (error) {
@@ -403,6 +454,7 @@ async function processConsolidate(
         errorCode: 'CONSOLIDATE_UNEXPECTED',
         now: Date.now(),
       });
+      hooks?.onRunSettled?.(db, 'failed');
     }
     registry.unregister(state.runId);
     state.channel.emit({

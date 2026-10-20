@@ -3,11 +3,12 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v13`，已實作。**
+> **現況：`schema v14`，已實作（Stage 24 issue #4，尚未發行）。**
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
 > `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`、
 > `007-vector-scan-index.sql`、`008-run-ended-reason.sql`、`009-research.sql`、
-> `010-research-collect.sql`、`011-research-digest.sql`、`012-research-build.sql`、`013-retire-expansion.sql`），
+> `010-research-collect.sql`、`011-research-digest.sql`、`012-research-build.sql`、`013-retire-expansion.sql`、
+> `014-consolidate-ops.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07）**：11 張表、18 個索引、3 條 trigger。
@@ -72,6 +73,7 @@ erDiagram
   EDGE ||--o{ EDGE_AUDIT : "每次狀態轉換一列"
   ITEM ||--o{ EDGE_EVIDENCE : "引文出自"
   ITEM ||--o{ NOTE : "點註錨定於（釘在不可變的 snapshot）"
+  RESEARCH ||--o{ CONSOLIDATE_OP : "整理殼的操作清單"
   RUN ||--o{ EDGE : "由哪一次作業新增"
   RUN ||--o{ ITEM : "由哪一次作業帶入"
   RUN ||--|{ RUN_ITEM : "一個輸入一列"
@@ -83,6 +85,7 @@ erDiagram
   EDGE { text layer "derived|named|comention|similarity" text rel text origin "machine|human" real confidence text status }
   EDGE_EVIDENCE { text quote int char_start int char_end }
   EDGE_AUDIT { text from_status text to_status text actor int at }
+  CONSOLIDATE_OP { text kind text state int checked text code text undo_json int executed_at }
 ```
 
 ## 為什麼是「雙層」而不是把實體畫在線上
@@ -132,6 +135,7 @@ erDiagram
 | **`research`** | **一次研究或整理**（v9）| **同一專題同時只有一列沒結束** —— 見下面 |
 | **`research_message`** | **規劃對話的一輪**（v9）| **失敗的那一輪也留著**（`code` 有值）|
 | **`research_direction`** | **閘門一那一刻落成的方向**（v9）| **沒被採用的也留著**（`adopted = 0`）|
+| **`consolidate_op`** | **整理殼的一條模型提案**（v14）| **每一條獨立記勾選、執行狀態與復原資訊**；`research` 刪除時連帶刪除，`run` 刪除時只清外鍵 |
 | `vector` | 向量 | **必記 `model` ＋ `dim`** —— 見下面 |
 | `bigram` | 中文檢索索引 | 應用層自建，見下面 |
 
@@ -645,8 +649,8 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 ## 實作分期與尚待實作的整理（Stage 19–24）
 
 > Stage 19–22 的欄位與流程在 v0.25.0 出貨，權威欄位定義在上面正文。
-> 下表是分期摘要。整理只出了第一片「抽進圖」（v0.26.0：一筆 `run.kind='consolidate'`，**不開 `research` 的殼**，ADR-0033 S24-1）；
-> 筆記檔（Stage 23）與整理的其餘部分仍待實作，不能把保留的 kind 或欄位視為入口已存在。
+> 下表是分期摘要。整理先出了第一片「抽進圖」（v0.26.0：一筆 `run.kind='consolidate'`，ADR-0033 S24-1）；Stage 24 issue #4 已加入使用 `research.kind='consolidate'` 的規劃殼與提案清單（v14，尚未發行）。
+> Stage 23 筆記檔已實作、尚未發行；Stage 24 #5–#9 的其他操作與單一出處關聯清單仍待實作。
 
 | 表 | 存什麼 | 關鍵約束 |
 |---|---|---|
@@ -654,10 +658,13 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | `research_message` | 規劃對話的一輪 | `role` ∈ `user`／`model`；模型那一輪記**實際跑的模型**、走哪一個服務、花了多少（`NULL` ＝ 不知道，不是 0）、交出的那一份規劃 |
 | `research_direction` | 閘門一那一刻落成的方向 | `origin` ∈ `model`／`human`；**沒被採用的也留著**（`adopted=0`）—— 跟 `run_angle` 同一個理由 |
 | `research_candidate` | 一條候選來源 | ✅ v10 取得狀態、v11 初讀、v12 最終選擇與建圖進度均已建，見上面正文 |
+| `consolidate_op` | 整理殼的一條模型提案 | `research_id` CASCADE；`run_id` SET NULL；`kind`／`state` 有 CHECK；`UNIQUE(research_id, ord)` |
 
 **`research` 的欄位**：`id`、`kind`、`status`、`topic`（整理是 `NULL`）、`plan_json`（最新的一份規劃；閘門一之前會一直換）、
 `collect_run_id`、`build_run_id`（→ `run.id`；**機器工作仍然是 `run`**，研究只記工作流停在哪 —— ADR-0033 D3）、
 `created_at`／`updated_at`／`ended_at`。**花費不存** —— 從那一次的對話（含缺口評估計費紀錄）與所有相關作業加總，跟獨立來源數同一個理由（即時算，不存）。
+
+**`consolidate_op`（v14）**：`id`、`research_id`、`ord`、`kind`、`payload_json`、`why`、`checked`（預設 0）、`state`（`proposed`／`done`／`failed`／`stale`／`skipped`）、`code`、`run_id`、`undo_json`、`executed_at`。操作清單逐條保存；研究殼刪除時 CASCADE，作業刪除時 `run_id` 改為 `NULL`。
 
 **`research_candidate` 的兩個狀態**：
 
@@ -693,7 +700,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 | ✅ 22 | **✅ v12** | 欄位、通知表與 repository 已完成，見上面正文；Stage 22 流程 v0.25.0 出貨 |
 | ✅ 22 | ✅ v13 前置步驟 | 已完成，清理規則、通知與冪等見正文；v0.25.0 出貨 |
 | ✅ 22 | ✅ v13 | 已完成，`run` 重建與 `run_angle` 移除見正文 |
-| ⬜ 24 | ⬜ v14 | `consolidate_op`（整理的操作清單，一條一列；欄位與值域見 ADR-0033 C1）。殼沿用 `research`（`kind='consolidate'`），**`research` 不用改**；D4 照舊由 `open_key` 守（C4）|
+| ✅ 24 | ✅ v14 | `consolidate_op`（整理操作清單）；殼沿用 `research`（`kind='consolidate'`），**`research` 不用改**；D4 由 `open_key` 加兩邊互查守（C4）。Stage 24 issue #4 已實作，尚未發行 |
 
 **為什麼 Stage 22 是兩個 migration 夾一段程式**（2026-09-29 定，原本寫「v12 一份、`run` 要不要重建再定」）：
 重建資料表必須**外鍵關著**跑（「重建資料表」那一節：外鍵開著的 `DROP TABLE` 會先隱含一次 `DELETE`），

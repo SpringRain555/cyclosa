@@ -300,6 +300,8 @@ export const ERROR_CODES = {
   CONSOLIDATE_RUNNING: 'error',
   /** 一份都沒勾，或勾的有不在「還沒抽過」清單上的（別的分頁剛抽過、剛排除）。多半是畫面舊了。 */
   CONSOLIDATE_SELECTION_INVALID: 'error',
+  CONSOLIDATE_OP_STALE: 'partial',
+  CONSOLIDATE_PLAN_INVALID: 'error',
   CONSOLIDATE_UNEXPECTED: 'error',
 
   // ── GRAPH_* 圖與裁決 ─────────────────────────────────────

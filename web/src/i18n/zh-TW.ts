@@ -149,6 +149,10 @@ export const errorMessages: Readonly<Record<string, string>> = {
   CONSOLIDATE_RUNNING: '有一筆「抽進圖」的作業還在跑。等它跑完，或到「歷次紀錄」取消它，再試一次。',
   CONSOLIDATE_SELECTION_INVALID:
     '勾的資料裡有已經抽過、已經排除或不在清單上的（也可能一份都沒勾）。重新整理這一頁再勾一次。',
+  CONSOLIDATE_OP_STALE:
+    '這條抽取提案已經不符合現在的資料狀態，沒有執行。重新整理整理清單，再決定要不要重新規劃。',
+  CONSOLIDATE_PLAN_INVALID:
+    '模型交回的整理清單不符合規格，這一輪沒有採用。可以重試規劃，或把下面的識別碼交出來。',
   CONSOLIDATE_UNEXPECTED: '抽進圖時出了預期外的問題。請把下面的識別碼交出來。',
   GRAPH_EVIDENCE_REQUIRED:
     '這條關聯沒有任何引文，不能標成已確認。請先補一筆出處，或改成自己手動建立一條。',
@@ -849,6 +853,54 @@ export const t = {
     showOnGraph: '在關聯圖上看這一次抽出來的',
   },
 
+  consolidateShell: {
+    title: '整理專題',
+    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版只會執行抽取，其餘操作先列出但不能勾選。',
+    service: '規劃走 {service}，會使用模型額度。',
+    serviceFree: '規劃走 {service}。',
+    start: '開始整理規劃',
+    plan: '產生操作清單',
+    retry: '重試規劃',
+    planning: '正在整理規劃…',
+    statusPlanning: '規劃中',
+    statusReviewing: '確認中',
+    statusBuilding: '執行中',
+    statusDone: '已完成',
+    statusAbandoned: '已放棄',
+    coverage:
+      '模型看到：實體 {entitiesIncluded}/{entitiesAvailable} 個（相同名稱候選 {mergeCandidatesIncluded}/{mergeCandidatesAvailable} 對）、單一出處關聯 {singleEvidenceEdgesIncluded}/{singleEvidenceEdgesAvailable} 條、未抽資料 {unextractedItems} 份、筆記 {notesIncluded}/{notesAvailable} 則（截短 {notesTruncated} 則，共 {noteCharsIncluded} 字）。',
+    dropped: '有 {n} 條提案因驗證未通過而略過：',
+    dropReasons: {
+      'merge-id-missing': '合併提案指向不存在或已合併的實體',
+      'merge-same-id': '不能把實體和自己合併',
+      'extract-item-not-unextracted': '資料已抽過或沒有可抽取正文',
+      'extract-duplicate': '同一份資料被重複提出',
+      'edge-id-missing': '關聯端點或引用來源不存在',
+      'edge-quote-not-found': '引文無法在正文定位',
+      'retype-entity-missing': '改型別提案指向不存在的實體',
+      'digest-item-missing': '補繁中提案指向不存在的資料',
+    },
+    operations: '操作建議',
+    kindLabels: {
+      merge: '合併實體',
+      extract: '抽取資料',
+      'add-edge': '補關聯',
+      retype: '改實體型別',
+      digest: '補繁中',
+    },
+    unsupported: '這一版還不能執行',
+    why: '理由：{why}',
+    select: '勾選後才會執行',
+    noOperations: '沒有可確認的操作。可以放棄這次整理，或重試規劃。',
+    execute: '執行已勾選的抽取（{n}）',
+    executing: '開始作業…',
+    abandon: '放棄整理',
+    emptyShell: '還沒有整理規劃。',
+    noExtracts: '沒有勾選可執行的抽取操作。',
+    singleEvidenceTitle: '只有一條出處的關聯',
+    singleEvidenceTodo:
+      'TODO：保留即時清單接口；#9 會補上清單內容。這些關聯目前只供檢視，不會作為操作執行。',
+  },
   runControl: {
     pause: '暫停',
     resume: '繼續',

@@ -15,6 +15,7 @@ import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import ResearchPanel from '../components/ResearchPanel.vue';
 import ConsolidatePanel from '../components/ConsolidatePanel.vue';
+import ConsolidateShellPanel from '../components/ConsolidateShellPanel.vue';
 import CaseNotices from '../components/CaseNotices.vue';
 
 const route = useRoute();
@@ -41,9 +42,11 @@ const throttleNow = ref<{ host: string; ms: number } | null>(null);
  * 研究開了或結束（能不能抽）—— 這幾個時刻都叫它重新讀一次。
  */
 const consolidatePanel = ref<InstanceType<typeof ConsolidatePanel> | null>(null);
+const consolidateShellPanel = ref<InstanceType<typeof ConsolidateShellPanel> | null>(null);
 
 function refreshConsolidate(): void {
   void consolidatePanel.value?.reload();
+  void consolidateShellPanel.value?.reload();
 }
 
 async function onConsolidateStarted(id: string): Promise<void> {
@@ -385,6 +388,13 @@ async function rebuild(): Promise<void> {
         @runs-changed="onResearchRunsChanged"
       />
 
+      <ConsolidateShellPanel
+        ref="consolidateShellPanel"
+        :slug="slug"
+        @error="error = $event"
+        @started="onConsolidateStarted"
+        @runs-changed="onResearchRunsChanged"
+      />
       <div class="top">
         <section class="card import" :class="{ dragging }">
           <h2>{{ t.runs.newImport }}</h2>

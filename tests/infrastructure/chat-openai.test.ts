@@ -24,9 +24,18 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  DIGEST_SCHEMA,
+  DIGEST_SYSTEM,
+  PLAN_SCHEMA,
+  PLAN_SYSTEM,
+} from '../../src/application/research-prompts.js';
+import { callExtract } from '../../src/application/extraction-call.js';
+import { createChatAgent } from '../../src/infrastructure/providers/agent-chat.js';
+import {
   createOpenAiChat,
   listOpenAiModels,
 } from '../../src/infrastructure/providers/chat-openai.js';
+import type { ChatProvider } from '../../src/infrastructure/providers/types.js';
 import { checksFilePath, readJsonChecks } from '../../src/infrastructure/providers/json-checks.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -44,6 +53,8 @@ interface Behaviour {
   /** 任務本身（非量測）的那一次回什麼內容 */
   answer: string;
   finish: string;
+  /** Recorded fixture: reasoning is present, but must never substitute for content. */
+  reasoning: string | null;
   /** 錯誤內文要不要把請求標頭回顯出來 —— 有的伺服器真的會 */
   echoHeaders: boolean;
   /** 前幾次 chat 請求先回 429（帶 `Retry-After: 0`），之後照常 —— 演「排隊一下就好」 */
@@ -61,7 +72,12 @@ function sse(events: readonly Record<string, unknown>[]): string {
   return events.map((e) => `event: ${String(e['type'])}\ndata: ${JSON.stringify(e)}\n\n`).join('');
 }
 /** Responses API 的串流：一個 message 項目 ＋ 收尾事件。**`response.completed` 的 output 刻意是空的**（使用者那一條代理就是這樣）。 */
-function responsesStream(text: string, end = 'response.completed', reason = ''): string {
+function responsesStream(
+  text: string,
+  end = 'response.completed',
+  reason = '',
+  reasoningOnly: string | null = null,
+): string {
   const message = {
     type: 'message',
     role: 'assistant',
@@ -74,12 +90,20 @@ function responsesStream(text: string, end = 'response.completed', reason = ''):
           type: end,
           response: { status: 'incomplete', incomplete_details: { reason }, output: [] },
         };
+  const reasoning = {
+    type: 'reasoning',
+    summary: reasoningOnly === null ? [] : [{ type: 'summary_text', text: reasoningOnly }],
+  };
   return sse([
     { type: 'response.created', response: { status: 'in_progress' } },
     { type: 'response.output_item.added', item: { type: 'reasoning' } },
-    { type: 'response.output_item.done', item: { type: 'reasoning', summary: [] } },
-    { type: 'response.output_text.delta', delta: text },
-    { type: 'response.output_item.done', item: message },
+    { type: 'response.output_item.done', item: reasoning },
+    ...(reasoningOnly === null
+      ? [
+          { type: 'response.output_text.delta', delta: text },
+          { type: 'response.output_item.done', item: message },
+        ]
+      : []),
     closing,
   ]);
 }
@@ -101,8 +125,15 @@ function bodyOf(req: IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
-function completion(content: string, finish = 'stop'): string {
-  return JSON.stringify({ choices: [{ message: { content }, finish_reason: finish }] });
+function completion(content: string, finish = 'stop', reasoning: string | null = null): string {
+  return JSON.stringify({
+    choices: [
+      {
+        message: reasoning === null ? { content } : { content, reasoning },
+        finish_reason: finish,
+      },
+    ],
+  });
 }
 
 beforeEach(async () => {
@@ -115,6 +146,7 @@ beforeEach(async () => {
     object: true,
     answer: JSON.stringify({ ok: true }),
     finish: 'stop',
+    reasoning: null,
     echoHeaders: false,
     rateLimitFirst: 0,
     responses: 'none',
@@ -167,7 +199,7 @@ beforeEach(async () => {
             return;
           }
           res.writeHead(200, { 'content-type': 'text/event-stream' });
-          res.end(responsesStream(text));
+          res.end(responsesStream(text, 'response.completed', '', behaviour.reasoning));
         };
         if (format?.type === 'json_schema') {
           if (behaviour.responses === 'rejected') {
@@ -219,13 +251,13 @@ beforeEach(async () => {
               ),
             );
           }
-          return send(200, completion(behaviour.answer, behaviour.finish));
+          return send(200, completion(behaviour.answer, behaviour.finish, behaviour.reasoning));
         }
 
         if (fmt?.type === 'json_object') {
           if (!behaviour.object) return send(400, '{"error":"no json mode"}');
           if (isObjectProbe) return send(200, completion(JSON.stringify({ ok: true })));
-          return send(200, completion(behaviour.answer, behaviour.finish));
+          return send(200, completion(behaviour.answer, behaviour.finish, behaviour.reasoning));
         }
         return send(200, completion('一般的回答'));
       }
@@ -252,6 +284,79 @@ const OK_SCHEMA = {
 
 function chat(model = 'm1') {
   return createOpenAiChat(base, model, KEY_ENV, env);
+}
+
+const REASONING_TASKS = [{ name: 'plan' }, { name: 'digest' }, { name: 'extract' }] as const;
+
+const REASONING_FIXTURES = {
+  plan: JSON.stringify({
+    reply: '推理欄位不是答案',
+    relation: '',
+    directions: [],
+    out_of_scope: [],
+  }),
+  digest: JSON.stringify({
+    relevance: 'yes',
+    why: '推理欄位不是答案',
+    title_zh: '標題',
+    summary_zh: '摘要',
+  }),
+  extract: JSON.stringify({ entities: [], relations: [] }),
+} as const;
+
+type ReasoningResult = { readonly kind: string; readonly code?: string; readonly detail?: string };
+
+async function runTask(
+  task: (typeof REASONING_TASKS)[number]['name'],
+  provider: ChatProvider,
+): Promise<ReasoningResult> {
+  if (task === 'plan') {
+    const result = await createChatAgent({
+      chat: provider,
+      systemPrompt: PLAN_SYSTEM,
+      schema: PLAN_SCHEMA,
+    }).run({ prompt: 'fixture', cwd: '', timeoutMs: 10_000 });
+    return result.kind === 'error'
+      ? { kind: result.kind, code: result.code, detail: result.detail }
+      : { kind: result.kind };
+  }
+  if (task === 'digest') {
+    const result = await provider.json({
+      system: DIGEST_SYSTEM,
+      user: 'fixture',
+      schema: DIGEST_SCHEMA,
+    });
+    return result.kind === 'error'
+      ? { kind: result.kind, code: result.code, detail: result.detail }
+      : { kind: result.kind };
+  }
+  const result = await callExtract(
+    provider,
+    { title: 'fixture', text: 'fixture' },
+    new AbortController(),
+  );
+  return result.kind === 'error' ? { kind: result.kind, code: result.code } : { kind: result.kind };
+}
+
+async function expectReasoningOnlyIgnored(
+  task: (typeof REASONING_TASKS)[number]['name'],
+  protocol: 'chat' | 'responses',
+): Promise<void> {
+  behaviour.responses = protocol === 'responses' ? 'enforced' : 'none';
+  const provider = chat();
+  const measured = await provider.checkJson!();
+  expect(measured.kind).toBe('ok');
+  expect((await provider.jsonMode()).protocol).toBe(protocol);
+  expect([...(await readJsonChecks(env)).values()][0]?.protocol).toBe(protocol);
+
+  // Handwritten recorded fixtures: a valid-looking JSON answer appears only in reasoning.
+  behaviour.answer = '';
+  behaviour.reasoning = REASONING_FIXTURES[task];
+  const result = await runTask(task, provider);
+  expect(result.kind).toBe('error');
+  expect(result.code).toBe('PROVIDER_OUTPUT_UNPARSEABLE');
+  expect(result.detail ?? '').not.toContain(REASONING_FIXTURES[task]);
+  expect(JSON.stringify(result)).not.toContain(REASONING_FIXTURES[task]);
 }
 
 const completions = (): number => seen.filter((s) => s.path === '/chat/completions').length;
@@ -299,6 +404,16 @@ describe('模型清單與探測', () => {
     await chat().probe();
     await chat().jsonMode();
     expect(completions()).toBe(0);
+  });
+
+  it('金鑰留空時可列模型並量 JSON 格式；紀錄仍保存 protocol', async () => {
+    const noKey = createOpenAiChat(base, 'm1', null, env);
+    expect(await listOpenAiModels(base, null, env)).toEqual(['m1', 'm2']);
+    const checked = await noKey.checkJson!();
+    expect(checked.kind).toBe('ok');
+    if (checked.kind === 'ok') expect(checked.value.protocol).toBe('chat');
+    expect(seen.every((request) => request.auth === undefined)).toBe(true);
+    expect([...(await readJsonChecks(env)).values()][0]?.protocol).toBe('chat');
   });
 });
 
@@ -463,6 +578,13 @@ describe('json()', () => {
     const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
     expect(r.cost.costUsd).toBeNull();
   });
+
+  it.each(REASONING_TASKS)(
+    '$name ignores Chat Completions reasoning when content is empty',
+    async ({ name }) => {
+      await expectReasoningOnlyIgnored(name, 'chat');
+    },
+  );
 });
 
 // ── 金鑰不外洩 ─────────────────────────────────────────────────
@@ -604,4 +726,11 @@ describe('先走 Responses API', () => {
     expect(r.kind === 'ok' && r.value.mode).toBe('schema');
     expect(responses()).toBe(2);
   });
+
+  it.each(REASONING_TASKS)(
+    '$name ignores reasoning output items with no message text',
+    async ({ name }) => {
+      await expectReasoningOnlyIgnored(name, 'responses');
+    },
+  );
 });

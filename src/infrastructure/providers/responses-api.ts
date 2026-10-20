@@ -66,6 +66,7 @@ function fromItems(items: readonly unknown[]): {
         if (typeof q === 'string' && q.length > 0 && !queries.includes(q)) queries.push(q);
       }
     } else if (item['type'] === 'message') {
+      // Reasoning output items may contain useful-looking text, but only message/output_text is an answer.
       const parts = Array.isArray(item['content']) ? (item['content'] as unknown[]) : [];
       const texts = parts
         .map(obj)

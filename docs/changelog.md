@@ -11,6 +11,8 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **OpenAI 相容端點接線 gpt-oss（issue #10）**：設定說明與 README 加入 vLLM 的 gpt-oss-120b 用法；抽取量測工具用唯讀衍生正文呼叫共用 `callExtract`，輸出 schema 有效性、關聯數、引文命中與秒數，不寫專題資料。模型來源列記錄 OpenAI／Apache-2.0（依任務單提供資訊，待 Claude 核對 Hugging Face 頁）；建議模型不變。Chat Completions 的 `message.reasoning` 與 Responses reasoning output item 不作為回答或診斷內容，空回答使用既有 `PROVIDER_OUTPUT_UNPARSEABLE`。
+
 - **Stage 24 issue #4 整理殼與操作清單（尚未發行）**：新增 v14 `consolidate_op`，以 `research.kind='consolidate'` 開規劃殼；使用 `plan` 任務且不給工具，依專題資料提出並驗證操作、顯示上下文範圍與被丟棄原因。操作按固定順序保存，第一版只可勾選並執行抽取，沿用既有抽進圖 worker 與作業復原。D4 與舊抽進圖卡片互查；其他四種操作及單一出處關聯清單留待後續 issue。新增 seed 狀態與 domain／application／e2e／guard 測試。
 
 - **修正 Claude Code 用量事件的判讀**：原本從 `rate_limit_event` 最上層讀欄位，且不看 `status`，讓每次呼叫都被記成撞到限制、重置時間顯示為 `?`。

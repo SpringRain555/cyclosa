@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { missingFor, TASK_FIND_SOURCES } from '../../src/domain/provider/index.js';
+import { PLAN_SCHEMA, PLAN_SYSTEM } from '../../src/application/research-prompts.js';
 import { createOpenAiAgent } from '../../src/infrastructure/providers/agent-openai.js';
 import {
   checksFilePath,
@@ -64,7 +65,9 @@ type Mode =
   /** 串流說沒完成 */
   | 'incomplete'
   /** 串流說失敗 */
-  | 'failed';
+  | 'failed'
+  /** 只有 reasoning 輸出項，沒有 message。 */
+  | 'reasoning-only';
 
 let server: Server;
 let base: string;
@@ -89,6 +92,17 @@ function sse(events: readonly Record<string, unknown>[]): string {
 }
 
 /** 一段串流：可選一筆搜尋、一則訊息、一個收尾。**`response.completed` 的 output 刻意是空的。** */
+function reasoningOnlyStream(text: string): string {
+  return sse([
+    { type: 'response.created', response: { status: 'in_progress' } },
+    {
+      type: 'response.output_item.done',
+      item: { type: 'reasoning', summary: [{ type: 'summary_text', text }] },
+    },
+    { type: 'response.completed', response: { status: 'completed', output: [] } },
+  ]);
+}
+
 function stream(opts: {
   search: boolean;
   text: string;
@@ -139,6 +153,12 @@ const GOOD = JSON.stringify({
   candidates: [{ url: 'https://www.o-ran.org/technical-groups/wg11', why: '官方頁' }],
 });
 const PROBE_GOOD = JSON.stringify({ url: 'https://nodejs.org/en/download' });
+const REASONING_ONLY_PLAN = JSON.stringify({
+  reply: '這段只在 reasoning，不是答案',
+  relation: '',
+  directions: [],
+  out_of_scope: [],
+});
 
 beforeEach(async () => {
   sandbox = await mkdtemp(join(tmpdir(), 'cyclosa-openai-agent-'));
@@ -198,6 +218,8 @@ beforeEach(async () => {
           return out(stream({ search: true, text: JSON.stringify({ nope: 1 }) }));
         case 'incomplete':
           return out(stream({ search: true, text: '', end: 'incomplete' }));
+        case 'reasoning-only':
+          return out(reasoningOnlyStream(REASONING_ONLY_PLAN));
         case 'failed':
           return out(stream({ search: true, text: '', end: 'failed' }));
         default:
@@ -230,6 +252,24 @@ const calls = (): number => seen.filter((s) => s.path === '/responses').length;
 const run = () => agent().run({ prompt: '主題', cwd: sandbox, timeoutMs: 10_000 });
 
 // ── 探測 ──────────────────────────────────────────────────────
+
+describe('推理欄位不得當作規劃答案', () => {
+  it('Responses API 只有 reasoning output item 時回既有的空答案錯誤', async () => {
+    mode = 'reasoning-only';
+    const planner = createOpenAiAgent({
+      baseUrl: base,
+      model: 'm1',
+      apiKeyEnv: KEY_ENV,
+      schema: PLAN_SCHEMA,
+      systemPrompt: PLAN_SYSTEM,
+      search: 'optional',
+      env,
+    });
+    const result = await planner.run({ prompt: 'fixture', cwd: sandbox, timeoutMs: 10_000 });
+    expect(result.kind === 'error' && result.code).toBe('PROVIDER_OUTPUT_UNPARSEABLE');
+    if (result.kind === 'error') expect(result.detail).not.toContain(REASONING_ONLY_PLAN);
+  });
+});
 
 describe('探測', () => {
   it('就緒；還沒量的時候 browse 放行（開始擴展之前會量）', async () => {

@@ -208,6 +208,8 @@ async function askChat(
       const choice = json.choices?.[0];
       return {
         kind: 'answer',
+        // Some compatible servers (including gpt-oss deployments) return a separate reasoning field.
+        // It is deliberately discarded: only message.content is eligible as task output.
         content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
         // 被截斷的空回應跟「模型壞了」下一步不同 —— 把對方自己說的理由帶出去。
         truncated:

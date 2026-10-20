@@ -141,7 +141,7 @@ export const RETYPE_OP_SCHEMA = {
 
 export const DIGEST_OP_SCHEMA = EXTRACT_OP_SCHEMA;
 
-/** 給 provider 的外層 schema；每個 payload 再由對應操作的完整 schema 嚴格驗一次。 */
+/** 給模型服務的外層結構規格；各操作的參數再由完整規格嚴格驗一次。 */
 export const CONSOLIDATE_PLAN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -172,7 +172,7 @@ export const CONSOLIDATE_OP_SCHEMAS: Readonly<Record<ConsolidateOpKind, OpSchema
   digest: DIGEST_OP_SCHEMA,
 };
 
-/** JSON 形狀不合或任一種操作的 payload 不合時，整份清單都不採用。 */
+/** JSON 形狀不合或任一種操作的參數不合時，整份清單都不採用。 */
 export function parseConsolidatePlan(raw: string): readonly ConsolidateOpDraft[] | null {
   let value: unknown;
   try {
@@ -225,7 +225,7 @@ export function consolidateQuoteKey(itemId: string, quote: string): string {
   return JSON.stringify([itemId, quote]);
 }
 
-/** 純資料驗證：資料庫與正文事實由 application 層整理成集合後傳入。 */
+/** 純資料驗證：資料庫與正文事實由應用層整理成集合後傳入。 */
 export function validateConsolidatePlan(
   drafts: readonly ConsolidateOpDraft[],
   facts: ConsolidateValidationFacts,
@@ -303,7 +303,7 @@ export function orderConsolidateOps<
   );
 }
 
-/** 只把還待執行、而今次重新驗證已不成立的操作標成 stale。 */
+/** 只把還待執行、而這次重新驗證已不成立的操作標成失效。 */
 export function isConsolidateOpStale(state: ConsolidateOpState, validNow: boolean): boolean {
   return state === 'proposed' && !validNow;
 }

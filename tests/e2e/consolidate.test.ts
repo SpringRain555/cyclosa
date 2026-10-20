@@ -23,6 +23,7 @@ import { activeCount, cancel, cancelAll } from '../../src/application/run-regist
 import { createSampleCase } from '../../src/application/sample-service.js';
 import { undoRun } from '../../src/application/undo-service.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
+import { removeDerived } from '../../src/infrastructure/fs/case-files.js';
 import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import * as consolidateOps from '../../src/infrastructure/db/repositories/consolidate-op-repo.js';
@@ -295,6 +296,47 @@ it('勾兩份抽進圖：一筆 consolidate 作業、走真抽取、標「抽過
   const after = await listed();
   for (const id of picked) expect(after).not.toContain(id);
 });
+
+it.each(['excluded', 'missing-body', 'already-extracted'] as const)(
+  '不開殼的抽進圖：執行前變成 %s，沿用 PARSE_EMPTY_CONTENT 並繼續結算',
+  async (change) => {
+    holdAt = 1;
+    const picked = (await listed()).slice(0, 2);
+    expect(picked).toHaveLength(2);
+    const changedId = picked[1]!;
+    const started = await startConsolidate(root, slug, picked);
+    if (!started.ok) throw new Error(started.code);
+    await expect.poll(() => held !== null, { timeout: 10_000 }).toBe(true);
+    // 第一份等待模型時改變第二份，確保它是在開始作業後才失去資格。
+    if (change === 'missing-body') {
+      await removeDerived(join(root, 'cases', slug), changedId);
+    } else {
+      await inDb((db) => {
+        if (change === 'excluded') items.setStatus(db, changedId, 'excluded', Date.now());
+        else items.setItemExtracted(db, { id: changedId, extractedBy: 'fixture', now: Date.now() });
+      });
+    }
+    held?.end(
+      JSON.stringify({ message: { content: JSON.stringify({ entities: [], relations: [] }) } }),
+    );
+    await idle();
+    expect(calls).toBe(1);
+    await inDb((db) => {
+      expect(runs.getRun(db, started.data.runId)).toMatchObject({
+        researchId: null,
+        status: 'partial',
+        succeeded: 1,
+        failed: 1,
+      });
+      expect(
+        runs.listRunItems(db, started.data.runId).find((entry) => entry.itemId === changedId),
+      ).toMatchObject({
+        outcome: 'failed',
+        code: 'PARSE_EMPTY_CONTENT',
+      });
+    });
+  },
+);
 
 it('勾的不在清單上（已經抽過、空的）就整批不收，不開作業', async () => {
   const empty = await startConsolidate(root, slug, []);

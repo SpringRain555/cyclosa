@@ -333,7 +333,8 @@ async function processConsolidate(
           machineEvidence: candidate.machineEvidence,
           hasBody: bodyAvailable(derived),
         });
-      if (!eligible) code = 'CONSOLIDATE_OP_STALE';
+      if (!eligible)
+        code = entry.opId === undefined ? 'PARSE_EMPTY_CONTENT' : 'CONSOLIDATE_OP_STALE';
       else {
         const called = await callExtract(chat, derived, abort);
         taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);

@@ -244,7 +244,7 @@ interface ContextResult {
     readonly verifiedQuoteKeys: ReadonlySet<string>;
   };
 }
-/** 專題裡名稱或別名相同的 live entity 配對；不做模糊比對。 */
+/** 專題裡名稱或別名相同且尚未合併的實體配對；不做模糊比對。 */
 function listMergeCandidates(
   rows: readonly entities.EntityRow[],
 ): readonly { keep: string; drop: string }[] {
@@ -273,12 +273,7 @@ function listMergeCandidates(
 }
 async function makeContext(db: DatabaseSync, folder: string): Promise<ContextResult> {
   const entityRows = entities.listEntities(db);
-  const mentionRows = db
-    .prepare(
-      "SELECT x.id, x.mentions FROM (SELECT entity_id AS id, COUNT(DISTINCT item_id) AS mentions FROM (SELECT e.source_id AS entity_id, e.target_id AS item_id FROM edge e WHERE e.source_kind = 'entity' AND e.target_kind = 'item' UNION ALL SELECT e.target_id AS entity_id, e.source_id AS item_id FROM edge e WHERE e.target_kind = 'entity' AND e.source_kind = 'item') GROUP BY entity_id) x ORDER BY x.mentions DESC, x.id",
-    )
-    .all() as Raw[];
-  const mentions = new Map(mentionRows.map((row) => [String(row['id']), Number(row['mentions'])]));
+  const mentions = ops.entityMentionCounts(db);
   const liveEntities = entityRows.filter((entity) => entity.mergedInto === null);
   const allMergeCandidates = listMergeCandidates(entityRows);
   const mergeCandidateIds = new Set(allMergeCandidates.flatMap((pair) => [pair.keep, pair.drop]));
@@ -294,48 +289,31 @@ async function makeContext(db: DatabaseSync, folder: string): Promise<ContextRes
   const mergeCandidates = allMergeCandidates.filter(
     (pair) => selectedEntityIds.has(pair.keep) && selectedEntityIds.has(pair.drop),
   );
-  const edgeRows = db
-    .prepare(
-      "SELECT e.id, e.source_id, e.source_kind, e.target_id, e.target_kind, e.rel, ev.item_id, ev.quote, si.title AS source_item_title, ti.title AS target_item_title, se.name_zh AS source_entity_name, te.name_zh AS target_entity_name FROM edge e JOIN edge_evidence ev ON ev.id = (SELECT e2.id FROM edge_evidence e2 WHERE e2.edge_id = e.id ORDER BY e2.id LIMIT 1) LEFT JOIN item si ON e.source_kind = 'item' AND si.id = e.source_id LEFT JOIN item ti ON e.target_kind = 'item' AND ti.id = e.target_id LEFT JOIN entity se ON e.source_kind = 'entity' AND se.id = e.source_id LEFT JOIN entity te ON e.target_kind = 'entity' AND te.id = e.target_id WHERE (SELECT COUNT(DISTINCT e2.item_id) FROM edge_evidence e2 WHERE e2.edge_id = e.id) = 1 ORDER BY e.created_at DESC, e.id LIMIT ?",
-    )
-    .all(MAX_SINGLE_EVIDENCE_EDGES) as Raw[];
-  const edgeCountRow = db
-    .prepare(
-      'SELECT COUNT(*) AS n FROM edge e WHERE (SELECT COUNT(DISTINCT e2.item_id) FROM edge_evidence e2 WHERE e2.edge_id = e.id) = 1',
-    )
-    .get() as Raw | undefined;
-  const selectedEdges = edgeRows.map((row) => ({
-    id: String(row['id']),
-    source: String(row['source_entity_name'] ?? row['source_item_title'] ?? row['source_id']),
-    target: String(row['target_entity_name'] ?? row['target_item_title'] ?? row['target_id']),
-    rel: String(row['rel']),
-    itemId: String(row['item_id']),
-    quote: String(row['quote']),
-  }));
+  const selectedEdges = ops.listSingleEvidenceEdges(db, MAX_SINGLE_EVIDENCE_EDGES);
+  const singleEvidenceEdgesAvailable = ops.countSingleEvidenceEdges(db);
   const unextracted = await listUnextractedItems(db, folder);
-  const noteRows = db.prepare('SELECT id, body FROM note ORDER BY created_at, id').all() as Raw[];
+  const noteRows = ops.listNoteBodies(db);
   const notes: { id: string; body: string }[] = [];
   let noteChars = 0;
   let notesTruncated = 0;
   for (const row of noteRows) {
-    const original = String(row['body'] ?? '');
+    const original = row.body;
     const remaining = Math.max(0, MAX_TOTAL_NOTE_CHARS - noteChars);
     const clipped = [...original].slice(0, Math.min(MAX_NOTE_CHARS, remaining)).join('');
     if ([...clipped].length < [...original].length) notesTruncated += 1;
     if (clipped.length === 0) continue;
-    notes.push({ id: String(row['id']), body: clipped });
+    notes.push({ id: row.id, body: clipped });
     noteChars += [...clipped].length;
   }
-  const allItemRows = db.prepare('SELECT id FROM item').all() as Raw[];
-  const itemIds = new Set(allItemRows.map((row) => String(row['id'])));
+  const itemIds = new Set(ops.listItemIds(db));
   const liveEntityIds = new Set(liveEntities.map((row) => row.id));
   const endpointIds = new Set([...itemIds, ...liveEntityIds]);
   const verifiedQuoteKeys = new Set<string>();
-  for (const edge of edgeRows) {
-    const itemId = String(edge['item_id']);
+  for (const edge of selectedEdges) {
+    const itemId = edge.itemId;
     const derived = await readDerived(folder, itemId);
-    if (derived !== null && locateQuote(derived.text, String(edge['quote'])).kind === 'found') {
-      verifiedQuoteKeys.add(consolidateQuoteKey(itemId, String(edge['quote'])));
+    if (derived !== null && locateQuote(derived.text, edge.quote).kind === 'found') {
+      verifiedQuoteKeys.add(consolidateQuoteKey(itemId, edge.quote));
     }
   }
   const coverage: Coverage = {
@@ -344,7 +322,7 @@ async function makeContext(db: DatabaseSync, folder: string): Promise<ContextRes
     mergeCandidatesIncluded: mergeCandidates.length,
     mergeCandidatesAvailable: allMergeCandidates.length,
     singleEvidenceEdgesIncluded: selectedEdges.length,
-    singleEvidenceEdgesAvailable: Number(edgeCountRow?.['n'] ?? 0),
+    singleEvidenceEdgesAvailable,
     unextractedItems: unextracted.length,
     notesIncluded: notes.length,
     notesAvailable: noteRows.length,

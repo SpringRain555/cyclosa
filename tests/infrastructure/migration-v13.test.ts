@@ -3,7 +3,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyMigration, openCaseDatabase } from '../../src/infrastructure/db/database.js';
+import {
+  applyMigration,
+  openCaseDatabase,
+  SUPPORTED_SCHEMA_VERSION,
+} from '../../src/infrastructure/db/database.js';
 import { cleanupExpansion } from '../../src/infrastructure/db/cleanup-expansion.js';
 import {
   insertEntity,
@@ -196,7 +200,9 @@ describe('v13 清除舊擴展', () => {
     const db = opened.db;
     let notice: unknown;
     try {
-      expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(db.prepare('PRAGMA user_version').get()).toEqual({
+        user_version: SUPPORTED_SCHEMA_VERSION,
+      });
       expect(db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
       expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
       expect(ids(db, 'run')).toEqual([
@@ -348,12 +354,14 @@ describe('v13 清除舊擴展', () => {
     },
   );
 
-  it('沒有舊擴展不產生通知；空白新專題也能升到 v13', async () => {
+  it('沒有舊擴展不產生通知；空白新專題也能升到目前支援版本', async () => {
     const opened = await openCaseDatabase(path, { create: true });
     expect(opened.kind).toBe('ok');
     if (opened.kind === 'ok') {
       expect(ids(opened.db, 'case_notice')).toEqual([]);
-      expect(opened.db.prepare('PRAGMA user_version').get()).toEqual({ user_version: 13 });
+      expect(opened.db.prepare('PRAGMA user_version').get()).toEqual({
+        user_version: SUPPORTED_SCHEMA_VERSION,
+      });
       opened.db.close();
     }
   });

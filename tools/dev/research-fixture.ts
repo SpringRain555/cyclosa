@@ -588,13 +588,6 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
     const runItemId = newId();
     const url = 'https://synthetic.example/consolidate/' + String(index + 1);
     const body = '這是一份合成整理測試正文。來源提供足夠的上下文，僅供畫面驗收使用。';
-    runs.insertRunItem(db, {
-      id: runItemId,
-      runId: importRunId,
-      requested: url,
-      host: 'synthetic.example',
-      itemId,
-    });
     items.insertPendingItem(db, {
       id: itemId,
       kind: 'text',
@@ -602,6 +595,13 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
       title,
       runId: importRunId,
       now,
+    });
+    runs.insertRunItem(db, {
+      id: runItemId,
+      runId: importRunId,
+      requested: url,
+      host: 'synthetic.example',
+      itemId,
     });
     const outcome = await ingestBytes(db, folder, {
       runItemId,
@@ -617,6 +617,13 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
     if (outcome.itemId === null) throw new Error('合成整理資料匯入失敗');
     itemIds.push(outcome.itemId);
   }
+  runs.settleRunRow(db, {
+    id: importRunId,
+    status: 'done',
+    succeeded: itemIds.length,
+    failed: 0,
+    now,
+  });
   const keepId = newId();
   const dropId = newId();
   entities.insertEntity(db, { id: keepId, type: 'concept', name: '合成實體甲', now });
@@ -675,7 +682,8 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
       coverage: {
         entitiesIncluded: 2,
         entitiesAvailable: 2,
-        mergeCandidates: 0,
+        mergeCandidatesIncluded: 0,
+        mergeCandidatesAvailable: 0,
         singleEvidenceEdgesIncluded: 0,
         singleEvidenceEdgesAvailable: 0,
         unextractedItems: 2,

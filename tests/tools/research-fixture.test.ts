@@ -9,6 +9,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { getConsolidateShell } from '../../src/application/consolidate-ops-service.js';
+import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import { createCase } from '../../src/application/case-service.js';
 import { getResearchView } from '../../src/application/research-service.js';
 import { forgetSwept } from '../../src/application/run-sweep.js';
@@ -38,7 +40,7 @@ afterEach(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
-async function seed(state: SeedState) {
+async function writeState(state: SeedState) {
   const created = await createCase(dataRoot, { name: `合成研究 ${state}` });
   if (!created.ok) throw new Error(created.code);
   const slug = created.data.slug;
@@ -46,22 +48,71 @@ async function seed(state: SeedState) {
   const opened = await openCaseDatabase(join(folder, 'case.sqlite'));
   if (opened.kind !== 'ok') throw new Error(opened.kind);
   try {
+    expect(opened.db.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 });
     const summary = await writeResearchState(opened.db, folder, state);
-    const view = await getResearchView(dataRoot, slug, summary.researchId);
-    if (!view.ok) throw new Error(view.code);
-    return { summary, view: view.data };
+    expect(opened.db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
+    return { summary, slug, runRows: runs.listRuns(opened.db, 50) };
   } finally {
     opened.db.close();
   }
 }
 
+async function seed(state: Exclude<SeedState, 'consolidate-reviewing'>) {
+  const { summary, slug } = await writeState(state);
+  const view = await getResearchView(dataRoot, slug, summary.researchId);
+  if (!view.ok) throw new Error(view.code);
+  return { summary, view: view.data };
+}
+
 describe('研究各狀態的合成資料，畫面讀得懂', () => {
   // 一個狀態一條：七種擠在同一條測試裡，在 CI 的 4 核 runner 上要 50～60 秒、撞到時間上限（2026-10-10）。
   // 拆開之後每條各自計時，失敗時也看得出是哪一種狀態。
-  it.each(SEED_STATES)('%s：寫得進去、讀回來就是那個狀態', async (state) => {
-    const { view } = await seed(state);
-    expect(view.status, state).toBe(state);
-    expect(view.topic.startsWith('合成'), state).toBe(true);
+  it.each(SEED_STATES.filter((state) => state !== 'consolidate-reviewing'))(
+    '%s：寫得進去、讀回來就是那個狀態',
+    async (state) => {
+      const { view } = await seed(state);
+      expect(view.status, state).toBe(state);
+      expect(view.topic.startsWith('合成'), state).toBe(true);
+    },
+  );
+
+  it('整理確認中：外鍵完整、兩份匯入完成，整理畫面讀得到六個未勾選提案', async () => {
+    const { summary, slug, runRows } = await writeState('consolidate-reviewing');
+    expect(summary).toMatchObject({
+      state: 'consolidate-reviewing',
+      candidates: 0,
+      items: 2,
+      edges: 0,
+    });
+    expect(runRows).toHaveLength(1);
+    expect(runRows[0]).toMatchObject({
+      kind: 'import',
+      status: 'done',
+      total: 2,
+      succeeded: 2,
+      failed: 0,
+    });
+    const view = await getConsolidateShell(dataRoot, slug);
+    if (!view.ok || view.data === null) throw new Error('合成整理殼讀取失敗');
+    expect(view.data).toMatchObject({
+      id: summary.researchId,
+      status: 'reviewing',
+      coverage: { unextractedItems: 2, mergeCandidatesIncluded: 0, mergeCandidatesAvailable: 0 },
+    });
+    expect(view.data.operations.map((operation) => operation.kind)).toEqual([
+      'merge',
+      'retype',
+      'extract',
+      'extract',
+      'add-edge',
+      'digest',
+    ]);
+    expect(
+      view.data.operations.every(
+        (operation) => !operation.checked && operation.state === 'proposed',
+      ),
+    ).toBe(true);
+    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(2);
   });
 
   it('規劃中：兩輪對話、四條方向（一條是人提的）、刻意不查的範圍', async () => {

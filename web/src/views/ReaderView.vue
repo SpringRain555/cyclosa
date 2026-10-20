@@ -239,11 +239,14 @@ const isImage = computed(() => detail.value?.item.kind === 'image');
 
 async function loadNotes(): Promise<void> {
   const id = itemId.value;
+  const caseSlug = slug.value;
+  notes.value = [];
   if (id === null) {
     notes.value = [];
     return;
   }
-  const result = await api.itemNotes(slug.value, id);
+  const result = await api.itemNotes(caseSlug, id);
+  if (caseSlug !== slug.value || id !== itemId.value) return;
   if (result.ok) notes.value = [...result.data];
 }
 
@@ -782,6 +785,8 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
 
     <NotesPanel
       v-if="detail"
+      :key="`${slug}/${detail.item.id}`"
+      :can-attach="detail.item.kind !== 'note'"
       :slug="slug"
       :item-id="detail.item.id"
       :notes="notes"

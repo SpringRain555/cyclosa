@@ -5,6 +5,8 @@
  * **業務規則不寫在這裡**（分層規則，由 tests/guards 守著）。
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import { registerNoteFileRoute } from './note-file-route.js';
+import { attachNoteFile } from '../../application/note-service.js';
 
 import { httpStatusOf } from '../../domain/errors/codes.js';
 import type { ItemStatus } from '../../domain/ingest/state.js';
@@ -362,6 +364,13 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
   registerIngestRoutes(app, ctx);
   registerResearchRoutes(app, ctx);
   registerItemRoutes(app, ctx);
+  registerNoteFileRoute(app, async (target, file) => {
+    if (ctx.dataRoot !== null)
+      return attachNoteFile(ctx.dataRoot, target.slug, target.itemId, file);
+    const resolved = await resolveDataRootOrExplain();
+    if (!resolved.ok) return resolved;
+    return attachNoteFile(resolved.data.dataRoot, target.slug, target.itemId, file);
+  });
   registerGraphRoutes(app, ctx);
   registerEdgeRoutes(app, ctx);
   registerSearchRoutes(app, ctx);

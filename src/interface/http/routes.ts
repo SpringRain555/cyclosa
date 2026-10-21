@@ -1,3 +1,4 @@
+import { entityTypeHistory, undoEntityType } from '../../application/entity-type-service.js';
 /**
  * Fastify 路由。
  *
@@ -1344,6 +1345,31 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     const hosts = Array.isArray(raw) ? raw.map((h) => String(h)) : null;
     return send(reply, await probeSources(ctx.dataRoot, hosts));
   });
+
+  app.get<{ Params: { slug: string; entityId: string } }>(
+    '/api/cases/:slug/entities/:entityId/type-history',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await entityTypeHistory(dataRoot, req.params.slug, req.params.entityId));
+    },
+  );
+  app.post<{ Params: { slug: string; entityId: string }; Body: { opId?: unknown } }>(
+    '/api/cases/:slug/entities/:entityId/undo-type',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await undoEntityType(
+          dataRoot,
+          req.params.slug,
+          req.params.entityId,
+          String(req.body?.opId ?? ''),
+        ),
+      );
+    },
+  );
 
   // ── 實體對齊───────────────────────────────
 

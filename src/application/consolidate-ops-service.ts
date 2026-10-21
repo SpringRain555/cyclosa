@@ -30,6 +30,7 @@ import { recordModelCall } from './model-call-log.js';
 import { openResearchCase, type ProvidersLoader } from './research-view.js';
 import * as runRegistry from './run-registry.js';
 import { operationOf } from './consolidate-ops/registry.js';
+import { entityTypeRevision } from './consolidate-ops/retype.js';
 
 const MAX_ENTITIES = 300;
 const MAX_SINGLE_EVIDENCE_EDGES = 100;
@@ -506,6 +507,7 @@ export async function setConsolidateOpChecked(
   const db = await openCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.kind !== 'consolidate')
@@ -515,9 +517,25 @@ export async function setConsolidateOpChecked(
       return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'reviewing' });
-    if (operation.kind !== 'extract' || operation.state !== 'proposed')
+    if (operationOf(operation.kind).execute === null || operation.state !== 'proposed')
       return err('RESEARCH_STEP_INVALID', cid, { kind: operation.kind });
-    if (checked) {
+    if (checked && operation.kind === 'retype') {
+      const payload = parseJson(operation.payloadJson, null) as {
+        entityId?: string;
+        to?: string;
+      } | null;
+      const entity = entities.getEntity(db, payload?.entityId ?? '');
+      if (entity === null || entity.mergedInto !== null || entity.type === payload?.to) {
+        ops.setState(db, {
+          id: opId,
+          state: 'stale',
+          code: 'CONSOLIDATE_OP_STALE',
+          executedAt: Date.now(),
+        });
+        return err('CONSOLIDATE_OP_STALE', cid, { opId });
+      }
+    }
+    if (checked && operation.kind === 'extract') {
       const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
       const id = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
       const available = new Set(
@@ -533,8 +551,20 @@ export async function setConsolidateOpChecked(
         return err('CONSOLIDATE_OP_STALE', cid, { opId });
       }
     }
-    if (!ops.setChecked(db, opId, checked)) return err('RESEARCH_STEP_INVALID', cid, { opId });
-    return ok(true, cid);
+    return withTransaction(db, () => {
+      if (!ops.setChecked(db, opId, checked)) return err('RESEARCH_STEP_INVALID', cid, { opId });
+      if (operation.kind === 'retype') {
+        const payload = parseJson(operation.payloadJson, {}) as { entityId?: string };
+        ops.setRetypeExpectation(
+          db,
+          opId,
+          checked
+            ? JSON.stringify({ expectedRevision: entityTypeRevision(db, payload.entityId ?? '') })
+            : null,
+        );
+      }
+      return ok(true, cid);
+    });
   } finally {
     db.close();
   }
@@ -550,15 +580,20 @@ export async function executeConsolidateShell(
   const db = await openCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.kind !== 'consolidate')
       return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'consolidate' });
     if (row.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'reviewing' });
-    const selected = ops
-      .listOps(db, researchId)
-      .filter((op) => op.checked && op.state === 'proposed' && op.kind === 'extract');
+    const selected = orderConsolidateOps(
+      ops
+        .listOps(db, researchId)
+        .filter(
+          (op) => op.checked && op.state === 'proposed' && operationOf(op.kind).execute !== null,
+        ),
+    );
     if (selected.length === 0) return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'empty' });
     const open = research.openResearch(db);
     if (open !== null && open.id !== researchId)
@@ -569,18 +604,60 @@ export async function executeConsolidateShell(
     if (activeRun !== undefined) return err('CONSOLIDATE_RUNNING', cid, { runId: activeRun });
 
     const providers = await load();
-    const checked = await checkExtract(providers, cid);
-    if (!checked.ok) return checked;
+    const checked = selected.some((op) => op.kind === 'extract')
+      ? await checkExtract(providers, cid)
+      : null;
+    if (checked !== null && !checked.ok) return checked;
+    // 模型檢查可能等待；回來時必須重查，避免兩個分頁各開一筆或執行已取消的選擇。
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
+    if (research.getResearch(db, researchId)?.status !== 'reviewing')
+      return err('RESEARCH_STEP_INVALID', cid, { researchId });
+    const runningNow = runs
+      .listRunningRunIdsOfKind(db, 'consolidate')
+      .find((id) => runRegistry.isActive(id));
+    if (runningNow !== undefined) return err('CONSOLIDATE_RUNNING', cid, { runId: runningNow });
+    const selectedNow = orderConsolidateOps(
+      ops
+        .listOps(db, researchId)
+        .filter(
+          (op) => op.checked && op.state === 'proposed' && operationOf(op.kind).execute !== null,
+        ),
+    );
+    if (JSON.stringify(selectedNow) !== JSON.stringify(selected))
+      return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'changed' });
     const runId = newId();
-    const plan = selected.flatMap((operation) => {
-      const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
-      const itemId = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
-      if (typeof itemId !== 'string') return [];
-      const item = items.getItem(db, itemId);
-      return item === null
-        ? []
-        : [{ runItemId: newId(), itemId, title: item.title, opId: operation.id }];
-    });
+    const plan = selected.flatMap<import('./consolidate-service.js').ConsolidateWorkerPlanEntry>(
+      (operation) => {
+        if (operation.kind === 'retype') {
+          const payload = parseJson(operation.payloadJson, null);
+          if (!operationOf('retype').validate(payload)) return [];
+          return [
+            {
+              runItemId: newId(),
+              itemId: '',
+              title: operationSummary('retype', payload, db),
+              opId: operation.id,
+              retypeExpected: String(
+                (
+                  parseJson(operation.undoJson ?? 'null', null) as {
+                    expectedRevision?: unknown;
+                  } | null
+                )?.expectedRevision ?? '',
+              ),
+              retype:
+                payload as import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['retype'],
+            },
+          ];
+        }
+        const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
+        const itemId = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
+        if (typeof itemId !== 'string') return [];
+        const item = items.getItem(db, itemId);
+        return item === null
+          ? []
+          : [{ runItemId: newId(), itemId, title: item.title, opId: operation.id }];
+      },
+    );
     if (plan.length === 0) return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'empty' });
     withTransaction(db, () => {
       runs.insertRun(db, {
@@ -591,9 +668,9 @@ export async function executeConsolidateShell(
         correlationId: cid,
         now: Date.now(),
         providers: JSON.stringify({
-          extract: checked.data.chat.name,
+          extract: checked?.ok ? checked.data.chat.name : null,
           plan: providers.config.tasks.plan.model,
-          json: { extract: checked.data.mode },
+          json: { extract: checked?.ok ? checked.data.mode : null },
         }),
         researchId,
       });
@@ -603,7 +680,7 @@ export async function executeConsolidateShell(
           runId,
           requested: entry.title,
           host: null,
-          itemId: entry.itemId,
+          itemId: entry.retype === undefined ? entry.itemId : null,
         });
       }
       research.setBuildRun(db, researchId, runId, Date.now());
@@ -614,12 +691,13 @@ export async function executeConsolidateShell(
       dataRoot,
       slug,
       providers,
-      chat: checked.data.chat,
+      chat: checked?.ok ? checked.data.chat : null,
       runId,
       plan,
       hooks: {
         onItemSettled: (activeDb, entry, code, outcome) => {
           if (entry.opId === undefined || !opById.has(entry.opId)) return;
+          if (entry.retype !== undefined && code === null) return;
           const state =
             code === 'CONSOLIDATE_OP_STALE' ? 'stale' : outcome === 'failed' ? 'failed' : 'done';
           ops.setState(activeDb, {

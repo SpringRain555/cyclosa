@@ -853,10 +853,17 @@ export const t = {
     showOnGraph: '在關聯圖上看這一次抽出來的',
   },
 
+  entityTypeHistory: {
+    title: '型別修改紀錄',
+    manual: '人工確認的型別（重抽會保留）',
+    undo: '復原這次型別修改',
+    undone: '已復原',
+    fromTo: '{from} → {to}',
+  },
   consolidateShell: {
     researchOpen: '研究進行中，結束或放棄之後才能開始整理。',
     title: '整理專題',
-    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版只會執行抽取，其餘操作先列出但不能勾選。',
+    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版可執行抽取與改型別，其餘操作先列出但不能勾選。人確認的型別不會被機器重抽蓋掉，可在實體面板復原。',
     service: '規劃走 {service}，會使用模型額度。',
     serviceFree: '規劃走 {service}。',
     start: '開始整理規劃',
@@ -893,7 +900,7 @@ export const t = {
     why: '理由：{why}',
     select: '勾選後才會執行',
     noOperations: '沒有可確認的操作。可以放棄這次整理，或重試規劃。',
-    execute: '執行已勾選的抽取（{n}）',
+    execute: '執行已勾選的操作（{n}）',
     executing: '開始作業…',
     abandon: '放棄整理',
     emptyShell: '還沒有整理規劃。',

@@ -14,6 +14,9 @@ export interface ConsolidateOpDefinition {
   readonly kind: ConsolidateOpKind;
   readonly schema: Readonly<Record<string, unknown>>;
   readonly validate: (payload: unknown) => boolean;
-  readonly execute: ((input: ExtractExecution) => AppliedExtraction) | null;
+  readonly execute:
+    | ((input: ExtractExecution) => AppliedExtraction)
+    | ((input: import('./retype.js').RetypeExecution) => boolean)
+    | null;
   readonly undoInfo: ((runId: string) => unknown) | null;
 }

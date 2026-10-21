@@ -43,6 +43,21 @@ const statusLabels: Record<string, string> = {
   abandoned: t.consolidateShell.statusAbandoned,
 };
 const kindLabels: Record<string, string> = t.consolidateShell.kindLabels;
+function displaySummary(operation: ConsolidateShellOperation): string {
+  if (
+    operation.kind !== 'retype' ||
+    typeof operation.payload !== 'object' ||
+    operation.payload === null
+  )
+    return operation.summary;
+  const to = (operation.payload as { to?: unknown }).to;
+  if (typeof to !== 'string') return operation.summary;
+  const label = t.graph.entityType[to as keyof typeof t.graph.entityType];
+  return label !== undefined && operation.summary.endsWith(' · ' + to)
+    ? operation.summary.slice(0, -to.length) + label
+    : operation.summary;
+}
+
 const dropReasonLabels: Record<string, string> = t.consolidateShell.dropReasons;
 
 function report(error: ApiError | null): void {
@@ -163,7 +178,7 @@ function statusLabel(status: string): string {
   return statusLabels[status] ?? status;
 }
 function operationCanBeChecked(operation: ConsolidateShellOperation): boolean {
-  return operation.kind === 'extract' && operation.executable && operation.state === 'proposed';
+  return operation.executable && operation.state === 'proposed';
 }
 
 onMounted(() => void reload());
@@ -254,7 +269,7 @@ defineExpose({ reload });
             <span v-else class="operation-placeholder" aria-hidden="true"></span>
             <span class="operation-copy">
               <strong>{{ kindLabels[operation.kind] ?? operation.kind }}</strong>
-              <span>{{ operation.summary }}</span>
+              <span>{{ displaySummary(operation) }}</span>
               <span class="muted">{{ fill(t.consolidateShell.why, { why: operation.why }) }}</span>
             </span>
             <span v-if="!operation.executable" class="muted unsupported">

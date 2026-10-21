@@ -81,6 +81,7 @@ export interface EntityRow {
   readonly type: EntityType;
   readonly aliases: readonly string[];
   readonly mergedInto: string | null;
+  readonly typeManual?: boolean;
 }
 
 function parseAliases(raw: unknown): readonly string[] {
@@ -104,6 +105,7 @@ function toEntity(row: Raw): EntityRow {
     id: String(row['id']),
     name: String(row['name_zh'] ?? ''),
     type: String(row['type']) as EntityType,
+    typeManual: Number(row['type_manual'] ?? 0) === 1,
     aliases: parseAliases(row['aliases_json']),
     mergedInto:
       row['merged_into'] === null || row['merged_into'] === undefined
@@ -114,16 +116,12 @@ function toEntity(row: Raw): EntityRow {
 
 /** 全部實體。**合併建議與比對都要一次看完**，而實體數遠小於節點數。 */
 export function listEntities(db: DatabaseSync): readonly EntityRow[] {
-  const rows = db
-    .prepare('SELECT id, name_zh, type, aliases_json, merged_into FROM entity')
-    .all() as Raw[];
+  const rows = db.prepare('SELECT * FROM entity').all() as Raw[];
   return rows.map(toEntity);
 }
 
 export function getEntity(db: DatabaseSync, id: string): EntityRow | null {
-  const row = db
-    .prepare('SELECT id, name_zh, type, aliases_json, merged_into FROM entity WHERE id = ?')
-    .get(id) as Raw | undefined;
+  const row = db.prepare('SELECT * FROM entity WHERE id = ?').get(id) as Raw | undefined;
   return row === undefined ? null : toEntity(row);
 }
 
@@ -142,12 +140,29 @@ export function findEntityFor(
   name: string,
   type: EntityType,
 ): EntityRow | null {
-  const live = entities.filter((e) => e.mergedInto === null && e.type === type);
+  const active = entities.filter((e) => e.mergedInto === null);
+  // 人工改型別後，模型仍可能回傳舊型別；優先對回唯一的人工身分。
+  const protectedMatches = new Map<string, EntityRow>();
+  for (const candidate of entities) {
+    if (
+      !candidate.typeManual ||
+      matchOf({ name: candidate.name, aliases: candidate.aliases }, { name }) === null
+    )
+      continue;
+    const target =
+      candidate.mergedInto === null ? candidate : active.find((e) => e.id === candidate.mergedInto);
+    if (target !== undefined) protectedMatches.set(target.id, target);
+  }
+  // 已有明確的同型別身分時，不能因為另一個同名實體受保護就把兩者混在一起。
+  const protectedTyped = [...protectedMatches.values()].find((e) => e.type === type);
+  if (protectedTyped !== undefined) return protectedTyped;
+  const live = active.filter((e) => e.type === type);
   for (const candidate of live) {
     if (matchOf({ name: candidate.name, aliases: candidate.aliases }, { name }) !== null) {
       return candidate;
     }
   }
+  if (protectedMatches.size === 1) return [...protectedMatches.values()][0] ?? null;
   return null;
 }
 
@@ -307,4 +322,20 @@ export function unmergeEntity(
   db.prepare('UPDATE entity_merge SET undone_at = ? WHERE id = ?').run(now, String(record['id']));
 
   return { restored: moved.length };
+}
+
+/** 僅由人工確認的整理操作與其復原呼叫。 */
+export function setEntityType(
+  db: DatabaseSync,
+  id: string,
+  type: EntityType,
+  manual: boolean,
+  now: number,
+): void {
+  db.prepare('UPDATE entity SET type = ?, type_manual = ?, updated_at = ? WHERE id = ?').run(
+    type,
+    manual ? 1 : 0,
+    now,
+    id,
+  );
 }

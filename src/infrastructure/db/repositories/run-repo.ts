@@ -423,10 +423,15 @@ export function deleteItemsById(db: DatabaseSync, ids: readonly string[]): numbe
  * **被合併過的不算**：`merged_into` 指著別人的那些本來就沒有自己的邊。
  */
 export function deleteOrphanEntities(db: DatabaseSync): number {
+  // 舊升級清理也會呼叫此函式；v15 前尚無人工型別欄位。
+  const manualColumn = (db.prepare('PRAGMA table_info(entity)').all() as Raw[]).some(
+    (column) => column['name'] === 'type_manual',
+  );
   const rows = db
     .prepare(
       `SELECT id FROM entity
         WHERE merged_into IS NULL
+          ${manualColumn ? 'AND type_manual = 0' : ''}
           AND NOT EXISTS (SELECT 1 FROM entity_merge WHERE kept_id = entity.id OR merged_id = entity.id)
           AND NOT EXISTS (SELECT 1 FROM entity AS merged WHERE merged.merged_into = entity.id)
           AND NOT EXISTS (SELECT 1 FROM edge WHERE source_id = entity.id OR target_id = entity.id)`,

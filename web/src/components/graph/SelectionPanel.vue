@@ -23,6 +23,7 @@ import TranslationSwitch from '../TranslationSwitch.vue';
 import TranslationNotice from '../TranslationNotice.vue';
 import ErrorPanel from '../ErrorPanel.vue';
 import AttachNoteFile from '../AttachNoteFile.vue';
+import EntityTypeHistory from './EntityTypeHistory.vue';
 
 const props = defineProps<{
   slug: string;
@@ -197,6 +198,13 @@ function relLabel(edge: SubgraphEdge): string {
         </button>
       </div>
 
+      <EntityTypeHistory
+        v-if="node.kind === 'entity'"
+        :key="`${slug}/${node.id}`"
+        :slug="slug"
+        :entity-id="node.id"
+        @changed="emit('attached')"
+      />
       <!-- ── 筆記檔附件 ──────────────────────────────────── -->
       <AttachNoteFile
         v-if="node.kind === 'item' && node.subKind !== 'note'"

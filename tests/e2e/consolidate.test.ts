@@ -1,3 +1,4 @@
+import * as entities from '../../src/infrastructure/db/repositories/entity-repo.js';
 /**
  * 抽進圖（整理的第一片，ADR-0033 S24）：從列清單、勾、抽、到復原，走真的服務與一個假的 Ollama。
  *
@@ -423,4 +424,49 @@ it('復原那一筆：抽出來的關聯刪掉，「抽過了」清回去，那�
   });
   const after = await listed();
   for (const id of picked) expect(after).toContain(id);
+});
+
+it('同批勾選改型別與抽取：共用 worker 完成兩種操作，舊型別回應不建立重複實體', async () => {
+  await inDb((db) =>
+    entities.insertEntity(db, { id: 'manual-retype', name: '抽進圖甲', type: 'concept', now: 1 }),
+  );
+  const shell = await startConsolidateShell(root, slug);
+  if (!shell.ok) throw new Error(shell.code);
+  const planned = await planConsolidateShell(root, slug, shell.data.id);
+  if (!planned.ok) throw new Error(planned.code);
+  const extract = planned.data.operations.find((op) => op.kind === 'extract');
+  if (extract === undefined) throw new Error('missing extract proposal');
+  await inDb((db) =>
+    consolidateOps.insertOp(db, {
+      id: 'mixed-retype',
+      researchId: shell.data.id,
+      ord: 99,
+      kind: 'retype',
+      payloadJson: JSON.stringify({ entityId: 'manual-retype', to: 'org' }),
+      why: '合成混合操作',
+    }),
+  );
+  expect((await setConsolidateOpChecked(root, slug, shell.data.id, extract.id, true)).ok).toBe(
+    true,
+  );
+  expect((await setConsolidateOpChecked(root, slug, shell.data.id, 'mixed-retype', true)).ok).toBe(
+    true,
+  );
+  const before = calls;
+  expect((await executeConsolidateShell(root, slug, shell.data.id)).ok).toBe(true);
+  await idle();
+  expect(calls - before).toBe(1);
+  await inDb((db) => {
+    expect(consolidateOps.getOp(db, 'mixed-retype')?.state).toBe('done');
+    expect(consolidateOps.getOp(db, extract.id)?.state).toBe('done');
+    expect(entities.getEntity(db, 'manual-retype')).toMatchObject({
+      type: 'org',
+      typeManual: true,
+    });
+    expect(entities.listEntities(db).filter((e) => e.name === '抽進圖甲')).toHaveLength(1);
+    const run = consolidateOps.getOp(db, extract.id)?.runId;
+    expect(db.prepare('SELECT succeeded, failed FROM run WHERE id=?').get(run ?? '')).toMatchObject(
+      { succeeded: 2, failed: 0 },
+    );
+  });
 });

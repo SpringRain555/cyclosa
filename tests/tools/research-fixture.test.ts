@@ -113,7 +113,7 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
         (operation) => !operation.checked && operation.state === 'proposed',
       ),
     ).toBe(true);
-    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(2);
+    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(3);
   });
 
   it('規劃中：兩輪對話、四條方向（一條是人提的）、刻意不查的範圍', async () => {

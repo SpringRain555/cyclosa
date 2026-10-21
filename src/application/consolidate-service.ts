@@ -41,6 +41,8 @@ import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { callExtract, checkExtract } from './extraction-call.js';
 import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
+import { executeRetypeOperation } from './consolidate-ops/retype.js';
+import * as consolidateOps from '../infrastructure/db/repositories/consolidate-op-repo.js';
 import { executeExtractOperation } from './consolidate-ops/extract.js';
 import { recordModelCall } from './model-call-log.js';
 import {
@@ -228,6 +230,8 @@ export interface ConsolidateWorkerPlanEntry {
   readonly itemId: string;
   readonly title: string;
   readonly opId?: string;
+  readonly retypeExpected?: string;
+  readonly retype?: import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['retype'];
 }
 
 export interface ConsolidateWorkerHooks {
@@ -245,7 +249,7 @@ export function launchConsolidateWorker(input: {
   readonly dataRoot: string;
   readonly slug: string;
   readonly providers: Providers;
-  readonly chat: ChatProvider;
+  readonly chat: ChatProvider | null;
   readonly runId: string;
   readonly plan: readonly ConsolidateWorkerPlanEntry[];
   readonly hooks?: ConsolidateWorkerHooks;
@@ -287,7 +291,7 @@ async function processConsolidate(
   dataRoot: string,
   slug: string,
   providers: Providers,
-  chat: ChatProvider,
+  chat: ChatProvider | null,
   state: registry.ActiveRun,
   plan: readonly ConsolidateWorkerPlanEntry[],
   hooks?: ConsolidateWorkerHooks,
@@ -312,90 +316,118 @@ async function processConsolidate(
       runs.updateRunItem(db, {
         id: entry.runItemId,
         outcome: 'running',
-        itemId: entry.itemId,
+        itemId: entry.retype === undefined ? entry.itemId : null,
         now: Date.now(),
       });
       let code: ErrorCode | null = null;
       let newEdges = 0;
-      const derived = await readDerived(folder, entry.itemId);
-      if (state.cancelled) break;
-      // 規劃之後資料可能被抽過、排除或復原；執行前重查「還沒抽過」事實。
-      const candidate = items
-        .listExtractionCandidates(db)
-        .find(({ item }) => item.id === entry.itemId);
-      const eligible =
-        candidate !== undefined &&
-        derived !== null &&
-        isUnextracted({
-          kind: candidate.item.kind,
-          status: candidate.item.status,
-          extractedAt: candidate.item.extractedAt,
-          machineEvidence: candidate.machineEvidence,
-          hasBody: bodyAvailable(derived),
-        });
-      if (!eligible)
-        code = entry.opId === undefined ? 'PARSE_EMPTY_CONTENT' : 'CONSOLIDATE_OP_STALE';
-      else {
-        const called = await callExtract(chat, derived, abort);
-        taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);
-        const cost = taskCosts['extract'];
-        if (cost === undefined) throw new Error('extract cost missing');
-        runs.updateRunBudget(
-          db,
-          state.runId,
-          cost.requests,
-          cost.costUsd,
-          cost.unpriced,
-          taskCosts,
-        );
-        await recordModelCall(providers, folder, {
-          task: 'extract',
-          role: 'chat',
-          model: chat.name,
-          runId: state.runId,
-          correlationId: state.runId,
-          itemId: entry.itemId,
-          system: EXTRACT_SYSTEM,
-          user: extractUser(derived.title, derived.text),
-          text: called.kind === 'ok' ? JSON.stringify(called.extraction) : null,
-          errorDetail: null,
-          ok: called.kind === 'ok',
-          code: called.kind === 'error' ? called.code : null,
-          elapsedMs: called.elapsedMs,
-          costUsd: called.costUsd,
-        });
+      if (entry.retype !== undefined) {
+        try {
+          const applied = executeRetypeOperation({
+            db,
+            ...entry.retype,
+            expectedRevision: entry.retypeExpected ?? '',
+            completed: (undo) => {
+              if (entry.opId === undefined) throw new Error('missing retype operation');
+              consolidateOps.setState(activeDb, {
+                id: entry.opId,
+                state: 'done',
+                runId: state.runId,
+                undoJson: JSON.stringify(undo),
+                executedAt: Date.now(),
+              });
+            },
+          });
+          if (!applied) code = 'CONSOLIDATE_OP_STALE';
+        } catch (error) {
+          code = 'CONSOLIDATE_UNEXPECTED';
+          logger.error('改型別寫入失敗', { opId: entry.opId, error: String(error) });
+        }
+      } else {
+        const derived = await readDerived(folder, entry.itemId);
         if (state.cancelled) break;
-        if (called.kind === 'error') code = called.code;
+        // 規劃之後資料可能被抽過、排除或復原；執行前重查「還沒抽過」事實。
+        const candidate = items
+          .listExtractionCandidates(db)
+          .find(({ item }) => item.id === entry.itemId);
+        const eligible =
+          candidate !== undefined &&
+          derived !== null &&
+          isUnextracted({
+            kind: candidate.item.kind,
+            status: candidate.item.status,
+            extractedAt: candidate.item.extractedAt,
+            machineEvidence: candidate.machineEvidence,
+            hasBody: bodyAvailable(derived),
+          });
+        if (!eligible)
+          code = entry.opId === undefined ? 'PARSE_EMPTY_CONTENT' : 'CONSOLIDATE_OP_STALE';
         else {
-          try {
-            const applied = executeExtractOperation({
-              db,
-              itemId: entry.itemId,
-              runId: state.runId,
-              text: derived.text,
-              extraction: called.extraction,
-              completed: (result) => {
-                items.setItemExtracted(activeDb, {
-                  id: entry.itemId,
-                  extractedBy: chat.name,
-                  now: Date.now(),
-                });
-                runs.updateRunItem(activeDb, {
-                  id: entry.runItemId,
-                  outcome: 'ok',
-                  code: result.code,
-                  itemId: entry.itemId,
-                  now: Date.now(),
-                });
-                runs.setRunItemEdges(activeDb, entry.runItemId, result.newEdges);
-              },
-            });
-            newEdges = applied.newEdges;
-            code = applied.code;
-          } catch (error) {
-            if (!isConstraintError(error)) throw error;
-            code = 'CONSOLIDATE_UNEXPECTED';
-            logger.error('抽進圖寫入失敗', { itemId: entry.itemId, error: String(error) });
+          if (chat === null) throw new Error('missing extraction provider');
+          const called = await callExtract(chat, derived, abort);
+          taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);
+          const cost = taskCosts['extract'];
+          if (cost === undefined) throw new Error('extract cost missing');
+          runs.updateRunBudget(
+            db,
+            state.runId,
+            cost.requests,
+            cost.costUsd,
+            cost.unpriced,
+            taskCosts,
+          );
+          await recordModelCall(providers, folder, {
+            task: 'extract',
+            role: 'chat',
+            model: chat.name,
+            runId: state.runId,
+            correlationId: state.runId,
+            itemId: entry.itemId,
+            system: EXTRACT_SYSTEM,
+            user: extractUser(derived.title, derived.text),
+            text: called.kind === 'ok' ? JSON.stringify(called.extraction) : null,
+            errorDetail: null,
+            ok: called.kind === 'ok',
+            code: called.kind === 'error' ? called.code : null,
+            elapsedMs: called.elapsedMs,
+            costUsd: called.costUsd,
+          });
+          if (state.cancelled) break;
+          if (called.kind === 'error') code = called.code;
+          else {
+            try {
+              const applied = executeExtractOperation({
+                db,
+                itemId: entry.itemId,
+                runId: state.runId,
+                text: derived.text,
+                extraction: called.extraction,
+                completed: (result) => {
+                  items.setItemExtracted(activeDb, {
+                    id: entry.itemId,
+                    extractedBy: chat.name,
+                    now: Date.now(),
+                  });
+                  runs.updateRunItem(activeDb, {
+                    id: entry.runItemId,
+                    outcome: 'ok',
+                    code: result.code,
+                    itemId: entry.retype === undefined ? entry.itemId : null,
+                    now: Date.now(),
+                  });
+                  runs.setRunItemEdges(activeDb, entry.runItemId, result.newEdges);
+                },
+              });
+              newEdges = applied.newEdges;
+              code = applied.code;
+            } catch (error) {
+              if (!isConstraintError(error)) throw error;
+              code = 'CONSOLIDATE_UNEXPECTED';
+              logger.error('抽進圖寫入失敗', {
+                itemId: entry.retype === undefined ? entry.itemId : null,
+                error: String(error),
+              });
+            }
           }
         }
       }
@@ -410,7 +442,7 @@ async function processConsolidate(
         id: entry.runItemId,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.itemId,
+        itemId: entry.retype === undefined ? entry.itemId : null,
         now: Date.now(),
       });
       runs.setRunItemEdges(db, entry.runItemId, newEdges);
@@ -421,7 +453,7 @@ async function processConsolidate(
         host: null,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.itemId,
+        itemId: entry.retype === undefined ? entry.itemId : null,
       });
       state.channel.emit({ type: 'progress', done: outcomes.length, total: plan.length });
     }

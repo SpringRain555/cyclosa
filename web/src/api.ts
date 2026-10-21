@@ -1444,6 +1444,13 @@ export const api = {
       body: JSON.stringify(hosts === undefined ? {} : { hosts }),
     }),
 
+  entityTypeHistory: (slug: string, entityId: string) =>
+    request<EntityTypeHistory>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/type-history`),
+  undoEntityType: (slug: string, entityId: string, opId: string) =>
+    request<true>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/undo-type`, {
+      method: 'POST',
+      body: JSON.stringify({ opId }),
+    }),
   mergeCandidates: (slug: string) =>
     request<MergeCandidate[]>(`/api/cases/${enc(slug)}/entities/merges`),
   mergeEntities: (slug: string, keptId: string, mergedId: string) =>
@@ -1488,3 +1495,16 @@ export const api = {
       body: JSON.stringify(nodeIds === undefined ? query : { ...query, nodeIds }),
     }),
 };
+
+export interface EntityTypeHistory {
+  readonly type: string;
+  readonly manual: boolean;
+  readonly changes: readonly {
+    readonly opId: string;
+    readonly from: string;
+    readonly to: string;
+    readonly at: number;
+    readonly undone: boolean;
+    readonly canUndo: boolean;
+  }[];
+}

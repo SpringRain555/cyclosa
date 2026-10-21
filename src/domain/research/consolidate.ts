@@ -141,7 +141,15 @@ export const RETYPE_OP_SCHEMA = {
 
 export const DIGEST_OP_SCHEMA = EXTRACT_OP_SCHEMA;
 
-/** 給模型服務的外層結構規格；各操作的參數再由完整規格嚴格驗一次。 */
+export const CONSOLIDATE_OP_SCHEMAS: Readonly<Record<ConsolidateOpKind, OpSchema>> = {
+  merge: MERGE_OP_SCHEMA,
+  extract: EXTRACT_OP_SCHEMA,
+  'add-edge': ADD_EDGE_OP_SCHEMA,
+  retype: RETYPE_OP_SCHEMA,
+  digest: DIGEST_OP_SCHEMA,
+};
+
+/** 各操作的參數與種類一起交給受限解碼；回傳後仍嚴格驗證。 */
 export const CONSOLIDATE_PLAN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -150,27 +158,21 @@ export const CONSOLIDATE_PLAN_SCHEMA = {
       type: 'array',
       maxItems: 200,
       items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', enum: CONSOLIDATE_OP_KINDS },
-          payload: { type: 'object' },
-          why: { type: 'string', minLength: 1, maxLength: 2000 },
-        },
-        required: ['kind', 'payload', 'why'],
+        anyOf: Object.entries(CONSOLIDATE_OP_SCHEMAS).map(([kind, payload]) => ({
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', enum: [kind] },
+            payload,
+            why: { type: 'string', minLength: 1, maxLength: 2000 },
+          },
+          required: ['kind', 'payload', 'why'],
+        })),
       },
     },
   },
   required: ['operations'],
 } as const;
-
-export const CONSOLIDATE_OP_SCHEMAS: Readonly<Record<ConsolidateOpKind, OpSchema>> = {
-  merge: MERGE_OP_SCHEMA,
-  extract: EXTRACT_OP_SCHEMA,
-  'add-edge': ADD_EDGE_OP_SCHEMA,
-  retype: RETYPE_OP_SCHEMA,
-  digest: DIGEST_OP_SCHEMA,
-};
 
 /** JSON 形狀不合或任一種操作的參數不合時，整份清單都不採用。 */
 export function parseConsolidatePlan(raw: string): readonly ConsolidateOpDraft[] | null {

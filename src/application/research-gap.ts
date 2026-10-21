@@ -51,6 +51,8 @@ async function assess(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     if (row.status !== 'reviewing') return err('RESEARCH_STEP_INVALID', cid);
     const providers = await load();
     const planner = providers.planFor({

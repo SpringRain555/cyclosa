@@ -27,6 +27,8 @@ import { ingestBytes } from '../../src/application/ingest-service.js';
 import { normalizeExtraction } from '../../src/domain/provider/index.js';
 import { effectiveDecision } from '../../src/domain/research/index.js';
 import * as edges from '../../src/infrastructure/db/repositories/edge-repo.js';
+import * as entities from '../../src/infrastructure/db/repositories/entity-repo.js';
+import * as consolidateOps from '../../src/infrastructure/db/repositories/consolidate-op-repo.js';
 import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as research from '../../src/infrastructure/db/repositories/research-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
@@ -42,6 +44,7 @@ export const SEED_STATES = [
   'building',
   'done',
   'abandoned',
+  'consolidate-reviewing',
 ] as const;
 export type SeedState = (typeof SEED_STATES)[number];
 
@@ -243,6 +246,7 @@ export async function writeResearchState(
   folder: string,
   state: SeedState,
 ): Promise<SeedSummary> {
+  if (state === 'consolidate-reviewing') return writeConsolidateReviewing(db, folder);
   const now = Date.now();
   const researchId = newId();
   research.insertResearch(db, {
@@ -557,6 +561,150 @@ export async function writeResearchState(
   return summary(rows.length, written);
 }
 
+async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Promise<SeedSummary> {
+  const now = Date.now();
+  const researchId = newId();
+  research.insertResearch(db, {
+    id: researchId,
+    kind: 'consolidate',
+    topic: null,
+    hitsJson: '[]',
+    correlationId: 'synthetic-consolidate',
+    now,
+  });
+  const importRunId = newId();
+  runs.insertRun(db, {
+    id: importRunId,
+    kind: 'import',
+    label: '合成整理資料 · 2 份',
+    total: 2,
+    correlationId: 'synthetic-consolidate',
+    now,
+  });
+  runs.startRun(db, importRunId, now);
+  const itemIds: string[] = [];
+  for (const [index, title] of ['合成整理來源甲', '合成整理來源乙'].entries()) {
+    const itemId = newId();
+    const runItemId = newId();
+    const url = 'https://synthetic.example/consolidate/' + String(index + 1);
+    const body = '這是一份合成整理測試正文。來源提供足夠的上下文，僅供畫面驗收使用。';
+    items.insertPendingItem(db, {
+      id: itemId,
+      kind: 'text',
+      requestedUrl: url,
+      title,
+      runId: importRunId,
+      now,
+    });
+    runs.insertRunItem(db, {
+      id: runItemId,
+      runId: importRunId,
+      requested: url,
+      host: 'synthetic.example',
+      itemId,
+    });
+    const outcome = await ingestBytes(db, folder, {
+      runItemId,
+      itemId,
+      requestedUrl: url,
+      finalUrl: url,
+      bytes: new TextEncoder().encode('# ' + title + '\n\n' + body),
+      contentType: 'text/markdown',
+      fileName: 'synthetic-consolidate-' + String(index + 1) + '.md',
+      hops: [],
+      providers: null,
+    });
+    if (outcome.itemId === null) throw new Error('合成整理資料匯入失敗');
+    itemIds.push(outcome.itemId);
+  }
+  runs.settleRunRow(db, {
+    id: importRunId,
+    status: 'done',
+    succeeded: itemIds.length,
+    failed: 0,
+    now,
+  });
+  const keepId = newId();
+  const dropId = newId();
+  entities.insertEntity(db, { id: keepId, type: 'concept', name: '合成實體甲', now });
+  entities.insertEntity(db, { id: dropId, type: 'org', name: '合成實體乙', now });
+  const first = itemIds[0];
+  const second = itemIds[1];
+  if (first === undefined || second === undefined) throw new Error('合成整理資料缺少 item id');
+  const proposals = [
+    {
+      kind: 'merge' as const,
+      payload: { keep: keepId, drop: dropId },
+      why: '這兩個合成實體可供合併畫面驗收',
+    },
+    {
+      kind: 'retype' as const,
+      payload: { entityId: dropId, to: 'concept' as const },
+      why: '提供改型別提案範例',
+    },
+    {
+      kind: 'extract' as const,
+      payload: { itemIds: [first] },
+      why: '這份資料尚未抽取，正文可供抽取',
+    },
+    {
+      kind: 'extract' as const,
+      payload: { itemIds: [second] },
+      why: '另一份資料尚未抽取，正文可供抽取',
+    },
+    {
+      kind: 'add-edge' as const,
+      payload: {
+        source: keepId,
+        target: first,
+        rel: '關聯於',
+        itemId: first,
+        quote: '這是一份合成整理測試正文',
+      },
+      why: '提供有正文引文的關聯提案範例',
+    },
+    { kind: 'digest' as const, payload: { itemIds: [second] }, why: '提供補繁中提案範例' },
+  ];
+  proposals.forEach((proposal, ord) =>
+    consolidateOps.insertOp(db, {
+      id: newId(),
+      researchId,
+      ord,
+      kind: proposal.kind,
+      payloadJson: JSON.stringify(proposal.payload),
+      why: proposal.why,
+    }),
+  );
+  research.updateResearchPlan(
+    db,
+    researchId,
+    JSON.stringify({
+      coverage: {
+        entitiesIncluded: 2,
+        entitiesAvailable: 2,
+        mergeCandidatesIncluded: 0,
+        mergeCandidatesAvailable: 0,
+        singleEvidenceEdgesIncluded: 0,
+        singleEvidenceEdgesAvailable: 0,
+        unextractedItems: 2,
+        notesIncluded: 0,
+        notesAvailable: 0,
+        notesTruncated: 0,
+        noteCharsIncluded: 0,
+      },
+      dropped: { count: 0, reasons: {} },
+    }),
+    now,
+  );
+  research.updateResearchStatus(db, researchId, 'reviewing', now);
+  return {
+    researchId,
+    state: 'consolidate-reviewing',
+    candidates: 0,
+    items: itemIds.length,
+    edges: 0,
+  };
+}
 function writePlanning(db: DatabaseSync, researchId: string, now: number): void {
   const plan = {
     relation: '合成：專題裡還沒有正則化的資料，這是一個新的方向。',

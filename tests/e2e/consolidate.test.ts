@@ -12,13 +12,22 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest';
 
 import { initDataRoot } from '../../src/application/bootstrap-service.js';
 import { listUnextracted, startConsolidate } from '../../src/application/consolidate-service.js';
+import {
+  executeConsolidateShell,
+  planConsolidateShell,
+  setConsolidateOpChecked,
+  startConsolidateShell,
+} from '../../src/application/consolidate-ops-service.js';
 import { startResearch } from '../../src/application/research-service.js';
 import { activeCount, cancel, cancelAll } from '../../src/application/run-registry.js';
 import { createSampleCase } from '../../src/application/sample-service.js';
 import { undoRun } from '../../src/application/undo-service.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
+import { removeDerived } from '../../src/infrastructure/fs/case-files.js';
 import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
+import * as consolidateOps from '../../src/infrastructure/db/repositories/consolidate-op-repo.js';
+import * as researchRows from '../../src/infrastructure/db/repositories/research-repo.js';
 
 let server: Server;
 let baseUrl = '';
@@ -101,7 +110,30 @@ beforeAll(async () => {
       }
       const parsed = JSON.parse(body) as { messages: { role: string; content: string }[] };
       const user = parsed.messages.find((m) => m.role === 'user')?.content ?? '';
-      const text = /標題：[^\n]*\n\n([\s\S]*)\n<\/文件>$/.exec(user)?.[1] ?? '';
+      const system = parsed.messages.find((m) => m.role === 'system')?.content ?? '';
+      if (system.includes('專題資料整理的規劃助手')) {
+        const context = JSON.parse(user) as { unextracted: { id: string }[] };
+        const itemIds = context.unextracted.slice(0, 2).map((entry) => entry.id);
+        res.end(
+          JSON.stringify({
+            message: {
+              content: JSON.stringify({
+                operations: itemIds.map((itemId) => ({
+                  kind: 'extract',
+                  payload: { itemIds: [itemId] },
+                  why: '合成規劃建議抽取這份未整理資料',
+                })),
+              }),
+            },
+          }),
+        );
+        return;
+      }
+      const separator = String.fromCharCode(10);
+      const textStart = user.indexOf(separator + separator);
+      const textEnd = user.lastIndexOf(separator + '</文件>');
+      const text =
+        textStart >= 0 && textEnd > textStart ? user.slice(textStart + 2, textEnd) : user;
       const quote = text.trim().slice(0, 40);
       const extraction = {
         entities: [
@@ -164,6 +196,66 @@ afterEach(async () => {
   await rm(sandbox, { recursive: true, force: true });
 });
 
+it('整理殼：plan 提案預設不勾，執行前逐項 stale，部分失敗仍完成；復原清掉本次 extracted_at', async () => {
+  const opened = await startConsolidateShell(root, slug);
+  expect(opened.ok, JSON.stringify(opened)).toBe(true);
+  if (!opened.ok) return;
+  const planned = await planConsolidateShell(root, slug, opened.data.id);
+  expect(planned.ok, JSON.stringify(planned)).toBe(true);
+  if (!planned.ok) return;
+  expect(planned.data.status).toBe('reviewing');
+  const suggestions = planned.data.operations.filter((operation) => operation.kind === 'extract');
+  expect(suggestions).toHaveLength(2);
+  expect(suggestions.every((operation) => operation.checked === false)).toBe(true);
+  for (const operation of suggestions) {
+    expect((await setConsolidateOpChecked(root, slug, opened.data.id, operation.id, true)).ok).toBe(
+      true,
+    );
+  }
+  const payload = suggestions.map((operation) => operation.payload as { itemIds: string[] });
+  const staleId = payload[0]?.itemIds[0];
+  const freshId = payload[1]?.itemIds[0];
+  if (staleId === undefined || freshId === undefined) throw new Error('missing seeded item id');
+  await inDb((db) =>
+    items.setItemExtracted(db, { id: staleId, extractedBy: 'another operation', now: Date.now() }),
+  );
+  const started = await executeConsolidateShell(root, slug, opened.data.id);
+  expect(started.ok, JSON.stringify(started)).toBe(true);
+  if (!started.ok) return;
+  await idle();
+  expect(calls).toBe(2);
+  await inDb((db) => {
+    expect(runs.getRun(db, started.data.runId)).toMatchObject({
+      kind: 'consolidate',
+      researchId: opened.data.id,
+      status: 'partial',
+      total: 2,
+      succeeded: 1,
+      failed: 1,
+    });
+    expect(researchRows.getResearch(db, opened.data.id)?.status).toBe('done');
+    const rows = consolidateOps.listOps(db, opened.data.id);
+    expect(rows.map((operation) => operation.state).sort()).toEqual(['done', 'stale']);
+    expect(rows.find((operation) => operation.code === 'CONSOLIDATE_OP_STALE')).toBeDefined();
+    expect(items.getItem(db, freshId)?.extractedAt).not.toBeNull();
+  });
+  const undone = await undoRun(root, slug, started.data.runId);
+  expect(undone.ok, JSON.stringify(undone)).toBe(true);
+  await inDb((db) => {
+    expect(items.getItem(db, staleId)?.extractedAt).not.toBeNull();
+    expect(items.getItem(db, freshId)?.extractedAt).toBeNull();
+  });
+});
+
+it('整理殼開啟時會擋住不開殼的抽進圖與新研究', async () => {
+  const opened = await startConsolidateShell(root, slug);
+  expect(opened.ok).toBe(true);
+  const blockedExtraction = await startConsolidate(root, slug, (await listed()).slice(0, 1));
+  expect(blockedExtraction).toMatchObject({ ok: false, code: 'CONSOLIDATE_RESEARCH_OPEN' });
+  const blockedResearch = await startResearch(root, slug, { topic: '整理殼開啟時不能建立研究' });
+  expect(blockedResearch).toMatchObject({ ok: false, code: 'RESEARCH_ALREADY_OPEN' });
+  expect(calls).toBe(0);
+});
 it('清單只列還沒抽過的：有機器關聯拿它當出處的（v12 以前抽過的）不列；列清單不呼叫模型', async () => {
   const expected = await withoutMachineEvidence();
   expect(expected.length).toBeGreaterThan(1);
@@ -204,6 +296,47 @@ it('勾兩份抽進圖：一筆 consolidate 作業、走真抽取、標「抽過
   const after = await listed();
   for (const id of picked) expect(after).not.toContain(id);
 });
+
+it.each(['excluded', 'missing-body', 'already-extracted'] as const)(
+  '不開殼的抽進圖：執行前變成 %s，沿用 PARSE_EMPTY_CONTENT 並繼續結算',
+  async (change) => {
+    holdAt = 1;
+    const picked = (await listed()).slice(0, 2);
+    expect(picked).toHaveLength(2);
+    const changedId = picked[1]!;
+    const started = await startConsolidate(root, slug, picked);
+    if (!started.ok) throw new Error(started.code);
+    await expect.poll(() => held !== null, { timeout: 10_000 }).toBe(true);
+    // 第一份等待模型時改變第二份，確保它是在開始作業後才失去資格。
+    if (change === 'missing-body') {
+      await removeDerived(join(root, 'cases', slug), changedId);
+    } else {
+      await inDb((db) => {
+        if (change === 'excluded') items.setStatus(db, changedId, 'excluded', Date.now());
+        else items.setItemExtracted(db, { id: changedId, extractedBy: 'fixture', now: Date.now() });
+      });
+    }
+    held?.end(
+      JSON.stringify({ message: { content: JSON.stringify({ entities: [], relations: [] }) } }),
+    );
+    await idle();
+    expect(calls).toBe(1);
+    await inDb((db) => {
+      expect(runs.getRun(db, started.data.runId)).toMatchObject({
+        researchId: null,
+        status: 'partial',
+        succeeded: 1,
+        failed: 1,
+      });
+      expect(
+        runs.listRunItems(db, started.data.runId).find((entry) => entry.itemId === changedId),
+      ).toMatchObject({
+        outcome: 'failed',
+        code: 'PARSE_EMPTY_CONTENT',
+      });
+    });
+  },
+);
 
 it('勾的不在清單上（已經抽過、空的）就整批不收，不開作業', async () => {
   const empty = await startConsolidate(root, slug, []);
@@ -249,6 +382,8 @@ it('D4 的另一半：抽的作業在跑時，開研究與再開一筆都被擋�
 
   const research = await startResearch(root, slug, { topic: '這時候不能開' });
   expect(research).toMatchObject({ ok: false, code: 'CONSOLIDATE_RUNNING' });
+  const shellBlocked = await startConsolidateShell(root, slug);
+  expect(shellBlocked).toMatchObject({ ok: false, code: 'CONSOLIDATE_RUNNING' });
   const again = await startConsolidate(root, slug, picked.slice(1));
   expect(again).toMatchObject({ ok: false, code: 'CONSOLIDATE_RUNNING' });
   const view = await listUnextracted(root, slug);

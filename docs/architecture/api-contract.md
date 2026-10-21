@@ -3,7 +3,7 @@
 **這份是端點、請求／回應形狀與錯誤對映的權威。**
 業務規則在 `domain/`（見 `overview.md` 的分層），錯誤碼的意義在 `error-codes.md`。
 
-> **現況（2026-10-03，v0.26.0）**：研究與建圖端點見正文；**抽進圖**（`GET`／`POST …/consolidate`，整理的第一片）是 v0.26.0 新增。
+> **現況（2026-10-20，main 已發行 v0.26.3；Stage 24 issue #4 在未發行分支實作）**：研究與建圖端點見正文；抽進圖是 v0.26.0 新增，整理殼端點見下方。
 > 以下版本條目是沿革，舊 `POST /runs`、角度選擇與草稿刪除端點已移除。研究與作業的花費仍在回應裡（`costUsd`、`costByTask`），畫面不顯示（2026-10-03）。
 >
 > **已經存在**：系統（`/healthz`、資料根）、專題（清單／建立／封存）、
@@ -493,6 +493,19 @@
 - 進度、取消、暫停、復原都走作業那一套（`…/runs/:runId/…`）。逐份送 `item` 與 `progress` 事件；
   一份抽壞不影響其餘，勾的時候還在、跑到時已被排除或復原掉的那一份記 `PARSE_EMPTY_CONTENT`
 - **復原會把那一筆寫的「抽過了」清回去**（S24-5），那幾份回到清單上
+
+### 整理殼與模型提案（Stage 24 issue #4，尚未發行）
+
+| 端點 | 呼叫模型？ | 說明 |
+|---|:--:|---|
+| `GET …/consolidate/research` | 不 | 回最近一次整理殼（沒有則 `null`），含狀態、上下文覆蓋範圍、被丟棄數量與操作清單 |
+| `POST …/consolidate/research` | 不 | 建立 `kind='consolidate'` 的 `research` 殼，回 `{ id }`；畫面接著呼叫 plan |
+| `POST …/consolidate/research/:researchId/plan` | 是 | 使用 `plan` 任務、不提供工具；schema 不合回 `CONSOLIDATE_PLAN_INVALID`，語意不成立的提案丟棄並記原因；有效提案保存後回殼 |
+| `PUT …/consolidate/research/:researchId/operations/:opId` | 不 | body `{ checked: boolean }`；目前只有 `extract` 可以勾選，預設不勾；資料已不合資格回 `CONSOLIDATE_OP_STALE` |
+| `POST …/consolidate/research/:researchId/execute` | 是 | 只執行已勾的 extract 提案；一次建立一筆帶 `research_id` 的 `run.kind='consolidate'`，回 `{ runId }`；每份執行前重新驗證，個別失敗不阻止其他項目 |
+| `POST …/consolidate/research/:researchId/abandon` | 不 | 放棄整理；若建圖作業仍在跑會送出取消，殼進 `abandoned` |
+
+殼與其他未結束的研究共用 `research.open_key`。不開殼的「抽進圖」仍可用，但兩者互相檢查：有整理殼時抽進圖回 `CONSOLIDATE_RESEARCH_OPEN`；有抽進圖作業在跑時建立整理殼回 `CONSOLIDATE_RUNNING`。復原抽取走既有 `…/runs/:runId/undo`。
 
 ### 筆記與點註
 

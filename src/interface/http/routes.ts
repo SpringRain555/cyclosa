@@ -38,6 +38,14 @@ import {
 } from '../../application/ingest-service.js';
 import { undoRun } from '../../application/undo-service.js';
 import { listUnextracted, startConsolidate } from '../../application/consolidate-service.js';
+import {
+  abandonConsolidateShell,
+  executeConsolidateShell,
+  getConsolidateShell,
+  planConsolidateShell,
+  setConsolidateOpChecked,
+  startConsolidateShell,
+} from '../../application/consolidate-ops-service.js';
 import { listCaseNotices, dismissCaseNotice } from '../../application/notice-service.js';
 import { activeCount } from '../../application/run-registry.js';
 import { describeFetchPolicy } from '../../application/fetch-policy.js';
@@ -416,6 +424,73 @@ function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
  * （可不可以再談、閘門按不按得下去、哪一列可以上傳在 `domain/research`）。
  */
 function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get<{ Params: { slug: string } }>(
+    '/api/cases/:slug/consolidate/research',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await getConsolidateShell(dataRoot, req.params.slug));
+    },
+  );
+  app.post<{ Params: { slug: string } }>(
+    '/api/cases/:slug/consolidate/research',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await startConsolidateShell(dataRoot, req.params.slug));
+    },
+  );
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/consolidate/research/:researchId/plan',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await planConsolidateShell(dataRoot, req.params.slug, req.params.researchId),
+      );
+    },
+  );
+  app.put<{
+    Params: { slug: string; researchId: string; opId: string };
+    Body: { checked?: unknown };
+  }>('/api/cases/:slug/consolidate/research/:researchId/operations/:opId', async (req, reply) => {
+    const dataRoot = await requireDataRoot(ctx, reply);
+    if (dataRoot === null) return reply;
+    return send(
+      reply,
+      await setConsolidateOpChecked(
+        dataRoot,
+        req.params.slug,
+        req.params.researchId,
+        req.params.opId,
+        req.body?.checked,
+      ),
+    );
+  });
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/consolidate/research/:researchId/execute',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await executeConsolidateShell(dataRoot, req.params.slug, req.params.researchId),
+      );
+    },
+  );
+  app.post<{ Params: { slug: string; researchId: string } }>(
+    '/api/cases/:slug/consolidate/research/:researchId/abandon',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await abandonConsolidateShell(dataRoot, req.params.slug, req.params.researchId),
+      );
+    },
+  );
+
   app.put<{
     Params: { slug: string; researchId: string; candidateId: string };
     Body: { decision?: unknown; citedBy?: unknown };

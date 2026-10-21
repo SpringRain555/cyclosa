@@ -397,6 +397,44 @@ export interface ConsolidateView {
   researchOpen: boolean;
 }
 
+export interface ConsolidateShellOperation {
+  id: string;
+  ord: number;
+  kind: 'merge' | 'extract' | 'add-edge' | 'retype' | 'digest';
+  payload: unknown;
+  summary: string;
+  why: string;
+  checked: boolean;
+  state: string;
+  code: string | null;
+  runId: string | null;
+  undo: unknown;
+  executable: boolean;
+}
+
+export interface ConsolidateShellView {
+  id: string;
+  status: string;
+  createdAt: number;
+  updatedAt: number;
+  endedAt: number | null;
+  service: ServiceView;
+  coverage: {
+    entitiesIncluded: number;
+    entitiesAvailable: number;
+    mergeCandidatesIncluded: number;
+    mergeCandidatesAvailable: number;
+    singleEvidenceEdgesIncluded: number;
+    singleEvidenceEdgesAvailable: number;
+    unextractedItems: number;
+    notesIncluded: number;
+    notesAvailable: number;
+    notesTruncated: number;
+    noteCharsIncluded: number;
+  } | null;
+  dropped: { count: number; reasons: Record<string, number> };
+  operations: ConsolidateShellOperation[];
+}
 export interface CollectState {
   runId: string | null;
   live: boolean;
@@ -1099,6 +1137,32 @@ export const api = {
       body: JSON.stringify({ itemIds }),
     }),
 
+  consolidateShell: (slug: string) =>
+    request<ConsolidateShellView | null>(`/api/cases/${enc(slug)}/consolidate/research`),
+  startConsolidateShell: (slug: string) =>
+    request<{ id: string }>(`/api/cases/${enc(slug)}/consolidate/research`, { method: 'POST' }),
+  planConsolidateShell: (slug: string, researchId: string) =>
+    request<ConsolidateShellView>(
+      `/api/cases/${enc(slug)}/consolidate/research/${enc(researchId)}/plan`,
+      { method: 'POST' },
+    ),
+  setConsolidateOpChecked: (slug: string, researchId: string, opId: string, checked: boolean) =>
+    request<true>(
+      `/api/cases/${enc(slug)}/consolidate/research/${enc(researchId)}/operations/${enc(opId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ checked }),
+      },
+    ),
+  executeConsolidateShell: (slug: string, researchId: string) =>
+    request<{ runId: string }>(
+      `/api/cases/${enc(slug)}/consolidate/research/${enc(researchId)}/execute`,
+      { method: 'POST' },
+    ),
+  abandonConsolidateShell: (slug: string, researchId: string) =>
+    request<true>(`/api/cases/${enc(slug)}/consolidate/research/${enc(researchId)}/abandon`, {
+      method: 'POST',
+    }),
   // ── 作業紀錄 ────────────────────────────────────────────
   notices: (slug: string) => request<CaseNotice[]>(`/api/cases/${enc(slug)}/notices`),
   dismissNotice: (slug: string, noticeId: string) =>

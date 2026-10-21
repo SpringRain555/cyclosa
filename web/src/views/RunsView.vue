@@ -15,6 +15,7 @@ import { errorMessages, fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import ResearchPanel from '../components/ResearchPanel.vue';
 import ConsolidatePanel from '../components/ConsolidatePanel.vue';
+import ConsolidateShellPanel from '../components/ConsolidateShellPanel.vue';
 import CaseNotices from '../components/CaseNotices.vue';
 
 const route = useRoute();
@@ -40,10 +41,30 @@ const throttleNow = ref<{ host: string; ms: number } | null>(null);
  * 「抽進圖」那一塊。**清單會跟著別的事變**：一筆作業跑完（抽過的不再列）、復原（抽過的又回來）、
  * 研究開了或結束（能不能抽）—— 這幾個時刻都叫它重新讀一次。
  */
-const consolidatePanel = ref<InstanceType<typeof ConsolidatePanel> | null>(null);
+const researchPanel = ref<InstanceType<typeof ResearchPanel> | null>(null);
+const researchOpen = ref<boolean | null>(null);
+const consolidateOpen = ref<boolean | null>(null);
 
-function refreshConsolidate(): void {
+function onResearchOpen(state: { slug: string; open: boolean | null }): void {
+  if (state.slug === slug.value) researchOpen.value = state.open;
+}
+
+function onConsolidateOpen(state: { slug: string; open: boolean | null }): void {
+  if (state.slug === slug.value) consolidateOpen.value = state.open;
+}
+
+watch(slug, () => {
+  researchOpen.value = null;
+  consolidateOpen.value = null;
+});
+
+const consolidatePanel = ref<InstanceType<typeof ConsolidatePanel> | null>(null);
+const consolidateShellPanel = ref<InstanceType<typeof ConsolidateShellPanel> | null>(null);
+
+function refreshPanels(): void {
+  void researchPanel.value?.reload();
   void consolidatePanel.value?.reload();
+  void consolidateShellPanel.value?.reload();
 }
 
 async function onConsolidateStarted(id: string): Promise<void> {
@@ -53,7 +74,7 @@ async function onConsolidateStarted(id: string): Promise<void> {
 
 function onResearchRunsChanged(): void {
   void loadRuns();
-  refreshConsolidate();
+  refreshPanels();
 }
 
 let stream: EventSource | null = null;
@@ -104,7 +125,7 @@ function subscribe(id: string): void {
     if (event['type'] === 'settled') {
       closeStream();
       void loadRuns();
-      refreshConsolidate();
+      refreshPanels();
     }
   };
   stream.onerror = () => closeStream();
@@ -321,7 +342,7 @@ async function undo(): Promise<void> {
     }
   }
   undoNote.value = parts.join(' ');
-  refreshConsolidate();
+  refreshPanels();
   await openRun(id);
 }
 
@@ -380,11 +401,25 @@ async function rebuild(): Promise<void> {
       -->
       <ResearchPanel
         id="research"
+        :key="'research-' + slug"
+        ref="researchPanel"
         :slug="slug"
+        :consolidate-open="consolidateOpen"
+        @open-changed="onResearchOpen"
         @error="error = $event"
         @runs-changed="onResearchRunsChanged"
       />
 
+      <ConsolidateShellPanel
+        :key="'consolidate-' + slug"
+        ref="consolidateShellPanel"
+        :slug="slug"
+        :research-open="researchOpen"
+        @open-changed="onConsolidateOpen"
+        @error="error = $event"
+        @started="onConsolidateStarted"
+        @runs-changed="onResearchRunsChanged"
+      />
       <div class="top">
         <section class="card import" :class="{ dragging }">
           <h2>{{ t.runs.newImport }}</h2>

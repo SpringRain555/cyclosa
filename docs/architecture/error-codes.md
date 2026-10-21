@@ -156,6 +156,8 @@
 | `CONSOLIDATE_RESEARCH_OPEN` | error | 這個專題有一次研究還沒結束（D4）| 先把那次研究做完或放棄，再抽 |
 | `CONSOLIDATE_RUNNING` | error | 已經有一筆「抽進圖」在跑（D4）；**開新研究時撞到的也是這一碼** | 等它跑完，或到「歷次紀錄」取消它 |
 | `CONSOLIDATE_SELECTION_INVALID` | error | 一份都沒勾，或勾的有不在「還沒抽過」清單上的（別的分頁剛抽過、剛排除）| **多半是畫面舊了** —— 重新整理再勾一次 |
+| `CONSOLIDATE_OP_STALE` | partial | 整理清單中的抽取提案在執行前已不成立（資料已抽過、排除或沒有正文）| 重新整理整理清單，再決定要不要重跑規劃 |
+| `CONSOLIDATE_PLAN_INVALID` | error | 模型交回的整理清單不符合操作 schema | 這一輪沒有採用；可以重試規劃，或把識別碼交出來 |
 | `CONSOLIDATE_UNEXPECTED` | error | 抽進圖的未預期例外 | 把 `correlation_id` 交出來 |
 
 ## `GRAPH_*` —— 圖與裁決

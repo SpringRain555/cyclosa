@@ -328,23 +328,27 @@ export function getResearch(db: DatabaseSync, id: string): ResearchRow | null {
   return row === undefined ? null : toResearch(row);
 }
 
-/** 這個專題還沒結束的那一次。**最多一列**（資料庫守著）。 */
+/** D4：這個專題還沒結束的研究或整理殼，不篩種類。**最多一列**（資料庫守著）。 */
 export function openResearch(db: DatabaseSync): ResearchRow | null {
   const row = db.prepare('SELECT * FROM research WHERE open_key = 1').get() as Raw | undefined;
   return row === undefined ? null : toResearch(row);
 }
 
 /**
- * 歷次紀錄，新的在前。
+ * 指定種類的歷次紀錄，先篩種類再取筆數，新的在前。
  *
  * **`rowid` 是斷同分的那一把** —— 同一毫秒開的兩次研究（測試裡就是這樣，
  * 而畫面上連按兩次也會）光看 `created_at` 排不出先後，而一個順序不穩的清單
  * 會在每次重新整理時換一種排法。`rowid` 是寫入順序，跟時間同方向。
  */
-export function listResearch(db: DatabaseSync, limit: number): readonly ResearchRow[] {
+export function listResearch(
+  db: DatabaseSync,
+  kind: ResearchKind,
+  limit: number,
+): readonly ResearchRow[] {
   const rows = db
-    .prepare('SELECT * FROM research ORDER BY created_at DESC, rowid DESC LIMIT ?')
-    .all(limit) as Raw[];
+    .prepare('SELECT * FROM research WHERE kind = ? ORDER BY created_at DESC, rowid DESC LIMIT ?')
+    .all(kind, limit) as Raw[];
   return rows.map(toResearch);
 }
 

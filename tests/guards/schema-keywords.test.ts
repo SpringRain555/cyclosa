@@ -20,6 +20,7 @@ import {
   DIGEST_SCHEMA,
   PLAN_SCHEMA,
 } from '../../src/application/research-prompts.js';
+import { CONSOLIDATE_PLAN_SCHEMA } from '../../src/domain/research/consolidate.js';
 import { SUPPORTED_KEYWORDS } from '../../src/domain/provider/schema-check.js';
 import { PROBE_SCHEMA } from '../../src/infrastructure/providers/chat-openai.js';
 
@@ -36,6 +37,8 @@ function keywordsOf(schema: unknown, out = new Set<string>()): Set<string> {
     out.add(key);
     if (key === 'properties' && value !== null && typeof value === 'object') {
       for (const child of Object.values(value)) keywordsOf(child, out);
+    } else if (key === 'anyOf' && Array.isArray(value)) {
+      for (const child of value) keywordsOf(child, out);
     } else if (key === 'items' || key === 'additionalProperties') {
       keywordsOf(value, out);
     }
@@ -50,6 +53,7 @@ function unsupported(schema: unknown): string[] {
 
 describe('送給模型的 schema 只用 conformsTo 認得的關鍵字', () => {
   it.each([
+    ['CONSOLIDATE_PLAN_SCHEMA', CONSOLIDATE_PLAN_SCHEMA],
     ['DIGEST_SCHEMA', DIGEST_SCHEMA],
     ['EXTRACT_SCHEMA', EXTRACT_SCHEMA],
     // 研究的兩份。**規劃那一份 Stage 19 漏了** —— 走只到 json_object 的端點時，它也是 conformsTo 在驗。
@@ -72,7 +76,7 @@ describe('送給模型的 schema 只用 conformsTo 認得的關鍵字', () => {
       },
       additionalProperties: { anyOf: [] },
     };
-    expect(unsupported(injected)).toEqual(['anyOf', 'oneOf', 'pattern']);
+    expect(unsupported(injected)).toEqual(['oneOf', 'pattern']);
     expect(
       keywordsOf({ type: 'object', properties: { minItems: { type: 'string' } } }).has('minItems'),
     ).toBe(false);

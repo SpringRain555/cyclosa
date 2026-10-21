@@ -133,7 +133,14 @@ export function toEdge(row: Raw): EdgeRow {
  * 等級是顯示用的，存的一直是連續分數（glossary 的 `score` 那一條）。
  */
 function edgeWhere(filters: SubgraphFilters): { sql: string; params: (string | number)[] } {
-  const parts: string[] = [];
+  // 合併組內的歷史關聯留在資料庫供取消還原，但不畫成自連線或重新展開被併入的實體。
+  const parts: string[] = [
+    `NOT (source_kind = 'entity' AND target_kind = 'entity' AND EXISTS (
+      SELECT 1 FROM entity AS merged_endpoint
+      WHERE (merged_endpoint.id = source_id AND merged_endpoint.merged_into = target_id)
+         OR (merged_endpoint.id = target_id AND merged_endpoint.merged_into = source_id)
+    ))`,
+  ];
   const params: (string | number)[] = [];
 
   if (filters.statuses.length > 0) {

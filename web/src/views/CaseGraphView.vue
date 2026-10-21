@@ -223,7 +223,7 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
           <SearchPanel
             v-if="searchOpen && slug"
             :slug="slug"
-            @focus="(id: string) => void store.setFocus(id)"
+            @focus="(id: string) => void store.focusAndSelect(id)"
             @open-reader="openInReader"
           />
           <ExportPanel

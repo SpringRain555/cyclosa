@@ -21,6 +21,7 @@ export async function semanticMergeCandidates(
   mentions: ReadonlyMap<string, number>,
   thresholds: MergeThresholds,
   embed: EmbedProvider | null,
+  signal?: AbortSignal,
 ): Promise<Result<readonly SemanticMergeCandidate[]>> {
   const cid = correlationId();
   const pairs = nearbyEntityNames(rows, thresholds.maxNameDistance);
@@ -34,6 +35,7 @@ export async function semanticMergeCandidates(
     const batch = selected.slice(offset, offset + 32);
     const result = await embed.embedDocuments(
       batch.map((row) => [row.name, ...(row.aliases ?? [])].join('\n')),
+      signal,
     );
     if (result.kind === 'error') return err(result.code, cid, { task: 'embed' });
     if (dimension === null) dimension = result.value.dim;

@@ -10,7 +10,7 @@ import {
   type EdgeLayer,
   type QueuePayload,
   type Subgraph,
-} from '../api';
+} from '../api.js';
 
 /**
  * 關聯圖這一頁的狀態。
@@ -185,6 +185,12 @@ export const useGraphStore = defineStore('graph', () => {
     await reload();
   }
 
+  /** 搜尋命中後，同時移動焦點與選取，孤立實體也能打開側欄。 */
+  async function focusAndSelect(id: string): Promise<void> {
+    await setFocus(id);
+    if (focus.value === id) select(id);
+  }
+
   async function setHops(value: number): Promise<void> {
     if (hops.value === value) return;
     hops.value = value;
@@ -315,6 +321,7 @@ export const useGraphStore = defineStore('graph', () => {
     open,
     reload,
     setFocus,
+    focusAndSelect,
     setHops,
     select,
     // 匯出要送出跟這一次查詢**一模一樣**的參數——

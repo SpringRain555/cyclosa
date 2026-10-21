@@ -21,6 +21,7 @@ import * as runs from '../infrastructure/db/repositories/run-repo.js';
 import { readDerived } from '../infrastructure/fs/case-files.js';
 import { casesDir } from '../infrastructure/fs/paths.js';
 import { loadProviders, type Providers } from '../infrastructure/providers/registry.js';
+import { releaseOllamaModels } from '../infrastructure/providers/ollama-release.js';
 import { correlationId, newId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { checkExtract } from './extraction-call.js';
@@ -32,6 +33,8 @@ import * as runRegistry from './run-registry.js';
 import { operationOf } from './consolidate-ops/registry.js';
 import { semanticMergeCandidates } from './entity-merge-candidates.js';
 import { mergePairKey, mergeThresholdsOf } from '../domain/entity/merge-candidates.js';
+
+const planning = new Map<string, AbortController>();
 
 const MAX_ENTITIES = 300;
 const MAX_SINGLE_EVIDENCE_EDGES = 100;
@@ -249,6 +252,7 @@ async function makeContext(
   db: DatabaseSync,
   folder: string,
   providers: Providers,
+  signal?: AbortSignal,
 ): Promise<ContextResult | ErrorCode> {
   const entityRows = entities.listEntities(db);
   const mentions = ops.entityMentionCounts(db);
@@ -258,6 +262,7 @@ async function makeContext(
     mentions,
     mergeThresholdsOf(providers.config.mergeCandidates),
     providers.embed,
+    signal,
   );
   if (!candidates.ok) return candidates.code;
   const allMergeCandidates = candidates.data;
@@ -362,6 +367,8 @@ export async function planConsolidateShell(
   const cid = correlationId();
   const db = await openCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
+  let controller: AbortController | null = null;
+  let usedProviders: Providers | null = null;
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
@@ -369,7 +376,14 @@ export async function planConsolidateShell(
       return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'consolidate' });
     if (row.status !== 'planning')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'plan' });
+    if (planning.has(researchId)) return err('RESEARCH_STEP_INVALID', cid, { researchId });
+    controller = new AbortController();
+    planning.set(researchId, controller);
     const providers = await load();
+    usedProviders = providers;
+    const cancelled = (): boolean =>
+      controller?.signal.aborted === true ||
+      research.getResearch(db, researchId)?.status !== 'planning';
     const planner = providers.planFor({
       schema: CONSOLIDATE_PLAN_SCHEMA,
       systemPrompt: PLAN_SYSTEM,
@@ -377,7 +391,8 @@ export async function planConsolidateShell(
       tools: 'none',
     });
     if (planner === null) return err('PROVIDER_NOT_CONFIGURED', cid, { task: 'plan' });
-    const probe = await planner.probe();
+    const probe = await planner.probe(controller.signal);
+    if (cancelled()) return err('RESEARCH_STEP_INVALID', cid, { researchId });
     if (probe.kind !== 'ready') {
       return err(
         probe.kind === 'not-configured' ? 'PROVIDER_NOT_CONFIGURED' : 'PROVIDER_UNREACHABLE',
@@ -386,15 +401,21 @@ export async function planConsolidateShell(
       );
     }
     const folder = join(casesDir(dataRoot), slug);
-    const context = await makeContext(db, folder, providers);
+    const context = await makeContext(db, folder, providers, controller.signal);
     if (typeof context === 'string') return err(context, cid, { task: 'embed' });
+    if (cancelled()) return err('RESEARCH_STEP_INVALID', cid, { researchId });
     const sandbox = join(folder, 'agent', 'runs', researchId, 'plan');
     await prepareSandbox(sandbox);
-    const call = await planner.run({
-      prompt: context.prompt,
-      cwd: sandbox,
-      timeoutMs: PLAN_TIMEOUT_MS,
-    });
+    if (cancelled()) return err('RESEARCH_STEP_INVALID', cid, { researchId });
+    const call = await planner.run(
+      {
+        prompt: context.prompt,
+        cwd: sandbox,
+        timeoutMs: PLAN_TIMEOUT_MS,
+      },
+      controller.signal,
+    );
+    if (cancelled()) return err('RESEARCH_STEP_INVALID', cid, { researchId });
     const violations = await scanSandbox(sandbox);
     const parsed = call.kind === 'ok' ? parseConsolidatePlan(call.value) : null;
     const code =
@@ -456,6 +477,7 @@ export async function planConsolidateShell(
       elapsedMs: call.cost.elapsedMs,
       costUsd: call.cost.costUsd,
     });
+    if (cancelled()) return err('RESEARCH_STEP_INVALID', cid, { researchId });
     if (code !== null) return err(code, cid, { researchId });
     const sorted = orderConsolidateOps(expanded.map((draft, ord) => ({ ...draft, ord })));
     withTransaction(db, () => {
@@ -481,6 +503,16 @@ export async function planConsolidateShell(
     if (updated === null) return err('RESEARCH_UNEXPECTED', cid, { researchId });
     return ok(shellView(updated, providers, db), cid);
   } finally {
+    if (controller !== null) {
+      planning.delete(researchId);
+      if (
+        controller.signal.aborted &&
+        usedProviders !== null &&
+        runRegistry.activeCount() === 0 &&
+        planning.size === 0
+      )
+        await releaseOllamaModels(usedProviders.config);
+    }
     db.close();
   }
 }
@@ -696,6 +728,7 @@ export async function abandonConsolidateShell(
   dataRoot: string,
   slug: string,
   researchId: string,
+  load: ProvidersLoader = loadProviders,
 ): Promise<Result<true>> {
   const cid = correlationId();
   const db = await openCase(dataRoot, slug);
@@ -709,6 +742,10 @@ export async function abandonConsolidateShell(
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'abandon' });
     if (row.buildRunId !== null) runRegistry.cancel(row.buildRunId);
     research.updateResearchStatus(db, researchId, 'abandoned', Date.now());
+    const controller = planning.get(researchId);
+    if (controller !== undefined) controller.abort();
+    else if (runRegistry.activeCount() === 0 && planning.size === 0)
+      await releaseOllamaModels((await load()).config);
     return ok(true, cid);
   } finally {
     db.close();

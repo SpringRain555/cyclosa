@@ -156,7 +156,10 @@
 | `operations/release-checklist.md` | ✅ | 發布前**只有人才判斷得了**的驗收步驟 | 自動測試涵蓋的東西 |
 | `operations/maintainer-notes.md` | ✅ | **症狀 → 哪個檔 ＋ 哪條測試守著**的查找表 | 任何獨立規則 |
 | `operations/issue-5-acceptance.md` | ✅ | issue #5 的自動驗證範圍、人工操作步驟與維護者品質量測 | 真實資料的品質結論 |
-| `operations/evidence/issue-5/README.md` | ✅ | issue #5 合成介面截圖的方法、證據與限制 | 正式 App 人工驗收結論 |
+| `operations/evidence/issue-5/README.md` | ✅ | issue #5 合成預覽與正式 App／本機模型的驗收證據與限制 | 一般資料集的候選品質保證 |
+| `operations/evidence/issue-5/sources/01-研究中心簡稱.md` | ✅ | 同一機構簡稱的合成匯入資料 | 真實機構資料 |
+| `operations/evidence/issue-5/sources/02-研究中心正式名.md` | ✅ | 同一機構正式名稱的合成匯入資料 | 真實機構資料 |
+| `operations/evidence/issue-5/sources/03-不可合併的機構.md` | ✅ | 不同機構的合成反例 | 真實機構資料 |
 
 > ### 這一區的狀態在 2026-09-06 改了一半
 >

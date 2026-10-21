@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { createCase } from '../../src/application/case-service.js';
 import {
+  abandonConsolidateShell,
   startConsolidateShell,
   planConsolidateShell,
   setConsolidateOpChecked,
@@ -18,6 +19,7 @@ import {
 } from '../../src/application/entity-service.js';
 import { activeCount, cancelAll } from '../../src/application/run-registry.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
+import { loadEdgesAmong } from '../../src/infrastructure/db/repositories/graph-repo.js';
 import * as entities from '../../src/infrastructure/db/repositories/entity-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import { DEFAULT_CONFIG, parseConfig } from '../../src/infrastructure/providers/config.js';
@@ -300,4 +302,130 @@ it('門檻可排除語意相同但名稱太遠的配對，維度或零向量錯�
       await semanticMergeCandidates(rows, new Map(), mergeThresholdsOf(null), embed),
     ).toMatchObject({ ok: false, code: 'PROVIDER_EMBED_MODEL_MISMATCH' });
   }
+});
+
+it('abandon aborts planning and ignores a late successful provider response', async () => {
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  let resolveCall!: () => void;
+  let captured: AbortSignal | undefined;
+  const base = await load();
+  const delayed = async (): Promise<Providers> => ({
+    ...base,
+    planFor: () => ({
+      name: 'delayed',
+      probe: ready,
+      run: async (_input, signal) => {
+        captured = signal;
+        await new Promise<void>((resolve) => {
+          resolveCall = resolve;
+        });
+        return {
+          kind: 'ok',
+          value: JSON.stringify({
+            operations: [{ kind: 'merge', payload: { keep: 'a', drop: 'b' }, why: 'synthetic' }],
+          }),
+          cost,
+        };
+      },
+    }),
+  });
+  const pending = planConsolidateShell(root, slug, opened.data.id, delayed);
+  await expect.poll(() => captured !== undefined).toBe(true);
+  expect(await abandonConsolidateShell(root, slug, opened.data.id, delayed)).toMatchObject({
+    ok: true,
+  });
+  expect(captured?.aborted).toBe(true);
+  resolveCall();
+  expect(await pending).toMatchObject({ ok: false, code: 'RESEARCH_STEP_INVALID' });
+  const view = await getConsolidateShell(root, slug, load);
+  expect(view).toMatchObject({ ok: true, data: { status: 'abandoned', operations: [] } });
+});
+
+it('abandon propagates cancellation through embedding and never starts the planner', async () => {
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  let captured: AbortSignal | undefined;
+  const run = vi.fn();
+  const base = await load();
+  const delayed = async (): Promise<Providers> => ({
+    ...base,
+    embed: {
+      ...embed,
+      embedDocuments: async (_texts, signal) => {
+        captured = signal;
+        await new Promise<void>((resolve) =>
+          signal!.addEventListener('abort', () => resolve(), { once: true }),
+        );
+        return { kind: 'error', code: 'PROVIDER_UNREACHABLE', detail: 'cancelled', cost };
+      },
+    },
+    planFor: () => ({ name: 'unused', probe: ready, run }),
+  });
+  const pending = planConsolidateShell(root, slug, opened.data.id, delayed);
+  await expect.poll(() => captured !== undefined).toBe(true);
+  await abandonConsolidateShell(root, slug, opened.data.id, delayed);
+  await pending;
+  expect(captured?.aborted).toBe(true);
+  expect(run).not.toHaveBeenCalled();
+  expect(await getConsolidateShell(root, slug, load)).toMatchObject({
+    ok: true,
+    data: { status: 'abandoned' },
+  });
+});
+
+it('兩個實體原本互相關聯時，合併不建立自連線；取消後原關聯與端點完整保留', async () => {
+  await inDb((db) => {
+    for (const [id, source, target] of [
+      ['between-forward', 'a', 'b'],
+      ['between-back', 'b', 'a'],
+    ]) {
+      db.prepare(
+        `INSERT INTO edge (id,layer,rel,source_id,source_kind,target_id,target_kind,origin,status,created_at,updated_at)
+        VALUES (?, 'named', '合成關係', ?, 'entity', ?, 'entity', 'human', 'confirmed', 1, 1)`,
+      ).run(id!, source!, target!);
+    }
+  });
+  const before = await inDb((db) =>
+    db.prepare('SELECT id, source_id, target_id, status FROM edge ORDER BY id').all(),
+  );
+  expect(await mergeEntity(root, slug, 'a', 'b')).toMatchObject({ ok: true });
+  expect(
+    await inDb((db) =>
+      db
+        .prepare(
+          'SELECT COUNT(*) AS n FROM edge WHERE source_id=target_id AND source_kind=target_kind',
+        )
+        .get(),
+    ),
+  ).toMatchObject({ n: 0 });
+  expect(
+    await inDb((db) =>
+      db
+        .prepare('SELECT id,source_id,target_id FROM edge WHERE id LIKE ? ORDER BY id')
+        .all('between-%'),
+    ),
+  ).toEqual([
+    { id: 'between-back', source_id: 'b', target_id: 'a' },
+    { id: 'between-forward', source_id: 'a', target_id: 'b' },
+  ]);
+  const visiblePairEdges = () =>
+    inDb((db) =>
+      loadEdgesAmong(db, new Set(['a', 'b']), {
+        kinds: [],
+        statuses: [],
+        layers: [],
+        minTier: null,
+        since: null,
+        until: null,
+      }),
+    );
+  expect(await visiblePairEdges()).toHaveLength(0);
+  expect(await unmergeEntity(root, slug, 'b')).toMatchObject({ ok: true });
+  expect(await visiblePairEdges()).toHaveLength(2);
+  expect(
+    await inDb((db) =>
+      db.prepare('SELECT id, source_id, target_id, status FROM edge ORDER BY id').all(),
+    ),
+  ).toEqual(before);
 });

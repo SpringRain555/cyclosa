@@ -19,8 +19,12 @@ const emit = defineEmits<{
 
 const current = ref<ConsolidateShellView | null>(null);
 const busy = ref(false);
+const abandoning = ref(false);
+let planRevision = 0;
 const loaded = ref(false);
-const startBlocked = computed(() => busy.value || !loaded.value || props.researchOpen !== false);
+const startBlocked = computed(
+  () => busy.value || abandoning.value || !loaded.value || props.researchOpen !== false,
+);
 const localError = ref<ApiError | null>(null);
 const selected = computed(
   () =>
@@ -71,15 +75,18 @@ async function reload(): Promise<void> {
 }
 
 async function plan(researchId: string): Promise<void> {
+  const revision = ++planRevision;
+  const slug = props.slug;
   busy.value = true;
   try {
-    const result = await api.planConsolidateShell(props.slug, researchId);
+    const result = await api.planConsolidateShell(slug, researchId);
+    if (revision !== planRevision || slug !== props.slug) return;
     if (result.ok) {
       current.value = result.data;
       report(null);
     } else {
-      report(result.error);
       await reload();
+      report(result.error);
     }
   } finally {
     busy.value = false;
@@ -145,14 +152,18 @@ async function execute(): Promise<void> {
 
 async function abandon(): Promise<void> {
   const shell = current.value;
-  if (shell === null) return;
-  const result = await api.abandonConsolidateShell(props.slug, shell.id);
-  if (result.ok) {
+  if (shell === null || abandoning.value) return;
+  abandoning.value = true;
+  ++planRevision;
+  try {
+    const result = await api.abandonConsolidateShell(props.slug, shell.id);
     await reload();
-    report(null);
-    emit('runs-changed');
-  } else {
-    report(result.error);
+    if (result.ok) {
+      report(null);
+      emit('runs-changed');
+    } else report(result.error);
+  } finally {
+    abandoning.value = false;
   }
 }
 
@@ -198,7 +209,7 @@ defineExpose({ reload });
       <button
         v-if="current.status !== 'done' && current.status !== 'abandoned'"
         class="secondary"
-        :disabled="busy"
+        :disabled="abandoning"
         @click="abandon"
       >
         {{ t.consolidateShell.abandon }}

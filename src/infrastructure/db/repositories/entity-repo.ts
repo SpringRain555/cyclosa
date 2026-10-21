@@ -228,6 +228,8 @@ export function mergeEntities(
   let duplicates = 0;
 
   for (const row of asSource) {
+    // 兩個待合併實體之間的原關聯保留原端點，避免改成資料庫禁止的自連線；取消時仍完整存在。
+    if (String(row['target_id']) === kept.id) continue;
     const id = String(row['id']);
     if (existing.has(`${kept.id}|${String(row['rel'])}|${String(row['target_id'])}`)) duplicates++;
     db.prepare('UPDATE edge SET source_id = ?, updated_at = ? WHERE id = ?').run(
@@ -238,6 +240,7 @@ export function mergeEntities(
     moved.push({ edgeId: id, field: 'source' });
   }
   for (const row of asTarget) {
+    if (String(row['source_id']) === kept.id) continue;
     const id = String(row['id']);
     if (existing.has(`${String(row['source_id'])}|${String(row['rel'])}|${kept.id}`)) duplicates++;
     db.prepare('UPDATE edge SET target_id = ?, updated_at = ? WHERE id = ?').run(

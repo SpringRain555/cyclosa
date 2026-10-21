@@ -155,6 +155,7 @@
 | `requirements/REQ-0001…0009` | ✅（0009 的 Stage 19–22 已實作；Stage 23–24 仍待實作）| 一項需求的範圍與**邊界（不做什麼）** | 實作方式 |
 | `operations/release-checklist.md` | ✅ | 發布前**只有人才判斷得了**的驗收步驟 | 自動測試涵蓋的東西 |
 | `operations/maintainer-notes.md` | ✅ | **症狀 → 哪個檔 ＋ 哪條測試守著**的查找表 | 任何獨立規則 |
+| `operations/issue-7-acceptance.md` | 🚧 | 整理補關聯的驗收項目與執行狀態 | 已通過但沒有證據的宣稱 |
 
 > ### 這一區的狀態在 2026-09-06 改了一半
 >

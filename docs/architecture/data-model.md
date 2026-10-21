@@ -720,3 +720,7 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 >
 > 型別不夠用的時候要加，但**加之前先問「使用者會用它來篩選嗎」** ——
 > 一個沒有人拿來篩選的型別只是多一個要填的欄位。
+
+### Issue #7 補關聯的復原資訊（未發行）
+
+`consolidate_op` 的 add-edge 操作使用既有 `undo_json` 保存 `{runId, edgeId, before, after}`；before／after 為關聯列、出處與稽核清單的完整快照字串，新建關聯的 before 為 `null`。既有關聯的補出處或墓碑復活逆序退回；新建關聯在快照仍一致時交給共用作業復原。已退回的既有關聯快照加 `reverted: true`，避免重複還原。後續資料不等於 after 時保留，不覆寫或刪除其他作業的內容。無 migration 或 schema 版號變動。

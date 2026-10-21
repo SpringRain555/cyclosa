@@ -42,6 +42,15 @@ import { err, ok, type Result } from '../shared/result.js';
 import { callExtract, checkExtract } from './extraction-call.js';
 import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
 import { executeExtractOperation } from './consolidate-ops/extract.js';
+import { executeAddEdgeOperation } from './consolidate-ops/add-edge.js';
+import { conformsTo } from '../domain/provider/schema-check.js';
+import {
+  ADD_EDGE_OP_SCHEMA,
+  type ConsolidateOpPayloadByKind,
+} from '../domain/research/consolidate.js';
+import { findByTriple } from '../infrastructure/db/repositories/edge-repo.js';
+import { edgeSnapshot } from '../infrastructure/db/repositories/consolidate-edge-undo-repo.js';
+import * as consolidateOps from '../infrastructure/db/repositories/consolidate-op-repo.js';
 import { recordModelCall } from './model-call-log.js';
 import {
   bodyAvailable,
@@ -228,6 +237,7 @@ export interface ConsolidateWorkerPlanEntry {
   readonly itemId: string;
   readonly title: string;
   readonly opId?: string;
+  readonly addEdge?: ConsolidateOpPayloadByKind['add-edge'];
 }
 
 export interface ConsolidateWorkerHooks {
@@ -245,7 +255,7 @@ export function launchConsolidateWorker(input: {
   readonly dataRoot: string;
   readonly slug: string;
   readonly providers: Providers;
-  readonly chat: ChatProvider;
+  readonly chat: ChatProvider | null;
   readonly runId: string;
   readonly plan: readonly ConsolidateWorkerPlanEntry[];
   readonly hooks?: ConsolidateWorkerHooks;
@@ -287,7 +297,7 @@ async function processConsolidate(
   dataRoot: string,
   slug: string,
   providers: Providers,
-  chat: ChatProvider,
+  chat: ChatProvider | null,
   state: registry.ActiveRun,
   plan: readonly ConsolidateWorkerPlanEntry[],
   hooks?: ConsolidateWorkerHooks,
@@ -309,16 +319,18 @@ async function processConsolidate(
     for (const entry of plan) {
       await state.gate();
       if (state.cancelled) break;
+      let trackedItemId = items.getItem(db, entry.itemId)?.id ?? null;
       runs.updateRunItem(db, {
         id: entry.runItemId,
         outcome: 'running',
-        itemId: entry.itemId,
+        itemId: trackedItemId,
         now: Date.now(),
       });
       let code: ErrorCode | null = null;
       let newEdges = 0;
       const derived = await readDerived(folder, entry.itemId);
       if (state.cancelled) break;
+      trackedItemId = items.getItem(db, entry.itemId)?.id ?? null;
       // 規劃之後資料可能被抽過、排除或復原；執行前重查「還沒抽過」事實。
       const candidate = items
         .listExtractionCandidates(db)
@@ -333,9 +345,92 @@ async function processConsolidate(
           machineEvidence: candidate.machineEvidence,
           hasBody: bodyAvailable(derived),
         });
-      if (!eligible)
+      if (entry.addEdge !== undefined) {
+        const payload = entry.addEdge;
+        if (
+          entry.opId === undefined ||
+          derived === null ||
+          readCase(db)?.status === 'archived' ||
+          !conformsTo(ADD_EDGE_OP_SCHEMA, payload).ok
+        ) {
+          code = 'CONSOLIDATE_OP_STALE';
+        } else {
+          const opId = entry.opId;
+          try {
+            withTransaction(db, () => {
+              const existing = findByTriple(activeDb, payload);
+              const before = existing === null ? null : edgeSnapshot(activeDb, existing.id);
+              const applied = executeAddEdgeOperation({
+                db: activeDb,
+                itemId: entry.itemId,
+                runId: state.runId,
+                text: derived.text,
+                extraction: {
+                  entities: [],
+                  relations: [],
+                  dropped: { unknownEntity: 0, selfRelation: 0, duplicate: 0 },
+                },
+                addEdge: payload,
+              });
+              newEdges = applied.newEdges;
+              code = applied.code;
+              const written = findByTriple(activeDb, payload);
+              consolidateOps.setState(activeDb, {
+                id: opId,
+                state:
+                  code === 'CONSOLIDATE_OP_STALE' || code === 'PROVIDER_QUOTE_NOT_FOUND'
+                    ? 'stale'
+                    : code === 'GRAPH_TOMBSTONED'
+                      ? 'skipped'
+                      : 'done',
+                code,
+                runId: state.runId,
+                executedAt: Date.now(),
+                undoJson:
+                  code === null && written !== null
+                    ? JSON.stringify({
+                        runId: state.runId,
+                        edgeId: written.id,
+                        before,
+                        after: edgeSnapshot(activeDb, written.id),
+                      })
+                    : JSON.stringify({ runId: state.runId }),
+              });
+              runs.updateRunItem(activeDb, {
+                id: entry.runItemId,
+                outcome: code === 'CONSOLIDATE_OP_STALE' ? 'failed' : 'ok',
+                code,
+                itemId: trackedItemId,
+                now: Date.now(),
+              });
+              runs.setRunItemEdges(activeDb, entry.runItemId, newEdges);
+            });
+          } catch (error) {
+            if (!isConstraintError(error)) throw error;
+            newEdges = 0;
+            code = 'CONSOLIDATE_UNEXPECTED';
+            consolidateOps.setState(db, {
+              id: opId,
+              state: 'failed',
+              code,
+              runId: state.runId,
+              executedAt: Date.now(),
+            });
+            logger.error('整理關聯寫入失敗', { opId, reason: String(error) });
+          }
+        }
+        if (code === 'CONSOLIDATE_OP_STALE' && entry.opId !== undefined)
+          consolidateOps.setState(db, {
+            id: entry.opId,
+            state: 'stale',
+            code,
+            runId: state.runId,
+            executedAt: Date.now(),
+          });
+      } else if (!eligible || readCase(db)?.status === 'archived')
         code = entry.opId === undefined ? 'PARSE_EMPTY_CONTENT' : 'CONSOLIDATE_OP_STALE';
       else {
+        if (chat === null) throw new Error('extract provider missing');
         const called = await callExtract(chat, derived, abort);
         taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);
         const cost = taskCosts['extract'];
@@ -410,7 +505,7 @@ async function processConsolidate(
         id: entry.runItemId,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.itemId,
+        itemId: items.getItem(db, entry.itemId)?.id ?? null,
         now: Date.now(),
       });
       runs.setRunItemEdges(db, entry.runItemId, newEdges);

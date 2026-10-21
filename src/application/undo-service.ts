@@ -29,11 +29,13 @@ import { join } from 'node:path';
 import { extractedByRun, isOpen } from '../domain/research/index.js';
 import { keptAnything, type UndoPlan } from '../domain/run/index.js';
 import { applyUndoPlan, planUndoRuns } from '../infrastructure/db/undo-core.js';
+import { undoAddedEvidence } from '../infrastructure/db/repositories/consolidate-edge-undo-repo.js';
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
 import * as runs from '../infrastructure/db/repositories/run-repo.js';
+import * as consolidateOps from '../infrastructure/db/repositories/consolidate-op-repo.js';
 import { removeDerived } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
@@ -98,6 +100,7 @@ export async function undoRun(
   const db: DatabaseSync = opened.db;
   let plan: UndoPlan;
   let deletedEntities: number;
+  let keptModifiedEdges: number;
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
     const run = runs.getRun(db, runId);
@@ -120,8 +123,26 @@ export async function undoRun(
     // 而那正好是一條看起來可以被確認、卻沒有東西支撐它的邊。
     db.exec('BEGIN IMMEDIATE');
     try {
-      plan = planUndoRuns(db, [runId]);
-      deletedEntities = applyUndoPlan(db, plan);
+      const preservedEdges = undoAddedEvidence(db, runId);
+      plan = planUndoRuns(db, [runId], preservedEdges);
+      keptModifiedEdges = [...preservedEdges].filter((id) => !plan.keepEdges.includes(id)).length;
+      const preservedEntities = new Set<string>();
+      if (run.researchId !== null) {
+        for (const operation of consolidateOps.listOps(db, run.researchId)) {
+          if (operation.runId !== runId || operation.kind !== 'add-edge') continue;
+          try {
+            const payload = JSON.parse(operation.payloadJson) as {
+              source?: unknown;
+              target?: unknown;
+            };
+            if (typeof payload.source === 'string') preservedEntities.add(payload.source);
+            if (typeof payload.target === 'string') preservedEntities.add(payload.target);
+          } catch {
+            /* 損壞的操作內容不提供端點資訊。 */
+          }
+        }
+      }
+      deletedEntities = applyUndoPlan(db, plan, preservedEntities);
       clearExtractedBy(db, run, new Set(plan.deleteItems));
       db.exec('COMMIT');
     } catch (e) {
@@ -147,9 +168,9 @@ export async function undoRun(
       deletedEdges: plan.deleteEdges.length,
       deletedEntities,
       keptItems: plan.keepItems.length,
-      keptEdges: plan.keepEdges.length,
+      keptEdges: plan.keepEdges.length + keptModifiedEdges,
       keptAsEvidence: plan.keptAsEvidence.length,
-      partial: keptAnything(plan),
+      partial: keptAnything(plan) || keptModifiedEdges > 0,
     },
     cid,
   );

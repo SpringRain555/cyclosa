@@ -782,3 +782,11 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 | 任何往外送資料的端點 | 這是單機工具（REQ-0008 的「刻意不做」）|
 | 認證 | 只綁 `127.0.0.1`。**這是既有風險不是疏漏**（ADR-0002 的代價那一節）|
 | offset 分頁 | 5 萬筆規模下會逐列掃 |
+
+### 整理補關聯（Issue #7，未發行）
+
+操作 `add-edge` 的 payload 維持 `{source, target, rel, itemId, quote}`。操作清單回傳 `executable: true`，可透過既有 checked 端點勾選；摘要包含兩端、關係、來源標題與引文。規劃回傳後會用實際來源正文重新定位提案引文，不局限於原上下文已列出的引文。
+
+執行與抽取共用同一次 consolidate 作業，順序為抽取後補關聯；只勾補關聯時不檢查抽取服務、不呼叫模型。每條執行前重新檢查端點、來源狀態與引文，失效記 `stale`；引文找不到記 `PROVIDER_QUOTE_NOT_FOUND`，不寫邊或出處。墓碑阻擋記 `skipped`／`GRAPH_TOMBSTONED`；新的來源仍照既有墓碑例外提回待查證，人工判斷不自動改成已確認。作業明細沿用既有錯誤訊息顯示原因。
+
+復原沿用 `POST …/runs/:runId/undo`：新建關聯走共用刪除規則；既有關聯的補出處與墓碑復活在 `consolidate_op.undo_json` 保存前後快照，逆序還原。快照不再一致時保留並以 partial／keptEdges 回報，避免覆寫後來的人工作業。原本就存在的補關聯端點不因復原後孤立而被刪除。未更動 SQLite schema。

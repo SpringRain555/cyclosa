@@ -76,7 +76,7 @@ export function setChecked(db: DatabaseSync, id: string, checked: boolean): bool
   const result = db
     .prepare(
       `UPDATE consolidate_op SET checked = ?
-       WHERE id = ? AND state = 'proposed' AND kind = 'extract'`,
+       WHERE id = ? AND state = 'proposed' AND kind IN ('extract','add-edge')`,
     )
     .run(checked ? 1 : 0, id);
   return Number(result.changes) === 1;

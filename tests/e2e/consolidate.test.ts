@@ -23,7 +23,15 @@ import { activeCount, cancel, cancelAll } from '../../src/application/run-regist
 import { createSampleCase } from '../../src/application/sample-service.js';
 import { undoRun } from '../../src/application/undo-service.js';
 import { openCaseDatabase, type DatabaseSync } from '../../src/infrastructure/db/database.js';
-import { removeDerived } from '../../src/infrastructure/fs/case-files.js';
+import { removeDerived, readDerived } from '../../src/infrastructure/fs/case-files.js';
+import { insertEntity, getEntity } from '../../src/infrastructure/db/repositories/entity-repo.js';
+import {
+  findByTriple,
+  evidenceRows,
+  setStatus,
+  appendAudit,
+} from '../../src/infrastructure/db/repositories/edge-repo.js';
+import type { ConsolidateOpDraft } from '../../src/domain/research/consolidate.js';
 import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import * as consolidateOps from '../../src/infrastructure/db/repositories/consolidate-op-repo.js';
@@ -38,6 +46,7 @@ let saved: string | undefined;
 let calls = 0;
 let holdAt = 0;
 let held: ServerResponse | null = null;
+let proposedOperations: readonly ConsolidateOpDraft[] | null = null;
 
 async function inDb<T>(body: (db: DatabaseSync) => T): Promise<T> {
   const opened = await openCaseDatabase(join(root, 'cases', slug, 'case.sqlite'));
@@ -118,11 +127,13 @@ beforeAll(async () => {
           JSON.stringify({
             message: {
               content: JSON.stringify({
-                operations: itemIds.map((itemId) => ({
-                  kind: 'extract',
-                  payload: { itemIds: [itemId] },
-                  why: '合成規劃建議抽取這份未整理資料',
-                })),
+                operations:
+                  proposedOperations ??
+                  itemIds.map((itemId) => ({
+                    kind: 'extract',
+                    payload: { itemIds: [itemId] },
+                    why: '合成規劃建議抽取這份未整理資料',
+                  })),
               }),
             },
           }),
@@ -179,6 +190,7 @@ beforeEach(async () => {
     'utf8',
   );
   calls = 0;
+  proposedOperations = null;
   holdAt = 0;
   held = null;
   expect((await initDataRoot(root)).ok).toBe(true);
@@ -423,4 +435,200 @@ it('復原那一筆：抽出來的關聯刪掉，「抽過了」清回去，那�
   });
   const after = await listed();
   for (const id of picked) expect(after).toContain(id);
+});
+
+async function edgeDraft(): Promise<Extract<ConsolidateOpDraft, { kind: 'add-edge' }>> {
+  const itemId = (await listed())[0];
+  if (itemId === undefined) throw new Error('missing fixture source');
+  const derived = await readDerived(join(root, 'cases', slug), itemId);
+  if (derived === null) throw new Error('missing fixture body');
+  await inDb((db) => {
+    insertEntity(db, { id: 'issue7-a', name: '虛構補關聯甲', type: 'concept', now: 1 });
+    insertEntity(db, { id: 'issue7-b', name: '虛構補關聯乙', type: 'concept', now: 1 });
+  });
+  return {
+    kind: 'add-edge',
+    payload: {
+      source: 'issue7-a',
+      target: 'issue7-b',
+      rel: '虛構測試關係',
+      itemId,
+      quote: derived.text.slice(0, 40),
+    },
+    why: '虛構補關聯驗收',
+  };
+}
+
+async function edgeShell(drafts: readonly ConsolidateOpDraft[]): Promise<string> {
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  const prefix = await inDb((db) =>
+    consolidateOps.getOp(db, 'issue7-op-0') === null ? 'issue7-' : opened.data.id + '-',
+  );
+  await inDb((db) => {
+    drafts.forEach((draft, ord) =>
+      consolidateOps.insertOp(db, {
+        id: prefix + 'op-' + String(ord),
+        researchId: opened.data.id,
+        ord,
+        kind: draft.kind,
+        payloadJson: JSON.stringify(draft.payload),
+        why: draft.why,
+      }),
+    );
+    researchRows.updateResearchStatus(db, opened.data.id, 'reviewing', Date.now());
+  });
+  for (let ord = 0; ord < drafts.length; ord += 1) {
+    const checked = await setConsolidateOpChecked(
+      root,
+      slug,
+      opened.data.id,
+      prefix + 'op-' + String(ord),
+      true,
+    );
+    if (!checked.ok) throw new Error(checked.code);
+  }
+  return opened.data.id;
+}
+
+it('補關聯完整流程：不呼叫抽取模型，寫入待查證後能復原且原端點保留', async () => {
+  const draft = await edgeDraft();
+  const shell = await edgeShell([draft]);
+  const started = await executeConsolidateShell(root, slug, shell);
+  if (!started.ok) throw new Error(started.code);
+  await idle();
+  expect(calls).toBe(0);
+  await inDb((db) => {
+    expect(findByTriple(db, draft.payload)).toMatchObject({ status: 'pending', origin: 'machine' });
+    expect(consolidateOps.getOp(db, 'issue7-op-0')?.state).toBe('done');
+    expect(runs.getRun(db, started.data.runId)).toMatchObject({ status: 'done', total: 1 });
+  });
+  const undone = await undoRun(root, slug, started.data.runId);
+  expect(undone.ok, JSON.stringify(undone)).toBe(true);
+  await inDb((db) => {
+    expect(findByTriple(db, draft.payload)).toBeNull();
+    expect(getEntity(db, 'issue7-a')).not.toBeNull();
+    expect(getEntity(db, 'issue7-b')).not.toBeNull();
+    expect(items.getItem(db, draft.payload.itemId)).not.toBeNull();
+  });
+});
+
+it('補關聯的失效引文不寫入，其他提案仍完成並顯示原因', async () => {
+  const draft = await edgeDraft();
+  const invalid: ConsolidateOpDraft = {
+    ...draft,
+    payload: { ...draft.payload, rel: '不存在的引文', quote: '這段虛構引文不會出現在範例正文裡。' },
+  };
+  const shell = await edgeShell([invalid, draft]);
+  const started = await executeConsolidateShell(root, slug, shell);
+  if (!started.ok) throw new Error(started.code);
+  await idle();
+  await inDb((db) => {
+    expect(findByTriple(db, invalid.payload)).toBeNull();
+    expect(findByTriple(db, draft.payload)).not.toBeNull();
+    expect(consolidateOps.getOp(db, 'issue7-op-0')).toMatchObject({
+      state: 'stale',
+      code: 'PROVIDER_QUOTE_NOT_FOUND',
+    });
+    expect(runs.getRun(db, started.data.runId)).toMatchObject({
+      status: 'partial',
+      succeeded: 1,
+      failed: 1,
+    });
+  });
+});
+
+it('規劃定位新引文，不限定原上下文的既有出處；無法定位的提案丟棄', async () => {
+  const draft = await edgeDraft();
+  proposedOperations = [
+    draft,
+    { ...draft, payload: { ...draft.payload, quote: '完全不存在的虛構引文，不能加入清單。' } },
+  ];
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  const planned = await planConsolidateShell(root, slug, opened.data.id);
+  if (!planned.ok) throw new Error(planned.code);
+  expect(planned.data.operations).toHaveLength(1);
+  expect(planned.data.operations[0]).toMatchObject({
+    kind: 'add-edge',
+    executable: true,
+    checked: false,
+  });
+  expect(planned.data.dropped.reasons['edge-quote-not-found']).toBe(1);
+});
+
+it('來源在確認後刪除，操作記 stale 而非整筆作業意外中止', async () => {
+  const draft = await edgeDraft();
+  const shell = await edgeShell([draft]);
+  await inDb((db) => db.prepare('DELETE FROM item WHERE id=?').run(draft.payload.itemId));
+  const started = await executeConsolidateShell(root, slug, shell);
+  if (!started.ok) throw new Error(started.code);
+  await idle();
+  await inDb((db) => {
+    expect(consolidateOps.getOp(db, 'issue7-op-0')).toMatchObject({
+      state: 'stale',
+      code: 'CONSOLIDATE_OP_STALE',
+    });
+    expect(findByTriple(db, draft.payload)).toBeNull();
+    expect(runs.getRun(db, started.data.runId)?.errorCode).not.toBe('CONSOLIDATE_UNEXPECTED');
+  });
+});
+
+it('補關聯後人工確認，復原保留人工判斷', async () => {
+  const draft = await edgeDraft();
+  const shell = await edgeShell([draft]);
+  const started = await executeConsolidateShell(root, slug, shell);
+  if (!started.ok) throw new Error(started.code);
+  await idle();
+  await inDb((db) => {
+    const edge = findByTriple(db, draft.payload)!;
+    setStatus(db, edge.id, 'confirmed', Date.now());
+    appendAudit(db, {
+      edgeId: edge.id,
+      from: 'pending',
+      to: 'confirmed',
+      action: 'confirm',
+      actor: 'human',
+      runId: null,
+      at: Date.now(),
+    });
+  });
+  const undone = await undoRun(root, slug, started.data.runId);
+  expect(undone).toMatchObject({ ok: true, data: { partial: true, keptEdges: 1 } });
+  await inDb((db) => {
+    const edge = findByTriple(db, draft.payload)!;
+    expect(edge.status).toBe('confirmed');
+    expect(evidenceRows(db, edge.id)).toHaveLength(1);
+  });
+});
+
+it('新建關聯後另一筆作業補出處，先復原前筆不刪掉後筆內容', async () => {
+  const draft = await edgeDraft();
+  const firstShell = await edgeShell([draft]);
+  const first = await executeConsolidateShell(root, slug, firstShell);
+  if (!first.ok) throw new Error(first.code);
+  await idle();
+  const otherId = (await listed())[0];
+  if (otherId === undefined) throw new Error('missing second source');
+  const derived = await readDerived(join(root, 'cases', slug), otherId);
+  if (derived === null) throw new Error('missing second body');
+  const secondDraft: ConsolidateOpDraft = {
+    ...draft,
+    payload: {
+      ...draft.payload,
+      itemId: otherId,
+      quote: derived.text.slice(0, 40),
+    },
+  };
+  const secondShell = await edgeShell([secondDraft]);
+  const second = await executeConsolidateShell(root, slug, secondShell);
+  if (!second.ok) throw new Error(second.code);
+  await idle();
+  const protectedUndo = await undoRun(root, slug, first.data.runId);
+  expect(protectedUndo).toMatchObject({ ok: true, data: { partial: true, keptEdges: 1 } });
+  await inDb((db) => expect(evidenceRows(db, findByTriple(db, draft.payload)!.id)).toHaveLength(2));
+  expect((await undoRun(root, slug, second.data.runId)).ok).toBe(true);
+  await inDb((db) => expect(evidenceRows(db, findByTriple(db, draft.payload)!.id)).toHaveLength(1));
+  expect((await undoRun(root, slug, first.data.runId)).ok).toBe(true);
+  await inDb((db) => expect(findByTriple(db, draft.payload)).toBeNull());
 });

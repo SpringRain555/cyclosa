@@ -8,6 +8,7 @@ export interface ExtractExecution {
   readonly text: string;
   readonly extraction: import('../../domain/provider/relations.js').Extraction;
   readonly completed?: (result: AppliedExtraction) => void;
+  readonly addEdge?: import('../../domain/research/consolidate.js').ConsolidateOpPayloadByKind['add-edge'];
 }
 
 export interface ConsolidateOpDefinition {

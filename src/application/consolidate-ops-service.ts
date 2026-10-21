@@ -136,7 +136,18 @@ function operationSummary(kind: ConsolidateOpKind, payload: unknown, db: Databas
     entities.getEntity(db, String(data['source'] ?? ''))?.name ?? itemTitle(data['source']);
   const target =
     entities.getEntity(db, String(data['target'] ?? ''))?.name ?? itemTitle(data['target']);
-  return source + ' → ' + String(data['rel'] ?? '') + ' → ' + target;
+  return (
+    source +
+    ' → ' +
+    String(data['rel'] ?? '') +
+    ' → ' +
+    target +
+    ' · ' +
+    itemTitle(data['itemId']) +
+    ' · “' +
+    String(data['quote'] ?? '') +
+    '”'
+  );
 }
 function shellView(
   row: research.ResearchRow,
@@ -414,6 +425,14 @@ export async function planConsolidateShell(
             ? 'CONSOLIDATE_PLAN_INVALID'
             : null;
     const now = Date.now();
+    for (const draft of parsed ?? []) {
+      if (draft.kind !== 'add-edge' || !context.facts.itemIds.has(draft.payload.itemId)) continue;
+      const derived = await readDerived(folder, draft.payload.itemId);
+      if (derived !== null && locateQuote(derived.text, draft.payload.quote).kind === 'found')
+        (context.facts.verifiedQuoteKeys as Set<string>).add(
+          consolidateQuoteKey(draft.payload.itemId, draft.payload.quote),
+        );
+    }
     const validation = parsed === null ? null : validateConsolidatePlan(parsed, context.facts);
     const droppedRows = validation?.dropped.slice() ?? [];
     const expanded: ConsolidateOpDraft[] = [];
@@ -515,9 +534,10 @@ export async function setConsolidateOpChecked(
       return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'reviewing' });
-    if (operation.kind !== 'extract' || operation.state !== 'proposed')
+    if (operationOf(operation.kind).execute === null || operation.state !== 'proposed')
       return err('RESEARCH_STEP_INVALID', cid, { kind: operation.kind });
-    if (checked) {
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
+    if (checked && operation.kind === 'extract') {
       const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
       const id = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
       const available = new Set(
@@ -558,7 +578,9 @@ export async function executeConsolidateShell(
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'reviewing' });
     const selected = ops
       .listOps(db, researchId)
-      .filter((op) => op.checked && op.state === 'proposed' && op.kind === 'extract');
+      .filter(
+        (op) => op.checked && op.state === 'proposed' && operationOf(op.kind).execute !== null,
+      );
     if (selected.length === 0) return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'empty' });
     const open = research.openResearch(db);
     if (open !== null && open.id !== researchId)
@@ -569,17 +591,56 @@ export async function executeConsolidateShell(
     if (activeRun !== undefined) return err('CONSOLIDATE_RUNNING', cid, { runId: activeRun });
 
     const providers = await load();
-    const checked = await checkExtract(providers, cid);
-    if (!checked.ok) return checked;
+    const needsExtract = selected.some((operation) => operation.kind === 'extract');
+    const checked = needsExtract ? await checkExtract(providers, cid) : null;
+    if (checked !== null && !checked.ok) return checked;
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
+    if (research.getResearch(db, researchId)?.status !== 'reviewing')
+      return err('RESEARCH_STEP_INVALID', cid, { researchId });
+    const fresh = ops
+      .listOps(db, researchId)
+      .filter(
+        (op) => op.checked && op.state === 'proposed' && operationOf(op.kind).execute !== null,
+      );
+    if (JSON.stringify(fresh) !== JSON.stringify(selected))
+      return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'changed' });
+    const competing = runs
+      .listRunningRunIdsOfKind(db, 'consolidate')
+      .find((id) => runRegistry.isActive(id));
+    if (competing !== undefined) return err('CONSOLIDATE_RUNNING', cid, { runId: competing });
     const runId = newId();
     const plan = selected.flatMap((operation) => {
-      const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
-      const itemId = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
+      const payload = parseJson(operation.payloadJson, null) as {
+        itemIds?: unknown;
+        itemId?: unknown;
+      } | null;
+      const itemId =
+        operation.kind === 'add-edge'
+          ? payload?.itemId
+          : Array.isArray(payload?.itemIds)
+            ? payload.itemIds[0]
+            : undefined;
       if (typeof itemId !== 'string') return [];
       const item = items.getItem(db, itemId);
-      return item === null
-        ? []
-        : [{ runItemId: newId(), itemId, title: item.title, opId: operation.id }];
+      return [
+        {
+          runItemId: newId(),
+          itemId,
+          title:
+            operation.kind === 'add-edge'
+              ? operationSummary(operation.kind, payload, db)
+              : (item?.title ?? itemId),
+          opId: operation.id,
+          ...(operation.kind === 'add-edge'
+            ? {
+                addEdge: parseJson(
+                  operation.payloadJson,
+                  {},
+                ) as import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['add-edge'],
+              }
+            : {}),
+        },
+      ];
     });
     if (plan.length === 0) return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'empty' });
     withTransaction(db, () => {
@@ -591,9 +652,9 @@ export async function executeConsolidateShell(
         correlationId: cid,
         now: Date.now(),
         providers: JSON.stringify({
-          extract: checked.data.chat.name,
+          extract: checked?.ok ? checked.data.chat.name : null,
           plan: providers.config.tasks.plan.model,
-          json: { extract: checked.data.mode },
+          json: { extract: checked?.ok ? checked.data.mode : null },
         }),
         researchId,
       });
@@ -603,7 +664,7 @@ export async function executeConsolidateShell(
           runId,
           requested: entry.title,
           host: null,
-          itemId: entry.itemId,
+          itemId: items.getItem(db, entry.itemId)?.id ?? null,
         });
       }
       research.setBuildRun(db, researchId, runId, Date.now());
@@ -614,12 +675,13 @@ export async function executeConsolidateShell(
       dataRoot,
       slug,
       providers,
-      chat: checked.data.chat,
+      chat: checked?.ok ? checked.data.chat : null,
       runId,
       plan,
       hooks: {
         onItemSettled: (activeDb, entry, code, outcome) => {
-          if (entry.opId === undefined || !opById.has(entry.opId)) return;
+          if (entry.opId === undefined || !opById.has(entry.opId) || entry.addEdge !== undefined)
+            return;
           const state =
             code === 'CONSOLIDATE_OP_STALE' ? 'stale' : outcome === 'failed' ? 'failed' : 'done';
           ops.setState(activeDb, {

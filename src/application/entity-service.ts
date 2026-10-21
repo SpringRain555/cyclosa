@@ -136,7 +136,9 @@ export async function listMergedEntities(
   dataRoot: string,
   slug: string,
   keptId: string,
-): Promise<Result<readonly { id: string; name: string }[]>> {
+): Promise<
+  Result<readonly { id: string; name: string; canUnmerge: boolean; mergeId: string | null }[]>
+> {
   return withCase(dataRoot, slug, (db) => {
     const cid = correlationId();
     if (entities.getEntity(db, keptId) === null)
@@ -145,7 +147,12 @@ export async function listMergedEntities(
       entities
         .listEntities(db)
         .filter((row) => row.mergedInto === keptId)
-        .map((row) => ({ id: row.id, name: row.name })),
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          mergeId: entities.activeMergeId(db, row.id),
+          canUnmerge: readCase(db)?.status !== 'archived' && entities.canUnmergeEntity(db, row.id),
+        })),
       cid,
     );
   });
@@ -160,6 +167,9 @@ export async function mergeEntity(
 ): Promise<Result<MergeResult>> {
   return withCase(dataRoot, slug, (db) => {
     const cid = correlationId();
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
+    if (entities.hasMergedChildren(db, mergedId))
+      return err('GRAPH_TRANSITION_INVALID', cid, { why: 'merge-children' });
     if (keptId === mergedId) return err('GRAPH_SELF_EDGE', cid, { keptId });
 
     const kept = entities.getEntity(db, keptId);
@@ -196,10 +206,14 @@ export async function unmergeEntity(
   dataRoot: string,
   slug: string,
   mergedId: string,
+  expectedMergeId?: string,
 ): Promise<Result<{ readonly restored: number }>> {
   return withCase(dataRoot, slug, (db) => {
     const cid = correlationId();
-    const done = withTransaction(db, () => entities.unmergeEntity(db, mergedId, Date.now()));
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
+    const done = withTransaction(db, () =>
+      entities.unmergeEntity(db, mergedId, Date.now(), expectedMergeId),
+    );
     if (done === null) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'no-merge-record' });
     return ok(done, cid);
   });

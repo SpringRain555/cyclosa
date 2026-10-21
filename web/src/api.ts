@@ -1452,12 +1452,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ keptId, mergedId }),
     }),
-  unmergeEntity: (slug: string, entityId: string) =>
+  unmergeEntity: (slug: string, entityId: string, mergeId?: string) =>
     request<{ restored: number }>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/unmerge`, {
       method: 'POST',
+      ...(mergeId === undefined ? {} : { body: JSON.stringify({ mergeId }) }),
     }),
   mergedEntities: (slug: string, entityId: string) =>
-    request<{ id: string; name: string }[]>(
+    request<{ id: string; name: string; canUnmerge: boolean; mergeId: string | null }[]>(
       `/api/cases/${enc(slug)}/entities/${enc(entityId)}/merged`,
     ),
 

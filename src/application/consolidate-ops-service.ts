@@ -530,6 +530,7 @@ export async function setConsolidateOpChecked(
   const db = await openCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.kind !== 'consolidate')
@@ -598,6 +599,7 @@ export async function executeConsolidateShell(
   const db = await openCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.kind !== 'consolidate')
@@ -625,6 +627,22 @@ export async function executeConsolidateShell(
       ? await checkExtract(providers, cid)
       : null;
     if (checked !== null && !checked.ok) return checked;
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
+    if (research.getResearch(db, researchId)?.status !== 'reviewing')
+      return err('RESEARCH_STEP_INVALID', cid, { researchId });
+    const runningNow = runs
+      .listRunningRunIdsOfKind(db, 'consolidate')
+      .find((id) => runRegistry.isActive(id));
+    if (runningNow !== undefined) return err('CONSOLIDATE_RUNNING', cid, { runId: runningNow });
+    const selectedNow = orderConsolidateOps(
+      ops
+        .listOps(db, researchId)
+        .filter(
+          (op) => op.checked && op.state === 'proposed' && operationOf(op.kind).execute !== null,
+        ),
+    );
+    if (JSON.stringify(selectedNow) !== JSON.stringify(selected))
+      return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'changed' });
     const runId = newId();
     const plan = selected.flatMap(
       (operation): import('./consolidate-service.js').ConsolidateWorkerPlanEntry[] => {

@@ -1375,12 +1375,20 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post<{ Params: { slug: string; entityId: string } }>(
+  app.post<{ Params: { slug: string; entityId: string }; Body: { mergeId?: unknown } }>(
     '/api/cases/:slug/entities/:entityId/unmerge',
     async (req, reply) => {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
-      return send(reply, await unmergeEntity(dataRoot, req.params.slug, req.params.entityId));
+      return send(
+        reply,
+        await unmergeEntity(
+          dataRoot,
+          req.params.slug,
+          req.params.entityId,
+          typeof req.body?.mergeId === 'string' ? req.body.mergeId : undefined,
+        ),
+      );
     },
   );
 }

@@ -429,3 +429,168 @@ it('兩個實體原本互相關聯時，合併不建立自連線；取消後原�
     ),
   ).toEqual(before);
 });
+
+it('取消合併移除本次吸收的別名，保留原別名與後來新增的別名，重抽可對回原實體', async () => {
+  await inDb((db) => {
+    entities.addAlias(db, 'a', '虛構原別名', 1);
+    entities.addAlias(db, 'b', '虛構吸收別名', 1);
+  });
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  await inDb((db) => entities.addAlias(db, 'a', '虛構後續別名', 2));
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(true);
+  await inDb((db) => {
+    expect(entities.getEntity(db, 'a')?.aliases).toEqual(['虛構原別名', '虛構後續別名']);
+    expect(entities.findEntityFor(entities.listEntities(db), '合成研究中芯', 'org')?.id).toBe('b');
+    expect(entities.findEntityFor(entities.listEntities(db), '虛構吸收別名', 'org')?.id).toBe('b');
+  });
+});
+it('已吸收其他實體的保留者不可再被吸收，避免產生合併鏈', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  expect(await mergeEntity(root, slug, 'c', 'a')).toMatchObject({
+    ok: false,
+    code: 'GRAPH_TRANSITION_INVALID',
+  });
+});
+it('同一保留者多次合併必須逆序取消，避免互相覆寫端點', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  expect((await mergeEntity(root, slug, 'a', 'c')).ok).toBe(true);
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(false);
+  expect((await unmergeEntity(root, slug, 'c')).ok).toBe(true);
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(true);
+});
+it('封存專題禁止直接合併、取消合併及整理勾選和執行', async () => {
+  const shell = await planned();
+  const operation = shell.operations.find((op) => op.kind === 'merge')!;
+  expect((await setConsolidateOpChecked(root, slug, shell.id, operation.id, true)).ok).toBe(true);
+  await inDb((db) => db.exec(`UPDATE "case" SET status='archived'`));
+  expect(await mergeEntity(root, slug, 'a', 'b')).toMatchObject({
+    ok: false,
+    code: 'CASE_ARCHIVED',
+  });
+  expect(await unmergeEntity(root, slug, 'b')).toMatchObject({ ok: false, code: 'CASE_ARCHIVED' });
+  expect(await setConsolidateOpChecked(root, slug, shell.id, operation.id, true)).toMatchObject({
+    ok: false,
+    code: 'CASE_ARCHIVED',
+  });
+  expect(await executeConsolidateShell(root, slug, shell.id, load)).toMatchObject({
+    ok: false,
+    code: 'CASE_ARCHIVED',
+  });
+});
+
+it('取消舊合併的延遲請求不能取消同一實體後來的新合併', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  const oldId = await inDb((db) => entities.activeMergeId(db, 'b'));
+  expect((await unmergeEntity(root, slug, 'b', oldId!)).ok).toBe(true);
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  expect((await unmergeEntity(root, slug, 'b', oldId!)).ok).toBe(false);
+  expect(await inDb((db) => entities.getEntity(db, 'b')?.mergedInto)).toBe('a');
+});
+it('損壞的移動紀錄不清掉合併指向，也不修改任何邊', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  await inDb((db) => db.exec("UPDATE entity_merge SET moved_json='invalid' WHERE merged_id='b'"));
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(false);
+  await inDb((db) => {
+    expect(entities.getEntity(db, 'b')?.mergedInto).toBe('a');
+    expect(db.prepare("SELECT target_id FROM edge WHERE id='edge'").get()).toMatchObject({
+      target_id: 'a',
+    });
+  });
+});
+it('等待服務時重複送出，只會建立一筆合併作業', async () => {
+  const shell = await planned();
+  const op = shell.operations.find((entry) => entry.kind === 'merge')!;
+  expect((await setConsolidateOpChecked(root, slug, shell.id, op.id, true)).ok).toBe(true);
+  const providers = await load();
+  let arrived = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const waiting = async () => {
+    arrived++;
+    await gate;
+    return providers;
+  };
+  const first = executeConsolidateShell(root, slug, shell.id, waiting);
+  const second = executeConsolidateShell(root, slug, shell.id, waiting);
+  await expect.poll(() => arrived).toBe(2);
+  release();
+  expect((await Promise.all([first, second])).filter((r) => r.ok)).toHaveLength(1);
+  await expect.poll(activeCount).toBe(0);
+});
+it.each(['archive', 'uncheck', 'abandon'] as const)(
+  '等待服務期間 %s 後不會使用舊選擇執行合併',
+  async (action) => {
+    const shell = await planned();
+    const op = shell.operations.find((entry) => entry.kind === 'merge')!;
+    expect((await setConsolidateOpChecked(root, slug, shell.id, op.id, true)).ok).toBe(true);
+    const providers = await load();
+    let arrived = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const pending = executeConsolidateShell(root, slug, shell.id, async () => {
+      arrived = true;
+      await gate;
+      return providers;
+    });
+    await expect.poll(() => arrived).toBe(true);
+    if (action === 'abandon') await abandonConsolidateShell(root, slug, shell.id);
+    else
+      await inDb((db) => {
+        if (action === 'archive') db.exec(`UPDATE "case" SET status='archived'`);
+        else db.prepare('UPDATE consolidate_op SET checked=0 WHERE id=?').run(op.id);
+      });
+    release();
+    expect((await pending).ok).toBe(false);
+    expect(
+      await inDb((db) => entities.listEntities(db).filter((e) => e.mergedInto !== null)),
+    ).toHaveLength(0);
+  },
+);
+
+it('保留舊版 moved_json 陣列格式，沒有別名快照的舊紀錄仍可取消且不猜測刪別名', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  await inDb((db) => {
+    const record = db.prepare("SELECT moved_json FROM entity_merge WHERE merged_id='b'").get() as {
+      moved_json: string;
+    };
+    expect(Array.isArray(JSON.parse(record.moved_json))).toBe(true);
+    db.exec("UPDATE entity_merge SET reason='manual' WHERE merged_id='b'");
+  });
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(true);
+  await inDb((db) =>
+    expect(entities.findEntityFor(entities.listEntities(db), '合成研究中芯', 'org')?.id).toBe('b'),
+  );
+});
+
+it('合併後新增給保留者的關聯不會在取消時被搬走', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  await inDb((db) =>
+    db.exec(
+      "INSERT INTO edge (id,layer,rel,source_id,source_kind,target_id,target_kind,origin,status,confidence,created_at,updated_at) VALUES ('later','comention','提到','item','item','a','entity','machine','pending',1,2,2)",
+    ),
+  );
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(true);
+  await inDb((db) => {
+    expect(db.prepare("SELECT target_id FROM edge WHERE id='edge'").get()).toMatchObject({
+      target_id: 'b',
+    });
+    expect(db.prepare("SELECT target_id FROM edge WHERE id='later'").get()).toMatchObject({
+      target_id: 'a',
+    });
+  });
+});
+it('移動過的端點被後續改動時，取消失效而不是覆寫後來的端點', async () => {
+  expect((await mergeEntity(root, slug, 'a', 'b')).ok).toBe(true);
+  await inDb((db) => db.exec("UPDATE edge SET target_id='c' WHERE id='edge'"));
+  expect((await unmergeEntity(root, slug, 'b')).ok).toBe(false);
+  await inDb((db) => {
+    expect(entities.getEntity(db, 'b')?.mergedInto).toBe('a');
+    expect(db.prepare("SELECT target_id FROM edge WHERE id='edge'").get()).toMatchObject({
+      target_id: 'c',
+    });
+  });
+});

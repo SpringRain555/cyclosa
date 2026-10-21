@@ -786,3 +786,10 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 | 任何往外送資料的端點 | 這是單機工具（REQ-0008 的「刻意不做」）|
 | 認證 | 只綁 `127.0.0.1`。**這是既有風險不是疏漏**（ADR-0002 的代價那一節）|
 | offset 分頁 | 5 萬筆規模下會逐列掃 |
+
+### 合併取消的版本與順序保護（issue #5 複查）
+
+`GET …/entities/:entityId/merged` 另回每項的 `mergeId`（目前合併紀錄）與 `canUnmerge`；封存或不是最後一次合併時不能取消，面板會停用並提示順序。
+`POST …/entities/:entityId/unmerge` 可附 `{mergeId}`；新面板一律附上，過期識別碼不能取消後來的新合併。不附仍保留既有 API 語義，舊客戶端無此過期請求保護。
+封存的直接合併、取消與整理勾選／執行回 `CASE_ARCHIVED`。已有併入項目的實體再被吸收、錯誤取消順序或失效紀錄回 `GRAPH_TRANSITION_INVALID`。
+整理執行等待服務檢查後會重查清單、殼狀態與活動作業，取消勾選、放棄、封存或重複送出不會使用舊快照開新作業。

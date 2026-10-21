@@ -143,6 +143,9 @@ export function findEntityFor(
   type: EntityType,
 ): EntityRow | null {
   const live = entities.filter((e) => e.mergedInto === null && e.type === type);
+  // 取消合併後，原本名的身分優先於別人曾經吸收過的別名（也保護舊版紀錄）。
+  const exact = live.find((e) => identityKey(e.name) === identityKey(name));
+  if (exact !== undefined) return exact;
   for (const candidate of live) {
     if (matchOf({ name: candidate.name, aliases: candidate.aliases }, { name }) !== null) {
       return candidate;
@@ -251,7 +254,11 @@ export function mergeEntities(
     moved.push({ edgeId: id, field: 'target' });
   }
 
+  const beforeAliases = new Set(kept.aliases.map(identityKey));
   for (const alias of [merged.name, ...merged.aliases]) addAlias(db, kept.id, alias, input.now);
+  const addedAliases = (getEntity(db, kept.id)?.aliases ?? []).filter(
+    (alias) => !beforeAliases.has(identityKey(alias)),
+  );
 
   db.prepare('UPDATE entity SET merged_into = ?, merged_at = ?, updated_at = ? WHERE id = ?').run(
     kept.id,
@@ -263,7 +270,14 @@ export function mergeEntities(
   db.prepare(
     `INSERT INTO entity_merge (id, kept_id, merged_id, reason, moved_json, at)
      VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(input.id, kept.id, merged.id, input.reason, JSON.stringify(moved), input.now);
+  ).run(
+    input.id,
+    kept.id,
+    merged.id,
+    JSON.stringify({ version: 2, reason: input.reason, addedAliases }),
+    JSON.stringify(moved),
+    input.now,
+  );
 
   return { moved, duplicates };
 }
@@ -278,36 +292,119 @@ export function unmergeEntity(
   db: DatabaseSync,
   mergedId: string,
   now: number,
+  expectedMergeId?: string,
 ): { readonly restored: number } | null {
-  const record = db
-    .prepare(
-      `SELECT id, kept_id, merged_id, moved_json FROM entity_merge
-       WHERE merged_id = ? AND undone_at IS NULL ORDER BY at DESC LIMIT 1`,
-    )
-    .get(mergedId) as Raw | undefined;
-  if (record === undefined) return null;
-
-  let moved: MovedEdge[] = [];
+  const record = activeMergeRecord(db, mergedId);
+  if (
+    record === null ||
+    !canUnmergeEntity(db, mergedId) ||
+    (expectedMergeId !== undefined && record['id'] !== expectedMergeId)
+  )
+    return null;
+  let moved: MovedEdge[];
+  let addedAliases: string[] = [];
   try {
-    const parsed: unknown = JSON.parse(String(record['moved_json'] ?? '[]'));
-    if (Array.isArray(parsed)) moved = parsed as MovedEdge[];
+    const parsed: unknown = JSON.parse(String(record['moved_json']));
+    if (
+      !Array.isArray(parsed) ||
+      parsed.some((edge: unknown) => {
+        const e = edge as Partial<MovedEdge> | null;
+        return (
+          e === null ||
+          typeof e !== 'object' ||
+          typeof e.edgeId !== 'string' ||
+          !['source', 'target'].includes(String(e.field))
+        );
+      })
+    )
+      return null;
+    moved = parsed as MovedEdge[];
   } catch {
-    moved = [];
+    return null;
   }
-
+  // reason 原本是未限制的文字；新紀錄包入版本化的理由與別名差異。
+  // moved_json 保持舊陣列格式，舊版程式仍能安全還原關聯。
+  try {
+    const metadata = JSON.parse(String(record['reason'])) as {
+      version?: unknown;
+      addedAliases?: unknown;
+    };
+    if (metadata?.version === 2) {
+      if (
+        !Array.isArray(metadata.addedAliases) ||
+        metadata.addedAliases.some((alias: unknown) => typeof alias !== 'string')
+      )
+        return null;
+      addedAliases = metadata.addedAliases as string[];
+    }
+  } catch {
+    /* 舊版理由是一般文字，沒有足夠資訊安全推算吸收的別名。 */
+  }
+  const keptId = String(record['kept_id']);
+  // 先驗全部端點，遇到後續改動或損壞紀錄時不能只還原一半。
   for (const entry of moved) {
     const column = entry.field === 'source' ? 'source_id' : 'target_id';
-    db.prepare(`UPDATE edge SET ${column} = ?, updated_at = ? WHERE id = ?`).run(
-      mergedId,
-      now,
-      entry.edgeId,
+    const edge = db
+      .prepare(`SELECT ${column} AS endpoint FROM edge WHERE id=?`)
+      .get(entry.edgeId) as Raw | undefined;
+    if (edge !== undefined && edge['endpoint'] !== keptId) return null;
+  }
+  let restored = 0;
+  for (const entry of moved) {
+    const column = entry.field === 'source' ? 'source_id' : 'target_id';
+    restored += Number(
+      db
+        .prepare(`UPDATE edge SET ${column} = ?, updated_at = ? WHERE id = ?`)
+        .run(mergedId, now, entry.edgeId).changes,
     );
   }
-
+  if (addedAliases.length > 0) {
+    const added = new Set(addedAliases.map(identityKey));
+    const kept = getEntity(db, keptId);
+    if (kept !== null)
+      db.prepare('UPDATE entity SET aliases_json=?,updated_at=? WHERE id=?').run(
+        JSON.stringify(kept.aliases.filter((alias) => !added.has(identityKey(alias)))),
+        now,
+        keptId,
+      );
+  }
   db.prepare(
     'UPDATE entity SET merged_into = NULL, merged_at = NULL, updated_at = ? WHERE id = ?',
   ).run(now, mergedId);
   db.prepare('UPDATE entity_merge SET undone_at = ? WHERE id = ?').run(now, String(record['id']));
+  return { restored };
+}
 
-  return { restored: moved.length };
+function activeMergeRecord(db: DatabaseSync, mergedId: string): Raw | null {
+  return (
+    (db
+      .prepare(
+        'SELECT rowid AS sequence, * FROM entity_merge WHERE merged_id=? AND undone_at IS NULL ORDER BY rowid DESC LIMIT 1',
+      )
+      .get(mergedId) as Raw | undefined) ?? null
+  );
+}
+/** 吸收過別人的實體不能再被吸收，維持單層指向。 */
+export function hasMergedChildren(db: DatabaseSync, entityId: string): boolean {
+  return db.prepare('SELECT 1 FROM entity WHERE merged_into=? LIMIT 1').get(entityId) !== undefined;
+}
+/** 同一保留者依寫入順序逆序取消；不依系統時鐘排序。 */
+export function canUnmergeEntity(db: DatabaseSync, mergedId: string): boolean {
+  const record = activeMergeRecord(db, mergedId);
+  if (record === null) return false;
+  const kept = getEntity(db, String(record['kept_id']));
+  const merged = getEntity(db, mergedId);
+  if (kept === null || kept.mergedInto !== null || merged?.mergedInto !== kept.id) return false;
+  return (
+    db
+      .prepare(
+        'SELECT 1 FROM entity_merge WHERE kept_id=? AND undone_at IS NULL AND rowid>? LIMIT 1',
+      )
+      .get(kept.id, Number(record['sequence'])) === undefined
+  );
+}
+
+export function activeMergeId(db: DatabaseSync, mergedId: string): string | null {
+  const record = activeMergeRecord(db, mergedId);
+  return record === null ? null : String(record['id']);
 }

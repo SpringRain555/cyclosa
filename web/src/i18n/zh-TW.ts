@@ -661,6 +661,7 @@ export const t = {
   /** 實體對齊。 */
   entities: {
     mergeTitle: '看起來是同一個',
+    unmergeOrder: '多次合併請先取消最後一次；封存的專題須先重新開啟。',
     absorbed: '併入這個實體的項目',
     unmerge: '取消合併',
     /** 這個數字要說出後果，不然它只是一個待辦。 */

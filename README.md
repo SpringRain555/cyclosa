@@ -111,7 +111,7 @@ ollama pull hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16
 
 - **Claude Code**：需另行安裝並完成登入，在模型服務裡設定 CLI。找候選來源時只開放搜尋能力，
   找到的網址仍由 Cyclosa 的擷取管線處理。
-- **OpenAI 相容 API**：在模型服務裡設定端點、金鑰的環境變數名稱與模型。
+- **OpenAI 相容 API**：在模型服務裡設定端點、金鑰的環境變數名稱與模型；也可接 vLLM 提供的 gpt-oss-120b。
   對話先走 Responses API，只有 `/responses` 回傳 404 才退回 Chat Completions；
   JSON 格式能力會實際量測，不保證所有標示「相容」的端點都能使用。
   找候選來源另需通過搜尋能力檢查，不是能對話就能找來源。

@@ -66,6 +66,7 @@ function fromItems(items: readonly unknown[]): {
         if (typeof q === 'string' && q.length > 0 && !queries.includes(q)) queries.push(q);
       }
     } else if (item['type'] === 'message') {
+      // reasoning 輸出項目的文字不採用；只有 message/output_text 是回答。
       const parts = Array.isArray(item['content']) ? (item['content'] as unknown[]) : [];
       const texts = parts
         .map(obj)

@@ -208,6 +208,8 @@ async function askChat(
       const choice = json.choices?.[0];
       return {
         kind: 'answer',
+        // 部分相容服務（包含 gpt-oss 部署）會另回 reasoning 欄位。
+        // 推理內容一律丟棄；只有 message.content 可以作為任務輸出。
         content: typeof choice?.message?.content === 'string' ? choice.message.content : '',
         // 被截斷的空回應跟「模型壞了」下一步不同 —— 把對方自己說的理由帶出去。
         truncated:

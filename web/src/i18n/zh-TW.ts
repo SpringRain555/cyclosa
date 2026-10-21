@@ -1676,7 +1676,7 @@ export const t = {
       ollama:
         '開著 Ollama 就能用：預設位址就是它的預設埠 11434，只有改過 OLLAMA_HOST 才需要改這一格。走它自己的協定，才關得掉模型的思考、指定得了 context 大小 —— 兩件事都量過會影響結果。',
       openai:
-        '位址照那一家的文件寫，通常以 /v1 結尾（vLLM、LM Studio 也是）。先走 Responses API（有網頁搜尋工具），沒有那條路的端點才退回 Chat Completions；走到哪一種，上面那張表的「格式保證」會寫。',
+        '位址照那一家的文件寫，通常以 /v1 結尾（vLLM、LM Studio 也是），可接 vLLM 提供的 gpt-oss-120b。先走 Responses API（有網頁搜尋工具），沒有那條路的端點才退回 Chat Completions；走到哪一種，上面那張表的「格式保證」會寫。',
     },
     connState: {
       ready: '連得上',

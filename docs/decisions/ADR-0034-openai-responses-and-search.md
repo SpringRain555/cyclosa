@@ -109,3 +109,13 @@ Ollama 那一塊的說明回答了使用者問的「開著就能用嗎、要設 
   （搜尋服務），`find-sources` 多一個 `via`；不要塞進 OpenAI 相容 API 那一塊。
 - 「研究」（ADR-0033）的規劃對話要邊查邊談：Responses API 的 `web_search` 讓 OpenAI 相容 API 也做得到，
   D5「只有 CLI 能邊查邊談」那一句要改。
+
+## 2026-10-20 追加：vLLM 上的 gpt-oss 相容性與抽取量測
+
+gpt-oss-120b 可作為 OpenAI 相容 API 的使用者自選模型，例如由 vLLM 提供端點。這不改變 ADR-0035 的任何建議值；各端點與模型仍依既有流程量 JSON 格式，使用者在設定頁可看到量測到的協定。
+
+gpt-oss 可能在 Chat Completions 的 `message.reasoning` 欄位，或 Responses API 的 reasoning output item 提供推理內容。兩者都不作為任務答案或診斷文字；空 `content`／只有 reasoning 的回應依既有 `PROVIDER_OUTPUT_UNPARSEABLE` 處理。`plan`、`digest`、`extract` 的兩種對話回應形狀以手寫 fixture 守住。
+
+抽取品質與耗時不以一次 endpoint check 判定。`tools/dev/measure-extract.ts` 以三份指定資料逐份呼叫 `callExtract`，比較 OpenAI 相容 gpt-oss-120b 與 Ollama gemma4:12b 的 schema 有效性、關聯數、引文命中數與時間；結果只供觀察，不設門檻，報告不含正文或端點 URL。量測判準與空表先提交於 `docs/research/gpt-oss-extract-measurement.md`。
+
+2026-10-20 由 Claude 查證 Hugging Face API：`openai/gpt-oss-120b` 的 author 為 `openai`、license 為 `apache-2.0`，沒有 `base_model` 欄位。查證日已回寫 `tests/guards/model-origin.test.ts`；來源表每列仍要求日期，不接受待查標記。

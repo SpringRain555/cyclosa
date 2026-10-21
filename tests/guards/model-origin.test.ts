@@ -40,7 +40,7 @@ interface Origin {
   readonly checked: string;
 }
 
-/** 2026-09-29 查證（`docs/research/sources/manifest.jsonl` 那一天的 `huggingface.co/api/models/…` 各列）。 */
+/** 2026-09-29 查證（`docs/research/sources/manifest.jsonl` 當日的 HF API 各列）；gpt-oss 另於 2026-10-20 由 Claude 查證 HF API。 */
 const ALLOWED: readonly Origin[] = [
   {
     family: 'granite',
@@ -113,6 +113,14 @@ const ALLOWED: readonly Origin[] = [
     base: 'nomic-embed-text-v2-moe-unsupervised（Nomic 自己的）',
     license: 'Apache-2.0',
     checked: '2026-09-29',
+  },
+  {
+    family: 'gpt-oss',
+    publisher: 'OpenAI',
+    country: '美國',
+    base: 'gpt-oss（OpenAI 自己的，沒有外部底座）',
+    license: 'Apache-2.0',
+    checked: '2026-10-20',
   },
 ];
 

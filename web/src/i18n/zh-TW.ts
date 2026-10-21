@@ -854,6 +854,7 @@ export const t = {
   },
 
   consolidateShell: {
+    researchOpen: '研究進行中，結束或放棄之後才能開始整理。',
     title: '整理專題',
     what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版只會執行抽取，其餘操作先列出但不能勾選。',
     service: '規劃走 {service}，會使用模型額度。',
@@ -1255,6 +1256,7 @@ export const t = {
    * 同一天「會花錢」也改成「**會用到額度**」：用訂閱的話，用掉的是額度不是錢。本機的照舊寫「不花錢」。
    */
   research: {
+    consolidateOpen: '整理進行中，結束或放棄之後才能開始研究。',
     open: '研究',
     requests: '打了 {n} 次模型',
     usedProviders: '用的是 {chat}',

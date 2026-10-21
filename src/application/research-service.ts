@@ -129,8 +129,9 @@ export async function startResearch(
 ): Promise<Result<ResearchView>> {
   const cid = correlationId();
   const kind = kindOf(input.kind);
+  if (kind !== 'research') return err('RESEARCH_STEP_INVALID', cid, { kind, want: 'research' });
   const topic = input.topic.trim();
-  if (kind === 'research' && topic.length === 0) {
+  if (topic.length === 0) {
     return err('SEARCH_QUERY_EMPTY', cid, { why: 'no-topic' });
   }
 
@@ -177,7 +178,7 @@ export async function startResearch(
       research.insertResearch(db, {
         id,
         kind,
-        topic: kind === 'research' ? topic : null,
+        topic,
         hitsJson: JSON.stringify(hits),
         correlationId: cid,
         now,
@@ -216,6 +217,8 @@ export async function converse(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     if (!mayConverse(row.status)) {
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'converse' });
     }
@@ -421,6 +424,8 @@ export async function editDirections(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     if (!mayEditDirections(row.status)) {
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'edit' });
     }
@@ -475,6 +480,8 @@ export async function startCollecting(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     const plan = planOf(row.planJson);
     if (!mayStartCollecting(row.status, plan.directions.length)) {
       return err('RESEARCH_STEP_INVALID', cid, {
@@ -569,6 +576,8 @@ export async function abandonResearch(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     if (!mayAbandon(row.status)) {
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'abandon' });
     }
@@ -616,6 +625,8 @@ export async function deleteResearch(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     if (!mayDelete(row.status)) {
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'delete' });
     }
@@ -658,13 +669,15 @@ export async function getResearchView(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     return ok(await viewOf(db, row, await load(), join(casesDir(dataRoot), slug)), cid);
   } finally {
     db.close();
   }
 }
 
-/** 歷次紀錄那一欄（新的在前）。**這一版只有研究**，匯入與舊的擴展還在作業那一支。 */
+/** 歷次研究（新的在前），整理殼由整理面板讀取。 */
 export async function listResearchViews(
   dataRoot: string,
   slug: string,
@@ -679,7 +692,7 @@ export async function listResearchViews(
     return ok(
       await Promise.all(
         research
-          .listResearch(db, limit)
+          .listResearch(db, 'research', limit)
           .map((row) => viewOf(db, row, providers, join(casesDir(dataRoot), slug))),
       ),
       cid,

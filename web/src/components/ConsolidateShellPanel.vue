@@ -9,15 +9,18 @@ import {
 } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 
-const props = defineProps<{ slug: string }>();
+const props = defineProps<{ slug: string; researchOpen: boolean | null }>();
 const emit = defineEmits<{
   (event: 'error', error: ApiError | null): void;
   (event: 'started', runId: string): void;
   (event: 'runs-changed'): void;
+  (event: 'open-changed', state: { slug: string; open: boolean | null }): void;
 }>();
 
 const current = ref<ConsolidateShellView | null>(null);
 const busy = ref(false);
+const loaded = ref(false);
+const startBlocked = computed(() => busy.value || !loaded.value || props.researchOpen !== false);
 const localError = ref<ApiError | null>(null);
 const selected = computed(
   () =>
@@ -48,11 +51,21 @@ function report(error: ApiError | null): void {
 }
 
 async function reload(): Promise<void> {
-  const result = await api.consolidateShell(props.slug);
+  const slug = props.slug;
+  const result = await api.consolidateShell(slug);
+  if (slug !== props.slug) return;
   if (result.ok) {
     current.value = result.data;
+    loaded.value = true;
+    emit('open-changed', {
+      slug,
+      open:
+        result.data !== null && result.data.status !== 'done' && result.data.status !== 'abandoned',
+    });
     report(null);
   } else {
+    loaded.value = false;
+    emit('open-changed', { slug, open: null });
     report(result.error);
   }
 }
@@ -74,6 +87,7 @@ async function plan(researchId: string): Promise<void> {
 }
 
 async function start(): Promise<void> {
+  if (startBlocked.value) return;
   busy.value = true;
   try {
     const currentShell = current.value;
@@ -87,6 +101,8 @@ async function start(): Promise<void> {
         report(result.error);
         return;
       }
+      emit('open-changed', { slug: props.slug, open: true });
+      emit('runs-changed');
       await reload();
       await plan(result.data.id);
       return;
@@ -162,6 +178,7 @@ defineExpose({ reload });
   <section class="card consolidate-shell">
     <h2>{{ t.consolidateShell.title }}</h2>
     <p class="card-what">{{ t.consolidateShell.what }}</p>
+    <p v-if="researchOpen === true" class="hint">{{ t.consolidateShell.researchOpen }}</p>
     <p v-if="current" class="hint">
       {{
         fill(current.service.costs ? t.consolidateShell.service : t.consolidateShell.serviceFree, {
@@ -172,7 +189,7 @@ defineExpose({ reload });
     <p v-if="localError" class="error-text">{{ localError.message }}</p>
 
     <template v-if="current === null">
-      <button class="primary" :disabled="busy" @click="start">
+      <button class="primary" :disabled="startBlocked" @click="start">
         {{ busy ? t.consolidateShell.planning : t.consolidateShell.start }}
       </button>
     </template>
@@ -189,13 +206,13 @@ defineExpose({ reload });
       <button
         v-if="current.status === 'done' || current.status === 'abandoned'"
         class="primary"
-        :disabled="busy"
+        :disabled="startBlocked"
         @click="start"
       >
         {{ t.consolidateShell.start }}
       </button>
       <template v-if="current.status === 'planning'">
-        <button class="primary" :disabled="busy" @click="start">
+        <button class="primary" :disabled="startBlocked" @click="start">
           {{
             busy
               ? t.consolidateShell.planning

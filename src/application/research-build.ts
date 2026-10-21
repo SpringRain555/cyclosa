@@ -56,6 +56,8 @@ export async function editCandidateDecision(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     const candidate = research.getCandidate(db, candidateId);
     if (row.status !== 'reviewing' || candidate?.researchId !== researchId)
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status });
@@ -118,6 +120,8 @@ export async function startBuilding(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     const candidates = research.listCandidates(db, researchId);
     if (
       !mayStartBuilding(row.status, candidates.map(effectiveDecision)) &&
@@ -186,6 +190,8 @@ export async function finishBuilding(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     const run = row.buildRunId === null ? null : runs.getRun(db, row.buildRunId);
     if (
       !mayFinishBuilding(

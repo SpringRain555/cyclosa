@@ -967,6 +967,8 @@ async function withResearch(
   try {
     const row = research.getResearch(db, researchId);
     if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'research')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     const failed = await body(db, row, cid);
     if (failed !== null && !failed.ok) return failed;
     const after = research.getResearch(db, researchId);

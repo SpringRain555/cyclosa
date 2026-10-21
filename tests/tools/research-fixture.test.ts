@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getConsolidateShell } from '../../src/application/consolidate-ops-service.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import { createCase } from '../../src/application/case-service.js';
-import { getResearchView } from '../../src/application/research-service.js';
+import { getResearchView, listResearchViews } from '../../src/application/research-service.js';
 import { forgetSwept } from '../../src/application/run-sweep.js';
 import { openCaseDatabase } from '../../src/infrastructure/db/database.js';
 import {
@@ -92,6 +92,7 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
       succeeded: 2,
       failed: 0,
     });
+    expect(await listResearchViews(dataRoot, slug)).toMatchObject({ ok: true, data: [] });
     const view = await getConsolidateShell(dataRoot, slug);
     if (!view.ok || view.data === null) throw new Error('合成整理殼讀取失敗');
     expect(view.data).toMatchObject({

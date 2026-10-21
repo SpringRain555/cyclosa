@@ -186,10 +186,7 @@ export async function getConsolidateShell(
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
-    const row = research
-      .listResearch(db, 100)
-      .filter((candidate) => candidate.kind === 'consolidate')
-      .sort((a, b) => b.createdAt - a.createdAt)[0];
+    const row = research.listResearch(db, 'consolidate', 1)[0];
     return row === undefined ? ok(null, cid) : ok(shellView(row, await load(), db), cid);
   } finally {
     db.close();
@@ -376,8 +373,9 @@ export async function planConsolidateShell(
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
     const row = research.getResearch(db, researchId);
-    if (row === null || row.kind !== 'consolidate')
-      return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'consolidate')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'consolidate' });
     if (row.status !== 'planning')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'plan' });
     const providers = await load();
@@ -509,8 +507,11 @@ export async function setConsolidateOpChecked(
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
     const row = research.getResearch(db, researchId);
+    if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'consolidate')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'consolidate' });
     const operation = ops.getOp(db, opId);
-    if (row === null || operation === null || operation.researchId !== researchId)
+    if (operation === null || operation.researchId !== researchId)
       return err('RESEARCH_NOT_FOUND', cid, { researchId });
     if (row.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'reviewing' });
@@ -550,8 +551,9 @@ export async function executeConsolidateShell(
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
     const row = research.getResearch(db, researchId);
-    if (row === null || row.kind !== 'consolidate')
-      return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'consolidate')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'consolidate' });
     if (row.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'reviewing' });
     const selected = ops
@@ -656,8 +658,9 @@ export async function abandonConsolidateShell(
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
     const row = research.getResearch(db, researchId);
-    if (row === null || row.kind !== 'consolidate')
-      return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row === null) return err('RESEARCH_NOT_FOUND', cid, { researchId });
+    if (row.kind !== 'consolidate')
+      return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'consolidate' });
     if (row.status === 'done' || row.status === 'abandoned')
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status, want: 'abandon' });
     if (row.buildRunId !== null) runRegistry.cancel(row.buildRunId);

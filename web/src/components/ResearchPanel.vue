@@ -40,7 +40,7 @@ import {
 } from '../api';
 import { errorMessages, fill, t } from '../i18n/zh-TW';
 
-const props = defineProps<{ slug: string }>();
+const props = defineProps<{ slug: string; consolidateOpen: boolean | null }>();
 const emit = defineEmits<{
   (e: 'error', error: ApiError | null): void;
   /**
@@ -48,9 +48,11 @@ const emit = defineEmits<{
    * 不通知的話，剛開出來的那幾筆要重新整理才看得到（D10 截圖看出來的）。
    */
   (e: 'runs-changed'): void;
+  (e: 'open-changed', state: { slug: string; open: boolean | null }): void;
 }>();
 const router = useRouter();
 
+const loaded = ref(false);
 const list = ref<Research[]>([]);
 const current = ref<Research | null>(null);
 const topic = ref('');
@@ -164,20 +166,29 @@ watch(
 );
 
 async function load(): Promise<void> {
-  const res = await api.listResearch(props.slug);
+  const slug = props.slug;
+  const res = await api.listResearch(slug);
+  if (slug !== props.slug) return;
   if (!res.ok) {
+    loaded.value = false;
+    emit('open-changed', { slug, open: null });
     report(res.error);
     return;
   }
   list.value = res.data;
   const live = res.data.find((r) => r.status !== 'done' && r.status !== 'abandoned') ?? null;
-  current.value = live ?? current.value;
+  current.value = live ?? res.data.find((r) => r.id === current.value?.id) ?? null;
+  loaded.value = true;
+  emit('open-changed', { slug, open: live !== null });
 }
 
 watch(
   () => props.slug,
   () => {
     deletion.value = null;
+    current.value = null;
+    list.value = [];
+    loaded.value = false;
     void load();
   },
   { immediate: true },
@@ -263,7 +274,7 @@ watch(
 // ── 規劃 ────────────────────────────────────────────────────
 
 async function start(): Promise<void> {
-  if (topic.value.trim().length === 0) return;
+  if (!loaded.value || props.consolidateOpen !== false || topic.value.trim().length === 0) return;
   busy.value = 'start';
   report(null);
   const res = await api.startResearch(props.slug, topic.value.trim());
@@ -274,7 +285,9 @@ async function start(): Promise<void> {
   }
   topic.value = '';
   current.value = res.data;
+  emit('open-changed', { slug: props.slug, open: true });
   await load();
+  emit('runs-changed');
 }
 
 async function talk(): Promise<void> {
@@ -727,6 +740,7 @@ const hitsText = computed(() => {
   if (row.hits.length === 0) return fill(t.research.hitsNone, { total: row.hitTotal });
   return fill(t.research.hitsSome, { total: row.hitTotal, n: row.hits.length });
 });
+defineExpose({ reload: load });
 </script>
 
 <template>
@@ -740,8 +754,19 @@ const hitsText = computed(() => {
         <input v-model="topic" type="text" :placeholder="t.research.topicPlaceholder" />
       </label>
       <p class="hint">{{ t.research.freeHint }}</p>
+      <p v-if="consolidateOpen === true" class="hint">{{ t.research.consolidateOpen }}</p>
       <div class="actions">
-        <button class="primary" :disabled="busy !== '' || topic.trim().length === 0" @click="start">
+        <button
+          class="primary"
+          :disabled="
+            !loaded ||
+            consolidateOpen !== false ||
+            busy !== '' ||
+            topic.trim().length === 0 ||
+            list.some((r) => r.status !== 'done' && r.status !== 'abandoned')
+          "
+          @click="start"
+        >
           {{ busy === 'start' ? t.research.starting : t.research.start }}
         </button>
       </div>

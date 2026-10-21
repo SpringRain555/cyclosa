@@ -17,7 +17,7 @@
 
 - **修正整理殼驗收的 migration 與合成資料**：升級測試以目前支援的 schema 版本為準，保留 v13 清除斷言；合成整理資料先建資料節點再寫作業明細、完成匯入作業，並由整理畫面服務驗收操作與範圍。
 
-- **Stage 24 issue #4 整理殼與操作清單（尚未發行）**：新增 v14 `consolidate_op`，以 `research.kind='consolidate'` 開規劃殼；使用 `plan` 任務且不給工具，依專題資料提出並驗證操作、顯示上下文範圍與被丟棄原因。操作按固定順序保存，第一版只可勾選並執行抽取，沿用既有抽進圖 worker 與作業復原。D4 與舊抽進圖卡片互查；其他四種操作及單一出處關聯清單留待後續 issue。新增 seed 狀態與 domain／application／e2e／guard 測試。
+- **Stage 24 issue #4 整理殼與操作清單（尚未發行）**：新增 v14 `consolidate_op`，以 `research.kind='consolidate'` 開規劃殼；使用 `plan` 任務且不給工具，依專題資料提出並驗證操作、顯示上下文範圍與被丟棄原因。操作按固定順序保存，第一版只可勾選並執行抽取，沿用既有抽進圖 worker 與作業復原。D4 與舊抽進圖卡片互查；其他四種操作及單一出處關聯清單留待後續 issue。新增 seed 狀態與 domain／application／e2e／guard 測試。研究與整理的清單及操作入口依種類隔離，面板互相顯示進行中提示並停用開始按鈕，D4 仍跨種類互斥。
 
 - **修正 Claude Code 用量事件的判讀**：原本從 `rate_limit_event` 最上層讀欄位，且不看 `status`，讓每次呼叫都被記成撞到限制、重置時間顯示為 `?`。
   現在從 `rate_limit_info` 解析狀態與用量資料；`allowed` 不記錄，接近上限寫 info，其餘狀態寫 warn，只有遭拒時才用它作錯誤細節。測試：`tests/infrastructure/agent-claude-stream.test.ts`。

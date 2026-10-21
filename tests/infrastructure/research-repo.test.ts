@@ -142,11 +142,42 @@ describe('一次研究', () => {
     start('r2');
     research.updateResearchStatus(db, 'r2', 'abandoned', NOW + 2);
     start('r3');
-    expect(research.listResearch(db, 10).map((r) => r.id)).toEqual(['r3', 'r2', 'r1']);
+    expect(research.listResearch(db, 'research', 10).map((r) => r.id)).toEqual(['r3', 'r2', 'r1']);
     expect(research.openResearch(db)?.id).toBe('r3');
     // 終態一定同時有結束時間 —— 「已完成但不知道什麼時候完成」讀不出意義。
     expect(research.getResearch(db, 'r1')?.endedAt).toBe(NOW + 1);
     expect(research.getResearch(db, 'r3')?.endedAt).toBeNull();
+  });
+
+  it('清單按種類篩選後才取筆數；D4 仍看得到開著的整理殼', () => {
+    start('r1');
+    research.updateResearchStatus(db, 'r1', 'done', NOW);
+    for (const id of ['c1', 'c2']) {
+      research.insertResearch(db, {
+        id,
+        kind: 'consolidate',
+        topic: null,
+        hitsJson: '[]',
+        correlationId: 'cid',
+        now: NOW,
+      });
+      if (id === 'c1') research.updateResearchStatus(db, id, 'done', NOW);
+    }
+    expect(research.listResearch(db, 'research', 1).map((r) => r.id)).toEqual(['r1']);
+    expect(research.listResearch(db, 'consolidate', 1).map((r) => r.id)).toEqual(['c2']);
+    expect(research.listResearch(db, 'consolidate', 10).map((r) => r.id)).toEqual(['c2', 'c1']);
+    expect(research.openResearch(db)?.id).toBe('c2');
+    expect(() => start('r2')).toThrow();
+    expect(() =>
+      research.insertResearch(db, {
+        id: 'c3',
+        kind: 'consolidate',
+        topic: null,
+        hitsJson: '[]',
+        correlationId: 'cid',
+        now: NOW,
+      }),
+    ).toThrow();
   });
 
   it('換規劃只動那一欄', () => {

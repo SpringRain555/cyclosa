@@ -16,7 +16,11 @@
 import { join } from 'node:path';
 
 import { suggestMerges, type MatchReason } from '../domain/entity/identity.js';
-import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
+import {
+  openCaseDatabase,
+  withTransaction,
+  type DatabaseSync,
+} from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as entities from '../infrastructure/db/repositories/entity-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
@@ -127,6 +131,26 @@ export interface MergeResult {
   readonly duplicateEdges: number;
 }
 
+/** 實體面板的取消入口，只列仍併在這個實體底下的那些實體。 */
+export async function listMergedEntities(
+  dataRoot: string,
+  slug: string,
+  keptId: string,
+): Promise<Result<readonly { id: string; name: string }[]>> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    if (entities.getEntity(db, keptId) === null)
+      return err('GRAPH_NODE_NOT_FOUND', cid, { keptId });
+    return ok(
+      entities
+        .listEntities(db)
+        .filter((row) => row.mergedInto === keptId)
+        .map((row) => ({ id: row.id, name: row.name })),
+      cid,
+    );
+  });
+}
+
 export async function mergeEntity(
   dataRoot: string,
   slug: string,
@@ -147,13 +171,15 @@ export async function mergeEntity(
     if (kept.mergedInto !== null) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'kept' });
     if (kept.type !== merged.type) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'type' });
 
-    const result = entities.mergeEntities(db, {
-      id: newId(),
-      keptId,
-      mergedId,
-      reason,
-      now: Date.now(),
-    });
+    const result = withTransaction(db, () =>
+      entities.mergeEntities(db, {
+        id: newId(),
+        keptId,
+        mergedId,
+        reason,
+        now: Date.now(),
+      }),
+    );
     return ok(
       {
         keptId,
@@ -173,7 +199,7 @@ export async function unmergeEntity(
 ): Promise<Result<{ readonly restored: number }>> {
   return withCase(dataRoot, slug, (db) => {
     const cid = correlationId();
-    const done = entities.unmergeEntity(db, mergedId, Date.now());
+    const done = withTransaction(db, () => entities.unmergeEntity(db, mergedId, Date.now()));
     if (done === null) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'no-merge-record' });
     return ok(done, cid);
   });

@@ -28,6 +28,7 @@ import * as items from '../../src/infrastructure/db/repositories/item-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import * as consolidateOps from '../../src/infrastructure/db/repositories/consolidate-op-repo.js';
 import * as researchRows from '../../src/infrastructure/db/repositories/research-repo.js';
+import * as entities from '../../src/infrastructure/db/repositories/entity-repo.js';
 
 let server: Server;
 let baseUrl = '';
@@ -38,6 +39,8 @@ let saved: string | undefined;
 let calls = 0;
 let holdAt = 0;
 let held: ServerResponse | null = null;
+let includeMerge = false;
+let mergedAtExtract: string | null = null;
 
 async function inDb<T>(body: (db: DatabaseSync) => T): Promise<T> {
   const opened = await openCaseDatabase(join(root, 'cases', slug, 'case.sqlite'));
@@ -79,6 +82,17 @@ async function withoutMachineEvidence(): Promise<string[]> {
 beforeAll(async () => {
   server = createServer((req, res) => {
     res.setHeader('content-type', 'application/json');
+    if (req.url === '/api/embed') {
+      let text = '';
+      req.on('data', (chunk: Buffer) => {
+        text += chunk.toString();
+      });
+      req.on('end', () => {
+        const body = JSON.parse(text) as { input: string[] };
+        res.end(JSON.stringify({ embeddings: body.input.map(() => [1, 0]) }));
+      });
+      return;
+    }
     if (req.url === '/api/tags') {
       res.end(
         JSON.stringify({
@@ -102,7 +116,7 @@ beforeAll(async () => {
     req.on('data', (chunk: Buffer) => {
       body += chunk.toString();
     });
-    req.on('end', () => {
+    req.on('end', async () => {
       calls += 1;
       if (calls === holdAt) {
         held = res;
@@ -112,17 +126,31 @@ beforeAll(async () => {
       const user = parsed.messages.find((m) => m.role === 'user')?.content ?? '';
       const system = parsed.messages.find((m) => m.role === 'system')?.content ?? '';
       if (system.includes('專題資料整理的規劃助手')) {
-        const context = JSON.parse(user) as { unextracted: { id: string }[] };
+        const context = JSON.parse(user) as {
+          unextracted: { id: string }[];
+          mergeCandidates: { keep: string; drop: string }[];
+        };
         const itemIds = context.unextracted.slice(0, 2).map((entry) => entry.id);
         res.end(
           JSON.stringify({
             message: {
               content: JSON.stringify({
-                operations: itemIds.map((itemId) => ({
-                  kind: 'extract',
-                  payload: { itemIds: [itemId] },
-                  why: '合成規劃建議抽取這份未整理資料',
-                })),
+                operations: [
+                  ...itemIds.map((itemId) => ({
+                    kind: 'extract',
+                    payload: { itemIds: [itemId] },
+                    why: '合成規劃建議抽取這份未整理資料',
+                  })),
+                  ...(includeMerge
+                    ? context.mergeCandidates
+                        .filter((pair) => pair.keep === 'merge-a' && pair.drop === 'merge-b')
+                        .map((pair) => ({
+                          kind: 'merge',
+                          payload: { keep: pair.keep, drop: pair.drop },
+                          why: '合成合併提案',
+                        }))
+                    : []),
+                ],
               }),
             },
           }),
@@ -130,6 +158,8 @@ beforeAll(async () => {
         return;
       }
       const separator = String.fromCharCode(10);
+      if (includeMerge)
+        mergedAtExtract = await inDb((db) => entities.getEntity(db, 'merge-b')?.mergedInto ?? null);
       const textStart = user.indexOf(separator + separator);
       const textEnd = user.lastIndexOf(separator + '</文件>');
       const text =
@@ -179,6 +209,8 @@ beforeEach(async () => {
     'utf8',
   );
   calls = 0;
+  includeMerge = false;
+  mergedAtExtract = null;
   holdAt = 0;
   held = null;
   expect((await initDataRoot(root)).ok).toBe(true);
@@ -423,4 +455,30 @@ it('復原那一筆：抽出來的關聯刪掉，「抽過了」清回去，那�
   });
   const after = await listed();
   for (const id of picked) expect(after).toContain(id);
+});
+
+it('同一筆整理混合合併與抽取：模型先列抽取也仍先合併，再共用抽取管線', async () => {
+  includeMerge = true;
+  await inDb((db) => {
+    entities.insertEntity(db, { id: 'merge-a', name: '合成測試中心', type: 'org', now: 1 });
+    entities.insertEntity(db, { id: 'merge-b', name: '合成測試中芯', type: 'org', now: 1 });
+  });
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  const planned = await planConsolidateShell(root, slug, opened.data.id);
+  if (!planned.ok) throw new Error(planned.code);
+  expect(planned.data.operations.map((op) => op.kind)).toEqual(['merge', 'extract', 'extract']);
+  for (const op of planned.data.operations) {
+    expect((await setConsolidateOpChecked(root, slug, opened.data.id, op.id, true)).ok).toBe(true);
+  }
+  const started = await executeConsolidateShell(root, slug, opened.data.id);
+  if (!started.ok) throw new Error(started.code);
+  await idle();
+  expect(mergedAtExtract).toBe('merge-a');
+  await inDb((db) => {
+    expect(runs.getRun(db, started.data.runId)).toMatchObject({ total: 3, status: 'done' });
+    expect(consolidateOps.listOps(db, opened.data.id).every((op) => op.state === 'done')).toBe(
+      true,
+    );
+  });
 });

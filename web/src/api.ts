@@ -637,6 +637,7 @@ export interface HttpConnection {
 }
 
 export interface ProvidersConfig {
+  mergeCandidates?: { maxNameDistance: number; minSimilarity: number };
   version: 2;
   connections: {
     cli: { command: string; args: string[] } | null;
@@ -1455,6 +1456,10 @@ export const api = {
     request<{ restored: number }>(`/api/cases/${enc(slug)}/entities/${enc(entityId)}/unmerge`, {
       method: 'POST',
     }),
+  mergedEntities: (slug: string, entityId: string) =>
+    request<{ id: string; name: string }[]>(
+      `/api/cases/${enc(slug)}/entities/${enc(entityId)}/merged`,
+    ),
 
   // ── 作業的控制 ──────────────────────────────────────────
 

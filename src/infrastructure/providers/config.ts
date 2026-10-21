@@ -45,6 +45,7 @@ import {
   type ModelTask,
 } from '../../domain/provider/index.js';
 import { pointerFilePath } from '../fs/paths.js';
+import { mergeThresholdsOf, type MergeThresholds } from '../../domain/entity/merge-candidates.js';
 
 /**
  * 三種連線。**這組字串也是設定檔裡 `via` 欄位的值**，web 那一邊抄了一份
@@ -162,6 +163,7 @@ export interface ProvidersConfig {
   readonly connections: Connections;
   readonly tasks: Readonly<Record<ModelTask, TaskSetting>>;
   readonly diagnostics: DiagnosticsConfig;
+  readonly mergeCandidates?: MergeThresholds;
 }
 
 export const OLLAMA_DEFAULT_URL = 'http://127.0.0.1:11434';
@@ -322,6 +324,9 @@ export function parseConfigV2(raw: Record<string, unknown>): ProvidersConfig {
     },
     tasks,
     diagnostics: { logModelCalls: obj(raw['diagnostics'])?.['logModelCalls'] === true },
+    ...(raw['mergeCandidates'] === undefined
+      ? {}
+      : { mergeCandidates: mergeThresholdsOf(raw['mergeCandidates']) }),
   };
 }
 

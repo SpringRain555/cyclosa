@@ -163,7 +163,7 @@ function statusLabel(status: string): string {
   return statusLabels[status] ?? status;
 }
 function operationCanBeChecked(operation: ConsolidateShellOperation): boolean {
-  return operation.kind === 'extract' && operation.executable && operation.state === 'proposed';
+  return operation.executable && operation.state === 'proposed';
 }
 
 onMounted(() => void reload());

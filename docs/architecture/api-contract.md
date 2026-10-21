@@ -501,11 +501,15 @@
 | `GET …/consolidate/research` | 不 | 回最近一次整理殼（沒有則 `null`），含狀態、上下文覆蓋範圍、被丟棄數量與操作清單 |
 | `POST …/consolidate/research` | 不 | 建立 `kind='consolidate'` 的 `research` 殼，回 `{ id }`；畫面接著呼叫 plan |
 | `POST …/consolidate/research/:researchId/plan` | 是 | 使用 `plan` 任務、不提供工具；schema 不合回 `CONSOLIDATE_PLAN_INVALID`，語意不成立的提案丟棄並記原因；有效提案保存後回殼 |
-| `PUT …/consolidate/research/:researchId/operations/:opId` | 不 | body `{ checked: boolean }`；目前只有 `extract` 可以勾選，預設不勾；資料已不合資格回 `CONSOLIDATE_OP_STALE` |
-| `POST …/consolidate/research/:researchId/execute` | 是 | 只執行已勾的 extract 提案；一次建立一筆帶 `research_id` 的 `run.kind='consolidate'`，回 `{ runId }`；每份執行前重新驗證，個別失敗不阻止其他項目 |
+| `PUT …/consolidate/research/:researchId/operations/:opId` | 不 | body `{ checked: boolean }`；`merge` 與 `extract` 可以勾選，預設不勾；資料已不合資格回 `CONSOLIDATE_OP_STALE` |
+| `POST …/consolidate/research/:researchId/execute` | 是 | 只執行已勾的 merge／extract 提案，合併先於抽取；僅合併不需要抽取模型；一次建立一筆帶 `research_id` 的 `run.kind='consolidate'`，回 `{ runId }`；每份執行前重新驗證，個別失敗不阻止其他項目 |
 | `POST …/consolidate/research/:researchId/abandon` | 不 | 放棄整理；若建圖作業仍在跑會送出取消，殼進 `abandoned` |
 
-殼與其他未結束的研究共用 `research.open_key`。不開殼的「抽進圖」仍可用，但兩者互相檢查：有整理殼時抽進圖回 `CONSOLIDATE_RESEARCH_OPEN`；有抽進圖作業在跑時建立整理殼回 `CONSOLIDATE_RUNNING`。復原抽取走既有 `…/runs/:runId/undo`。
+殼與其他未結束的研究共用 `research.open_key`。不開殼的「抽進圖」仍可用，但兩者互相檢查：有整理殼時抽進圖回 `CONSOLIDATE_RESEARCH_OPEN`；有抽進圖作業在跑時建立整理殼回 `CONSOLIDATE_RUNNING`。復原抽取走既有 `…/runs/:runId/undo`。合併由實體面板呼叫既有 `POST …/entities/:entityId/unmerge` 取消；`GET …/entities/:entityId/merged` 回 `{ id, name }[]`，只列目前併在該實體下的項目。
+
+整理規劃的合併配對先以正規化名稱／別名的 Levenshtein 距離篩選，再以同一次嵌入模型的名稱文字向量餘弦相似度篩選；只將兩道門檻都通過的配對交給規劃模型。模型自行添加的配對略過並顯示 `merge-not-candidate`。存在名稱候選但嵌入未設定或失敗時，規劃明確回報錯誤，不降級成只看名字。
+
+`providers.json` v2 與既有設定 API 支援可選 `mergeCandidates: { maxNameDistance, minSimilarity }`。預設 5／0.97；距離接受 0–100 整數，相似度接受 0–1 有限數，無效欄位各自退回預設。設定頁可調整；這些初始值尚待維護者用真實資料量測。向量每次以同一服務分批重算、不混用既有索引模型，不新增 schema。
 
 ### 筆記與點註
 

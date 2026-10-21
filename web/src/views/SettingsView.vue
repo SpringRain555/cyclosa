@@ -90,6 +90,8 @@ const tasks = ref<Record<ModelTask, TaskSetting>>(emptyTasks());
  * **遇到一個壞掉的抽取結果的當下，才是唯一能把它重現下來的時機。**
  */
 const logModelCalls = ref(false);
+const mergeNameDistance = ref(5);
+const mergeSimilarity = ref(0.97);
 
 /**
  * 伺服器收不收這個名字。**跟 `providers/config.ts` 的 `ENV_NAME` 是同一條**
@@ -242,6 +244,8 @@ function fillFrom(data: ProvidersPayload): void {
   for (const task of TASK_ORDER) next[task] = { ...c.tasks[task] };
   tasks.value = next;
   logModelCalls.value = c.diagnostics.logModelCalls;
+  mergeNameDistance.value = c.mergeCandidates?.maxNameDistance ?? 5;
+  mergeSimilarity.value = c.mergeCandidates?.minSimilarity ?? 0.97;
   listsFrom(data);
 }
 
@@ -315,6 +319,16 @@ function draftConfig(): ProvidersConfig {
       ]),
     ) as Record<ModelTask, TaskSetting>,
     diagnostics: { logModelCalls: logModelCalls.value },
+    ...(payload.value?.config.mergeCandidates === undefined &&
+    mergeNameDistance.value === 5 &&
+    mergeSimilarity.value === 0.97
+      ? {}
+      : {
+          mergeCandidates: {
+            maxNameDistance: mergeNameDistance.value,
+            minSimilarity: mergeSimilarity.value,
+          },
+        }),
   };
 }
 
@@ -999,6 +1013,32 @@ function connectionSummary(kind: ConnectionKind): string {
               **預設關著，而且那句說明要說出代價。** 打開之後每一次呼叫都會把
               整份提示詞（抽取那一條裡是整篇正文）寫進專題資料夾 —— 它長得很快。
             -->
+            <section class="card">
+              <h2>{{ t.settings.mergeCandidatesTitle }}</h2>
+              <p class="hint">{{ t.settings.mergeCandidatesWhat }}</p>
+              <label>
+                <span>{{ t.settings.mergeNameDistance }}</span>
+                <input
+                  v-model.number="mergeNameDistance"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  @change="autosave()"
+                />
+              </label>
+              <label>
+                <span>{{ t.settings.mergeSimilarity }}</span>
+                <input
+                  v-model.number="mergeSimilarity"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  @change="autosave()"
+                />
+              </label>
+            </section>
             <section class="card diagnostics">
               <h2>{{ t.settings.diagnosticsTitle }}</h2>
               <label class="check">

@@ -281,6 +281,7 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
           :nodes="store.nodes"
           :connect-from="store.connectFrom"
           @attached="store.reload()"
+          @entity-changed="store.reload()"
           @focus="store.setFocus($event)"
           @open-reader="openInReader"
           @open-edge="store.openEdge($event)"

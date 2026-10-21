@@ -9,7 +9,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { getConsolidateShell } from '../../src/application/consolidate-ops-service.js';
+import {
+  getConsolidateShell,
+  setConsolidateOpChecked,
+  executeConsolidateShell,
+} from '../../src/application/consolidate-ops-service.js';
+import { activeCount } from '../../src/application/run-registry.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import { createCase } from '../../src/application/case-service.js';
 import { getResearchView, listResearchViews } from '../../src/application/research-service.js';
@@ -113,7 +118,19 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
         (operation) => !operation.checked && operation.state === 'proposed',
       ),
     ).toBe(true);
-    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(2);
+    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(3);
+    const merge = view.data.operations.find((operation) => operation.kind === 'merge');
+    if (merge === undefined) throw new Error('合成合併操作缺少');
+    expect(
+      (await setConsolidateOpChecked(dataRoot, slug, summary.researchId, merge.id, true)).ok,
+    ).toBe(true);
+    expect((await executeConsolidateShell(dataRoot, slug, summary.researchId)).ok).toBe(true);
+    await expect.poll(activeCount).toBe(0);
+    const completed = await getConsolidateShell(dataRoot, slug);
+    expect(
+      completed.ok &&
+        completed.data?.operations.find((operation) => operation.id === merge.id)?.state,
+    ).toBe('done');
   });
 
   it('規劃中：兩輪對話、四條方向（一條是人提的）、刻意不查的範圍', async () => {

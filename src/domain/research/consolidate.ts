@@ -1,5 +1,6 @@
 import { ENTITY_TYPES } from '../provider/relations.js';
 import { conformsTo } from '../provider/schema-check.js';
+import { mergePairKey } from '../entity/merge-candidates.js';
 
 /**
  * 整理的第一片：**把還沒抽過的資料抽進圖**（ADR-0033 D13 操作表的「抽這幾份」，S24-1）。
@@ -209,6 +210,7 @@ export function parseConsolidatePlan(raw: string): readonly ConsolidateOpDraft[]
 }
 
 export interface ConsolidateValidationFacts {
+  readonly mergeCandidateKeys?: ReadonlySet<string>;
   readonly liveEntityIds: ReadonlySet<string>;
   readonly itemIds: ReadonlySet<string>;
   readonly extractableItemIds: ReadonlySet<string>;
@@ -249,6 +251,11 @@ export function validateConsolidatePlan(
           drop(draft.kind, 'merge-id-missing');
         } else if (draft.payload.keep === draft.payload.drop) {
           drop(draft.kind, 'merge-same-id');
+        } else if (
+          facts.mergeCandidateKeys !== undefined &&
+          !facts.mergeCandidateKeys.has(mergePairKey(draft.payload.keep, draft.payload.drop))
+        ) {
+          drop(draft.kind, 'merge-not-candidate');
         } else {
           operations.push(draft);
         }

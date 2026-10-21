@@ -23,6 +23,7 @@ import TranslationSwitch from '../TranslationSwitch.vue';
 import TranslationNotice from '../TranslationNotice.vue';
 import ErrorPanel from '../ErrorPanel.vue';
 import AttachNoteFile from '../AttachNoteFile.vue';
+import MergedEntities from './MergedEntities.vue';
 
 const props = defineProps<{
   slug: string;
@@ -35,6 +36,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (event: 'attached'): void;
+  (event: 'entity-changed'): void;
   (event: 'focus', id: string): void;
   (event: 'open-reader', id: string): void;
   (event: 'open-edge', id: string): void;
@@ -197,6 +199,14 @@ function relLabel(edge: SubgraphEdge): string {
         </button>
       </div>
 
+      <!-- ── 取消實體合併 ────────────────────────────────── -->
+      <MergedEntities
+        v-if="node.kind === 'entity'"
+        :key="`${slug}/${node.id}`"
+        :slug="slug"
+        :entity-id="node.id"
+        @changed="emit('entity-changed')"
+      />
       <!-- ── 筆記檔附件 ──────────────────────────────────── -->
       <AttachNoteFile
         v-if="node.kind === 'item' && node.subKind !== 'note'"

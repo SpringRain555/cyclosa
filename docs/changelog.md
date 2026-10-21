@@ -11,6 +11,9 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **整理的實體合併（issue #5）**：候選先過名稱／別名編輯距離與同一嵌入模型的語意相似度兩道門檻，再交給規劃模型；模型自行加入未通過篩選的配對會略過並顯示原因。設定頁可調整門檻，預設 5／0.97，品質數字待維護者用真實資料量測。合併預設不勾，勾選後走既有 `mergeEntity`，先於抽取執行；每條重新驗證，失效或失敗不阻擋其餘操作。僅合併不要求抽取模型。實體面板可列出併入項目並呼叫 `unmergeEntity` 取消；合併與取消各自以交易避免部分寫入。不改 schema、既有名稱對齊或人工裁決規則。以合成資料與假嵌入驗證。
+
+
 - **修正 gpt-oss 文件索引與來源守門**：補入總索引，依已完成的 HF API 查證回填來源日期，恢復來源表只接受日期的斷言，移除待查例外；相容端點新增註解改為繁體中文。
 
 - **OpenAI 相容端點接線 gpt-oss（issue #10）**：設定說明與 README 加入 vLLM 的 gpt-oss-120b 用法；抽取量測工具用唯讀衍生正文呼叫共用 `callExtract`，輸出 schema 有效性、關聯數、引文命中與秒數，不寫專題資料。模型來源列記錄 OpenAI／Apache-2.0（Claude 於 2026-10-20 查證 Hugging Face API）；建議模型不變。Chat Completions 的 `message.reasoning` 與 Responses reasoning output item 不作為回答或診斷內容，空回答使用既有 `PROVIDER_OUTPUT_UNPARSEABLE`。

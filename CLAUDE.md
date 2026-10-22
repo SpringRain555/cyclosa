@@ -58,6 +58,7 @@ D4（同一專題同時只有一次研究或整理沒結束）對它是**兩邊�
 會改東西的請求看 `Origin`／`Sec-Fetch-Site`（必須是自己），`text/plain` 解析器拿掉；被擋的是 `IO_REQUEST_FOREIGN`。
 **加新的 body 型別、或想從別的裝置連進來之前先讀那份 ADR** —— 它擋的是「瀏覽器裡任何一個網頁都在本機」這件事。
 子程序一律不經過 `cmd.exe`（下面「動研究之前」第 4 條）。
+**反方向也擋（ADR-0038）**：爬蟲不連本機與區網（下面「動擷取管線之前」第 6 條）；路徑參數在 `param-guard.ts` 統一驗，`slug` 過 `isUsableSlug`、其他參數不得帶路徑字元 —— **新路由不必自己驗，也不要繞過它**。
 測試、守門與 schema 的現況分別看 `tests/`、`tests/guards/`、`docs/architecture/data-model.md`，不在這裡複製數字。
 
 **研究取代舊擴展（REQ-0009、ADR-0033）。** 從規劃方向、蒐集與初讀、逐筆確認走到建圖；
@@ -189,7 +190,7 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 3. **接管了套件的職責之後，對應的 API 就是陷阱。**
    切 2D **不呼叫** `numDimensions()` —— 它會重跑佈局初始化，按下去整張圖空白。
 
-**動擷取管線之前一定要知道的五件**：
+**動擷取管線之前一定要知道的六件**：
 
 1. **擷取管線是唯一出口**（`infrastructure/fetch/crawler.ts`）。節流、`robots.txt`、
    雜湊、manifest 只存在於那一層 —— 開第二條路等於讓它們全部失效。
@@ -202,6 +203,9 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 5. **改抽取邏輯就要 +1 `EXTRACTOR_VERSION`，並在 `EXTRACTOR_CHANGES` 寫下那一版改了哪幾種資料**
    （`tests/guards/extractor-version.test.ts`）。讀取找不到新版會退回舊版，所以**刪就要每一版都刪**
    （`removeDerived`）；「重算全部正文」會重解點註，也把關聯引文的字元位置對回新的正文。
+6. **每一跳都要是公開位址**（ADR-0038）。`Crawler` 的 gate 在 robots 之前解析主機名，任何一筆是本機、區網或保留段就
+   `FETCH_PRIVATE_ADDRESS`、不送請求 —— 外部網頁一個轉址就能讓爬蟲替它讀 Cyclosa 自己的 API。
+   預設不准，`CYCLOSA_FETCH_ALLOW_PRIVATE=1` 放行（e2e 靠它連 `127.0.0.1` 的假網站）。**新建 `Crawler` 一律傳 `configuredPrivateAddressAllowed()`。**
 
 **動 OpenAI 相容 API 之前一定要知道的三件**（v0.24.2，ADR-0034）：
 

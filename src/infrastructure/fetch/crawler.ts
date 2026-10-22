@@ -17,6 +17,8 @@
  *
  * **`stop()` 現在只有一個意思：使用者取消。** 它不再被限流觸發。
  */
+import { lookup } from 'node:dns/promises';
+import { addressScope } from '../../domain/ingest/address.js';
 import { isAllowed, robotsPathOf } from '../../domain/ingest/robots.js';
 import { backOffDelayMs, effectiveIntervalMs } from '../../domain/ingest/throttle.js';
 import { normalizeUrl } from '../../domain/ingest/url.js';
@@ -48,6 +50,20 @@ export interface CrawlerOptions {
   readonly intervalMs: number;
   readonly onEvent?: (e: CrawlEvent) => void;
   readonly onBackOff?: (e: BackOffEvent) => void;
+  /**
+   * 解析出來不是公開位址的時候，這一個位址准不准連（ADR-0038）。**預設一律不准。**
+   *
+   * 正式程式由 `CYCLOSA_FETCH_ALLOW_PRIVATE` 決定（`application/fetch-policy.ts`）；
+   * 測試的假伺服器在 `127.0.0.1`，所以測試自己傳一個只認它的判斷進來。
+   */
+  readonly privateAddressAllowed?: (ip: string) => boolean;
+  /** 主機名 → 位址。只有測試會換掉它。 */
+  readonly resolveHost?: (host: string) => Promise<readonly string[]>;
+}
+
+async function resolveAll(host: string): Promise<readonly string[]> {
+  const found = await lookup(host, { all: true, verbatim: true });
+  return found.map((a) => a.address);
 }
 
 export interface CrawlResult {
@@ -158,6 +174,13 @@ export class Crawler {
           };
         }
 
+        // 0.5 **這一跳要去的是不是公開網路**（ADR-0038）。放在 robots 之前 ——
+        //     robots.txt 本身也是一個送往那台主機的請求。轉址的每一跳都會走到這裡。
+        const privateHop = await this.privateAddressOf(host);
+        if (privateHop !== null) {
+          return { code: 'FETCH_PRIVATE_ADDRESS' as ErrorCode, detail: { host, ...privateHop } };
+        }
+
         const origin = originOf(hopUrl);
 
         // 1. **先問 robots，而問它本身也要排隊** —— 「先問過再抓」如果可以插隊，
@@ -214,6 +237,32 @@ export class Crawler {
       }
       return outcome;
     });
+  }
+
+  /**
+   * 主機名解析出來的位址裡，**只要有一個**不是公開位址而且沒被放行，就回它的範圍；全部可以回 `null`。
+   *
+   * 看全部而不是第一個：DNS 一次回好幾筆時，`fetch` 連哪一筆不是我們決定的。
+   * 解析失敗不在這裡擋 —— 交給 `fetch` 照原本的路回 `FETCH_DNS`。
+   *
+   * **擋不住的**（ADR-0038）：這裡解析一次、`fetch` 連線時再解析一次，TTL 極短的 DNS rebinding
+   * 可以在兩次之間換答案。要連那一條也擋，得把解析結果釘進連線（自訂 dispatcher），那要引 `undici`。
+   */
+  private async privateAddressOf(
+    host: string,
+  ): Promise<{ readonly scope: string; readonly address: string } | null> {
+    const allowed = this.options.privateAddressAllowed ?? ((): boolean => false);
+    let addresses: readonly string[];
+    try {
+      addresses = await (this.options.resolveHost ?? resolveAll)(host.replace(/^\[|\]$/g, ''));
+    } catch {
+      return null;
+    }
+    for (const address of addresses) {
+      const scope = addressScope(address);
+      if (scope !== 'public' && !allowed(address)) return { scope, address };
+    }
+    return null;
   }
 
   /** 退避時也要聽得到取消：每 250 毫秒看一次，不要一覺睡到底。 */

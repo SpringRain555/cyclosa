@@ -82,7 +82,7 @@ import { correlationId, newId } from '../shared/id.js';
 import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { prepareSandbox, scanSandbox } from './agent-sandbox.js';
-import { configuredIntervalMs } from './fetch-policy.js';
+import { configuredIntervalMs, configuredPrivateAddressAllowed } from './fetch-policy.js';
 import { importFileInto, processOneUrl } from './ingest-service.js';
 import { recordModelCall } from './model-call-log.js';
 import {
@@ -346,6 +346,7 @@ async function processCollect(ctx: CollectContext): Promise<void> {
     const abort = new AbortController();
     const crawler = new Crawler({
       intervalMs: configuredIntervalMs(),
+      privateAddressAllowed: configuredPrivateAddressAllowed(),
       onEvent: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.waitedMs }),
       onBackOff: (e) =>
         state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.delayMs }),

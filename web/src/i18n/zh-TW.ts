@@ -70,6 +70,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   FETCH_DUPLICATE: '這一份已經在專題裡了，所以沒有再建一個節點。',
   FETCH_ROBOTS_DISALLOWED:
     '這個網站的 robots.txt 不允許抓取這一頁，所以跳過了。需要的話請自己開瀏覽器讀，再把內容貼進來。',
+  FETCH_PRIVATE_ADDRESS:
+    '這個網址（或它轉址到的地方）指向這台電腦或區網裡的位址，為了安全沒有去抓。要抓區網裡自己的東西，請自己下載後用檔案匯入。',
   FETCH_RATE_LIMITED:
     '對方限流了。已經照它說的等過、再試過，還是不行 —— 這個網域這一輪先不碰，其他網域照常。過一段時間再重跑這幾項。',
   FETCH_TIMEOUT: '連線逾時。可以重試這一項；反覆逾時通常是對方的問題。',

@@ -19,7 +19,7 @@ import {
 import { settleRun, type RunStatus } from '../domain/ingest/state.js';
 import { pickTitle } from '../domain/ingest/title.js';
 import { exceedsUploadLimit } from '../domain/ingest/upload.js';
-import { configuredIntervalMs } from './fetch-policy.js';
+import { configuredIntervalMs, configuredPrivateAddressAllowed } from './fetch-policy.js';
 import { displayHost, normalizeUrl } from '../domain/ingest/url.js';
 import { isEmptyContent } from '../domain/ingest/extract-confidence.js';
 import type { ErrorCode } from '../domain/errors/codes.js';
@@ -129,6 +129,7 @@ export async function startUrlImport(
   const state = registry.register(runId);
   const crawler = new Crawler({
     intervalMs: configuredIntervalMs(),
+    privateAddressAllowed: configuredPrivateAddressAllowed(),
     onEvent: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.waitedMs }),
     // 被限流而退避也是「正在等這個 host」—— 畫面上同一列。
     onBackOff: (e) => state.channel.emit({ type: 'throttled', host: e.host, waitedMs: e.delayMs }),

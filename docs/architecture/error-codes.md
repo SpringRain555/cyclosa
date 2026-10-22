@@ -78,6 +78,7 @@
 | `FETCH_BAD_URL` | partial | 貼進來的不是一個 http／https 網址 | 檢查有沒有少了 `https://`、或貼到的是一段文字而不是網址。**`file:`／`javascript:` 不支援，而且是刻意的** |
 | `FETCH_DUPLICATE` | notice | 這份內容已經在專題裡了（SHA-256 相同）| **什麼都沒有失敗。** 同一份東西不會建第二個節點 —— 這一列就是那條規則在運作的證據 |
 | `FETCH_ROBOTS_DISALLOWED` | partial | 該網站的 `robots.txt` 不允許抓這個路徑 | **這一項不會被抓，而且不提供繞過。** 需要的話自己開瀏覽器讀，再用「貼上文字」匯入 |
+| `FETCH_PRIVATE_ADDRESS` | partial | 這一跳（含轉址的中途）要去的主機解析到本機、區網或其他非公開位址（ADR-0038）；`detail` 帶 `host`、`scope`、`address`。**沒有送任何請求，連 `robots.txt` 都沒有問** | 網頁轉址到本機或區網多半不是好事，這一項就讓它失敗。真的要抓區網裡自己的東西：設環境變數 `CYCLOSA_FETCH_ALLOW_PRIVATE=1` 再啟動，或自己下載後用檔案匯入 |
 | `FETCH_RATE_LIMITED` | partial | 對方回 429 或 503，**照 `Retry-After` 等過、再試兩次還是一樣**；或這個網域在這一輪已經被放棄（`detail.why` 是 `host-limited`，沒有送請求）| 過一段時間再重跑這幾項。**同一個網域排在後面的項目也記成這個碼，其他網域照常**（ADR-0031）|
 | `FETCH_TIMEOUT` | partial | 連線或讀取逾時 | 重試那一項。反覆逾時通常是對方的問題 |
 | `FETCH_UPLOAD_TIMEOUT` | partial | 等不到下一個上傳檔案，批次匯入自動收尾 | 分頁可能已關閉或連線中斷；重新選取未上傳的檔案 |

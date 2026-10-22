@@ -74,7 +74,8 @@ afterEach(async () => {
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
-const crawler = (): Crawler => new Crawler({ intervalMs: MIN_INTERVAL_MS });
+const crawler = (): Crawler =>
+  new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
 const url = (path: string): string => `http://127.0.0.1:${port}${path}`;
 
 describe('擷取路上的反爬蟲驗證頁', () => {

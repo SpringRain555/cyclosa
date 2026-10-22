@@ -65,7 +65,7 @@ const pageHits = (path: string): number => hits.filter((h) => h === path).length
 describe('被限流之後', () => {
   it('429 帶 Retry-After → 等過再試，第二次 200 就成功，而且等的時間量得到', async () => {
     plan.set('/a', [{ status: 429, retryAfter: '1' }]);
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
 
     const r = await crawler.fetch(url('/a'));
 
@@ -84,7 +84,7 @@ describe('被限流之後', () => {
       { status: 429, retryAfter: '0' },
       { status: 429, retryAfter: '0' },
     ]);
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
 
     const r = await crawler.fetch(url('/b'));
 
@@ -102,7 +102,7 @@ describe('被限流之後', () => {
       { status: 429, retryAfter: '0' },
       { status: 429, retryAfter: '0' },
     ]);
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
     await crawler.fetch(url('/c'));
     expect(crawler.limitedHosts.has('127.0.0.1')).toBe(true);
 
@@ -125,7 +125,7 @@ describe('被限流之後', () => {
       { status: 429, retryAfter: '0' },
       { status: 429, retryAfter: '0' },
     ]);
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
     await crawler.fetch(url('/h', 'localhost'));
     expect(crawler.limitedHosts.has('localhost')).toBe(true);
 
@@ -141,7 +141,7 @@ describe('被限流之後', () => {
 
   it('Retry-After 超過上限 → 不等，直接放棄這個 host', async () => {
     plan.set('/e', [{ status: 429, retryAfter: '3600' }]);
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
     const started = Date.now();
 
     const r = await crawler.fetch(url('/e'));
@@ -153,7 +153,7 @@ describe('被限流之後', () => {
 
   it('退避中按了取消 → 馬上回來，不等到底', async () => {
     plan.set('/f', [{ status: 429, retryAfter: '30' }]);
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
     const started = Date.now();
     setTimeout(() => crawler.stop(), 300);
 
@@ -185,7 +185,7 @@ describe('被限流之後', () => {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('ok');
     });
-    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS });
+    const crawler = new Crawler({ intervalMs: MIN_INTERVAL_MS, privateAddressAllowed: () => true });
 
     const r = await crawler.fetch(url('/g'));
 

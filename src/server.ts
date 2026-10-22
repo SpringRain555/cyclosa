@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { MAX_UPLOAD_BYTES } from './domain/ingest/upload.js';
+import { registerParamGuard } from './interface/http/param-guard.js';
 import { registerRequestGuard } from './interface/http/request-guard.js';
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
 import { pdfjsRoot, registerPdfjsAssets, registerStatic } from './interface/http/static.js';
@@ -62,6 +63,8 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
 
   // **只收這個工具自己的頁面送來的請求**（ADR-0036）—— 掛在所有路由之前。
   registerRequestGuard(app);
+  // 路徑參數不得帶出資料夾（ADR-0038）—— 同樣掛在所有路由之前。
+  registerParamGuard(app);
 
   /**
    * **拿掉 Fastify 預設的 `text/plain` 解析器。**

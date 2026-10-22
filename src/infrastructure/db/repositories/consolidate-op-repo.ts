@@ -1,4 +1,6 @@
 import type { DatabaseSync } from '../database.js';
+import { countIndependentSources } from '../../../domain/graph/confidence.js';
+import { derivedGroups } from './graph-repo.js';
 
 import type {
   ConsolidateOpKind,
@@ -126,34 +128,65 @@ export interface SingleEvidenceEdgeRow {
   readonly quote: string;
 }
 
-/** 只由一份資料提供出處的關聯；取識別碼最小的出處，關聯按建立時間由新到舊。 */
+/** 未被否決的具名關聯，以與可信度相同的轉載分群計算獨立來源。 */
+function singleEvidenceEdges(db: DatabaseSync): readonly SingleEvidenceEdgeRow[] {
+  const rows = db
+    .prepare(
+      `SELECT e.id, e.source_id, e.target_id, e.rel, ev.item_id, ev.quote,
+      COALESCE(se.name_zh, si.title, e.source_id) AS source_title,
+      COALESCE(te.name_zh, ti.title, e.target_id) AS target_title
+     FROM edge e JOIN edge_evidence ev ON ev.edge_id=e.id
+     LEFT JOIN item si ON e.source_kind='item' AND si.id=e.source_id
+     LEFT JOIN item ti ON e.target_kind='item' AND ti.id=e.target_id
+     LEFT JOIN entity se ON e.source_kind='entity' AND se.id=e.source_id
+     LEFT JOIN entity te ON e.target_kind='entity' AND te.id=e.target_id
+     WHERE e.layer='named' AND e.status!='rejected'
+     ORDER BY e.created_at DESC, e.id, ev.id`,
+    )
+    .all() as Raw[];
+  // 包含未直接被引用的中間轉載資料，才不會把同一連通分量誤算成兩份來源。
+  const groups = derivedGroups(db, listItemIds(db));
+  const byEdge = new Map<string, Raw[]>();
+  for (const row of rows) {
+    const id = String(row['id']);
+    const evidence = byEdge.get(id) ?? [];
+    evidence.push(row);
+    byEdge.set(id, evidence);
+  }
+  return [...byEdge.values()].flatMap((evidence) => {
+    if (
+      countIndependentSources(
+        evidence.map((row) => ({ itemId: String(row['item_id']) })),
+        groups,
+      ) !== 1
+    )
+      return [];
+    const row = evidence[0];
+    if (row === undefined) return [];
+    return [
+      {
+        id: String(row['id']),
+        source: String(row['source_title']),
+        target: String(row['target_title']),
+        rel: String(row['rel']),
+        itemId: String(row['item_id']),
+        quote: String(row['quote']),
+      },
+    ];
+  });
+}
+
+/** 按建立時間由新到舊，並非可信度或推薦排序。 */
 export function listSingleEvidenceEdges(
   db: DatabaseSync,
   limit: number,
 ): readonly SingleEvidenceEdgeRow[] {
-  const edgeRows = db
-    .prepare(
-      "SELECT e.id, e.source_id, e.source_kind, e.target_id, e.target_kind, e.rel, ev.item_id, ev.quote, si.title AS source_item_title, ti.title AS target_item_title, se.name_zh AS source_entity_name, te.name_zh AS target_entity_name FROM edge e JOIN edge_evidence ev ON ev.id = (SELECT e2.id FROM edge_evidence e2 WHERE e2.edge_id = e.id ORDER BY e2.id LIMIT 1) LEFT JOIN item si ON e.source_kind = 'item' AND si.id = e.source_id LEFT JOIN item ti ON e.target_kind = 'item' AND ti.id = e.target_id LEFT JOIN entity se ON e.source_kind = 'entity' AND se.id = e.source_id LEFT JOIN entity te ON e.target_kind = 'entity' AND te.id = e.target_id WHERE (SELECT COUNT(DISTINCT e2.item_id) FROM edge_evidence e2 WHERE e2.edge_id = e.id) = 1 ORDER BY e.created_at DESC, e.id LIMIT ?",
-    )
-    .all(limit) as Raw[];
-  return edgeRows.map((row) => ({
-    id: String(row['id']),
-    source: String(row['source_entity_name'] ?? row['source_item_title'] ?? row['source_id']),
-    target: String(row['target_entity_name'] ?? row['target_item_title'] ?? row['target_id']),
-    rel: String(row['rel']),
-    itemId: String(row['item_id']),
-    quote: String(row['quote']),
-  }));
+  return singleEvidenceEdges(db).slice(0, limit);
 }
 
-/** 未截斷的總數，供整理規劃揭露涵蓋範圍。 */
+/** 未截斷總數與清單共用判準。 */
 export function countSingleEvidenceEdges(db: DatabaseSync): number {
-  const edgeCountRow = db
-    .prepare(
-      'SELECT COUNT(*) AS n FROM edge e WHERE (SELECT COUNT(DISTINCT e2.item_id) FROM edge_evidence e2 WHERE e2.edge_id = e.id) = 1',
-    )
-    .get() as Raw | undefined;
-  return Number(edgeCountRow?.['n'] ?? 0);
+  return singleEvidenceEdges(db).length;
 }
 
 /** 筆記按建立時間與識別碼排序；字數裁切留在應用層。 */
@@ -168,4 +201,23 @@ export function listNoteBodies(
 export function listItemIds(db: DatabaseSync): readonly string[] {
   const rows = db.prepare('SELECT id FROM item').all() as Raw[];
   return rows.map((row) => String(row['id']));
+}
+
+/** 清單跳轉到關聯來源附近，面板仍以關聯 id 讀取。 */
+export function singleEvidenceFocus(db: DatabaseSync, edgeId: string): string {
+  const row = db.prepare('SELECT source_id FROM edge WHERE id=?').get(edgeId) as Raw | undefined;
+  return String(row?.['source_id'] ?? '');
+}
+
+/** 分頁沿用固定排序，以上一頁最後的關聯識別碼作游標。 */
+export function singleEvidencePage(db: DatabaseSync, after: string | null) {
+  const rows = singleEvidenceEdges(db);
+  const previous = after === null ? -1 : rows.findIndex((row) => row.id === after);
+  const start = after !== null && previous < 0 ? rows.length : previous + 1;
+  const entries = rows.slice(start, start + 100);
+  return {
+    entries,
+    total: rows.length,
+    nextCursor: start + entries.length < rows.length ? (entries.at(-1)?.id ?? null) : null,
+  };
 }

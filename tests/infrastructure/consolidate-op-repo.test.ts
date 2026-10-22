@@ -151,3 +151,53 @@ describe('整理規劃上下文的查詢', () => {
     ]);
   });
 });
+
+describe('單一獨立來源的具名關聯', () => {
+  function setup() {
+    for (const id of ['a', 'b', 'c', 'middle']) item(id);
+    edge('named', 'a', 'item', 'b', 'item');
+    evidence('ev-a', 'named', 'a');
+  }
+  it('同份資料多段引文仍只列一次', () => {
+    setup();
+    evidence('ev-again', 'named', 'a');
+    expect(ops.listSingleEvidenceEdges(db, 100).map((row) => row.id)).toEqual(['named']);
+  });
+  it('不同資料屬於同一轉載群仍是一個獨立來源', () => {
+    setup();
+    evidence('ev-b', 'named', 'b');
+    edge('derived', 'a', 'item', 'b', 'item');
+    db.prepare("UPDATE edge SET layer='derived' WHERE id='derived'").run();
+    expect(ops.countSingleEvidenceEdges(db)).toBe(1);
+  });
+  it('轉載群可經未提供出處的中間資料連通', () => {
+    setup();
+    evidence('ev-b', 'named', 'b');
+    edge('derived1', 'a', 'item', 'middle', 'item');
+    edge('derived2', 'middle', 'item', 'b', 'item');
+    db.prepare("UPDATE edge SET layer='derived' WHERE id LIKE 'derived%'").run();
+    expect(ops.listSingleEvidenceEdges(db, 100).map((row) => row.id)).toEqual(['named']);
+    evidence('ev-c', 'named', 'c');
+    expect(ops.countSingleEvidenceEdges(db)).toBe(0);
+  });
+  it('否決與非具名關聯不列；人工已確認的具名關聯可列', () => {
+    setup();
+    db.prepare("UPDATE edge SET status='rejected' WHERE id='named'").run();
+    expect(ops.countSingleEvidenceEdges(db)).toBe(0);
+    db.prepare("UPDATE edge SET status='pending',layer='comention' WHERE id='named'").run();
+    expect(ops.countSingleEvidenceEdges(db)).toBe(0);
+    db.prepare(
+      "UPDATE edge SET layer='named',origin='human',status='confirmed' WHERE id='named'",
+    ).run();
+    expect(ops.countSingleEvidenceEdges(db)).toBe(1);
+  });
+  it('清單查詢不改寫關聯、出處或裁決', () => {
+    setup();
+    const before = db.prepare('SELECT * FROM edge').all();
+    const ev = db.prepare('SELECT * FROM edge_evidence').all();
+    ops.listSingleEvidenceEdges(db, 100);
+    ops.countSingleEvidenceEdges(db);
+    expect(db.prepare('SELECT * FROM edge').all()).toEqual(before);
+    expect(db.prepare('SELECT * FROM edge_evidence').all()).toEqual(ev);
+  });
+});

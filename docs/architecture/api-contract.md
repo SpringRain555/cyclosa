@@ -782,3 +782,12 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 | 任何往外送資料的端點 | 這是單機工具（REQ-0008 的「刻意不做」）|
 | 認證 | 只綁 `127.0.0.1`。**這是既有風險不是疏漏**（ADR-0002 的代價那一節）|
 | offset 分頁 | 5 萬筆規模下會逐列掃 |
+
+
+### 整理單一獨立來源清單（Issue #9）
+
+`GET /api/cases/:slug/consolidate/single-source-relations?after=<edge-id>` 為唯讀查詢，不要求整理殼或模型設定。回 `{entries,total,nextCursor}`；每次最多 100 條，按關聯建立時間由新到舊、同時以識別碼固定順序。省略 after 取第一頁；游標關聯已不在清單時回空頁與 null 游標，使用者可重新整理。
+
+每筆包含 `id`、兩端名稱 `source/target`、`rel`、代表出處 `itemId/itemTitle/quote` 與跳轉焦點 `focusId`。代表出處依出處識別碼固定選取一筆，引文預覽最多 500 字；完整出處仍由既有關聯明細提供。只列 `layer='named'` 且狀態非 `rejected`、獨立來源數為 1 的關聯。來源判斷共用 `countIndependentSources` 與 `derivedGroups`，並將未直接提供出處的中間轉載資料納入分群。多段引文或同一轉載群不當成多個獨立來源。
+
+不寫圖、裁決、整理操作或作業，不新增 schema。`?focus=<source-id>&edge=<edge-id>` 可定位關聯圖並開啟指定關聯面板；關聯已刪除則使用既有明細錯誤顯示。

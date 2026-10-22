@@ -670,3 +670,26 @@ export async function abandonConsolidateShell(
     db.close();
   }
 }
+
+/** 唯讀事實清單；不開整理殼、不載模型、不更動裁決。 */
+export async function listSingleSourceRelations(
+  dataRoot: string,
+  slug: string,
+  after: unknown = null,
+) {
+  const cid = correlationId();
+  const db = await openCase(dataRoot, slug);
+  if (typeof db === 'string') return err(db, cid, { slug });
+  try {
+    const page = ops.singleEvidencePage(db, typeof after === 'string' ? after : null);
+    const entries = page.entries.map((row) => ({
+      ...row,
+      quote: row.quote.slice(0, 500),
+      itemTitle: items.getItem(db, row.itemId)?.title ?? row.itemId,
+      focusId: ops.singleEvidenceFocus(db, row.id),
+    }));
+    return ok({ entries, total: page.total, nextCursor: page.nextCursor }, cid);
+  } finally {
+    db.close();
+  }
+}

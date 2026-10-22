@@ -1137,6 +1137,10 @@ export const api = {
       body: JSON.stringify({ itemIds }),
     }),
 
+  singleSourceRelations: (slug: string, after: string | null = null) =>
+    request<SingleSourceRelations>(
+      `/api/cases/${enc(slug)}/consolidate/single-source-relations${after === null ? '' : `?after=${enc(after)}`}`,
+    ),
   consolidateShell: (slug: string) =>
     request<ConsolidateShellView | null>(`/api/cases/${enc(slug)}/consolidate/research`),
   startConsolidateShell: (slug: string) =>
@@ -1488,3 +1492,18 @@ export const api = {
       body: JSON.stringify(nodeIds === undefined ? query : { ...query, nodeIds }),
     }),
 };
+
+export interface SingleSourceRelations {
+  readonly entries: readonly {
+    readonly id: string;
+    readonly source: string;
+    readonly target: string;
+    readonly rel: string;
+    readonly itemId: string;
+    readonly quote: string;
+    readonly itemTitle: string;
+    readonly focusId: string;
+  }[];
+  readonly total: number;
+  readonly nextCursor: string | null;
+}

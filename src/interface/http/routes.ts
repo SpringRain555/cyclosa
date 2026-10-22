@@ -42,6 +42,7 @@ import {
   abandonConsolidateShell,
   executeConsolidateShell,
   getConsolidateShell,
+  listSingleSourceRelations,
   planConsolidateShell,
   setConsolidateOpChecked,
   startConsolidateShell,
@@ -424,6 +425,17 @@ function registerProviderRoutes(app: FastifyInstance, ctx: AppContext): void {
  * （可不可以再談、閘門按不按得下去、哪一列可以上傳在 `domain/research`）。
  */
 function registerResearchRoutes(app: FastifyInstance, ctx: AppContext): void {
+  app.get<{ Params: { slug: string }; Querystring: { after?: string } }>(
+    '/api/cases/:slug/consolidate/single-source-relations',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(
+        reply,
+        await listSingleSourceRelations(dataRoot, req.params.slug, req.query.after),
+      );
+    },
+  );
   app.get<{ Params: { slug: string } }>(
     '/api/cases/:slug/consolidate/research',
     async (req, reply) => {

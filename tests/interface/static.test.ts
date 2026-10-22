@@ -5,8 +5,12 @@
  * 自己做路徑圍堵就要自己驗它，而且要用真的穿越字串驗，不是看程式碼覺得對。
  */
 import { describe, expect, it } from 'vitest';
-import { resolve, sep } from 'node:path';
-import { safeResolve } from '../../src/interface/http/static.js';
+import { resolve, sep, join } from 'node:path';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import Fastify from 'fastify';
+import { registerParamGuard } from '../../src/interface/http/param-guard.js';
+import { safeResolve, registerStatic } from '../../src/interface/http/static.js';
 
 const ROOT = resolve('/srv/web');
 
@@ -90,4 +94,35 @@ describe('/pdfjs/:dir/:file', () => {
     expect(res.statusCode).toBe(404);
     await app.close();
   });
+});
+
+it('路徑參數守門與靜態檔共存：JS、CSS 與巢狀 SPA 可載入，API 路徑穿越仍擋下', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'cyclosa-static-guard-'));
+  const app = Fastify();
+  try {
+    await mkdir(join(folder, 'assets'));
+    await writeFile(join(folder, 'index.html'), '<div id="app">fixture</div>');
+    await writeFile(join(folder, 'assets/app.js'), 'export const ready=true;');
+    await writeFile(join(folder, 'assets/app.css'), 'body { color: black; }');
+    registerParamGuard(app);
+    app.get<{ Params: { slug: string } }>('/api/cases/:slug/runs', async () => ({ ok: true }));
+    registerStatic(app, folder);
+    const script = await app.inject({ method: 'GET', url: '/assets/app.js' });
+    expect(script.statusCode).toBe(200);
+    expect(script.headers['content-type']).toContain('text/javascript');
+    expect(script.body).toContain('export const ready');
+    const css = await app.inject({ method: 'GET', url: '/assets/app.css' });
+    expect(css.statusCode).toBe(200);
+    expect(css.headers['content-type']).toContain('text/css');
+    const spa = await app.inject({ method: 'GET', url: '/case/fixture/runs' });
+    expect(spa.statusCode).toBe(200);
+    expect(spa.body).toContain('id="app"');
+    const unsafe = await app.inject({ method: 'GET', url: '/api/cases/..%2Fsecret/runs' });
+    expect(unsafe.statusCode).toBe(404);
+    expect(unsafe.json().correlationId).toBe('bad-slug');
+    expect((await app.inject({ method: 'GET', url: '/api/missing' })).statusCode).toBe(404);
+  } finally {
+    await app.close();
+    await rm(folder, { recursive: true, force: true });
+  }
 });

@@ -782,3 +782,15 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 | 任何往外送資料的端點 | 這是單機工具（REQ-0008 的「刻意不做」）|
 | 認證 | 只綁 `127.0.0.1`。**這是既有風險不是疏漏**（ADR-0002 的代價那一節）|
 | offset 分頁 | 5 萬筆規模下會逐列掃 |
+
+### 整理補繁中（Issue #8，實作規格）
+
+`digest` payload 維持 `{itemIds[]}`。只對可讀、未排除、非筆記／書目且具有正文的資料補跑初讀。`digested_at`、非空的 `digested_by`、`title_zh` 或 `summary_zh` 任一存在即保留，避免覆寫舊資料。規劃時按可初讀清單驗證並拆成逐份操作，執行前及回覆後再次檢查；過期提案記 `CONSOLIDATE_OP_STALE`。
+
+只勾補繁中時僅檢查 digest 任務，不要求 extract 服務。初讀服務未設定、不可連線或能力不足時，開作業前回既有錯誤碼，detail.task 為 digest。初讀沿用同一提示詞、正文上限與輸出正規化；只寫 `title_zh`、`summary_zh`、`digested_by`、`digested_at`，不改原文與圖，也不翻全文。逐份紀錄成功／失敗，取消或封存後不採用晚到輸出；一份失敗不阻止其餘。
+
+補繁中為衍生物，並非圖的新增；沿用既有作業紀錄與模型呼叫紀錄，不另新增逐份復原端點或 SQLite schema。
+
+作業查詢新增 `derivedOnly`：純補繁中時顯示衍生內容說明，隱藏「復原這次作業」。若舊客戶端仍呼叫該作業的 undo，回傳零刪除，不清理任何孤立實體或初讀內容。混合抽取作業仍保留既有圖復原行為，繁中衍生內容不隨圖復原清除。
+
+整理殼新增 `digestService` 以顯示執行補繁中的初讀服務；coverage 的可選欄位 `undigestedIncluded`／`undigestedAvailable` 揭露候選覆蓋範圍，每次最多給規劃模型 200 份初讀候選。

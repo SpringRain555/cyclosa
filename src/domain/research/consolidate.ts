@@ -214,6 +214,7 @@ export interface ConsolidateValidationFacts {
   readonly extractableItemIds: ReadonlySet<string>;
   readonly endpointIds: ReadonlySet<string>;
   readonly verifiedQuoteKeys: ReadonlySet<string>;
+  readonly digestibleItemIds?: ReadonlySet<string>;
 }
 
 export interface DroppedConsolidateOp {
@@ -285,6 +286,10 @@ export function validateConsolidatePlan(
       case 'digest':
         if (draft.payload.itemIds.some((id) => !facts.itemIds.has(id)))
           drop(draft.kind, 'digest-item-missing');
+        else if (
+          draft.payload.itemIds.some((id) => !(facts.digestibleItemIds ?? facts.itemIds).has(id))
+        )
+          drop(draft.kind, 'digest-item-not-undigested');
         else operations.push(draft);
         break;
     }

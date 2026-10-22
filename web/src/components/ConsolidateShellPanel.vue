@@ -35,6 +35,13 @@ const serviceName = computed(() => {
   const name = names[service.via] ?? service.via;
   return service.model.length === 0 ? name : name + ' · ' + service.model;
 });
+const digestServiceName = computed(() => {
+  const service = current.value?.digestService;
+  if (service === undefined) return '';
+  const names = t.settings.connectionNames as Record<string, string>;
+  const name = names[service.via] ?? service.via;
+  return service.model.length === 0 ? name : name + ' · ' + service.model;
+});
 const statusLabels: Record<string, string> = {
   planning: t.consolidateShell.statusPlanning,
   reviewing: t.consolidateShell.statusReviewing,
@@ -78,8 +85,8 @@ async function plan(researchId: string): Promise<void> {
       current.value = result.data;
       report(null);
     } else {
-      report(result.error);
       await reload();
+      report(result.error);
     }
   } finally {
     busy.value = false;
@@ -121,8 +128,8 @@ async function setChecked(operation: ConsolidateShellOperation, checked: boolean
     await reload();
     report(null);
   } else {
-    report(result.error);
     await reload();
+    report(result.error);
   }
 }
 
@@ -163,7 +170,7 @@ function statusLabel(status: string): string {
   return statusLabels[status] ?? status;
 }
 function operationCanBeChecked(operation: ConsolidateShellOperation): boolean {
-  return operation.kind === 'extract' && operation.executable && operation.state === 'proposed';
+  return operation.executable && operation.state === 'proposed';
 }
 
 onMounted(() => void reload());
@@ -187,6 +194,9 @@ defineExpose({ reload });
       }}
     </p>
     <p v-if="localError" class="error-text">{{ localError.message }}</p>
+    <p v-if="current?.digestService" class="hint">
+      {{ fill(t.consolidateShell.digestService, { service: digestServiceName }) }}
+    </p>
 
     <template v-if="current === null">
       <button class="primary" :disabled="startBlocked" @click="start">
@@ -226,6 +236,14 @@ defineExpose({ reload });
       <template v-if="current.coverage">
         <p class="coverage">
           {{ fill(t.consolidateShell.coverage, current.coverage) }}
+        </p>
+        <p v-if="current.coverage.undigestedIncluded !== undefined" class="hint">
+          {{
+            fill(t.consolidateShell.digestCoverage, {
+              included: current.coverage.undigestedIncluded,
+              total: current.coverage.undigestedAvailable ?? 0,
+            })
+          }}
         </p>
         <p v-if="current.dropped.count > 0" class="hint">
           {{ fill(t.consolidateShell.dropped, { n: current.dropped.count }) }}

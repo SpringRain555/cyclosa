@@ -597,6 +597,7 @@ async function rebuild(): Promise<void> {
                 <span v-if="run.heldByResearch" class="hint">{{
                   t.runControl.heldByResearch
                 }}</span>
+                <span v-else-if="run.derivedOnly" class="hint">{{ t.runControl.derivedOnly }}</span>
                 <button v-else :disabled="busyControl" @click="undo">
                   {{ t.runControl.undo }}
                 </button>

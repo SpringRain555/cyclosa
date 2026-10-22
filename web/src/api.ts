@@ -254,6 +254,7 @@ export interface Run {
   unpriced: number;
   /** 屬於一次還沒結束的研究 —— 那時候不能復原（畫面換成一句為什麼） */
   heldByResearch: boolean;
+  derivedOnly?: boolean;
 }
 
 // ── 擴展──────────────────────────────────────────
@@ -419,6 +420,7 @@ export interface ConsolidateShellView {
   updatedAt: number;
   endedAt: number | null;
   service: ServiceView;
+  digestService?: ServiceView;
   coverage: {
     entitiesIncluded: number;
     entitiesAvailable: number;
@@ -431,6 +433,8 @@ export interface ConsolidateShellView {
     notesAvailable: number;
     notesTruncated: number;
     noteCharsIncluded: number;
+    undigestedIncluded?: number;
+    undigestedAvailable?: number;
   } | null;
   dropped: { count: number; reasons: Record<string, number> };
   operations: ConsolidateShellOperation[];

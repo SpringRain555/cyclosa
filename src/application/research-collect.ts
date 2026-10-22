@@ -1,3 +1,4 @@
+import { callDigest, checkDigest } from './digest-call.js';
 /**
  * 研究的蒐集那一段（Stage 20–21，ADR-0033 D3／D7／D8／D9、REQ-0009 R7–R16）。
  *
@@ -41,9 +42,7 @@ import {
   EMPTY_TASK_COSTS,
   mayContinue,
   missingFor,
-  normalizeDigest,
   normalizeResearchCandidates,
-  TASK_DIGEST,
   TASK_FIND_SOURCES,
   type BudgetState,
   type SourceHints,
@@ -89,9 +88,7 @@ import {
   CANDIDATES_SCHEMA,
   CANDIDATES_SYSTEM,
   candidatesUser,
-  DIGEST_SCHEMA,
   DIGEST_SYSTEM,
-  digestUser,
 } from './research-prompts.js';
 import {
   openResearchCase,
@@ -182,39 +179,7 @@ export async function checkFindSources(
  * **沒設定就擋下來、說是這一個任務**（ADR-0033「你定的」）：初讀每一份候選都讀，
  * 不能等到全部抓完才發現沒有東西可以讀它們。
  */
-export async function checkDigest(
-  providers: Providers,
-  cid: string,
-): Promise<Result<ChatProvider>> {
-  const who = { role: 'chat', task: 'digest' } as const;
-  const chat = providers.chatFor('digest');
-  if (chat === null) return err('PROVIDER_NOT_CONFIGURED', cid, who);
-  const probe = await chat.probe();
-  if (probe.kind === 'not-configured') return err('PROVIDER_NOT_CONFIGURED', cid, who);
-  if (probe.kind === 'unreachable') {
-    return err('PROVIDER_UNREACHABLE', cid, { ...who, at: probe.detail });
-  }
-  const match = missingFor(TASK_DIGEST, probe.capabilities);
-  if (match.kind === 'missing') {
-    return err('PROVIDER_CAPABILITY_MISSING', cid, {
-      ...who,
-      missing: match.flags,
-      ...(match.context === null
-        ? {}
-        : { needContextTokens: match.context[0], haveContextTokens: match.context[1] }),
-    });
-  }
-  let json = await chat.jsonMode();
-  if (json.mode === 'unchecked' && chat.checkJson !== undefined) {
-    const measured = await chat.checkJson();
-    if (measured.kind === 'error') return err(measured.code, cid, who);
-    json = measured.value;
-  }
-  if (json.mode === 'none') {
-    return err('PROVIDER_JSON_UNSUPPORTED', cid, { ...who, detail: json.detail });
-  }
-  return ok(chat, cid);
-}
+export { checkDigest } from './digest-call.js';
 
 // ── 開一筆蒐集作業 ──────────────────────────────────────────
 
@@ -877,18 +842,18 @@ async function digestCandidate(db: DatabaseSync, input: DigestInput): Promise<Di
     return failWith('PARSE_EMPTY_CONTENT', input.budget, input.taskCosts);
   }
 
-  const user = digestUser({
-    topic: input.topic,
-    relation: input.relation,
-    directions: input.directions,
-    // 抽取出來的標題比搜尋結果上的準（那是這一份自己說它叫什麼）；抽不到才用搜尋結果上的。
-    title: derived.title.trim().length > 0 ? derived.title : candidate.title,
-    url: candidate.url,
-    excerpt: derived.text,
-  });
-  const call = await input.chat.json(
-    { system: DIGEST_SYSTEM, user, schema: DIGEST_SCHEMA },
-    input.abort.signal,
+  const { call, user, digest } = await callDigest(
+    input.chat,
+    {
+      topic: input.topic,
+      relation: input.relation,
+      directions: input.directions,
+      // 抽取出來的標題比搜尋結果上的準（那是這一份自己說它叫什麼）；抽不到才用搜尋結果上的。
+      title: derived.title.trim().length > 0 ? derived.title : candidate.title,
+      url: candidate.url,
+      excerpt: derived.text,
+    },
+    input.abort,
   );
   await recordModelCall(ctx.providers, input.folder, {
     task: 'digest',
@@ -909,13 +874,13 @@ async function digestCandidate(db: DatabaseSync, input: DigestInput): Promise<Di
   const budget = charge(input.budget, call.cost.costUsd, Date.now() - input.startedAt);
   const taskCosts = chargeTask(input.taskCosts, 'digest', call.cost.costUsd);
 
+  if (ctx.state.cancelled) return { budget, taskCosts, code: null, interrupted: true };
   if (call.kind === 'error') {
     // 你按了取消、請求被中斷 —— **這一份沒讀完**，什麼都不寫，留在「還沒讀」。
     if (ctx.state.cancelled) return { budget, taskCosts, code: null, interrupted: true };
     return failWith(call.code, budget, taskCosts);
   }
 
-  const digest = normalizeDigest(call.value);
   // 形狀對不上（`relevance` 不是三個值之一、標題與摘要都空）：**整份不採用** ——
   // 一個猜出來的「有關」會變成確認畫面上「進圖」的預設值（`digest.ts` 檔頭）。
   if (digest === null) return failWith('PROVIDER_OUTPUT_SCHEMA_MISMATCH', budget, taskCosts);

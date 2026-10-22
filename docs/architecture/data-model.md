@@ -720,3 +720,9 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 >
 > 型別不夠用的時候要加，但**加之前先問「使用者會用它來篩選嗎」** ——
 > 一個沒有人拿來篩選的型別只是多一個要填的欄位。
+
+### 整理初讀補繁中（Issue #8，未發行）
+
+不新增欄位或 migration。初讀成功沿用 `setItemDigest`，只寫 item 的 `title_zh`、`summary_zh`、`digested_by` 與 `digested_at`，不改原文標題、正文、原始快照、狀態或 `updated_at`。已有任一初讀紀錄或非空繁中內容的資料保留，不因舊資料缺少初讀時間而覆寫。
+
+`run.providers_json` 沿用任務模型欄位，新增 `digestOnly: true` 表示只補衍生繁中，不做圖與資料復原；作業查詢回傳 `derivedOnly`。逐任務呼叫數、未知成本與 JSON 格式記在原本的 run 欄位／模型呼叫紀錄，未回報費用保留未知。

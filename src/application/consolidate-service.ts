@@ -42,6 +42,7 @@ import { err, ok, type Result } from '../shared/result.js';
 import { callExtract, checkExtract } from './extraction-call.js';
 import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
 import { executeExtractOperation } from './consolidate-ops/extract.js';
+import { performConsolidateDigest } from './consolidate-digest.js';
 import { recordModelCall } from './model-call-log.js';
 import {
   bodyAvailable,
@@ -228,6 +229,7 @@ export interface ConsolidateWorkerPlanEntry {
   readonly itemId: string;
   readonly title: string;
   readonly opId?: string;
+  readonly kind?: 'extract' | 'digest';
 }
 
 export interface ConsolidateWorkerHooks {
@@ -245,7 +247,8 @@ export function launchConsolidateWorker(input: {
   readonly dataRoot: string;
   readonly slug: string;
   readonly providers: Providers;
-  readonly chat: ChatProvider;
+  readonly chat: ChatProvider | null;
+  readonly digest?: ChatProvider | null;
   readonly runId: string;
   readonly plan: readonly ConsolidateWorkerPlanEntry[];
   readonly hooks?: ConsolidateWorkerHooks;
@@ -256,6 +259,7 @@ export function launchConsolidateWorker(input: {
     input.slug,
     input.providers,
     input.chat,
+    input.digest ?? null,
     state,
     input.plan,
     input.hooks,
@@ -287,7 +291,8 @@ async function processConsolidate(
   dataRoot: string,
   slug: string,
   providers: Providers,
-  chat: ChatProvider,
+  chat: ChatProvider | null,
+  digest: ChatProvider | null,
   state: registry.ActiveRun,
   plan: readonly ConsolidateWorkerPlanEntry[],
   hooks?: ConsolidateWorkerHooks,
@@ -312,11 +317,12 @@ async function processConsolidate(
       runs.updateRunItem(db, {
         id: entry.runItemId,
         outcome: 'running',
-        itemId: entry.itemId,
+        itemId: items.getItem(db, entry.itemId)?.id ?? null,
         now: Date.now(),
       });
       let code: ErrorCode | null = null;
       let newEdges = 0;
+      let digestWritten = false;
       const derived = await readDerived(folder, entry.itemId);
       if (state.cancelled) break;
       // 規劃之後資料可能被抽過、排除或復原；執行前重查「還沒抽過」事實。
@@ -333,9 +339,45 @@ async function processConsolidate(
           machineEvidence: candidate.machineEvidence,
           hasBody: bodyAvailable(derived),
         });
-      if (!eligible)
+      if (entry.kind === 'digest') {
+        if (digest === null) code = 'PROVIDER_NOT_CONFIGURED';
+        else {
+          try {
+            const result = await performConsolidateDigest({
+              db,
+              folder,
+              itemId: entry.itemId,
+              providers,
+              chat: digest,
+              state,
+              abort,
+            });
+            code = result.code;
+            digestWritten = result.written;
+            if (result.cost !== null) {
+              taskCosts = chargeTask(taskCosts, 'digest', result.cost.costUsd);
+              const costs = Object.values(taskCosts);
+              runs.updateRunBudget(
+                db,
+                state.runId,
+                costs.reduce((sum, cost) => sum + cost.requests, 0),
+                costs.some((cost) => cost.costUsd !== null)
+                  ? costs.reduce((sum, cost) => sum + (cost.costUsd ?? 0), 0)
+                  : null,
+                costs.reduce((sum, cost) => sum + cost.unpriced, 0),
+                taskCosts,
+              );
+            }
+          } catch (error) {
+            code = 'CONSOLIDATE_UNEXPECTED';
+            logger.error('補繁中失敗', { itemId: entry.itemId, reason: String(error) });
+          }
+        }
+        if (state.cancelled) break;
+      } else if (!eligible)
         code = entry.opId === undefined ? 'PARSE_EMPTY_CONTENT' : 'CONSOLIDATE_OP_STALE';
       else {
+        if (chat === null) throw new Error('extract provider missing');
         const called = await callExtract(chat, derived, abort);
         taskCosts = chargeTask(taskCosts, 'extract', called.costUsd);
         const cost = taskCosts['extract'];
@@ -402,7 +444,7 @@ async function processConsolidate(
       const outcome = workOutcome({
         code,
         fatal: code !== null && levelOf(code) === 'error',
-        produced: newEdges > 0,
+        produced: newEdges > 0 || digestWritten,
       });
       outcomes.push(outcome);
       hooks?.onItemSettled?.(db, entry, code, outcome);
@@ -410,7 +452,7 @@ async function processConsolidate(
         id: entry.runItemId,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.itemId,
+        itemId: items.getItem(db, entry.itemId)?.id ?? null,
         now: Date.now(),
       });
       runs.setRunItemEdges(db, entry.runItemId, newEdges);

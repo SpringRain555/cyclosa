@@ -856,7 +856,7 @@ export const t = {
   consolidateShell: {
     researchOpen: '研究進行中，結束或放棄之後才能開始整理。',
     title: '整理專題',
-    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版只會執行抽取，其餘操作先列出但不能勾選。',
+    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版可勾選抽取與補繁中，其餘操作先列出但不能勾選。只補尚未初讀資料的繁中標題與摘要，不翻全文。',
     service: '規劃走 {service}，會使用模型額度。',
     serviceFree: '規劃走 {service}。',
     start: '開始整理規劃',
@@ -879,8 +879,13 @@ export const t = {
       'edge-id-missing': '關聯端點或引用來源不存在',
       'edge-quote-not-found': '引文無法在正文定位',
       'retype-entity-missing': '改型別提案指向不存在的實體',
+      'digest-item-not-undigested': '資料已初讀、沒有正文或不適合補繁中',
+      'digest-duplicate': '重複的補繁中提案',
       'digest-item-missing': '補繁中提案指向不存在的資料',
     },
+    digestCoverage: '補繁中候選：模型看到 {included}/{total} 份尚未初讀的資料。',
+    digestService:
+      '補繁中走初讀服務「{service}」。每份只讀正文開頭約 6,000 字；既有初讀保留，不翻全文。',
     operations: '操作建議',
     kindLabels: {
       merge: '合併實體',
@@ -893,7 +898,7 @@ export const t = {
     why: '理由：{why}',
     select: '勾選後才會執行',
     noOperations: '沒有可確認的操作。可以放棄這次整理，或重試規劃。',
-    execute: '執行已勾選的抽取（{n}）',
+    execute: '執行已勾選的操作（{n}）',
     executing: '開始作業…',
     abandon: '放棄整理',
     emptyShell: '還沒有整理規劃。',
@@ -909,6 +914,7 @@ export const t = {
     /** 暫停與取消的差別要寫在按鈕旁邊，不然兩顆看起來一樣。 */
     pauseHint: '正在做的那一項會做完，然後停在下一項之前。隨時可以繼續。',
     undo: '復原這次作業',
+    derivedOnly: '這次只補繁中標題與摘要，屬於衍生內容；不提供圖與資料的作業復原。',
     undoConfirm:
       '把這次作業寫進去的東西刪掉？\n\n抓回來的原始快照不會被動到，你裁決過的關聯、讀過或標過點註的資料也不會。這個動作沒辦法取消。',
     undone: '已刪掉 {items} 份資料、{edges} 條關聯。',

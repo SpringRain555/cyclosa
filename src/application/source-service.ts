@@ -46,7 +46,7 @@ import {
 } from '../domain/sources/status.js';
 import { openCaseDatabase } from '../infrastructure/db/database.js';
 import { Crawler } from '../infrastructure/fetch/crawler.js';
-import { configuredIntervalMs } from './fetch-policy.js';
+import { configuredIntervalMs, configuredPrivateAddressAllowed } from './fetch-policy.js';
 import {
   CATALOG,
   SOURCE_CATEGORIES,
@@ -495,7 +495,10 @@ export interface ProbeOutcome {
 async function probeOne(host: string, url: string | null): Promise<ProbeOutcome> {
   if (url === null || url.length === 0) return { host, record: null, skipped: true };
 
-  const crawler = new Crawler({ intervalMs: configuredIntervalMs() });
+  const crawler = new Crawler({
+    intervalMs: configuredIntervalMs(),
+    privateAddressAllowed: configuredPrivateAddressAllowed(),
+  });
   // **探針要的是機器格式**（有探針的列全部是 `kind: 'api'`）。
   // 回 HTML 就不是我們要的東西 —— 2026-09-16 dblp 那一次，
   // 探針回 200 ＋ text/html 而它是一張反爬蟲驗證頁，清單上卻寫「讀得到」。

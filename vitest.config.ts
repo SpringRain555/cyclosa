@@ -64,6 +64,9 @@ export default defineConfig({
       CYCLOSA_LOG_LEVEL: 'silent',
       // 節流間隔一律用預設值：開發機上設了這個變數的話，e2e 的間隔量測與整包的時間都會跟著變。
       CYCLOSA_FETCH_INTERVAL_MS: '',
+      // e2e 的假網站都在 127.0.0.1，擷取管線預設不連非公開位址（ADR-0038）。
+      // 擋的那一條由 `tests/infrastructure/crawler-private-address.test.ts` 直接建 Crawler 驗。
+      CYCLOSA_FETCH_ALLOW_PRIVATE: '1',
       // 選好資料位置時不建範例專題：e2e 換到自己的資料根之後用不到它，卻佔掉 e2e 四成的時間。
       // 測「第一次啟動」的那幾條（`case-flow.test.ts`、`first-run.test.ts`）自己把它拿掉（`bootstrap-service.ts`）。
       CYCLOSA_SKIP_SAMPLE: '1',

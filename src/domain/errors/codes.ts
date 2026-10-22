@@ -137,6 +137,11 @@ export const ERROR_CODES = {
    */
   FETCH_DUPLICATE: 'notice',
   FETCH_ROBOTS_DISALLOWED: 'partial',
+  /**
+   * 這一跳（含轉址的中途）要去的主機解析到本機、區網或其他非公開位址（ADR-0038）。**沒有送任何請求。**
+   * 外部網頁一個轉址就能讓爬蟲替它敲這台電腦上的服務 —— 包括 Cyclosa 自己的 API。
+   */
+  FETCH_PRIVATE_ADDRESS: 'partial',
   FETCH_RATE_LIMITED: 'partial',
   FETCH_TIMEOUT: 'partial',
   FETCH_UPLOAD_TIMEOUT: 'partial',

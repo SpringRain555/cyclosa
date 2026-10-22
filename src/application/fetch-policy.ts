@@ -21,6 +21,22 @@ import {
 
 export const FETCH_INTERVAL_ENV = 'CYCLOSA_FETCH_INTERVAL_MS';
 
+/**
+ * 設成 `1` 才准擷取管線連本機、區網與其他非公開位址（ADR-0038）。**預設不准。**
+ *
+ * 跟同網域間隔一樣是「某個人在這台機器上的決定」（例如要抓區網裡自己的 NAS），
+ * 不是專題的屬性，所以也用環境變數。打開之後擋的那一層就沒了 —— 轉址到本機的網頁照樣會被跟過去。
+ */
+export const FETCH_ALLOW_PRIVATE_ENV = 'CYCLOSA_FETCH_ALLOW_PRIVATE';
+
+/** 給 `Crawler` 的 `privateAddressAllowed`。 */
+export function configuredPrivateAddressAllowed(
+  env: NodeJS.ProcessEnv = process.env,
+): (ip: string) => boolean {
+  const on = env[FETCH_ALLOW_PRIVATE_ENV]?.trim() === '1';
+  return () => on;
+}
+
 export interface FetchPolicy {
   /** 同網域間隔（毫秒），已經夾過下限。 */
   readonly intervalMs: number;

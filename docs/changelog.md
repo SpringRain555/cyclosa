@@ -11,6 +11,13 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **擷取管線不連本機與區網；路徑參數不得帶出資料夾（ADR-0038）**：2026-10-22 開 CodeQL 後盤點出的兩件。
+  爬蟲手動跟轉址卻從不問下一跳去哪 —— 外部網頁轉址到 `127.0.0.1:7433/api/...` 或區網位址，爬蟲就替它去讀、存成快照。
+  現在每一跳在 robots 之前先解析主機名，任何一筆不是公開位址就記新碼 `FETCH_PRIVATE_ADDRESS`、不送請求；
+  預設不准，`CYCLOSA_FETCH_ALLOW_PRIVATE=1` 放行。另外 `:slug` 原本只在建立與改名時驗，`%2F` 解碼後的 `../` 會被接進資料夾路徑
+  （開資料庫前會先看檔案在不在，所以目前走不出去）；改成所有路由在 `preValidation` 統一驗。
+  測試：`tests/domain/address.test.ts`、`tests/infrastructure/crawler-private-address.test.ts`、`tests/interface/param-guard.test.ts`，兩道守門都拔掉驗過會紅。
+
 - **修正 gpt-oss 文件索引與來源守門**：補入總索引，依已完成的 HF API 查證回填來源日期，恢復來源表只接受日期的斷言，移除待查例外；相容端點新增註解改為繁體中文。
 
 - **OpenAI 相容端點接線 gpt-oss（issue #10）**：設定說明與 README 加入 vLLM 的 gpt-oss-120b 用法；抽取量測工具用唯讀衍生正文呼叫共用 `callExtract`，輸出 schema 有效性、關聯數、引文命中與秒數，不寫專題資料。模型來源列記錄 OpenAI／Apache-2.0（Claude 於 2026-10-20 查證 Hugging Face API）；建議模型不變。Chat Completions 的 `message.reasoning` 與 Responses reasoning output item 不作為回答或診斷內容，空回答使用既有 `PROVIDER_OUTPUT_UNPARSEABLE`。

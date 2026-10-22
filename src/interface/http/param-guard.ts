@@ -42,6 +42,9 @@ export function paramVerdict(params: Readonly<Record<string, unknown>>): ParamVe
 export function registerParamGuard(app: FastifyInstance): void {
   // `preValidation`：路由已經比對好、`req.params` 已經解碼，handler 還沒跑。
   app.addHook('preValidation', async (req, reply) => {
+    // 未比對到路由時，Fastify 把整段網址放在 params['*']；那不是單一 id。
+    // 靜態檔與 SPA 後備由 safeResolve 圍堵，未知 API 仍由 not-found 回 404。
+    if (req.routeOptions.url === undefined) return;
     const params = (req.params ?? {}) as Record<string, unknown>;
     const verdict = paramVerdict(params);
     if (verdict === 'ok') return;

@@ -1,72 +1,72 @@
 {
-    "note":  "產生物。改了 .md 裡的 mermaid 或 tools/diagrams/mermaid-config.json 就重跑 tools/diagrams/Render-Diagrams.ps1。",
-    "theme":  "d14084cdda9114eff57696537e08105f2ebd22243fdbc94c62e284514724b3e7",
-    "diagrams":  [
-                     {
-                         "document":  "app-lifecycle.md",
-                         "index":  1,
-                         "svg":  "app-lifecycle-1.svg",
-                         "sha256":  "4c3ba651eacfb507101fe632c2fae4277a845303db837487728e67d491f1351f"
-                     },
-                     {
-                         "document":  "app-lifecycle.md",
-                         "index":  2,
-                         "svg":  "app-lifecycle-2.svg",
-                         "sha256":  "b2c93b3938a272311ce8911c0579b0eb3caba86846a92e8b16ba950073d168b2"
-                     },
-                     {
-                         "document":  "data-model.md",
-                         "index":  1,
-                         "svg":  "data-model-1.svg",
-                         "sha256":  "ea614aa72a2f6deeaafa63e367e5d014d2df9c5de0eed00810103a1eb0f073d1"
-                     },
-                     {
-                         "document":  "overview.md",
-                         "index":  1,
-                         "svg":  "overview-1.svg",
-                         "sha256":  "ab7db7b55fd96163cc9d88cb5a7e559d4583910c1669385cebd68c34b378e6b4"
-                     },
-                     {
-                         "document":  "overview.md",
-                         "index":  2,
-                         "svg":  "overview-2.svg",
-                         "sha256":  "0b6ad0a288c7637565557c81d72d07772a3eebfaa24b317db3c97ab9fe4185c1"
-                     },
-                     {
-                         "document":  "state-machines.md",
-                         "index":  1,
-                         "svg":  "state-machines-1.svg",
-                         "sha256":  "0d9b6552ccae4d829cda359e4f15c0b6977a9683607529711429cfdcc6facfc4"
-                     },
-                     {
-                         "document":  "state-machines.md",
-                         "index":  2,
-                         "svg":  "state-machines-2.svg",
-                         "sha256":  "6041951fa311dc4bf255901d04cd1c227f45e876002e71b9062aefcef38de944"
-                     },
-                     {
-                         "document":  "state-machines.md",
-                         "index":  3,
-                         "svg":  "state-machines-3.svg",
-                         "sha256":  "19f3cc3fdd8a0869e8f0176f06610f2929b60d5331fb760914c2d2a3b0b47130"
-                     },
-                     {
-                         "document":  "state-machines.md",
-                         "index":  4,
-                         "svg":  "state-machines-4.svg",
-                         "sha256":  "a6685b0eaf9ea6b83bafc7e220544a9e27bebf7c093f242e1039b834a4341310"
-                     },
-                     {
-                         "document":  "state-machines.md",
-                         "index":  5,
-                         "svg":  "state-machines-5.svg",
-                         "sha256":  "532414e7aba96b5314fc6120ccd09404d819d40a0d23c1e7fc42079e9ba90f3e"
-                     },
-                     {
-                         "document":  "state-machines.md",
-                         "index":  6,
-                         "svg":  "state-machines-6.svg",
-                         "sha256":  "ae97bd46fb17976e0f01485798d6823c61a05ef9310602eca1d06d7c5f9ab1e8"
-                     }
-                 ]
+  "note": "產生物。改了 .md 裡的 mermaid 或 tools/diagrams/mermaid-config.json 就重跑 tools/diagrams/Render-Diagrams.ps1。",
+  "theme": "d14084cdda9114eff57696537e08105f2ebd22243fdbc94c62e284514724b3e7",
+  "diagrams": [
+    {
+      "document": "app-lifecycle.md",
+      "index": 1,
+      "svg": "app-lifecycle-1.svg",
+      "sha256": "4c3ba651eacfb507101fe632c2fae4277a845303db837487728e67d491f1351f"
+    },
+    {
+      "document": "app-lifecycle.md",
+      "index": 2,
+      "svg": "app-lifecycle-2.svg",
+      "sha256": "b2c93b3938a272311ce8911c0579b0eb3caba86846a92e8b16ba950073d168b2"
+    },
+    {
+      "document": "data-model.md",
+      "index": 1,
+      "svg": "data-model-1.svg",
+      "sha256": "12aa93a4f9fa8d2bf724c837e4529219c87ce99ab4e0ec75388113fcbc6d9962"
+    },
+    {
+      "document": "overview.md",
+      "index": 1,
+      "svg": "overview-1.svg",
+      "sha256": "ab7db7b55fd96163cc9d88cb5a7e559d4583910c1669385cebd68c34b378e6b4"
+    },
+    {
+      "document": "overview.md",
+      "index": 2,
+      "svg": "overview-2.svg",
+      "sha256": "0b6ad0a288c7637565557c81d72d07772a3eebfaa24b317db3c97ab9fe4185c1"
+    },
+    {
+      "document": "state-machines.md",
+      "index": 1,
+      "svg": "state-machines-1.svg",
+      "sha256": "0d9b6552ccae4d829cda359e4f15c0b6977a9683607529711429cfdcc6facfc4"
+    },
+    {
+      "document": "state-machines.md",
+      "index": 2,
+      "svg": "state-machines-2.svg",
+      "sha256": "6041951fa311dc4bf255901d04cd1c227f45e876002e71b9062aefcef38de944"
+    },
+    {
+      "document": "state-machines.md",
+      "index": 3,
+      "svg": "state-machines-3.svg",
+      "sha256": "19f3cc3fdd8a0869e8f0176f06610f2929b60d5331fb760914c2d2a3b0b47130"
+    },
+    {
+      "document": "state-machines.md",
+      "index": 4,
+      "svg": "state-machines-4.svg",
+      "sha256": "a6685b0eaf9ea6b83bafc7e220544a9e27bebf7c093f242e1039b834a4341310"
+    },
+    {
+      "document": "state-machines.md",
+      "index": 5,
+      "svg": "state-machines-5.svg",
+      "sha256": "532414e7aba96b5314fc6120ccd09404d819d40a0d23c1e7fc42079e9ba90f3e"
+    },
+    {
+      "document": "state-machines.md",
+      "index": 6,
+      "svg": "state-machines-6.svg",
+      "sha256": "ae97bd46fb17976e0f01485798d6823c61a05ef9310602eca1d06d7c5f9ab1e8"
+    }
+  ]
 }

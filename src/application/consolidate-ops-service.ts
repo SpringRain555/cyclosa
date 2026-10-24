@@ -59,6 +59,7 @@ interface Coverage {
   readonly entitiesAvailable: number;
   readonly mergeCandidatesIncluded: number;
   readonly mergeCandidatesAvailable: number;
+  readonly mergeCandidatesSkipped: 'embed-not-configured' | null;
   readonly singleEvidenceEdgesIncluded: number;
   readonly singleEvidenceEdgesAvailable: number;
   readonly unextractedItems: number;
@@ -112,7 +113,14 @@ function coverageOf(raw: string): Coverage | null {
   const value = parseJson(raw, null);
   if (typeof value !== 'object' || value === null) return null;
   const coverage = (value as Raw)['coverage'];
-  return typeof coverage === 'object' && coverage !== null ? (coverage as Coverage) : null;
+  if (typeof coverage !== 'object' || coverage === null) return null;
+  const result = coverage as Coverage;
+  return {
+    ...result,
+    // 舊整理殼的 coverage 沒有這欄；讀取時補 null，讓 API 形狀固定。
+    mergeCandidatesSkipped:
+      result.mergeCandidatesSkipped === 'embed-not-configured' ? 'embed-not-configured' : null,
+  };
 }
 function droppedOf(raw: string): DroppedSummary {
   const value = parseJson(raw, null);
@@ -289,8 +297,10 @@ async function makeContext(
     providers.embed,
     signal,
   );
-  if (!candidates.ok) return candidates.code;
-  const allMergeCandidates = candidates.data;
+  const mergeCandidatesSkipped =
+    !candidates.ok && candidates.code === 'PROVIDER_NOT_CONFIGURED' ? 'embed-not-configured' : null;
+  if (!candidates.ok && mergeCandidatesSkipped === null) return candidates.code;
+  const allMergeCandidates = candidates.ok ? candidates.data : [];
   const mergeCandidateIds = new Set(allMergeCandidates.flatMap((pair) => [pair.keep, pair.drop]));
   const byMentions = (a: entities.EntityRow, b: entities.EntityRow): number =>
     (mentions.get(b.id) ?? 0) - (mentions.get(a.id) ?? 0) ||
@@ -338,6 +348,7 @@ async function makeContext(
     entitiesAvailable: liveEntities.length,
     mergeCandidatesIncluded: mergeCandidates.length,
     mergeCandidatesAvailable: allMergeCandidates.length,
+    mergeCandidatesSkipped,
     singleEvidenceEdgesIncluded: selectedEdges.length,
     singleEvidenceEdgesAvailable,
     unextractedItems: unextracted.length,

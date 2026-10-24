@@ -426,6 +426,7 @@ export interface ConsolidateShellView {
     entitiesAvailable: number;
     mergeCandidatesIncluded: number;
     mergeCandidatesAvailable: number;
+    mergeCandidatesSkipped: 'embed-not-configured' | null;
     singleEvidenceEdgesIncluded: number;
     singleEvidenceEdgesAvailable: number;
     unextractedItems: number;

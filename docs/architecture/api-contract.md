@@ -507,7 +507,7 @@
 
 殼與其他未結束的研究共用 `research.open_key`。不開殼的「抽進圖」仍可用，但兩者互相檢查：有整理殼時抽進圖回 `CONSOLIDATE_RESEARCH_OPEN`；有抽進圖作業在跑時建立整理殼回 `CONSOLIDATE_RUNNING`。復原抽取走既有 `…/runs/:runId/undo`。合併由實體面板呼叫既有 `POST …/entities/:entityId/unmerge` 取消；`GET …/entities/:entityId/merged` 回 `{ id, name }[]`，只列目前併在該實體下的項目。
 
-整理規劃的合併配對先以正規化名稱／別名的 Levenshtein 距離篩選，再以同一次嵌入模型的名稱文字向量餘弦相似度篩選；只將兩道門檻都通過的配對交給規劃模型。模型自行添加的配對略過並顯示 `merge-not-candidate`。存在名稱候選但嵌入未設定或失敗時，規劃明確回報錯誤，不降級成只看名字。
+整理規劃的合併配對先以正規化名稱／別名的 Levenshtein 距離篩選，再以同一次嵌入模型的名稱文字向量餘弦相似度篩選；只將兩道門檻都通過的配對交給規劃模型。模型自行添加的配對略過並顯示 `merge-not-candidate`。存在名稱候選但未設定嵌入模型時，規劃略過整批合併候選並繼續其他操作；coverage 回 `mergeCandidatesSkipped: 'embed-not-configured'`，其他情況回 `null`，UI 依此說明原因。此時不退回只看名稱，模型自行提出的合併仍會因不在候選清單而被丟棄。嵌入已設定但呼叫失敗、模型不符或維度錯誤時，規劃明確回報原錯誤。
 
 `providers.json` v2 與既有設定 API 支援可選 `mergeCandidates: { maxNameDistance, minSimilarity }`。預設 5／0.97；距離接受 0–100 整數，相似度接受 0–1 有限數，無效欄位各自退回預設。設定頁可調整；這些初始值尚待維護者用真實資料量測。向量每次以同一服務分批重算、不混用既有索引模型，不新增 schema。
 

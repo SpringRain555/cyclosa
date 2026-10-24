@@ -865,6 +865,16 @@ export const t = {
     undone: '已復原',
     fromTo: '{from} → {to}',
   },
+  singleSource: {
+    what: '這是唯讀清單：只列未被否決、由一個獨立來源支持的具名關聯。同一轉載群算一個來源；依建立時間排列，不是推薦，也不會自動確認。',
+    loading: '讀取中…',
+    refresh: '重新整理清單',
+    empty: '目前沒有只有一個獨立來源的具名關聯。',
+    coverage:
+      '顯示 {shown}/{total} 條，每次載入 100 條，按建立時間由新到舊。每條顯示一筆代表出處，引文最多 500 字；點關聯可看完整出處。',
+    more: '載入更多',
+    source: '代表出處：',
+  },
   consolidateShell: {
     researchOpen: '研究進行中，結束或放棄之後才能開始整理。',
     title: '整理專題',
@@ -917,8 +927,6 @@ export const t = {
     emptyShell: '還沒有整理規劃。',
     noExtracts: '沒有勾選可執行的操作。',
     singleEvidenceTitle: '只有一條出處的關聯',
-    singleEvidenceTodo:
-      'TODO：保留即時清單接口；#9 會補上清單內容。這些關聯目前只供檢視，不會作為操作執行。',
   },
   runControl: {
     pause: '暫停',

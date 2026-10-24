@@ -819,3 +819,11 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 作業查詢新增 `derivedOnly`：純補繁中時顯示衍生內容說明，隱藏「復原這次作業」。若舊客戶端仍呼叫該作業的 undo，回傳零刪除，不清理任何孤立實體或初讀內容。混合抽取作業仍保留既有圖復原行為，繁中衍生內容不隨圖復原清除。
 
 整理殼新增 `digestService` 以顯示執行補繁中的初讀服務；coverage 的可選欄位 `undigestedIncluded`／`undigestedAvailable` 揭露候選覆蓋範圍，每次最多給規劃模型 200 份初讀候選。
+
+### 整理單一獨立來源清單（Issue #9）
+
+`GET /api/cases/:slug/consolidate/single-source-relations?after=<edge-id>` 為唯讀查詢，不要求整理殼或模型設定。回 `{entries,total,nextCursor}`；每次最多 100 條，按關聯建立時間由新到舊、同時以識別碼固定順序。省略 after 取第一頁；游標關聯已不在清單時回空頁與 null 游標，使用者可重新整理。
+
+每筆包含 `id`、兩端名稱 `source/target`、`rel`、代表出處 `itemId/itemTitle/quote` 與跳轉焦點 `focusId`。代表出處依出處識別碼固定選取一筆，引文預覽最多 500 字；完整出處仍由既有關聯明細提供。只列 `layer='named'` 且狀態非 `rejected`、獨立來源數為 1 的關聯。來源判斷共用 `countIndependentSources` 與 `derivedGroups`，並將未直接提供出處的中間轉載資料納入分群。多段引文或同一轉載群不當成多個獨立來源。
+
+不寫圖、裁決、整理操作或作業，不新增 schema。`?focus=<source-id>&edge=<edge-id>` 可定位關聯圖並開啟指定關聯面板；關聯已刪除則使用既有明細錯誤顯示。

@@ -8,6 +8,7 @@ import {
   type ConsolidateShellView,
 } from '../api';
 import { fill, t } from '../i18n/zh-TW';
+import SingleSourceRelations from './SingleSourceRelations.vue';
 
 const props = defineProps<{ slug: string; researchOpen: boolean | null }>();
 const emit = defineEmits<{
@@ -211,6 +212,7 @@ defineExpose({ reload });
   <section class="card consolidate-shell">
     <h2>{{ t.consolidateShell.title }}</h2>
     <p class="card-what">{{ t.consolidateShell.what }}</p>
+    <SingleSourceRelations :slug="slug" />
     <p v-if="researchOpen === true" class="hint">{{ t.consolidateShell.researchOpen }}</p>
     <p v-if="current" class="hint">
       {{
@@ -309,11 +311,6 @@ defineExpose({ reload });
             </span>
           </label>
         </article>
-
-        <details class="single-evidence">
-          <summary>{{ t.consolidateShell.singleEvidenceTitle }}</summary>
-          <p class="muted">{{ t.consolidateShell.singleEvidenceTodo }}</p>
-        </details>
 
         <div class="actions">
           <button class="primary" :disabled="busy || selected === 0" @click="execute">

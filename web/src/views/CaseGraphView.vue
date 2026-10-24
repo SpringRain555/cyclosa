@@ -99,11 +99,19 @@ const wantedFocus = computed(() => {
   return typeof value === 'string' && value.length > 0 ? value : null;
 });
 
+const wantedEdge = computed(() => {
+  const raw = route.query['edge'];
+  return typeof raw === 'string' && raw.length > 0 ? raw : null;
+});
+
 // 回到這一頁一律重查（store 不再靠快取）—— 跑完一次擴展回來，圖要是新的。
 watch(
-  [slug, wantedFocus],
-  ([next, wanted]) => {
-    if (next.length > 0) void store.open(next, wanted);
+  [slug, wantedFocus, wantedEdge],
+  async ([next, wanted, edge]) => {
+    if (next.length === 0) return;
+    await store.open(next, wanted);
+    if (slug.value === next && wantedEdge.value === edge && edge !== null)
+      await store.openEdge(edge);
   },
   { immediate: true },
 );

@@ -7,7 +7,7 @@ Cyclosa 是在自己電腦上運作的資料整理工具：把網頁與檔案收
 
 ## 快速開始
 
-1. 準備 **Windows 與 Node.js 24.x**（含 npm），確認終端機執行 `node --version` 顯示 `v24.x`。
+1. 準備 **Windows 與 Node.js 24.x**（含 npm），確認終端機執行 `node --version` 顯示 `v24.20` 以上的 `v24.x`。
 2. 下載並解壓縮這個 repo，或用 Git 複製到自己的電腦。
 3. 雙擊根目錄的 **`start_cyclosa.cmd`**，等待瀏覽器開啟。
 
@@ -15,7 +15,7 @@ Cyclosa 是在自己電腦上運作的資料整理工具：把網頁與檔案收
 啟動器會檢查 Node 版本；尚未安裝相依套件時會執行 `npm ci`，並在需要時執行建置。
 **首次安裝相依套件需要網路，也會比後續啟動久。**
 
-請在安裝 Node.js 後**新開的 Windows PowerShell** 裡，同時確認 `node --version` 是 `v24.x`、
+請在安裝 Node.js 後**新開的 Windows PowerShell** 裡，同時確認 `node --version` 是 `v24.20` 以上的 `v24.x`、
 `npm.cmd --version` 能印出版本。只有編輯器或 AI 工具內附的 Node，不代表檔案總管啟動時也找得到 Node 與 npm。
 若找不到任一指令，請安裝含 npm 的 Windows 版 Node.js 24.x，並重新開啟終端機；
 若 PowerShell 說 `npm.ps1` 無法執行，可改用 `npm.cmd ci`，不必為此放寬執行原則。

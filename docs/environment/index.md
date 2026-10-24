@@ -16,10 +16,10 @@
 
 | | |
 |---|---|
-| runtime | 系統 Node **24.x**（`engines`：`>=24 <25`；`.node-version`：`24`） |
-| 版本界線 | **下界 24 只有一個理由：`node:sqlite`**。「Vite 8 要 Node 24」是假的，見 [`lessons.md`](../lessons.md)；上界與相依的理由在 [versions.md](versions.md) |
+| runtime | 系統 Node **24.20 以上的 24.x**（`engines`：`>=24.20 <25`；`.node-version`：`24`，版本管理器與 CI 解析成最新的 24.x） |
+| 版本界線 | **主版本 24 的理由是 `node:sqlite`；次版本 24.20 的理由是 Windows 上的 libuv 崩潰修正**（nodejs/node#56645）。「Vite 8 要 Node 24」是假的，見 [`lessons.md`](../lessons.md)；上界與相依的理由在 [versions.md](versions.md) |
 | 機器可讀的定義 | `package.json`（含 `engines`）、`package-lock.json`、`.node-version`，都在根目錄 |
-| **PATH 上那個能不能用** | **能，如果它是 24.x。** `tools\Launch.ps1` 會先驗版本；PATH 上不是 24 的話設 `CYCLOSA_NODE` 指到對的 `node.exe`（見 §5），不要去改 PATH |
+| **PATH 上那個能不能用** | **能，如果它是 24.20 以上的 24.x。** `tools\Launch.ps1` 會先驗版本；PATH 上不符的話設 `CYCLOSA_NODE` 指到對的 `node.exe`（見 §5），不要去改 PATH |
 
 **2026-09-05 在 Node v24.15.0、npm 11.12.1 上實測的能力**（選 Node 24 的依據）：
 
@@ -38,7 +38,7 @@
 ## 2. 怎麼建
 
 ```powershell
-node --version     # 要 24.x
+node --version     # 要 24.20 以上的 24.x
 npm ci             # 照 lock 檔裝（不是 npm install）
 npm run build      # server（dist/）＋ 前端（web/dist/）
 ```
@@ -79,19 +79,20 @@ main 只由維護者在本機合併之後推上來，「必須先過 CI」的規
 1. **升一個套件**：`npm install <pkg>@<版本>`（lock 檔會跟著改，**要一起提交**），然後
    `.\tools\Verify.ps1`。[versions.md](versions.md) 說了哪幾組要一起升
    （vite／vitest 同一套 pipeline；`typescript` 卡在 `~6.0` 是 `typescript-eslint` 的關係）。
-2. **換一代 Node**：`package.json` 的 `engines`、`.node-version`、[versions.md](versions.md) 的理由，
-   三處一起動；然後 `npm ci` 重裝（原生模組沒有，所以不會有重編譯的問題）。
+2. **換一代 Node**：`package.json` 的 `engines`、`.node-version`、`toolsLaunch.ps1` 的版本檢查、[versions.md](versions.md) 的理由，
+   四處一起動；然後 `npm ci` 重裝（原生模組沒有，所以不會有重編譯的問題）。
 3. 更新完跑 `.\tools\Verify.ps1`，再 `npm run build` 確認產物建得出來。
 
 ## 5. 環境變數
 
 | 變數 | 誰讀 | 做什麼 |
 |---|---|---|
-| `CYCLOSA_NODE` | `tools\Launch.ps1` | 指定 `node.exe`，優先於 PATH。PATH 上不是 24.x 時設一次：`setx CYCLOSA_NODE "X:\path\to\node24\node.exe"` |
+| `CYCLOSA_NODE` | `tools\Launch.ps1` | 指定 `node.exe`，優先於 PATH。PATH 上不是 24.20 以上的 24.x 時設一次：`setx CYCLOSA_NODE "X:\path\to\node24\node.exe"` |
 | `CYCLOSA_FETCH_INTERVAL_MS` | `src/application/fetch-policy.ts` | 同網域請求間隔（毫秒）。沒設用預設；**小於下限會被夾到下限**，不是照做；不是數字當成沒設。數字與理由在 [`fetch-policy.md`](../architecture/fetch-policy.md)。測試裡由 `vitest.config.ts` 清成預設 |
 | `CYCLOSA_SKIP_SAMPLE` | `src/application/bootstrap-service.ts` | **只給測試用**：`1` 表示第一次選好資料位置時不建範例專題。`vitest.config.ts` 預設打開（e2e 換到自己的資料根之後用不到範例，卻佔掉 e2e 四成的時間），測第一次啟動的 `case-flow.test.ts` 那一組與 `first-run.test.ts` 的一條自己關掉。使用者不需要設 |
 | `CYCLOSA_PROGRAM_DIR` | `src/infrastructure/fs/paths.ts` | **只給測試用**：換掉程式資料夾（「放在程式資料夾裡」那個選項的 `userdata\` 在它底下，四步的第 2 步看它）。`vitest.config.ts` 在整個測試行程釘在 `tmp/vitest/Program/` —— 否則測試會去看真的 repo 底下的 `userdata\`，而且所有沙箱都在 repo 底下，會被當成「程式資料夾裡面」擋掉（ADR-0037）。使用者不需要設 |
 | `CYCLOSA_NO_PROGRAM_FOLDER` | `src/infrastructure/fs/paths.ts` | 設成 `1` 時當作沒有程式資料夾：四步的第 2 步不看 repo 的 `userdata\`，第一次啟動頁「放在程式資料夾裡」關著。**由 `tools\Launch.ps1 -LocalAppData` 自動帶給伺服器**（獨立環境才真的獨立），只在那個子行程裡、起完就換回來。使用者不需要設 |
+| `CYCLOSA_FETCH_ALLOW_PRIVATE` | `src/application/fetch-policy.ts` 的 `configuredPrivateAddressAllowed()` | 設成 `1` 時爬蟲**放行本機、區網與保留位址**（ADR-0038 預設擋下）。**只給 e2e 用**：測試的假網站在 `127.0.0.1`。使用者不要設 —— 設了等於讓外部網頁能透過轉址叫爬蟲讀本機 API |
 | `CYCLOSA_LOG_LEVEL` | `src/shared/log.ts` | 日誌門檻；`silent` 完全不寫（測試用它，因為 e2e 刻意製造失敗） |
 | `CYCLOSA_LOG_FILE` | `src/shared/log.ts` | 同時寫一份日誌到這個檔。`tools\Launch.ps1` 把它設成 `%LOCALAPPDATA%\Cyclosa\logs\server.log` —— 隱藏視窗跑的行程沒有 stderr |
 | `LOCALAPPDATA` | `src/infrastructure/fs/paths.ts` | 指標檔 `%LOCALAPPDATA%\Cyclosa\system_paths.json` 與「使用者資料夾」那個選項（`…\Cyclosa\data`）的位置；非 Windows 退回 `XDG_DATA_HOME` |

@@ -11,7 +11,7 @@
 
 照 issue #1 做完。**下面五項一定要在第一次 commit 之前做**：
 
-1. **在 Windows 端**裝 Node.js 24.x（`node --version` 要是 `v24`），clone 到 Windows 的資料夾（見〈WSL〉）
+1. **在 Windows 端**裝 Node.js 24.x（`node --version` 要是 `v24.20` 以上的 `v24`），clone 到 Windows 的資料夾（見〈WSL〉）
 2. `git config core.hooksPath .githooks`
 3. 作者身分用 GitHub 的 noreply 信箱（`ID` 在 GitHub → Settings → Emails 那一頁）：
 

@@ -6,7 +6,7 @@
   "description": "從一個「點」出發，用 LLM 主動擴展成一張每條關聯都帶出處的網。純本機，資料存在專案外的資料根目錄。",
   "license": "MIT",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=24.20 <25"
   },
   "scripts": {
     "dev": "vite",

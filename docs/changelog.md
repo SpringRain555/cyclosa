@@ -11,6 +11,8 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **Node 下界提高到 24.20**：`engines` 改成 `>=24.20 <25`，`toolsLaunch.ps1` 同時檢查主版本 24 與次版本 ≥ 20；理由是 Windows 上 libuv 崩潰的修正（nodejs/node#56645，收在 24.20.0）。`.node-version` 仍寫 `24`（CI 與版本管理器拿最新的 24.x）；README、CONTRIBUTING、`docs/environment/` 與 agent 檔同步。
+
 - **補正整理摘要、研究額度提示並確認 Node 24.x 修正版**：改型別摘要列出資料庫目前型別與目標型別，面板及作業紀錄都顯示繁中型別名稱；不呼叫模型的步驟明說不用模型與額度，線上服務則保留可能另計費的說明；Node 的 libuv 修正已確認收在 24.20.0。
 
 ---

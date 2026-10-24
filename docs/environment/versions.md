@@ -11,10 +11,16 @@
 
 ---
 
-## Node：`>=24 <25`
+## Node：`>=24.20 <25`
 
 要宣告在兩處：`.node-version`（給版本管理器讀）與 `package.json` 的 `engines.node`。
-啟動器要**實際驗 major version** —— 錯的版本當場擋下來，不要拖到很後面才炸。
+啟動器要**實際驗版本**（主版本 24、次版本 ≥ 20）—— 錯的版本當場擋下來，不要拖到很後面才炸。
+`.node-version` 刻意只寫 `24`：版本管理器與 CI（`actions/setup-node`）解析成最新的 24.x，自然拿到最新的安全修正，
+而最新的 24.x 一定滿足 `>=24.20`。
+
+**次版本下界 24.20（2026-10-24 提高）**：Windows 上「用過 `fetch` 之後結束行程」會撞到 libuv 的 assert
+（nodejs/node#56645，vitest 工作行程以 `0xC0000409` 結束、Verify 偶發少幾條）。修正是 nodejs/node PR #61999，
+進 v24.x 的 commit `05ec9c4771`，收在 **24.20.0（2026-08-26）**。比它舊的 24.x 能跑，但會偶發崩潰 —— 所以擋下來。
 
 **下界 24 只有一個理由，而它足夠：**
 
@@ -52,15 +58,15 @@
 |---|---|---|---|
 | `fastify` | `^5.12` | MIT | HTTP 層。單一 process 同時給 API 與前端 |
 | `vue` | `^3.5` | MIT | 前端 |
-| `vue-router` | `^5.3` | MIT | 三個分頁的路由 |
+| `vue-router` | `^5.4` | MIT | 三個分頁的路由 |
 | `pinia` | `^4` | MIT | 狀態 |
-| `three` | `>=0.179 <1` | MIT | 3D。**這個範圍不是我們訂的** —— 它抄自 `3d-force-graph` 1.80.0 自己宣告的相依範圍，**照抄是為了讓 npm 去重成同一份**（two three.js instances 是這個生態最常見的壞法）。2026-09-06 的 latest 是 **0.185.1** |
+| `three` | `^0.186`（2026-10-22 起；之前 `^0.185`）| MIT | 3D。**範圍要落在 `3d-force-graph` 自己宣告的 `>=0.179 <1` 之內**（1.80.1 實查）—— **為了讓 npm 去重成同一份**（two three.js instances 是這個生態最常見的壞法）。2026-09-06 的 latest 是 **0.185.1** |
 | `3d-force-graph` | `^1.80` | MIT | 包在自訂 `GraphView` 介面後面，換掉的觸發條件見 ADR-0007 |
 | `d3-force-3d` | `^3` | MIT | 佈局計算，跑在 Web Worker |
 | `@mozilla/readability` | `^0.6` | **Apache-2.0** | 正文抽取 |
 | `linkedom` | `^0.18` | **ISC** | 給 readability 一個 DOM，不用 jsdom（輕很多）|
 | `franc` | `^6.2` | MIT | 語言偵測。偵測不出來記 `und`，不猜 |
-| `pdfjs-dist` | `^6.3` | **Apache-2.0** | PDF 的文字層與頁碼。**第一版就要**（REQ-0006 ＋ ADR-0019 的頁碼錨點）|
+| `pdfjs-dist` | `^6.4` | **Apache-2.0** | PDF 的文字層與頁碼。**第一版就要**（REQ-0006 ＋ ADR-0019 的頁碼錨點）|
 | `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.3.0.tgz` | 本 repo 的 MIT（見下）| healthz 探測、有上限的關閉序列、資料根的四步（`data-location`，0.2.0 起；0.3.0 起「其他位置」也擋既有資料根裡面；ADR-0037），幾個本機 app 共用（`architecture/app-lifecycle.md`）|
 
 > **`@local-app/lifecycle` 不是從 npm 裝的**（2026-10-08 加，2026-10-09 補記在這裡）：tarball 與 `package-lock.json` 一起版控在
@@ -121,12 +127,12 @@
 
 | 套件 | 範圍 | 授權 | 為什麼 |
 |---|---|---|---|
-| `vite` | `^8.2` | MIT | 建置與 dev server。**不是** Node 下界的理由（見上面那個更正）|
+| `vite` | `^8.3` | MIT | 建置與 dev server。**不是** Node 下界的理由（見上面那個更正）|
 | `vitest` | `^5` | MIT | 測試。與 vite 同一套 pipeline，版本要跟著走 |
 | `typescript` | **`~6.0`** | Apache-2.0 | 型別。**上界不是我們訂的** —— 見下面那條 |
 | `vue-tsc` | `^3.3` | MIT | Vue SFC 的型別檢查。它的 peer 是 `typescript >=5.0.0`，很寬 |
 | `eslint` | `^10` | MIT | flat config |
-| `typescript-eslint` | `^8.69` | MIT | **它就是 TypeScript 的上界來源** |
+| `typescript-eslint` | `^8.72` | MIT | **它就是 TypeScript 的上界來源** |
 | `eslint-plugin-vue` | `^10.11` | MIT | |
 | `prettier` ＋ `eslint-config-prettier` | `^3.9` / `^10.1` | MIT | 格式衝突由後者關掉 |
 | `tsx` | `^4.23` | MIT | 開發時跑 TS 的 server |

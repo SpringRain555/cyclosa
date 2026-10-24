@@ -249,7 +249,7 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
 
 | | |
 |---|---|
-| **執行環境** | 系統 Node **24.x**（`engines` 與 `.node-version` 都宣告）。沒有 conda、沒有 Python、沒有原生模組 —— 資料庫用內建的 `node:sqlite`。**下界 24 只有一個理由：`node:sqlite`**（「Vite 8 要 Node 24」是假的，見 `docs/lessons.md`）|
+| **執行環境** | 系統 Node **24.20 以上的 24.x**（`engines` 宣告 `>=24.20 <25`、`.node-version` 寫 `24`）。沒有 conda、沒有 Python、沒有原生模組 —— 資料庫用內建的 `node:sqlite`。**主版本 24 的理由是 `node:sqlite`；次版本 24.20 的理由是 Windows 上 libuv 崩潰的修正**（「Vite 8 要 Node 24」是假的，見 `docs/lessons.md`、`docs/environment/versions.md`）|
 | **資料邊界** | 見下一節。**這是這份文件裡最重要的一節** |
 | **產生物，不可手改** | `dist/`、`web/dist/`（跑 `npm run build`）｜`docs/architecture/diagrams/*.svg` ＋ `manifest.json`（跑 `tools\diagrams\Render-Diagrams.ps1`）｜`AGENTS.md`（跑 `tools\Sync-AgentDocs.ps1`，本文取自 `CLAUDE.md`）｜`docs/environment/snapshots/`（跑 `.\tools\Verify.ps1 -Report`）|
 | **單一真實來源** | schema → `docs/architecture/data-model.md`（migration 在 `src/infrastructure/db/migrations/`）｜錯誤碼 → `src/domain/errors/codes.ts`｜UI 字串 → `web/src/i18n/zh-TW.ts`｜顏色 → `web/src/styles/tokens.css`。**前三者由 `tests/guards/` 守著**（三邊對照、任一邊多一個少一個就紅）|

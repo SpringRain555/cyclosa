@@ -192,11 +192,12 @@ if (-not $nodeVersion) {
     )
 }
 $major = [int]($nodeVersion -replace '^v(\d+)\..*$', '$1')
-if ($major -ne 24) {
-    Stop-WithMessage "Node 版本是 $nodeVersion，需要 24.x" @(
-        '.node-version 與 package.json 的 engines 都宣告 24。'
-        'node:sqlite 是這條下界唯一的理由（見 docs\environment\versions.md）。'
-        '裝好 24 之後指定它：'
+$minor = [int]($nodeVersion -replace '^v\d+\.(\d+)\..*$', '$1')
+if ($major -ne 24 -or $minor -lt 20) {
+    Stop-WithMessage "Node 版本是 $nodeVersion，需要 24.20 以上的 24.x" @(
+        'package.json 的 engines 宣告 >=24.20 <25。'
+        '主版本 24 是為了 node:sqlite；24.20 起才有 Windows 上 libuv 崩潰的修正（見 docs\environment\versions.md）。'
+        '裝好之後指定它：'
         '    setx CYCLOSA_NODE "C:\path\to\node24\node.exe"'
     )
 }

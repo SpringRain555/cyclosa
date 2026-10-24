@@ -40,6 +40,7 @@ async function open(dataRoot: string, slug: string, cid: string) {
 }
 
 export interface RunSummary extends runs.RunRow {
+  readonly derivedOnly: boolean;
   /** 這一次作業現在還在跑嗎。**資料庫看不出來**（狀態是收尾時才寫的）。 */
   readonly live: boolean;
   /**
@@ -63,6 +64,7 @@ function summarize(db: DatabaseSync, row: runs.RunRow): RunSummary {
   const owner = row.researchId === null ? null : research.getResearch(db, row.researchId);
   return {
     ...row,
+    derivedOnly: runs.isDigestOnlyRun(row),
     live: isActive(row.id),
     paused: isPaused(row.id),
     heldByResearch: owner !== null && isOpen(owner.status),

@@ -56,6 +56,16 @@ export interface RunRow {
   readonly unpriced: number;
 }
 
+/** 純補繁中只有衍生內容，不應執行圖與孤立實體的復原清理。 */
+export function isDigestOnlyRun(row: RunRow): boolean {
+  if (row.kind !== 'consolidate') return false;
+  try {
+    return (JSON.parse(row.providers ?? '{}') as { digestOnly?: unknown }).digestOnly === true;
+  } catch {
+    return false;
+  }
+}
+
 export interface RunItemRow {
   readonly id: string;
   readonly runId: string;

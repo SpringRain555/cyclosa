@@ -105,6 +105,20 @@ export async function undoRun(
     if (readCase(db) === null) return err('CASE_NOT_FOUND', cid, { slug });
     const run = runs.getRun(db, runId);
     if (run === null) return err('RUN_NOT_FOUND', cid, { runId });
+    if (runs.isDigestOnlyRun(run))
+      return ok(
+        {
+          runId,
+          deletedItems: 0,
+          deletedEdges: 0,
+          deletedEntities: 0,
+          keptItems: 0,
+          keptEdges: 0,
+          keptAsEvidence: 0,
+          partial: false,
+        },
+        cid,
+      );
     /**
      * **一次還沒結束的研究，它的作業不能復原**（Stage 20）。
      *

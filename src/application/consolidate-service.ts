@@ -53,6 +53,7 @@ import {
 } from '../domain/research/consolidate.js';
 import { findByTriple } from '../infrastructure/db/repositories/edge-repo.js';
 import { edgeSnapshot } from '../infrastructure/db/repositories/consolidate-edge-undo-repo.js';
+import { performConsolidateDigest } from './consolidate-digest.js';
 import { recordModelCall } from './model-call-log.js';
 import {
   bodyAvailable,
@@ -242,12 +243,14 @@ export type ConsolidateWorkerPlanEntry = {
   | {
       readonly itemId: string;
       readonly addEdge?: ConsolidateOpPayloadByKind['add-edge'];
+      readonly kind?: 'extract' | 'digest';
       readonly merge?: undefined;
       readonly retype?: undefined;
       readonly retypeExpected?: undefined;
     }
   | {
       readonly itemId: null;
+      readonly kind?: undefined;
       readonly addEdge?: undefined;
       readonly merge: { readonly keep: string; readonly drop: string };
       readonly retype?: undefined;
@@ -255,6 +258,7 @@ export type ConsolidateWorkerPlanEntry = {
     }
   | {
       readonly itemId: null;
+      readonly kind?: undefined;
       readonly addEdge?: undefined;
       readonly merge?: undefined;
       readonly retype: import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['retype'];
@@ -278,6 +282,7 @@ export function launchConsolidateWorker(input: {
   readonly slug: string;
   readonly providers: Providers;
   readonly chat: ChatProvider | null;
+  readonly digest?: ChatProvider | null;
   readonly runId: string;
   readonly plan: readonly ConsolidateWorkerPlanEntry[];
   readonly hooks?: ConsolidateWorkerHooks;
@@ -288,6 +293,7 @@ export function launchConsolidateWorker(input: {
     input.slug,
     input.providers,
     input.chat,
+    input.digest ?? null,
     state,
     input.plan,
     input.hooks,
@@ -320,6 +326,7 @@ async function processConsolidate(
   slug: string,
   providers: Providers,
   chat: ChatProvider | null,
+  digest: ChatProvider | null,
   state: registry.ActiveRun,
   plan: readonly ConsolidateWorkerPlanEntry[],
   hooks?: ConsolidateWorkerHooks,
@@ -352,6 +359,7 @@ async function processConsolidate(
       let code: ErrorCode | null = null;
       let newEdges = 0;
       let merged = false;
+      let digestWritten = false;
       if (entry.merge !== undefined) {
         try {
           const result = await executeMergeOperation({
@@ -392,6 +400,41 @@ async function processConsolidate(
           code = 'CONSOLIDATE_UNEXPECTED';
           logger.error('改型別寫入失敗', { opId: entry.opId, error: String(error) });
         }
+      } else if (entry.kind === 'digest') {
+        if (digest === null) code = 'PROVIDER_NOT_CONFIGURED';
+        else {
+          try {
+            const result = await performConsolidateDigest({
+              db,
+              folder,
+              itemId: entry.itemId,
+              providers,
+              chat: digest,
+              state,
+              abort,
+            });
+            code = result.code;
+            digestWritten = result.written;
+            if (result.cost !== null) {
+              taskCosts = chargeTask(taskCosts, 'digest', result.cost.costUsd);
+              const costs = Object.values(taskCosts);
+              runs.updateRunBudget(
+                db,
+                state.runId,
+                costs.reduce((sum, cost) => sum + cost.requests, 0),
+                costs.some((cost) => cost.costUsd !== null)
+                  ? costs.reduce((sum, cost) => sum + (cost.costUsd ?? 0), 0)
+                  : null,
+                costs.reduce((sum, cost) => sum + cost.unpriced, 0),
+                taskCosts,
+              );
+            }
+          } catch (error) {
+            code = 'CONSOLIDATE_UNEXPECTED';
+            logger.error('補繁中失敗', { itemId: entry.itemId, reason: String(error) });
+          }
+        }
+        if (state.cancelled) break;
       } else if (entry.addEdge !== undefined) {
         const derived = await readDerived(folder, entry.itemId);
         if (state.cancelled) break;
@@ -565,7 +608,7 @@ async function processConsolidate(
       const outcome = workOutcome({
         code,
         fatal: code !== null && levelOf(code) === 'error',
-        produced: newEdges > 0 || merged,
+        produced: newEdges > 0 || merged || digestWritten,
       });
       outcomes.push(outcome);
       hooks?.onItemSettled?.(db, entry, code, outcome);

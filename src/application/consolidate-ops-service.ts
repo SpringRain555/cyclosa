@@ -36,7 +36,10 @@ import { mergePairKey, mergeThresholdsOf } from '../domain/entity/merge-candidat
 
 const planning = new Map<string, AbortController>();
 import { entityTypeRevision } from './consolidate-ops/retype.js';
+import { checkDigest } from './digest-call.js';
+import { listUndigestedItems } from './consolidate-digest.js';
 
+const MAX_UNDIGESTED_ITEMS = 200;
 const MAX_ENTITIES = 300;
 const MAX_SINGLE_EVIDENCE_EDGES = 100;
 const MAX_NOTE_CHARS = 2_000;
@@ -47,6 +50,8 @@ const PLAN_SYSTEM =
   '可以提出 merge、extract、add-edge、retype、digest 五種操作。每個操作都要有簡短繁體中文 why。\n' +
   'extract 只選提供清單裡還沒抽過而且有正文的 item id；add-edge 必須引用提供資料中可逐字定位的原文。\n' +
   'merge 只選 mergeCandidates 提供的配對，不可自行增加配對；keep 是保留的實體，drop 是吸收的實體。\n' +
+  'digest 只選 undigested 提供的 item id，補繁中標題與摘要，不翻全文。undigested 已由程式確認有正文且尚未初讀；非空時請為其中每份提出 digest。\n' +
+  'extract 與 digest 是獨立操作，可以對同一份資料同時提出；補繁中不需要先抽實體或關係，不能用 extract 代替 digest。digest 的 payload 是 {"itemIds":["清單中的 id"]}。\n' +
   '回傳符合 schema 的 JSON。';
 
 interface Coverage {
@@ -61,6 +66,8 @@ interface Coverage {
   readonly notesAvailable: number;
   readonly notesTruncated: number;
   readonly noteCharsIncluded: number;
+  readonly undigestedIncluded?: number;
+  readonly undigestedAvailable?: number;
 }
 interface DroppedSummary {
   readonly count: number;
@@ -87,6 +94,7 @@ export interface ConsolidateShellView {
   readonly updatedAt: number;
   readonly endedAt: number | null;
   readonly service: { readonly via: string; readonly model: string; readonly costs: boolean };
+  readonly digestService: { readonly via: string; readonly model: string; readonly costs: boolean };
   readonly coverage: Coverage | null;
   readonly dropped: DroppedSummary;
   readonly operations: readonly ConsolidateShellOperation[];
@@ -183,6 +191,10 @@ function shellView(
     updatedAt: row.updatedAt,
     endedAt: row.endedAt,
     service: { via: setting.via, model: setting.model, costs: setting.via !== 'ollama' },
+    digestService: {
+      ...providers.config.tasks.digest,
+      costs: providers.config.tasks.digest.via !== 'ollama',
+    },
     coverage: coverageOf(row.planJson),
     dropped: droppedOf(row.planJson),
     operations,
@@ -258,6 +270,7 @@ interface ContextResult {
     readonly extractableItemIds: ReadonlySet<string>;
     readonly endpointIds: ReadonlySet<string>;
     readonly verifiedQuoteKeys: ReadonlySet<string>;
+    readonly digestibleItemIds: ReadonlySet<string>;
   };
 }
 async function makeContext(
@@ -294,6 +307,8 @@ async function makeContext(
   const selectedEdges = ops.listSingleEvidenceEdges(db, MAX_SINGLE_EVIDENCE_EDGES);
   const singleEvidenceEdgesAvailable = ops.countSingleEvidenceEdges(db);
   const unextracted = await listUnextractedItems(db, folder);
+  const allUndigested = await listUndigestedItems(db, folder);
+  const undigested = allUndigested.slice(0, MAX_UNDIGESTED_ITEMS);
   const noteRows = ops.listNoteBodies(db);
   const notes: { id: string; body: string }[] = [];
   let noteChars = 0;
@@ -330,6 +345,8 @@ async function makeContext(
     notesAvailable: noteRows.length,
     notesTruncated,
     noteCharsIncluded: noteChars,
+    undigestedIncluded: undigested.length,
+    undigestedAvailable: allUndigested.length,
   };
   return {
     prompt: JSON.stringify({
@@ -348,6 +365,7 @@ async function makeContext(
         titleZh: item.titleZh,
         chars: item.chars,
       })),
+      undigested,
       notes,
     }),
     coverage,
@@ -360,6 +378,7 @@ async function makeContext(
       extractableItemIds: new Set(unextracted.map((item) => item.id)),
       endpointIds,
       verifiedQuoteKeys,
+      digestibleItemIds: new Set(undigested.map((item) => item.id)),
     },
   };
 }
@@ -450,16 +469,20 @@ export async function planConsolidateShell(
     const validation = parsed === null ? null : validateConsolidatePlan(parsed, context.facts);
     const droppedRows = validation?.dropped.slice() ?? [];
     const expanded: ConsolidateOpDraft[] = [];
+    const seenDigestIds = new Set<string>();
     for (const draft of validation?.operations ?? []) {
-      if (draft.kind === 'extract') {
-        const seen = new Set<string>();
+      if (draft.kind === 'extract' || draft.kind === 'digest') {
+        const seen = draft.kind === 'digest' ? seenDigestIds : new Set<string>();
         for (const itemId of draft.payload.itemIds) {
           if (seen.has(itemId)) {
-            droppedRows.push({ kind: draft.kind, reason: 'extract-duplicate' });
+            droppedRows.push({
+              kind: draft.kind,
+              reason: draft.kind === 'extract' ? 'extract-duplicate' : 'digest-duplicate',
+            });
             continue;
           }
           seen.add(itemId);
-          expanded.push({ kind: 'extract', payload: { itemIds: [itemId] }, why: draft.why });
+          expanded.push({ kind: draft.kind, payload: { itemIds: [itemId] }, why: draft.why });
         }
       } else {
         expanded.push(draft);
@@ -602,13 +625,25 @@ export async function setConsolidateOpChecked(
         return err('CONSOLIDATE_OP_STALE', cid, { opId });
       }
     }
-    if (checked && operation.kind === 'extract') {
+    if (checked && (operation.kind === 'extract' || operation.kind === 'digest')) {
       const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
       const id = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
       const available = new Set(
-        (await listUnextractedItems(db, join(casesDir(dataRoot), slug))).map((item) => item.id),
+        (
+          await (operation.kind === 'digest' ? listUndigestedItems : listUnextractedItems)(
+            db,
+            join(casesDir(dataRoot), slug),
+          )
+        ).map((item) => item.id),
       );
-      if (typeof id !== 'string' || !available.has(id)) {
+      if (
+        typeof id !== 'string' ||
+        !available.has(id) ||
+        (Array.isArray(payload?.itemIds) &&
+          payload.itemIds.some(
+            (itemId: unknown) => typeof itemId !== 'string' || !available.has(itemId),
+          ))
+      ) {
         ops.setState(db, {
           id: opId,
           state: 'stale',
@@ -618,6 +653,10 @@ export async function setConsolidateOpChecked(
         return err('CONSOLIDATE_OP_STALE', cid, { opId });
       }
     }
+    // 列可用資料要等檔案系統；回來時重查，避免封存或放棄之後仍改到勾選。
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
+    if (research.getResearch(db, researchId)?.status !== 'reviewing')
+      return err('RESEARCH_STEP_INVALID', cid, { researchId });
     return withTransaction(db, () => {
       if (!ops.setChecked(db, opId, checked)) return err('RESEARCH_STEP_INVALID', cid, { opId });
       if (operation.kind === 'retype') {
@@ -675,6 +714,11 @@ export async function executeConsolidateShell(
       ? await checkExtract(providers, cid)
       : null;
     if (checked !== null && !checked.ok) return checked;
+    const digest = selected.some((op) => op.kind === 'digest')
+      ? await checkDigest(providers, cid)
+      : null;
+    if (digest !== null && !digest.ok) return digest;
+    const digestMode = digest?.ok ? (await digest.data.jsonMode()).mode : null;
     // 模型檢查可能等待；回來時必須重查，避免兩個分頁各開一筆或執行已取消的選擇。
     if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
     if (research.getResearch(db, researchId)?.status !== 'reviewing')
@@ -749,12 +793,20 @@ export async function executeConsolidateShell(
           ];
         }
         const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
-        const itemId = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
-        if (typeof itemId !== 'string') return [];
-        const item = items.getItem(db, itemId);
-        return item === null
-          ? []
-          : [{ runItemId: newId(), itemId, title: item.title, opId: operation.id }];
+        const ids: unknown[] = Array.isArray(payload?.itemIds) ? [...new Set(payload.itemIds)] : [];
+        return ids.flatMap((itemId) => {
+          if (typeof itemId !== 'string') return [];
+          const item = items.getItem(db, itemId);
+          return [
+            {
+              runItemId: newId(),
+              itemId,
+              title: item?.title ?? itemId,
+              opId: operation.id,
+              kind: operation.kind === 'digest' ? ('digest' as const) : ('extract' as const),
+            },
+          ];
+        });
       },
     );
     if (plan.length === 0) return err('CONSOLIDATE_SELECTION_INVALID', cid, { why: 'empty' });
@@ -767,9 +819,11 @@ export async function executeConsolidateShell(
         correlationId: cid,
         now: Date.now(),
         providers: JSON.stringify({
+          digestOnly: checked === null && digest?.ok === true,
           extract: checked?.ok ? checked.data.chat.name : null,
+          digest: digest?.ok ? digest.data.name : null,
           plan: providers.config.tasks.plan.model,
-          json: { extract: checked?.ok ? checked.data.mode : null },
+          json: { extract: checked?.ok ? checked.data.mode : null, digest: digestMode },
         }),
         researchId,
       });
@@ -786,11 +840,13 @@ export async function executeConsolidateShell(
       research.updateResearchStatus(db, researchId, 'building', Date.now());
     });
     const opById = new Map(selected.map((operation) => [operation.id, operation]));
+    const settlements = new Map<string, { code: ErrorCode | null; failed: boolean }[]>();
     launchConsolidateWorker({
       dataRoot,
       slug,
       providers,
       chat: checked?.ok ? checked.data.chat : null,
+      digest: digest?.ok ? digest.data : null,
       runId,
       plan,
       hooks: {
@@ -798,17 +854,26 @@ export async function executeConsolidateShell(
           if (entry.opId === undefined || !opById.has(entry.opId) || entry.addEdge !== undefined)
             return;
           if (entry.retype !== undefined && code === null) return;
+          const entries = settlements.get(entry.opId) ?? [];
+          entries.push({ code, failed: outcome === 'failed' });
+          settlements.set(entry.opId, entries);
+          if (entries.length < plan.filter((item) => item.opId === entry.opId).length) return;
+          const failure = entries.find((item) => item.failed);
           const state =
-            code === 'CONSOLIDATE_OP_STALE' ? 'stale' : outcome === 'failed' ? 'failed' : 'done';
+            failure?.code === 'CONSOLIDATE_OP_STALE'
+              ? 'stale'
+              : failure !== undefined
+                ? 'failed'
+                : 'done';
           ops.setState(activeDb, {
             id: entry.opId,
             state,
-            code,
+            code: failure?.code ?? entries.find((item) => item.code !== null)?.code ?? null,
             runId,
             undoJson:
               state === 'done'
                 ? JSON.stringify(
-                    operationOf(entry.merge === undefined ? 'extract' : 'merge').undoInfo?.(
+                    operationOf(opById.get(entry.opId)?.kind ?? 'extract').undoInfo?.(
                       entry.merge?.drop ?? runId,
                     ) ?? null,
                   )

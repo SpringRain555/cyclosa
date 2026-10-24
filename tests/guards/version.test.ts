@@ -35,7 +35,7 @@ import { join } from 'node:path';
 
 import { REPO_ROOT } from './helpers.js';
 
-const SEMVER = String.raw`\d+\.\d+\.\d+`;
+const SEMVER = String.raw`\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?`;
 
 function read(...parts: string[]): string {
   return readFileSync(join(REPO_ROOT, ...parts), 'utf8');

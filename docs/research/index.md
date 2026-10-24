@@ -94,7 +94,7 @@
 | `embedding-eval-queries.jsonl` | 上面那份實測的**查詢集**（跑模型之前就寫死並提交）| 2026-09-09 |
 | `security-sources.md` | **資安領域的來源**：17 列怎麼進內建清單、探針實查、會議與期刊住在哪個網域 | 2026-09-16 |
 | `model-tasks-review.md` | **模型任務的盤點**：切換、劃分、模組化、評估依據、缺的任務、下一輪的量法 | 2026-09-16 |
-| `gpt-oss-extract-measurement.md` | **gpt-oss 抽取量測**：三份指定資料，對照 OpenAI 相容端點與 Ollama gemma4:12b；判準先定，結果待跑 | 2026-10-20 |
+| `gpt-oss-extract-measurement.md` | **gpt-oss 抽取量測**：vLLM OpenAI 相容端點與 Ollama gemma4:12b 的對照規格；端點已接線，抽取結果待實測 | 2026-10-20 |
 | `open-questions.md` | 還沒答的設計問題 | 持續 |
 | `query-log.md` | 查過什麼、何時、查到什麼、級別 | 持續 |
 | `sources/manifest.jsonl` | 每一次擷取的 URL、時間、狀態、SHA-256 | 持續 |

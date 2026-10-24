@@ -118,7 +118,7 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
         (operation) => !operation.checked && operation.state === 'proposed',
       ),
     ).toBe(true);
-    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(3);
+    expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(4);
     const merge = view.data.operations.find((operation) => operation.kind === 'merge');
     if (merge === undefined) throw new Error('合成合併操作缺少');
     expect(

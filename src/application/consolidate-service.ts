@@ -41,6 +41,8 @@ import { logger } from '../shared/log.js';
 import { err, ok, type Result } from '../shared/result.js';
 import { callExtract, checkExtract } from './extraction-call.js';
 import { EXTRACT_SYSTEM, extractUser } from './extraction-prompts.js';
+import { executeRetypeOperation } from './consolidate-ops/retype.js';
+import * as consolidateOps from '../infrastructure/db/repositories/consolidate-op-repo.js';
 import { executeExtractOperation } from './consolidate-ops/extract.js';
 import { executeMergeOperation } from './consolidate-ops/merge.js';
 import { recordModelCall } from './model-call-log.js';
@@ -229,10 +231,23 @@ export type ConsolidateWorkerPlanEntry = {
   readonly title: string;
   readonly opId?: string;
 } & (
-  | { readonly itemId: string; readonly merge?: undefined }
+  | {
+      readonly itemId: string;
+      readonly merge?: undefined;
+      readonly retype?: undefined;
+      readonly retypeExpected?: undefined;
+    }
   | {
       readonly itemId: null;
       readonly merge: { readonly keep: string; readonly drop: string };
+      readonly retype?: undefined;
+      readonly retypeExpected?: undefined;
+    }
+  | {
+      readonly itemId: null;
+      readonly merge?: undefined;
+      readonly retype: import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['retype'];
+      readonly retypeExpected: string;
     }
 );
 
@@ -318,7 +333,7 @@ async function processConsolidate(
       runs.updateRunItem(db, {
         id: entry.runItemId,
         outcome: 'running',
-        itemId: entry.itemId,
+        itemId: entry.retype === undefined ? entry.itemId : null,
         now: Date.now(),
       });
       let code: ErrorCode | null = null;
@@ -341,6 +356,28 @@ async function processConsolidate(
               : result.code;
         } catch {
           code = 'CONSOLIDATE_UNEXPECTED';
+        }
+      } else if (entry.retype !== undefined) {
+        try {
+          const applied = executeRetypeOperation({
+            db,
+            ...entry.retype,
+            expectedRevision: entry.retypeExpected ?? '',
+            completed: (undo) => {
+              if (entry.opId === undefined) throw new Error('missing retype operation');
+              consolidateOps.setState(activeDb, {
+                id: entry.opId,
+                state: 'done',
+                runId: state.runId,
+                undoJson: JSON.stringify(undo),
+                executedAt: Date.now(),
+              });
+            },
+          });
+          if (!applied) code = 'CONSOLIDATE_OP_STALE';
+        } catch (error) {
+          code = 'CONSOLIDATE_UNEXPECTED';
+          logger.error('改型別寫入失敗', { opId: entry.opId, error: String(error) });
         }
       } else {
         if (chat === null) throw new Error('extract provider missing');
@@ -438,7 +475,7 @@ async function processConsolidate(
         id: entry.runItemId,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.itemId,
+        itemId: entry.retype === undefined ? entry.itemId : null,
         now: Date.now(),
       });
       runs.setRunItemEdges(db, entry.runItemId, newEdges);
@@ -449,7 +486,7 @@ async function processConsolidate(
         host: null,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.itemId,
+        itemId: entry.retype === undefined ? entry.itemId : null,
       });
       state.channel.emit({ type: 'progress', done: outcomes.length, total: plan.length });
     }

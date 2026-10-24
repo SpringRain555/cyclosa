@@ -24,6 +24,7 @@ import TranslationNotice from '../TranslationNotice.vue';
 import ErrorPanel from '../ErrorPanel.vue';
 import AttachNoteFile from '../AttachNoteFile.vue';
 import MergedEntities from './MergedEntities.vue';
+import EntityTypeHistory from './EntityTypeHistory.vue';
 
 const props = defineProps<{
   slug: string;
@@ -206,6 +207,14 @@ function relLabel(edge: SubgraphEdge): string {
         :slug="slug"
         :entity-id="node.id"
         @changed="emit('entity-changed')"
+      />
+      <!-- ── 實體型別復原 ────────────────────────────────── -->
+      <EntityTypeHistory
+        v-if="node.kind === 'entity'"
+        :key="`${slug}/${node.id}`"
+        :slug="slug"
+        :entity-id="node.id"
+        @changed="emit('attached')"
       />
       <!-- ── 筆記檔附件 ──────────────────────────────────── -->
       <AttachNoteFile

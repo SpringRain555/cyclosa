@@ -76,7 +76,7 @@ export function setChecked(db: DatabaseSync, id: string, checked: boolean): bool
   const result = db
     .prepare(
       `UPDATE consolidate_op SET checked = ?
-       WHERE id = ? AND state = 'proposed' AND kind IN ('extract', 'merge')`,
+       WHERE id = ? AND state = 'proposed' AND kind IN ('extract', 'merge', 'retype')`,
     )
     .run(checked ? 1 : 0, id);
   return Number(result.changes) === 1;
@@ -168,4 +168,22 @@ export function listNoteBodies(
 export function listItemIds(db: DatabaseSync): readonly string[] {
   const rows = db.prepare('SELECT id FROM item').all() as Raw[];
   return rows.map((row) => String(row['id']));
+}
+
+/** 人工型別紀錄依實際執行順序，保留已復原的歷史。 */
+export function listRetypeOps(db: DatabaseSync, entityId: string): readonly ConsolidateOpRow[] {
+  return (
+    db
+      .prepare(
+        "SELECT * FROM consolidate_op WHERE kind = 'retype' AND state = 'done' AND json_extract(payload_json, '$.entityId') = ? ORDER BY executed_at DESC, rowid DESC",
+      )
+      .all(entityId) as Raw[]
+  ).map(toRow);
+}
+
+/** 勾選時綁住當下的人工決定版本；執行後改存真正的復原值。 */
+export function setRetypeExpectation(db: DatabaseSync, id: string, undoJson: string | null): void {
+  db.prepare(
+    "UPDATE consolidate_op SET undo_json = ? WHERE id = ? AND kind = 'retype' AND state = 'proposed'",
+  ).run(undoJson, id);
 }

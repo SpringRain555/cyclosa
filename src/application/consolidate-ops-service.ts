@@ -35,6 +35,7 @@ import { semanticMergeCandidates } from './entity-merge-candidates.js';
 import { mergePairKey, mergeThresholdsOf } from '../domain/entity/merge-candidates.js';
 
 const planning = new Map<string, AbortController>();
+import { entityTypeRevision } from './consolidate-ops/retype.js';
 
 const MAX_ENTITIES = 300;
 const MAX_SINGLE_EVIDENCE_EDGES = 100;
@@ -566,6 +567,22 @@ export async function setConsolidateOpChecked(
         return err('CONSOLIDATE_OP_STALE', cid, { opId });
       }
     }
+    if (checked && operation.kind === 'retype') {
+      const payload = parseJson(operation.payloadJson, null) as {
+        entityId?: string;
+        to?: string;
+      } | null;
+      const entity = entities.getEntity(db, payload?.entityId ?? '');
+      if (entity === null || entity.mergedInto !== null || entity.type === payload?.to) {
+        ops.setState(db, {
+          id: opId,
+          state: 'stale',
+          code: 'CONSOLIDATE_OP_STALE',
+          executedAt: Date.now(),
+        });
+        return err('CONSOLIDATE_OP_STALE', cid, { opId });
+      }
+    }
     if (checked && operation.kind === 'extract') {
       const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
       const id = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
@@ -582,8 +599,20 @@ export async function setConsolidateOpChecked(
         return err('CONSOLIDATE_OP_STALE', cid, { opId });
       }
     }
-    if (!ops.setChecked(db, opId, checked)) return err('RESEARCH_STEP_INVALID', cid, { opId });
-    return ok(true, cid);
+    return withTransaction(db, () => {
+      if (!ops.setChecked(db, opId, checked)) return err('RESEARCH_STEP_INVALID', cid, { opId });
+      if (operation.kind === 'retype') {
+        const payload = parseJson(operation.payloadJson, {}) as { entityId?: string };
+        ops.setRetypeExpectation(
+          db,
+          opId,
+          checked
+            ? JSON.stringify({ expectedRevision: entityTypeRevision(db, payload.entityId ?? '') })
+            : null,
+        );
+      }
+      return ok(true, cid);
+    });
   } finally {
     db.close();
   }
@@ -627,6 +656,7 @@ export async function executeConsolidateShell(
       ? await checkExtract(providers, cid)
       : null;
     if (checked !== null && !checked.ok) return checked;
+    // 模型檢查可能等待；回來時必須重查，避免兩個分頁各開一筆或執行已取消的選擇。
     if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
     if (research.getResearch(db, researchId)?.status !== 'reviewing')
       return err('RESEARCH_STEP_INVALID', cid, { researchId });
@@ -662,6 +692,27 @@ export async function executeConsolidateShell(
             },
           ];
         }
+        if (operation.kind === 'retype') {
+          const payload = parseJson(operation.payloadJson, null);
+          if (!operationOf('retype').validate(payload)) return [];
+          return [
+            {
+              runItemId: newId(),
+              itemId: null,
+              title: operationSummary('retype', payload, db),
+              opId: operation.id,
+              retypeExpected: String(
+                (
+                  parseJson(operation.undoJson ?? 'null', null) as {
+                    expectedRevision?: unknown;
+                  } | null
+                )?.expectedRevision ?? '',
+              ),
+              retype:
+                payload as import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['retype'],
+            },
+          ];
+        }
         const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
         const itemId = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
         if (typeof itemId !== 'string') return [];
@@ -693,7 +744,7 @@ export async function executeConsolidateShell(
           runId,
           requested: entry.title,
           host: null,
-          itemId: entry.itemId,
+          itemId: entry.retype === undefined ? entry.itemId : null,
         });
       }
       research.setBuildRun(db, researchId, runId, Date.now());
@@ -710,6 +761,7 @@ export async function executeConsolidateShell(
       hooks: {
         onItemSettled: (activeDb, entry, code, outcome) => {
           if (entry.opId === undefined || !opById.has(entry.opId)) return;
+          if (entry.retype !== undefined && code === null) return;
           const state =
             code === 'CONSOLIDATE_OP_STALE' ? 'stale' : outcome === 'failed' ? 'failed' : 'done';
           ops.setState(activeDb, {

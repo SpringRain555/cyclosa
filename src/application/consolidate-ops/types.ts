@@ -27,6 +27,7 @@ export interface ConsolidateOpDefinition {
   readonly execute:
     | ((input: ExtractExecution) => AppliedExtraction)
     | ((input: MergeExecution) => Promise<Result<MergeResult>>)
+    | ((input: import('./retype.js').RetypeExecution) => boolean)
     | null;
   readonly undoInfo: ((runId: string) => unknown) | null;
 }

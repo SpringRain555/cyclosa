@@ -793,3 +793,11 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 `POST …/entities/:entityId/unmerge` 可附 `{mergeId}`；新面板一律附上，過期識別碼不能取消後來的新合併。不附仍保留既有 API 語義，舊客戶端無此過期請求保護。
 封存的直接合併、取消與整理勾選／執行回 `CASE_ARCHIVED`。已有併入項目的實體再被吸收、錯誤取消順序或失效紀錄回 `GRAPH_TRANSITION_INVALID`。
 整理執行等待服務檢查後會重查清單、殼狀態與活動作業，取消勾選、放棄、封存或重複送出不會使用舊快照開新作業。
+## 實體型別復原（issue #6）
+
+- `GET /api/cases/:slug/entities/:entityId/type-history`：回 `{type, manual, changes:[{opId, from, to, at, undone, canUndo}]}`，新紀錄在前；只有最後仍有效的人工修改能復原。
+- `POST /api/cases/:slug/entities/:entityId/undo-type`，body `{opId}`：成功回 `true`；過期、順序錯誤、已合併或重複復原回 `CONSOLIDATE_OP_STALE`，封存專題回 `CASE_ARCHIVED`。
+- 整理殼既有勾選與執行端點開放 `retype {entityId,to}`；預設不勾，先改型別再抽取，每條執行前重新驗證，不呼叫額外模型。舊值由程式在執行時記錄，不信任模型提供的舊值。
+
+勾選後人工決定若改變，執行會把舊型別提案標 `CONSOLIDATE_OP_STALE`；取消再勾選才重新綁定當下版本。封存專題拒絕勾選與執行。
+服務檢查等待期間清單、整理狀態或封存狀態變更時，執行請求不會建立作業；並行重複送出只有第一個能進入執行。

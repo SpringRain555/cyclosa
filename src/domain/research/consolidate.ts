@@ -271,6 +271,7 @@ export function validateConsolidatePlan(
         break;
       case 'add-edge':
         if (
+          draft.payload.source === draft.payload.target ||
           !facts.endpointIds.has(draft.payload.source) ||
           !facts.endpointIds.has(draft.payload.target) ||
           !facts.itemIds.has(draft.payload.itemId)

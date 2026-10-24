@@ -2,6 +2,7 @@ import type { ConsolidateOpKind } from '../../domain/research/consolidate.js';
 import type { AppliedExtraction } from '../extraction-service.js';
 import type { MergeResult } from '../entity-service.js';
 import type { Result } from '../../shared/result.js';
+import type { ErrorCode } from '../../domain/errors/codes.js';
 
 export interface MergeExecution {
   readonly dataRoot: string;
@@ -18,6 +19,7 @@ export interface ExtractExecution {
   readonly text: string;
   readonly extraction: import('../../domain/provider/relations.js').Extraction;
   readonly completed?: (result: AppliedExtraction) => void;
+  readonly addEdge?: import('../../domain/research/consolidate.js').ConsolidateOpPayloadByKind['add-edge'];
 }
 
 export interface ConsolidateOpDefinition {
@@ -28,6 +30,7 @@ export interface ConsolidateOpDefinition {
     | ((input: ExtractExecution) => AppliedExtraction)
     | ((input: MergeExecution) => Promise<Result<MergeResult>>)
     | ((input: import('./retype.js').RetypeExecution) => boolean)
+    | ((input: ExtractExecution) => { readonly newEdges: number; readonly code: ErrorCode | null })
     | null;
   readonly undoInfo: ((runId: string) => unknown) | null;
 }

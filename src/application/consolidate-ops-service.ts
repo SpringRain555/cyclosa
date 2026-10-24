@@ -143,7 +143,18 @@ function operationSummary(kind: ConsolidateOpKind, payload: unknown, db: Databas
     entities.getEntity(db, String(data['source'] ?? ''))?.name ?? itemTitle(data['source']);
   const target =
     entities.getEntity(db, String(data['target'] ?? ''))?.name ?? itemTitle(data['target']);
-  return source + ' → ' + String(data['rel'] ?? '') + ' → ' + target;
+  return (
+    source +
+    ' → ' +
+    String(data['rel'] ?? '') +
+    ' → ' +
+    target +
+    ' · ' +
+    itemTitle(data['itemId']) +
+    ' · “' +
+    String(data['quote'] ?? '') +
+    '”'
+  );
 }
 function shellView(
   row: research.ResearchRow,
@@ -428,6 +439,14 @@ export async function planConsolidateShell(
             ? 'CONSOLIDATE_PLAN_INVALID'
             : null;
     const now = Date.now();
+    for (const draft of parsed ?? []) {
+      if (draft.kind !== 'add-edge' || !context.facts.itemIds.has(draft.payload.itemId)) continue;
+      const derived = await readDerived(folder, draft.payload.itemId);
+      if (derived !== null && locateQuote(derived.text, draft.payload.quote).kind === 'found')
+        (context.facts.verifiedQuoteKeys as Set<string>).add(
+          consolidateQuoteKey(draft.payload.itemId, draft.payload.quote),
+        );
+    }
     const validation = parsed === null ? null : validateConsolidatePlan(parsed, context.facts);
     const droppedRows = validation?.dropped.slice() ?? [];
     const expanded: ConsolidateOpDraft[] = [];
@@ -713,6 +732,22 @@ export async function executeConsolidateShell(
             },
           ];
         }
+        if (operation.kind === 'add-edge') {
+          const payload = parseJson(operation.payloadJson, null) as { itemId?: unknown } | null;
+          if (typeof payload?.itemId !== 'string') return [];
+          return [
+            {
+              runItemId: newId(),
+              itemId: payload.itemId,
+              title: operationSummary(operation.kind, payload, db),
+              opId: operation.id,
+              addEdge: parseJson(
+                operation.payloadJson,
+                {},
+              ) as import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['add-edge'],
+            },
+          ];
+        }
         const payload = parseJson(operation.payloadJson, null) as { itemIds?: unknown } | null;
         const itemId = Array.isArray(payload?.itemIds) ? payload.itemIds[0] : undefined;
         if (typeof itemId !== 'string') return [];
@@ -744,7 +779,7 @@ export async function executeConsolidateShell(
           runId,
           requested: entry.title,
           host: null,
-          itemId: entry.retype === undefined ? entry.itemId : null,
+          itemId: entry.itemId === null ? null : (items.getItem(db, entry.itemId)?.id ?? null),
         });
       }
       research.setBuildRun(db, researchId, runId, Date.now());
@@ -760,7 +795,8 @@ export async function executeConsolidateShell(
       plan,
       hooks: {
         onItemSettled: (activeDb, entry, code, outcome) => {
-          if (entry.opId === undefined || !opById.has(entry.opId)) return;
+          if (entry.opId === undefined || !opById.has(entry.opId) || entry.addEdge !== undefined)
+            return;
           if (entry.retype !== undefined && code === null) return;
           const state =
             code === 'CONSOLIDATE_OP_STALE' ? 'stale' : outcome === 'failed' ? 'failed' : 'done';

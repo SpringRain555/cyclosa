@@ -45,6 +45,14 @@ import { executeRetypeOperation } from './consolidate-ops/retype.js';
 import * as consolidateOps from '../infrastructure/db/repositories/consolidate-op-repo.js';
 import { executeExtractOperation } from './consolidate-ops/extract.js';
 import { executeMergeOperation } from './consolidate-ops/merge.js';
+import { executeAddEdgeOperation } from './consolidate-ops/add-edge.js';
+import { conformsTo } from '../domain/provider/schema-check.js';
+import {
+  ADD_EDGE_OP_SCHEMA,
+  type ConsolidateOpPayloadByKind,
+} from '../domain/research/consolidate.js';
+import { findByTriple } from '../infrastructure/db/repositories/edge-repo.js';
+import { edgeSnapshot } from '../infrastructure/db/repositories/consolidate-edge-undo-repo.js';
 import { recordModelCall } from './model-call-log.js';
 import {
   bodyAvailable,
@@ -233,18 +241,21 @@ export type ConsolidateWorkerPlanEntry = {
 } & (
   | {
       readonly itemId: string;
+      readonly addEdge?: ConsolidateOpPayloadByKind['add-edge'];
       readonly merge?: undefined;
       readonly retype?: undefined;
       readonly retypeExpected?: undefined;
     }
   | {
       readonly itemId: null;
+      readonly addEdge?: undefined;
       readonly merge: { readonly keep: string; readonly drop: string };
       readonly retype?: undefined;
       readonly retypeExpected?: undefined;
     }
   | {
       readonly itemId: null;
+      readonly addEdge?: undefined;
       readonly merge?: undefined;
       readonly retype: import('../domain/research/consolidate.js').ConsolidateOpPayloadByKind['retype'];
       readonly retypeExpected: string;
@@ -330,10 +341,12 @@ async function processConsolidate(
     for (const entry of plan) {
       await state.gate();
       if (state.cancelled) break;
+      let trackedItemId =
+        entry.itemId === null ? null : (items.getItem(db, entry.itemId)?.id ?? null);
       runs.updateRunItem(db, {
         id: entry.runItemId,
         outcome: 'running',
-        itemId: entry.retype === undefined ? entry.itemId : null,
+        itemId: trackedItemId,
         now: Date.now(),
       });
       let code: ErrorCode | null = null;
@@ -379,6 +392,91 @@ async function processConsolidate(
           code = 'CONSOLIDATE_UNEXPECTED';
           logger.error('改型別寫入失敗', { opId: entry.opId, error: String(error) });
         }
+      } else if (entry.addEdge !== undefined) {
+        const derived = await readDerived(folder, entry.itemId);
+        if (state.cancelled) break;
+        trackedItemId = items.getItem(db, entry.itemId)?.id ?? null;
+        const payload = entry.addEdge;
+        if (
+          entry.opId === undefined ||
+          derived === null ||
+          readCase(db)?.status === 'archived' ||
+          !conformsTo(ADD_EDGE_OP_SCHEMA, payload).ok
+        ) {
+          code = 'CONSOLIDATE_OP_STALE';
+        } else {
+          const opId = entry.opId;
+          try {
+            withTransaction(db, () => {
+              const existing = findByTriple(activeDb, payload);
+              const before = existing === null ? null : edgeSnapshot(activeDb, existing.id);
+              const applied = executeAddEdgeOperation({
+                db: activeDb,
+                itemId: entry.itemId,
+                runId: state.runId,
+                text: derived.text,
+                extraction: {
+                  entities: [],
+                  relations: [],
+                  dropped: { unknownEntity: 0, selfRelation: 0, duplicate: 0 },
+                },
+                addEdge: payload,
+              });
+              newEdges = applied.newEdges;
+              code = applied.code;
+              const written = findByTriple(activeDb, payload);
+              consolidateOps.setState(activeDb, {
+                id: opId,
+                state:
+                  code === 'CONSOLIDATE_OP_STALE' || code === 'PROVIDER_QUOTE_NOT_FOUND'
+                    ? 'stale'
+                    : code === 'GRAPH_TOMBSTONED'
+                      ? 'skipped'
+                      : 'done',
+                code,
+                runId: state.runId,
+                executedAt: Date.now(),
+                undoJson:
+                  code === null && written !== null
+                    ? JSON.stringify({
+                        runId: state.runId,
+                        edgeId: written.id,
+                        before,
+                        after: edgeSnapshot(activeDb, written.id),
+                      })
+                    : JSON.stringify({ runId: state.runId }),
+              });
+              runs.updateRunItem(activeDb, {
+                id: entry.runItemId,
+                outcome: code === 'CONSOLIDATE_OP_STALE' ? 'failed' : 'ok',
+                code,
+                itemId: trackedItemId,
+                now: Date.now(),
+              });
+              runs.setRunItemEdges(activeDb, entry.runItemId, newEdges);
+            });
+          } catch (error) {
+            if (!isConstraintError(error)) throw error;
+            newEdges = 0;
+            code = 'CONSOLIDATE_UNEXPECTED';
+            consolidateOps.setState(db, {
+              id: opId,
+              state: 'failed',
+              code,
+              runId: state.runId,
+              executedAt: Date.now(),
+            });
+            logger.error('整理關聯寫入失敗', { opId, reason: String(error) });
+          }
+        }
+        if (code === 'CONSOLIDATE_OP_STALE' && entry.opId !== undefined)
+          consolidateOps.setState(db, {
+            id: entry.opId,
+            state: 'stale',
+            code,
+            runId: state.runId,
+            executedAt: Date.now(),
+          });
       } else {
         if (chat === null) throw new Error('extract provider missing');
         const derived = await readDerived(folder, entry.itemId);
@@ -397,7 +495,7 @@ async function processConsolidate(
             machineEvidence: candidate.machineEvidence,
             hasBody: bodyAvailable(derived),
           });
-        if (!eligible)
+        if (!eligible || readCase(db)?.status === 'archived')
           code = entry.opId === undefined ? 'PARSE_EMPTY_CONTENT' : 'CONSOLIDATE_OP_STALE';
         else {
           const called = await callExtract(chat, derived, abort);
@@ -475,7 +573,7 @@ async function processConsolidate(
         id: entry.runItemId,
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
-        itemId: entry.retype === undefined ? entry.itemId : null,
+        itemId: entry.itemId === null ? null : (items.getItem(db, entry.itemId)?.id ?? null),
         now: Date.now(),
       });
       runs.setRunItemEdges(db, entry.runItemId, newEdges);

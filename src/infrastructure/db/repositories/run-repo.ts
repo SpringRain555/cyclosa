@@ -422,7 +422,10 @@ export function deleteItemsById(db: DatabaseSync, ids: readonly string[]): numbe
  *
  * **被合併過的不算**：`merged_into` 指著別人的那些本來就沒有自己的邊。
  */
-export function deleteOrphanEntities(db: DatabaseSync): number {
+export function deleteOrphanEntities(
+  db: DatabaseSync,
+  preserved: ReadonlySet<string> = new Set(),
+): number {
   // 舊升級清理也會呼叫此函式；v15 前尚無人工型別欄位。
   const manualColumn = (db.prepare('PRAGMA table_info(entity)').all() as Raw[]).some(
     (column) => column['name'] === 'type_manual',
@@ -438,6 +441,10 @@ export function deleteOrphanEntities(db: DatabaseSync): number {
     )
     .all() as Raw[];
   const stmt = db.prepare('DELETE FROM entity WHERE id = ?');
-  for (const row of rows) stmt.run(String(row['id']));
-  return rows.length;
+  let deleted = 0;
+  for (const row of rows) {
+    if (preserved.has(String(row['id']))) continue;
+    deleted += Number(stmt.run(String(row['id'])).changes);
+  }
+  return deleted;
 }

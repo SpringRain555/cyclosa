@@ -29,10 +29,10 @@ it('每種整理操作都登記 schema 與 payload validate', () => {
     expect(operation.validate(examples[kind]), kind).toBe(true);
     expect(operation.validate(null), kind).toBe(false);
     expect(operation.execute !== null, kind).toBe(
-      kind === 'extract' || kind === 'merge' || kind === 'retype',
+      kind === 'extract' || kind === 'merge' || kind === 'retype' || kind === 'add-edge',
     );
     expect(operation.undoInfo !== null, kind).toBe(
-      kind === 'extract' || kind === 'merge' || kind === 'retype',
+      kind === 'extract' || kind === 'merge' || kind === 'retype' || kind === 'add-edge',
     );
   }
 });

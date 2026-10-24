@@ -161,6 +161,7 @@
 | `operations/evidence/issue-5/sources/01-研究中心簡稱.md` | ✅ | 同一機構簡稱的合成匯入資料 | 真實機構資料 |
 | `operations/evidence/issue-5/sources/02-研究中心正式名.md` | ✅ | 同一機構正式名稱的合成匯入資料 | 真實機構資料 |
 | `operations/evidence/issue-5/sources/03-不可合併的機構.md` | ✅ | 不同機構的合成反例 | 真實機構資料 |
+| `operations/issue-7-acceptance.md` | 🚧 | 整理補關聯的驗收項目與執行狀態 | 已通過但沒有證據的宣稱 |
 
 > ### 這一區的狀態在 2026-09-06 改了一半
 >

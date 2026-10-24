@@ -56,18 +56,14 @@ const statusLabels: Record<string, string> = {
 };
 const kindLabels: Record<string, string> = t.consolidateShell.kindLabels;
 function displaySummary(operation: ConsolidateShellOperation): string {
-  if (
-    operation.kind !== 'retype' ||
-    typeof operation.payload !== 'object' ||
-    operation.payload === null
-  )
-    return operation.summary;
-  const to = (operation.payload as { to?: unknown }).to;
-  if (typeof to !== 'string') return operation.summary;
-  const label = t.graph.entityType[to as keyof typeof t.graph.entityType];
-  return label !== undefined && operation.summary.endsWith(' · ' + to)
-    ? operation.summary.slice(0, -to.length) + label
-    : operation.summary;
+  const summary = operation.retypeSummary;
+  if (summary === null) return operation.summary;
+  const labels = t.graph.entityType as Record<string, string>;
+  return fill(t.consolidateShell.retypeSummary, {
+    name: summary.entityName,
+    from: labels[summary.fromType] ?? summary.fromType,
+    to: labels[summary.toType] ?? summary.toType,
+  });
 }
 
 function formatCoverage(coverage: NonNullable<ConsolidateShellView['coverage']>): string {

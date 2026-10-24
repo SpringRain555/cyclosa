@@ -9,6 +9,7 @@ import {
   type ConsolidateOpDraft,
   type ConsolidateOpKind,
 } from '../domain/research/consolidate.js';
+import { ENTITY_TYPES, type EntityType } from '../domain/provider/relations.js';
 import { locateQuote } from '../domain/provider/quote.js';
 import type { ErrorCode } from '../domain/errors/codes.js';
 import { withTransaction, type DatabaseSync } from '../infrastructure/db/database.js';
@@ -80,6 +81,7 @@ export interface ConsolidateShellOperation {
   readonly kind: ConsolidateOpKind;
   readonly payload: unknown;
   readonly summary: string;
+  readonly retypeSummary: RetypeSummary | null;
   readonly why: string;
   readonly checked: boolean;
   readonly state: string;
@@ -101,6 +103,15 @@ export interface ConsolidateShellView {
   readonly operations: readonly ConsolidateShellOperation[];
 }
 type Raw = Record<string, unknown>;
+interface RetypeSummary {
+  readonly entityName: string;
+  readonly fromType: EntityType;
+  readonly toType: EntityType;
+}
+interface OperationSummary {
+  readonly text: string;
+  readonly retype: RetypeSummary | null;
+}
 
 function parseJson(raw: string, fallback: unknown): unknown {
   try {
@@ -134,7 +145,12 @@ function droppedOf(raw: string): DroppedSummary {
       : {};
   return { count: Number(result['count'] ?? 0), reasons };
 }
-function operationSummary(kind: ConsolidateOpKind, payload: unknown, db: DatabaseSync): string {
+function operationSummary(
+  kind: ConsolidateOpKind,
+  payload: unknown,
+  db: DatabaseSync,
+): OperationSummary {
+  const plain = (text: string): OperationSummary => ({ text, retype: null });
   const data = typeof payload === 'object' && payload !== null ? (payload as Raw) : {};
   const itemTitle = (id: unknown): string => {
     if (typeof id !== 'string') return '';
@@ -142,34 +158,46 @@ function operationSummary(kind: ConsolidateOpKind, payload: unknown, db: Databas
   };
   if (kind === 'extract' || kind === 'digest') {
     const ids = Array.isArray(data['itemIds']) ? data['itemIds'] : [];
-    return ids.map(itemTitle).join('、');
+    return plain(ids.map(itemTitle).join('、'));
   }
   if (kind === 'merge') {
     const keep =
       entities.getEntity(db, String(data['keep'] ?? ''))?.name ?? String(data['keep'] ?? '');
     const drop =
       entities.getEntity(db, String(data['drop'] ?? ''))?.name ?? String(data['drop'] ?? '');
-    return keep + ' ← ' + drop;
+    return plain(keep + ' ← ' + drop);
   }
   if (kind === 'retype') {
     const entity = entities.getEntity(db, String(data['entityId'] ?? ''));
-    return (entity?.name ?? String(data['entityId'] ?? '')) + ' · ' + String(data['to'] ?? '');
+    const toType = ENTITY_TYPES.find((type) => type === data['to']);
+    const entityName = entity?.name ?? String(data['entityId'] ?? '');
+    const target = toType ?? String(data['to'] ?? '');
+    return {
+      text:
+        entity === null
+          ? `${entityName} · ${target}`
+          : `${entityName} · ${entity.type} → ${target}`,
+      retype:
+        entity !== null && toType !== undefined
+          ? { entityName, fromType: entity.type, toType }
+          : null,
+    };
   }
   const source =
     entities.getEntity(db, String(data['source'] ?? ''))?.name ?? itemTitle(data['source']);
   const target =
     entities.getEntity(db, String(data['target'] ?? ''))?.name ?? itemTitle(data['target']);
-  return (
+  return plain(
     source +
-    ' → ' +
-    String(data['rel'] ?? '') +
-    ' → ' +
-    target +
-    ' · ' +
-    itemTitle(data['itemId']) +
-    ' · “' +
-    String(data['quote'] ?? '') +
-    '”'
+      ' → ' +
+      String(data['rel'] ?? '') +
+      ' → ' +
+      target +
+      ' · ' +
+      itemTitle(data['itemId']) +
+      ' · “' +
+      String(data['quote'] ?? '') +
+      '”',
   );
 }
 function shellView(
@@ -178,20 +206,24 @@ function shellView(
   db: DatabaseSync,
 ): ConsolidateShellView {
   const setting = providers.config.tasks.plan;
-  const operations = ops.listOps(db, row.id).map((operation) => ({
-    id: operation.id,
-    ord: operation.ord,
-    kind: operation.kind,
-    payload: parseJson(operation.payloadJson, {}),
-    summary: operationSummary(operation.kind, parseJson(operation.payloadJson, {}), db),
-    why: operation.why,
-    checked: operation.checked,
-    state: operation.state,
-    code: operation.code,
-    runId: operation.runId,
-    undo: parseJson(operation.undoJson ?? 'null', null),
-    executable: operationOf(operation.kind).execute !== null,
-  }));
+  const operations = ops.listOps(db, row.id).map((operation) => {
+    const summary = operationSummary(operation.kind, parseJson(operation.payloadJson, {}), db);
+    return {
+      id: operation.id,
+      ord: operation.ord,
+      kind: operation.kind,
+      payload: parseJson(operation.payloadJson, {}),
+      summary: summary.text,
+      retypeSummary: summary.retype,
+      why: operation.why,
+      checked: operation.checked,
+      state: operation.state,
+      code: operation.code,
+      runId: operation.runId,
+      undo: parseJson(operation.undoJson ?? 'null', null),
+      executable: operationOf(operation.kind).execute !== null,
+    };
+  });
   return {
     id: row.id,
     status: row.status,
@@ -760,7 +792,7 @@ export async function executeConsolidateShell(
             {
               runItemId: newId(),
               itemId: null,
-              title: operationSummary('merge', payload, db),
+              title: operationSummary('merge', payload, db).text,
               opId: operation.id,
               merge: { keep: payload.keep, drop: payload.drop },
             },
@@ -773,7 +805,7 @@ export async function executeConsolidateShell(
             {
               runItemId: newId(),
               itemId: null,
-              title: operationSummary('retype', payload, db),
+              title: operationSummary('retype', payload, db).text,
               opId: operation.id,
               retypeExpected: String(
                 (
@@ -794,7 +826,7 @@ export async function executeConsolidateShell(
             {
               runItemId: newId(),
               itemId: payload.itemId,
-              title: operationSummary(operation.kind, payload, db),
+              title: operationSummary(operation.kind, payload, db).text,
               opId: operation.id,
               addEdge: parseJson(
                 operation.payloadJson,

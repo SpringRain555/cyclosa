@@ -878,7 +878,7 @@ export const t = {
   consolidateShell: {
     researchOpen: '研究進行中，結束或放棄之後才能開始整理。',
     title: '整理專題',
-    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；合併候選須先通過名稱距離與語意相似度篩選，需要設定本機嵌入模型。五種操作都可勾選，預設不勾選。合併與改型別都可在實體面板取消或復原，人確認的型別不會被機器重抽蓋掉。補關聯須附可定位的原文引文，執行後仍待查證。補繁中只補尚未初讀資料的繁中標題與摘要，不翻全文。',
+    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；合併候選須先通過名稱距離與語意相似度篩選，設定本機嵌入模型才會列合併候選。五種操作都可勾選，預設不勾選。合併與改型別都可在實體面板取消或復原，人確認的型別不會被機器重抽蓋掉。補關聯須附可定位的原文引文，執行後仍待查證。補繁中只補尚未初讀資料的繁中標題與摘要，不翻全文。',
     service: '規劃走 {service}，會使用模型額度。',
     serviceFree: '規劃走 {service}。',
     start: '開始整理規劃',
@@ -892,11 +892,12 @@ export const t = {
     statusAbandoned: '已放棄',
     coverage:
       '模型看到：實體 {entitiesIncluded}/{entitiesAvailable} 個（合併候選 {mergeCandidatesIncluded}/{mergeCandidatesAvailable} 對）、單一出處關聯 {singleEvidenceEdgesIncluded}/{singleEvidenceEdgesAvailable} 條、未抽資料 {unextractedItems} 份、筆記 {notesIncluded}/{notesAvailable} 則（截短 {notesTruncated} 則，共 {noteCharsIncluded} 字）。',
+    mergeCandidatesSkipped: '沒有設定嵌入模型，這次不列合併候選；其他操作照常。',
     dropped: '有 {n} 條提案因驗證未通過而略過：',
     dropReasons: {
       'merge-id-missing': '合併提案指向不存在或已合併的實體',
       'merge-same-id': '不能把實體和自己合併',
-      'merge-not-candidate': '合併配對沒有通過名稱距離與語意相似度篩選',
+      'merge-not-candidate': '合併配對不在程式提供的候選清單中（名稱距離與語意相似度都須通過）',
       'extract-item-not-unextracted': '資料已抽過或沒有可抽取正文',
       'extract-duplicate': '同一份資料被重複提出',
       'edge-id-missing': '關聯端點或引用來源不存在',

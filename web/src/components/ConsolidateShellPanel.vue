@@ -70,6 +70,22 @@ function displaySummary(operation: ConsolidateShellOperation): string {
     : operation.summary;
 }
 
+function formatCoverage(coverage: NonNullable<ConsolidateShellView['coverage']>): string {
+  return fill(t.consolidateShell.coverage, {
+    entitiesIncluded: coverage.entitiesIncluded,
+    entitiesAvailable: coverage.entitiesAvailable,
+    mergeCandidatesIncluded: coverage.mergeCandidatesIncluded,
+    mergeCandidatesAvailable: coverage.mergeCandidatesAvailable,
+    singleEvidenceEdgesIncluded: coverage.singleEvidenceEdgesIncluded,
+    singleEvidenceEdgesAvailable: coverage.singleEvidenceEdgesAvailable,
+    unextractedItems: coverage.unextractedItems,
+    notesIncluded: coverage.notesIncluded,
+    notesAvailable: coverage.notesAvailable,
+    notesTruncated: coverage.notesTruncated,
+    noteCharsIncluded: coverage.noteCharsIncluded,
+  });
+}
+
 const dropReasonLabels: Record<string, string> = t.consolidateShell.dropReasons;
 
 function report(error: ApiError | null): void {
@@ -263,7 +279,10 @@ defineExpose({ reload });
 
       <template v-if="current.coverage">
         <p class="coverage">
-          {{ fill(t.consolidateShell.coverage, current.coverage) }}
+          {{ formatCoverage(current.coverage) }}
+        </p>
+        <p v-if="current.coverage.mergeCandidatesSkipped === 'embed-not-configured'" class="hint">
+          {{ t.consolidateShell.mergeCandidatesSkipped }}
         </p>
         <p v-if="current.coverage.undigestedIncluded !== undefined" class="hint">
           {{

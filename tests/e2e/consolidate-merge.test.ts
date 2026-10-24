@@ -23,13 +23,16 @@ import { loadEdgesAmong } from '../../src/infrastructure/db/repositories/graph-r
 import * as entities from '../../src/infrastructure/db/repositories/entity-repo.js';
 import * as runs from '../../src/infrastructure/db/repositories/run-repo.js';
 import { DEFAULT_CONFIG, parseConfig } from '../../src/infrastructure/providers/config.js';
+import { EXTRACTOR_VERSION, writeDerived } from '../../src/infrastructure/fs/case-files.js';
 import type { Providers } from '../../src/infrastructure/providers/registry.js';
 import type { EmbedProvider } from '../../src/infrastructure/providers/embed-ollama.js';
 import { nearbyEntityNames, mergeThresholdsOf } from '../../src/domain/entity/merge-candidates.js';
+import type { ConsolidateOpDraft } from '../../src/domain/research/consolidate.js';
 
 let root: string, slug: string, localBefore: string | undefined;
 let prompt: { mergeCandidates: { keep: string; drop: string }[] };
 let invented: boolean;
+let planExtras: readonly ConsolidateOpDraft[];
 const cost = { elapsedMs: 1, costUsd: 0 };
 const ready = async () => ({
   kind: 'ready' as const,
@@ -77,17 +80,22 @@ const load = async (): Promise<Providers> => ({
       return {
         kind: 'ok',
         value: JSON.stringify({
-          operations: pairs.map((pair) => ({
-            kind: 'merge',
-            payload: { keep: pair.keep, drop: pair.drop },
-            why: '合成資料的相同實體',
-          })),
+          operations: [
+            ...pairs.map((pair) => ({
+              kind: 'merge',
+              payload: { keep: pair.keep, drop: pair.drop },
+              why: '合成資料的相同實體',
+            })),
+            ...planExtras,
+          ],
         }),
         cost,
       };
     },
   }),
 });
+
+const loadWithoutEmbed = async (): Promise<Providers> => ({ ...(await load()), embed: null });
 
 async function inDb<T>(body: (db: DatabaseSync) => T): Promise<T> {
   const opened = await openCaseDatabase(join(root, 'cases', slug, 'case.sqlite'));
@@ -104,6 +112,7 @@ beforeEach(async () => {
   process.env['LOCALAPPDATA'] = join(root, 'local');
   await mkdir(join(root, 'local'));
   invented = false;
+  planExtras = [];
   vi.mocked(embed.embedDocuments).mockClear();
   const created = await createCase(root, { name: '合成合併驗收' });
   if (!created.ok) throw new Error(created.code);
@@ -124,6 +133,17 @@ beforeEach(async () => {
     db.prepare(
       "INSERT INTO edge (id, layer, rel, source_id, source_kind, target_id, target_kind, origin, status, confidence, created_at, updated_at) VALUES ('edge', 'comention', '提到', 'item', 'item', 'b', 'entity', 'machine', 'pending', 1, 0, 0)",
     ).run();
+  });
+  await writeDerived(join(root, 'cases', slug), 'item', {
+    extractorVersion: EXTRACTOR_VERSION,
+    kind: 'text',
+    title: '合成來源',
+    text: '合成來源正文，用於整理抽取與初讀建議。',
+    html: null,
+    pages: null,
+    excerpt: '合成來源正文',
+    lowConfidence: false,
+    reasons: [],
   });
 });
 afterEach(async () => {
@@ -242,6 +262,49 @@ it('設定值可儲存，遺漏與無效門檻採預設；嵌入沒設定時明�
   expect(
     await semanticMergeCandidates(rows, new Map(), mergeThresholdsOf(null), null),
   ).toMatchObject({ ok: false, code: 'PROVIDER_NOT_CONFIGURED' });
+});
+
+it('沒設定嵌入時略過合併候選，其他提案照常保留且記錄丟棄原因', async () => {
+  planExtras = [
+    { kind: 'merge', payload: { keep: 'a', drop: 'b' }, why: '合成近似名稱配對' },
+    { kind: 'extract', payload: { itemIds: ['item'] }, why: '補抽這份來源' },
+    { kind: 'digest', payload: { itemIds: ['item'] }, why: '補繁中這份來源' },
+  ];
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  const planned = await planConsolidateShell(root, slug, opened.data.id, loadWithoutEmbed);
+  if (!planned.ok) throw new Error(planned.code);
+
+  expect(prompt.mergeCandidates).toEqual([]);
+  expect(planned.data.coverage).toMatchObject({
+    mergeCandidatesIncluded: 0,
+    mergeCandidatesAvailable: 0,
+    mergeCandidatesSkipped: 'embed-not-configured',
+  });
+  expect(planned.data.operations.map((operation) => operation.kind).sort()).toEqual([
+    'digest',
+    'extract',
+  ]);
+  expect(planned.data.dropped).toMatchObject({
+    count: 1,
+    reasons: { 'merge-not-candidate': 1 },
+  });
+});
+
+it('嵌入已設定但呼叫失敗時，整理規劃仍明確失敗', async () => {
+  vi.mocked(embed.embedDocuments).mockResolvedValueOnce({
+    kind: 'error',
+    code: 'PROVIDER_UNREACHABLE',
+    detail: 'synthetic offline provider',
+    cost,
+  });
+  const opened = await startConsolidateShell(root, slug);
+  if (!opened.ok) throw new Error(opened.code);
+  expect(await planConsolidateShell(root, slug, opened.data.id, load)).toMatchObject({
+    ok: false,
+    code: 'PROVIDER_UNREACHABLE',
+  });
+  expect(embed.embedDocuments).toHaveBeenCalledOnce();
 });
 
 it('個別合併寫入被人工保護規則拒絕時回滾，其他操作仍完成', async () => {

@@ -14,6 +14,7 @@ import { initDataRoot } from '../../src/application/bootstrap-service.js';
 import { listUnextracted, startConsolidate } from '../../src/application/consolidate-service.js';
 import {
   executeConsolidateShell,
+  getConsolidateShell,
   planConsolidateShell,
   setConsolidateOpChecked,
   startConsolidateShell,
@@ -579,6 +580,64 @@ it('同批勾選改型別與抽取：共用 worker 完成兩種操作，舊型�
     expect(db.prepare('SELECT succeeded, failed FROM run WHERE id=?').get(run ?? '')).toMatchObject(
       { succeeded: 2, failed: 0 },
     );
+  });
+});
+
+it('改型別摘要採用資料庫目前型別，作業紀錄保留同一個摘要', async () => {
+  await inDb((db) =>
+    entities.insertEntity(db, {
+      id: 'summary-retype',
+      name: '改型別摘要測試',
+      type: 'concept',
+      now: 1,
+    }),
+  );
+  proposedOperations = [
+    {
+      kind: 'retype',
+      payload: { entityId: 'summary-retype', to: 'org' },
+      why: '合成改型別摘要',
+    },
+  ];
+  const shell = await startConsolidateShell(root, slug);
+  if (!shell.ok) throw new Error(shell.code);
+  const planned = await planConsolidateShell(root, slug, shell.data.id);
+  if (!planned.ok) throw new Error(planned.code);
+  const operation = planned.data.operations.find((entry) => entry.kind === 'retype');
+  if (operation === undefined) throw new Error('missing retype proposal');
+  expect(operation).toMatchObject({
+    summary: '改型別摘要測試 · concept → org',
+    retypeSummary: {
+      entityName: '改型別摘要測試',
+      fromType: 'concept',
+      toType: 'org',
+    },
+  });
+
+  await inDb((db) =>
+    db.prepare("UPDATE entity SET type = 'place' WHERE id = ?").run('summary-retype'),
+  );
+  const refreshed = await getConsolidateShell(root, slug);
+  if (!refreshed.ok || refreshed.data === null) throw new Error('missing refreshed shell');
+  expect(refreshed.data.operations.find((entry) => entry.id === operation.id)).toMatchObject({
+    summary: '改型別摘要測試 · place → org',
+    retypeSummary: {
+      entityName: '改型別摘要測試',
+      fromType: 'place',
+      toType: 'org',
+    },
+  });
+
+  expect((await setConsolidateOpChecked(root, slug, shell.data.id, operation.id, true)).ok).toBe(
+    true,
+  );
+  const started = await executeConsolidateShell(root, slug, shell.data.id);
+  if (!started.ok) throw new Error(started.code);
+  await idle();
+  await inDb((db) => {
+    expect(runs.listRunItems(db, started.data.runId).map((item) => item.requested)).toEqual([
+      '改型別摘要測試 · place → org',
+    ]);
   });
 });
 

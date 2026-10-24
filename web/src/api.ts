@@ -404,6 +404,7 @@ export interface ConsolidateShellOperation {
   kind: 'merge' | 'extract' | 'add-edge' | 'retype' | 'digest';
   payload: unknown;
   summary: string;
+  retypeSummary: { entityName: string; fromType: string; toType: string } | null;
   why: string;
   checked: boolean;
   state: string;

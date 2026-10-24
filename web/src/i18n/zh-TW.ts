@@ -911,6 +911,7 @@ export const t = {
     digestService:
       '補繁中走初讀服務「{service}」。每份只讀正文開頭約 6,000 字；既有初讀保留，不翻全文。',
     operations: '操作建議',
+    retypeSummary: '{name} · {from} → {to}',
     kindLabels: {
       merge: '合併實體',
       extract: '抽取資料',
@@ -1321,7 +1322,7 @@ export const t = {
     start: '開始',
     starting: '正在查你已經有的資料…',
     /** **這一句在按任何會花錢的按鈕之前就出現** —— 它算的是本機索引。 */
-    freeHint: '按下去只會查你已經有的資料，不花錢。',
+    freeHint: '按下去只會查你已經有的資料，不會呼叫模型，也不用額度。',
     hitsSome: '你已有的 {total} 份裡，{n} 份提到它',
     hitsNone: '你已有的 {total} 份都沒有提到它 —— 這是一個新的方向。',
     hitsEmptyCase: '這個專題還沒有任何資料 —— 這是一個全新的方向。',
@@ -1352,14 +1353,15 @@ export const t = {
     removeDirection: '刪掉',
     saveDirections: '存下改過的方向',
     savingDirections: '存著…',
-    directionsFree: '改方向不花錢。',
+    directionsFree: '改方向不會呼叫模型，也不用額度。',
     /** 閘門一。**按下去之前什麼都還沒抓** —— 這句話是 REQ-0009 R5 的驗收條件。 */
     gateOne: '照這份規劃開始',
     gateOneHint: '按下去之前，一次搜尋、一次擷取都還沒有發生。',
     gateOneNext:
       '按下去之後會照這 {n} 條方向去找來源，把找到的抓回來，再把拿到的每一份初讀一次（有沒有關、繁中標題與摘要）。',
     /** 閘門旁邊先說接下來哪幾步會用到額度、走哪個服務（ADR-0033 D2）。 */
-    gateOneRuns: '接下來會跑：找來源（{find}）、抓取（不花錢）、初讀（{digest}）。',
+    gateOneRuns:
+      '接下來會跑：找來源（{find}）、抓取（不會呼叫模型，也不用額度）、初讀（{digest}）。',
     serviceCosts: '「{service}」· 會用到額度',
     serviceFree: '「{service}」· 不花錢',
     gateOneNotReady: '至少要有一條方向。',
@@ -1386,7 +1388,7 @@ export const t = {
     resume: '繼續蒐集',
     /** 「繼續蒐集」旁邊那句：**會做的每一步各自說走哪個服務、花不花錢**。 */
     resumeSearch: '沒搜成的那幾條再搜一次（{service}）',
-    resumeFetch: '要抓的照舊抓（不花錢）',
+    resumeFetch: '要抓的照舊抓（不會呼叫模型，也不用額度）',
     resumeDigest: '拿到的讀一次（{service}）',
     resumeParts: '按下去：{parts}。',
     /** 閘門二（R12）。 */
@@ -1697,7 +1699,7 @@ export const t = {
     connectionKind: {
       cli: '這台電腦上的 claude 指令 · 用你登入的帳號，吃訂閱額度',
       ollama: '這台電腦上的模型伺服器 · 不花錢',
-      openai: '線上服務、訂閱的代理，或別家本機伺服器 · 線上的可能花錢',
+      openai: '線上服務、訂閱的代理，或別家本機伺服器 · 線上的可能會用到額度，也可能另外計費',
     },
     connectionWhat: {
       cli: '跑 claude -p，會上網搜尋（我們只給它搜尋這一個工具）。留空就是不啟用。',

@@ -36,6 +36,26 @@ const urls = ref('');
 const busy = ref(false);
 const dragging = ref(false);
 const throttleNow = ref<{ host: string; ms: number } | null>(null);
+const entityTypeLabels = t.graph.entityType as Record<string, string>;
+const entityTypeKeys = Object.keys(entityTypeLabels).join('|');
+const retypeRequestedPattern = new RegExp(`^(.*) · (${entityTypeKeys}) → (${entityTypeKeys})$`);
+
+function requestedLabel(requested: string, isRetypeSummary: boolean): string {
+  if (!isRetypeSummary) return requested;
+  const match = retypeRequestedPattern.exec(requested);
+  if (match === null) return requested;
+  const fromType = match[2] ?? '';
+  const toType = match[3] ?? '';
+  return fill(t.consolidateShell.retypeSummary, {
+    name: match[1] ?? '',
+    from: entityTypeLabels[fromType] ?? fromType,
+    to: entityTypeLabels[toType] ?? toType,
+  });
+}
+
+function runItemRequested(item: RunItem): string {
+  return requestedLabel(item.requested, run.value?.kind === 'consolidate' && item.itemId === null);
+}
 
 /**
  * 「抽進圖」那一塊。**清單會跟著別的事變**：一筆作業跑完（抽過的不再列）、復原（抽過的又回來）、
@@ -641,9 +661,9 @@ async function rebuild(): Promise<void> {
                   </td>
                   <td class="src">
                     <button v-if="item.itemId" class="link" @click="openItem(item.itemId)">
-                      {{ item.requested }}
+                      {{ runItemRequested(item) }}
                     </button>
-                    <span v-else>{{ item.requested }}</span>
+                    <span v-else>{{ runItemRequested(item) }}</span>
                     <span v-if="item.host" class="inline-host mono muted">{{ item.host }}</span>
                   </td>
                   <td class="host-column mono">{{ item.host ?? '' }}</td>

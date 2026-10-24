@@ -152,7 +152,7 @@ export const errorMessages: Readonly<Record<string, string>> = {
   CONSOLIDATE_SELECTION_INVALID:
     '勾的資料裡有已經抽過、已經排除或不在清單上的（也可能一份都沒勾）。重新整理這一頁再勾一次。',
   CONSOLIDATE_OP_STALE:
-    '這條抽取提案已經不符合現在的資料狀態，沒有執行。重新整理整理清單，再決定要不要重新規劃。',
+    '這條整理提案已經不符合現在的資料狀態，沒有執行。重新整理整理清單，再決定要不要重新規劃。',
   CONSOLIDATE_PLAN_INVALID:
     '模型交回的整理清單不符合規格，這一輪沒有採用。可以重試規劃，或把下面的識別碼交出來。',
   CONSOLIDATE_UNEXPECTED: '抽進圖時出了預期外的問題。請把下面的識別碼交出來。',
@@ -663,6 +663,9 @@ export const t = {
   /** 實體對齊。 */
   entities: {
     mergeTitle: '看起來是同一個',
+    unmergeOrder: '多次合併請先取消最後一次；封存的專題須先重新開啟。',
+    absorbed: '併入這個實體的項目',
+    unmerge: '取消合併',
     /** 這個數字要說出後果，不然它只是一個待辦。 */
     mergeWhy:
       '同一個東西的兩種寫法會變成兩個節點，而投影門檻是「被 3 份以上提到才畫」—— 拆成三種叫法的實體可能一個都不會出現在圖上。',
@@ -858,7 +861,7 @@ export const t = {
   consolidateShell: {
     researchOpen: '研究進行中，結束或放棄之後才能開始整理。',
     title: '整理專題',
-    what: '模型會讀取這個專題的有限摘要並提出操作建議。建議經你確認後才執行；這一版只會執行抽取，其餘操作先列出但不能勾選。',
+    what: '模型會讀取這個專題的有限摘要並提出操作建議。合併候選須先通過名稱距離與語意相似度篩選，需要設定本機嵌入模型。這一版可勾選合併與抽取，其他操作先列出；預設不勾選。合併可在實體面板取消。',
     service: '規劃走 {service}，會使用模型額度。',
     serviceFree: '規劃走 {service}。',
     start: '開始整理規劃',
@@ -871,11 +874,12 @@ export const t = {
     statusDone: '已完成',
     statusAbandoned: '已放棄',
     coverage:
-      '模型看到：實體 {entitiesIncluded}/{entitiesAvailable} 個（相同名稱候選 {mergeCandidatesIncluded}/{mergeCandidatesAvailable} 對）、單一出處關聯 {singleEvidenceEdgesIncluded}/{singleEvidenceEdgesAvailable} 條、未抽資料 {unextractedItems} 份、筆記 {notesIncluded}/{notesAvailable} 則（截短 {notesTruncated} 則，共 {noteCharsIncluded} 字）。',
+      '模型看到：實體 {entitiesIncluded}/{entitiesAvailable} 個（合併候選 {mergeCandidatesIncluded}/{mergeCandidatesAvailable} 對）、單一出處關聯 {singleEvidenceEdgesIncluded}/{singleEvidenceEdgesAvailable} 條、未抽資料 {unextractedItems} 份、筆記 {notesIncluded}/{notesAvailable} 則（截短 {notesTruncated} 則，共 {noteCharsIncluded} 字）。',
     dropped: '有 {n} 條提案因驗證未通過而略過：',
     dropReasons: {
       'merge-id-missing': '合併提案指向不存在或已合併的實體',
       'merge-same-id': '不能把實體和自己合併',
+      'merge-not-candidate': '合併配對沒有通過名稱距離與語意相似度篩選',
       'extract-item-not-unextracted': '資料已抽過或沒有可抽取正文',
       'extract-duplicate': '同一份資料被重複提出',
       'edge-id-missing': '關聯端點或引用來源不存在',
@@ -895,11 +899,11 @@ export const t = {
     why: '理由：{why}',
     select: '勾選後才會執行',
     noOperations: '沒有可確認的操作。可以放棄這次整理，或重試規劃。',
-    execute: '執行已勾選的抽取（{n}）',
+    execute: '執行已勾選的操作（{n}）',
     executing: '開始作業…',
     abandon: '放棄整理',
     emptyShell: '還沒有整理規劃。',
-    noExtracts: '沒有勾選可執行的抽取操作。',
+    noExtracts: '沒有勾選可執行的操作。',
     singleEvidenceTitle: '只有一條出處的關聯',
     singleEvidenceTodo:
       'TODO：保留即時清單接口；#9 會補上清單內容。這些關聯目前只供檢視，不會作為操作執行。',
@@ -1730,6 +1734,11 @@ export const t = {
     // ── 段落三：診斷：留下模型呼叫的紀錄（2026-09-18）─────────
     //
     // **這一區的每一句都在講代價**，因為預設是關的、而打開它要有理由。
+    mergeCandidatesTitle: '整理的合併候選',
+    mergeCandidatesWhat:
+      '名稱距離越小、語意相似度越高，篩選越嚴格。兩道門檻都通過才交給規劃模型，勾選後才合併。預設 5 與 0.97 是初始值，尚待維護者用真實資料量測。',
+    mergeNameDistance: '名稱最大編輯距離（0–100）',
+    mergeSimilarity: '最低語意相似度（0–1）',
     diagnosticsTitle: '診斷',
     logModelCalls: '留下每一次模型呼叫的紀錄',
     logModelCallsWhat:

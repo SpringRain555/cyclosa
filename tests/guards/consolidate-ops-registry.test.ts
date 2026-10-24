@@ -28,7 +28,7 @@ it('每種整理操作都登記 schema 與 payload validate', () => {
     expect(typeof operation.validate).toBe('function');
     expect(operation.validate(examples[kind]), kind).toBe(true);
     expect(operation.validate(null), kind).toBe(false);
-    expect(operation.execute !== null, kind).toBe(kind === 'extract');
-    expect(operation.undoInfo !== null, kind).toBe(kind === 'extract');
+    expect(operation.execute !== null, kind).toBe(kind === 'extract' || kind === 'merge');
+    expect(operation.undoInfo !== null, kind).toBe(kind === 'extract' || kind === 'merge');
   }
 });

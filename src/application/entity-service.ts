@@ -16,7 +16,11 @@
 import { join } from 'node:path';
 
 import { suggestMerges, type MatchReason } from '../domain/entity/identity.js';
-import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
+import {
+  openCaseDatabase,
+  withTransaction,
+  type DatabaseSync,
+} from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as entities from '../infrastructure/db/repositories/entity-repo.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
@@ -127,6 +131,33 @@ export interface MergeResult {
   readonly duplicateEdges: number;
 }
 
+/** 實體面板的取消入口，只列仍併在這個實體底下的那些實體。 */
+export async function listMergedEntities(
+  dataRoot: string,
+  slug: string,
+  keptId: string,
+): Promise<
+  Result<readonly { id: string; name: string; canUnmerge: boolean; mergeId: string | null }[]>
+> {
+  return withCase(dataRoot, slug, (db) => {
+    const cid = correlationId();
+    if (entities.getEntity(db, keptId) === null)
+      return err('GRAPH_NODE_NOT_FOUND', cid, { keptId });
+    return ok(
+      entities
+        .listEntities(db)
+        .filter((row) => row.mergedInto === keptId)
+        .map((row) => ({
+          id: row.id,
+          name: row.name,
+          mergeId: entities.activeMergeId(db, row.id),
+          canUnmerge: readCase(db)?.status !== 'archived' && entities.canUnmergeEntity(db, row.id),
+        })),
+      cid,
+    );
+  });
+}
+
 export async function mergeEntity(
   dataRoot: string,
   slug: string,
@@ -136,6 +167,9 @@ export async function mergeEntity(
 ): Promise<Result<MergeResult>> {
   return withCase(dataRoot, slug, (db) => {
     const cid = correlationId();
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
+    if (entities.hasMergedChildren(db, mergedId))
+      return err('GRAPH_TRANSITION_INVALID', cid, { why: 'merge-children' });
     if (keptId === mergedId) return err('GRAPH_SELF_EDGE', cid, { keptId });
 
     const kept = entities.getEntity(db, keptId);
@@ -147,13 +181,15 @@ export async function mergeEntity(
     if (kept.mergedInto !== null) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'kept' });
     if (kept.type !== merged.type) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'type' });
 
-    const result = entities.mergeEntities(db, {
-      id: newId(),
-      keptId,
-      mergedId,
-      reason,
-      now: Date.now(),
-    });
+    const result = withTransaction(db, () =>
+      entities.mergeEntities(db, {
+        id: newId(),
+        keptId,
+        mergedId,
+        reason,
+        now: Date.now(),
+      }),
+    );
     return ok(
       {
         keptId,
@@ -170,10 +206,14 @@ export async function unmergeEntity(
   dataRoot: string,
   slug: string,
   mergedId: string,
+  expectedMergeId?: string,
 ): Promise<Result<{ readonly restored: number }>> {
   return withCase(dataRoot, slug, (db) => {
     const cid = correlationId();
-    const done = entities.unmergeEntity(db, mergedId, Date.now());
+    if (readCase(db)?.status === 'archived') return err('CASE_ARCHIVED', cid);
+    const done = withTransaction(db, () =>
+      entities.unmergeEntity(db, mergedId, Date.now(), expectedMergeId),
+    );
     if (done === null) return err('GRAPH_TRANSITION_INVALID', cid, { why: 'no-merge-record' });
     return ok(done, cid);
   });

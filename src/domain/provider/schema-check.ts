@@ -28,6 +28,7 @@
  */
 
 export const SUPPORTED_KEYWORDS = [
+  'anyOf',
   'type',
   'properties',
   'required',
@@ -84,6 +85,18 @@ function check(schema: Schema, value: unknown, path: string): SchemaVerdict {
       // **不認得就不通過。** 見檔頭。
       return fail(path, `schema 用了這裡不支援的關鍵字 ${key}，無法確認它有被遵守`);
     }
+  }
+
+  const alternatives = schema['anyOf'];
+  if (alternatives !== undefined) {
+    if (
+      !Array.isArray(alternatives) ||
+      alternatives.length === 0 ||
+      alternatives.some((part) => typeof part !== 'object' || part === null || Array.isArray(part))
+    )
+      return fail(path, 'anyOf 必須包含有效的子規格');
+    if (!alternatives.some((part) => check(part as Schema, value, path).ok))
+      return fail(path, '不符合 anyOf 的任一種規格');
   }
 
   const type = schema['type'];
@@ -191,6 +204,10 @@ export function conformsTo(schema: Schema, value: unknown): SchemaVerdict {
 export function strictify(schema: Schema): Schema {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(schema)) {
+    if (key === 'anyOf' && Array.isArray(value)) {
+      out[key] = value.map((part) => strictify(part as Schema));
+      continue;
+    }
     if (key === 'properties' && typeof value === 'object' && value !== null) {
       const props: Record<string, unknown> = {};
       for (const [name, sub] of Object.entries(value as Record<string, unknown>)) {

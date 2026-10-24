@@ -118,6 +118,7 @@ import {
 } from '../../application/source-service.js';
 import {
   listMergeCandidates,
+  listMergedEntities,
   mergeEntity,
   unmergeEntity,
 } from '../../application/entity-service.js';
@@ -1347,6 +1348,15 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
 
   // ── 實體對齊───────────────────────────────
 
+  app.get<{ Params: { slug: string; entityId: string } }>(
+    '/api/cases/:slug/entities/:entityId/merged',
+    async (req, reply) => {
+      const dataRoot = await requireDataRoot(ctx, reply);
+      if (dataRoot === null) return reply;
+      return send(reply, await listMergedEntities(dataRoot, req.params.slug, req.params.entityId));
+    },
+  );
+
   app.get<{ Params: { slug: string } }>('/api/cases/:slug/entities/merges', async (req, reply) => {
     const dataRoot = await requireDataRoot(ctx, reply);
     if (dataRoot === null) return reply;
@@ -1365,12 +1375,20 @@ function registerItemRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
   );
 
-  app.post<{ Params: { slug: string; entityId: string } }>(
+  app.post<{ Params: { slug: string; entityId: string }; Body: { mergeId?: unknown } }>(
     '/api/cases/:slug/entities/:entityId/unmerge',
     async (req, reply) => {
       const dataRoot = await requireDataRoot(ctx, reply);
       if (dataRoot === null) return reply;
-      return send(reply, await unmergeEntity(dataRoot, req.params.slug, req.params.entityId));
+      return send(
+        reply,
+        await unmergeEntity(
+          dataRoot,
+          req.params.slug,
+          req.params.entityId,
+          typeof req.body?.mergeId === 'string' ? req.body.mergeId : undefined,
+        ),
+      );
     },
   );
 }

@@ -627,7 +627,7 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
   const keepId = newId();
   const dropId = newId();
   entities.insertEntity(db, { id: keepId, type: 'concept', name: '合成實體甲', now });
-  entities.insertEntity(db, { id: dropId, type: 'org', name: '合成實體乙', now });
+  entities.insertEntity(db, { id: dropId, type: 'concept', name: '合成實體乙', now });
   const first = itemIds[0];
   const second = itemIds[1];
   if (first === undefined || second === undefined) throw new Error('合成整理資料缺少 item id');

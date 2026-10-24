@@ -1,5 +1,6 @@
 import { ENTITY_TYPES } from '../provider/relations.js';
 import { conformsTo } from '../provider/schema-check.js';
+import { mergePairKey } from '../entity/merge-candidates.js';
 
 /**
  * 整理的第一片：**把還沒抽過的資料抽進圖**（ADR-0033 D13 操作表的「抽這幾份」，S24-1）。
@@ -141,7 +142,15 @@ export const RETYPE_OP_SCHEMA = {
 
 export const DIGEST_OP_SCHEMA = EXTRACT_OP_SCHEMA;
 
-/** 給模型服務的外層結構規格；各操作的參數再由完整規格嚴格驗一次。 */
+export const CONSOLIDATE_OP_SCHEMAS: Readonly<Record<ConsolidateOpKind, OpSchema>> = {
+  merge: MERGE_OP_SCHEMA,
+  extract: EXTRACT_OP_SCHEMA,
+  'add-edge': ADD_EDGE_OP_SCHEMA,
+  retype: RETYPE_OP_SCHEMA,
+  digest: DIGEST_OP_SCHEMA,
+};
+
+/** 各操作的參數與種類一起交給受限解碼；回傳後仍嚴格驗證。 */
 export const CONSOLIDATE_PLAN_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -150,27 +159,21 @@ export const CONSOLIDATE_PLAN_SCHEMA = {
       type: 'array',
       maxItems: 200,
       items: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          kind: { type: 'string', enum: CONSOLIDATE_OP_KINDS },
-          payload: { type: 'object' },
-          why: { type: 'string', minLength: 1, maxLength: 2000 },
-        },
-        required: ['kind', 'payload', 'why'],
+        anyOf: Object.entries(CONSOLIDATE_OP_SCHEMAS).map(([kind, payload]) => ({
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', enum: [kind] },
+            payload,
+            why: { type: 'string', minLength: 1, maxLength: 2000 },
+          },
+          required: ['kind', 'payload', 'why'],
+        })),
       },
     },
   },
   required: ['operations'],
 } as const;
-
-export const CONSOLIDATE_OP_SCHEMAS: Readonly<Record<ConsolidateOpKind, OpSchema>> = {
-  merge: MERGE_OP_SCHEMA,
-  extract: EXTRACT_OP_SCHEMA,
-  'add-edge': ADD_EDGE_OP_SCHEMA,
-  retype: RETYPE_OP_SCHEMA,
-  digest: DIGEST_OP_SCHEMA,
-};
 
 /** JSON 形狀不合或任一種操作的參數不合時，整份清單都不採用。 */
 export function parseConsolidatePlan(raw: string): readonly ConsolidateOpDraft[] | null {
@@ -209,6 +212,7 @@ export function parseConsolidatePlan(raw: string): readonly ConsolidateOpDraft[]
 }
 
 export interface ConsolidateValidationFacts {
+  readonly mergeCandidateKeys?: ReadonlySet<string>;
   readonly liveEntityIds: ReadonlySet<string>;
   readonly itemIds: ReadonlySet<string>;
   readonly extractableItemIds: ReadonlySet<string>;
@@ -249,6 +253,11 @@ export function validateConsolidatePlan(
           drop(draft.kind, 'merge-id-missing');
         } else if (draft.payload.keep === draft.payload.drop) {
           drop(draft.kind, 'merge-same-id');
+        } else if (
+          facts.mergeCandidateKeys !== undefined &&
+          !facts.mergeCandidateKeys.has(mergePairKey(draft.payload.keep, draft.payload.drop))
+        ) {
+          drop(draft.kind, 'merge-not-candidate');
         } else {
           operations.push(draft);
         }

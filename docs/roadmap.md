@@ -5,7 +5,7 @@
 
 ---
 
-## 待處理（2026-10-24 更新：v1.0.0-rc.1 初版收尾）
+## 待處理（2026-10-25 更新：v1.0.0-rc.1 初版收尾）
 
 **這一張是入口，細節不在這裡。** 每一列指向細節所在的那一節，那一節的 ⬜ 才是權威。
 **這張表不是 append-only**：做完一列就刪掉它、在它指的那一節打 ✅；加一列要寫日期與出處。
@@ -668,7 +668,7 @@ v0.20.0 先做了一半 —— 來源清單進了 agent 的提示詞，「多半
 | ✅ | 使用者 2026-09-20 用啟動器開起來跑過一次：`server.err.log` 由啟動器建出來（空的）、`server.log` 收在「行程結束 exitCode=0」—— 啟動器的新起法整支跑過了 |
 | ⬜ | **2026-09-19 那一次伺服器為什麼停**：同一個流程 16 次沒重現，當時沒有任何紀錄；2026-09-20 使用者再跑一次也沒發生。等下一次的 `server.log`／`server.err.log` |
 | ⬜ | 2026-09-23 做 Stage 20 時撞到**同一類**的死法：子程序起不來時，stdio 管線的錯誤沒人接 → 整個行程停掉（那一次的工作目錄太長）。已經修掉那一類（`spawn-piped.ts`），**但那不是 09-19 的解釋** —— 「儲存並測試」用的工作目錄很短 |
-| ✅ | Node 24.15 在 Windows 上「用過 fetch 之後結束行程」會撞到 libuv 的 assert（nodejs/node#56645，vitest 工作行程撞過一次）。修正來自 nodejs/node PR #61999「src: fix libuv assertion on windows」，commit `05ec9c4771`，已收在 Node 24.20.0（2026-08-26）。維護者本機是 24.22.1；2026-10-24 起 `package.json` 的 `engines` 提高為 `>=24.20 <25`、`toolsLaunch.ps1` 同步檢查次版本；`.node-version` 仍為 `24` |
+| ✅ | Node 24.15 在 Windows 上「用過 fetch 之後結束行程」會撞到 libuv 的 assert（nodejs/node#56645，vitest 工作行程撞過一次）。修正來自 nodejs/node PR #61999「src: fix libuv assertion on windows」，commit `05ec9c4771`，已收在 Node 24.20.0（2026-08-26）。維護者本機是 24.22.1；2026-10-24 起 `package.json` 的 `engines` 提高為 `>=24.20 <25`、`tools/Launch.ps1` 同步檢查次版本；`.node-version` 仍為 `24` |
 
 ### Stage 19–24　「研究」與「整理」（取代擴展；先寫設計再動手）
 

@@ -3,7 +3,7 @@
 **記「那一版改了什麼、為什麼」。** 未來的計畫在 `roadmap.md`，
 踩到什麼坑在 `lessons.md`。
 
-目前是 **v1.0.0-rc.1**（2026-10-24：初版收尾候選版）。
+目前是 **v1.0.0-rc.1**（2026-10-25：初版收尾候選版）。
 
 ---
 
@@ -11,16 +11,9 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
-- **AMD 端點實跑與抽取量測（issue #10）**：用公開教科書的三章比 gpt-oss-120b 與 gemma4:12b，兩輪都交回符合 schema 的結果；gpt-oss 兩輪之間的關聯數與引文命中差異比兩個模型之間大。同一天用 AMD 端點走完規劃、蒐集與初讀、建圖、整理（找來源走 Claude Code；端點不支援搜尋工具）。數字與觀察見 [gpt-oss 抽取量測](research/gpt-oss-extract-measurement.md)。
-- **修正規劃對話在不支援搜尋工具的端點上一直失敗**：規劃帶搜尋工具被拒時不帶工具重送一次，重送成功才記成「不會搜尋」；找來源照舊由量測擋下（ADR-0034 追記）。抽取量測工具改用產品的專題代號判斷，中文代號的專題也量得了。
-
-- **Node 下界提高到 24.20**：`engines` 改成 `>=24.20 <25`，`toolsLaunch.ps1` 同時檢查主版本 24 與次版本 ≥ 20；理由是 Windows 上 libuv 崩潰的修正（nodejs/node#56645，收在 24.20.0）。`.node-version` 仍寫 `24`（CI 與版本管理器拿最新的 24.x）；README、CONTRIBUTING、`docs/environment/` 與 agent 檔同步。
-
-- **補正整理摘要、研究額度提示並確認 Node 24.x 修正版**：改型別摘要列出資料庫目前型別與目標型別，面板及作業紀錄都顯示繁中型別名稱；不呼叫模型的步驟明說不用模型與額度，線上服務則保留可能另計費的說明；Node 的 libuv 修正已確認收在 24.20.0。
-
 ---
 
-## v1.0.0-rc.1 —— 2026-10-24　初版收尾：筆記檔、整理操作與 OpenAI 相容端點
+## v1.0.0-rc.1 —— 2026-10-25　初版收尾：筆記檔、整理操作與 OpenAI 相容端點
 
 ### Stage 23：筆記檔上圖
 
@@ -45,10 +38,13 @@
 ### AMD：OpenAI 相容端點
 
 - **接線 gpt-oss-120b（issue #10）**：設定說明與 README 加入 vLLM 用法；抽取量測工具以唯讀衍生正文呼叫共用抽取服務，輸出 schema 有效性、關聯數、引文命中與耗時，不寫入專題資料。模型來源為 OpenAI／Apache-2.0，建議模型不變。Chat Completions 與 Responses 的 reasoning 欄位不作為答案或診斷內容；空回答沿用既有錯誤處理。
-- **量測數字待補**：AMD 端點的抽取比較尚未實測，不在此編造結果；固定資料、判準與執行方式見 [gpt-oss 抽取量測](research/gpt-oss-extract-measurement.md)。（2026-10-25 已量，見「未發行」。）
+- **AMD 端點實跑與抽取量測（issue #10）**：用公開教科書的三章比 gpt-oss-120b 與 gemma4:12b，兩輪都交回符合 schema 的結果；gpt-oss 兩輪之間的關聯數與引文命中差異比兩個模型之間大。同一天用 AMD 端點走完規劃、蒐集與初讀、建圖、整理（找來源走 Claude Code；端點不支援搜尋工具）。數字與觀察見 [gpt-oss 抽取量測](research/gpt-oss-extract-measurement.md)。
+- **修正規劃對話在不支援搜尋工具的端點上一直失敗**：規劃帶搜尋工具被拒時不帶工具重送一次，重送成功才記成「不會搜尋」；找來源照舊由量測擋下（ADR-0034 追記）。抽取量測工具改用產品的專題代號判斷，中文代號的專題也量得了。
 
 ### 協作與修正
 
+- **Node 下界提高到 24.20**：`engines` 改成 `>=24.20 <25`，`tools/Launch.ps1` 同時檢查主版本 24 與次版本 ≥ 20；理由是 Windows 上 libuv 崩潰的修正（nodejs/node#56645，收在 24.20.0）。`.node-version` 仍寫 `24`（CI 與版本管理器拿最新的 24.x）；README、CONTRIBUTING、`docs/environment/` 與 agent 檔同步。
+- **補正整理摘要、研究額度提示並確認 Node 24.x 修正版**：改型別摘要列出資料庫目前型別與目標型別，面板及作業紀錄都顯示繁中型別名稱；不呼叫模型的步驟明說不用模型與額度，線上服務則保留可能另計費的說明；Node 的 libuv 修正已確認收在 24.20.0。
 - **相依套件安全更新**：`fast-uri` 升到 3.1.9／4.2.3（經 fastify → ajv；GHSA-w74x-v6f9-j3xg、GHSA-wjr9-j795-jxcr 為 moderate，GHSA-xhq7-xmqj-769h、GHSA-333x-w4r6-6crp 為 low）。只動 lockfile，`npm audit` 0。
 - **修正前端資源被路徑守門誤擋的白畫面**：未比對到路由的靜態資源與 SPA 深層網址由既有路徑處理；API 路由參數驗證維持不變，補上整合回歸測試。
 - **擷取管線不連本機與區網、路徑參數不得帶出資料夾（ADR-0038）**：每次轉址都先解析主機名，私有或保留位址不送請求；路徑參數在 `preValidation` 統一驗證。測試：`tests/domain/address.test.ts`、`tests/infrastructure/crawler-private-address.test.ts`、`tests/interface/param-guard.test.ts`，兩道守門都拔掉驗過會紅。

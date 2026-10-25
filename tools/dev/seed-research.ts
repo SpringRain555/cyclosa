@@ -5,8 +5,8 @@
  * npx tsx tools/dev/seed-research.ts --data-root <一個臨時資料根> --slug <空專題> --state <狀態>
  * ```
  *
- * 狀態：`planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`
- * （每一步畫面上有什麼，見 `research-fixture.ts` 的檔頭）。**一個狀態一個專題** ——
+ * 狀態：`planning`／`collecting`／`awaiting-user`／`reviewing`／`building`／`done`／`abandoned`／
+ * `consolidate-reviewing`（整理確認中；內容見 `research-fixture.ts`）。**一個狀態一個專題** ——
  * 同一個專題同時只有一次研究沒結束（ADR-0033 D4），而且截圖要的是互不干擾的畫面。
  *
  * ## 三道防線（跟 `seed-graph.ts` 同一套）

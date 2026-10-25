@@ -626,8 +626,10 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
   });
   const keepId = newId();
   const dropId = newId();
+  const retypeId = newId();
   entities.insertEntity(db, { id: keepId, type: 'concept', name: '合成實體甲', now });
   entities.insertEntity(db, { id: dropId, type: 'concept', name: '合成實體乙', now });
+  entities.insertEntity(db, { id: retypeId, type: 'org', name: '合成實體丙', now });
   const first = itemIds[0];
   const second = itemIds[1];
   if (first === undefined || second === undefined) throw new Error('合成整理資料缺少 item id');
@@ -639,7 +641,7 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
     },
     {
       kind: 'retype' as const,
-      payload: { entityId: dropId, to: 'concept' as const },
+      payload: { entityId: retypeId, to: 'concept' as const },
       why: '提供改型別提案範例',
     },
     {
@@ -680,8 +682,8 @@ async function writeConsolidateReviewing(db: DatabaseSync, folder: string): Prom
     researchId,
     JSON.stringify({
       coverage: {
-        entitiesIncluded: 2,
-        entitiesAvailable: 2,
+        entitiesIncluded: 3,
+        entitiesAvailable: 3,
         mergeCandidatesIncluded: 0,
         mergeCandidatesAvailable: 0,
         singleEvidenceEdgesIncluded: 0,

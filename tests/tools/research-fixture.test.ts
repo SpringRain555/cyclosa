@@ -103,7 +103,13 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
     expect(view.data).toMatchObject({
       id: summary.researchId,
       status: 'reviewing',
-      coverage: { unextractedItems: 2, mergeCandidatesIncluded: 0, mergeCandidatesAvailable: 0 },
+      coverage: {
+        entitiesIncluded: 3,
+        entitiesAvailable: 3,
+        unextractedItems: 2,
+        mergeCandidatesIncluded: 0,
+        mergeCandidatesAvailable: 0,
+      },
     });
     expect(view.data.operations.map((operation) => operation.kind)).toEqual([
       'merge',
@@ -120,17 +126,31 @@ describe('研究各狀態的合成資料，畫面讀得懂', () => {
     ).toBe(true);
     expect(view.data.operations.filter((operation) => operation.executable)).toHaveLength(6);
     const merge = view.data.operations.find((operation) => operation.kind === 'merge');
+    const retype = view.data.operations.find((operation) => operation.kind === 'retype');
+    const addEdge = view.data.operations.find((operation) => operation.kind === 'add-edge');
     if (merge === undefined) throw new Error('合成合併操作缺少');
-    expect(
-      (await setConsolidateOpChecked(dataRoot, slug, summary.researchId, merge.id, true)).ok,
-    ).toBe(true);
+    if (retype === undefined) throw new Error('合成改型別操作缺少');
+    if (addEdge === undefined) throw new Error('合成補關聯操作缺少');
+    for (const operation of [merge, retype, addEdge]) {
+      expect(
+        (await setConsolidateOpChecked(dataRoot, slug, summary.researchId, operation.id, true)).ok,
+      ).toBe(true);
+    }
+    expect(retype.retypeSummary).toEqual({
+      entityName: '合成實體丙',
+      fromType: 'org',
+      toType: 'concept',
+    });
     expect((await executeConsolidateShell(dataRoot, slug, summary.researchId)).ok).toBe(true);
     await expect.poll(activeCount).toBe(0);
     const completed = await getConsolidateShell(dataRoot, slug);
-    expect(
-      completed.ok &&
-        completed.data?.operations.find((operation) => operation.id === merge.id)?.state,
-    ).toBe('done');
+    expect(completed.ok).toBe(true);
+    if (!completed.ok || completed.data === null) throw new Error('合成整理殼讀取失敗');
+    for (const operation of [merge, retype, addEdge]) {
+      expect(completed.data.operations.find((entry) => entry.id === operation.id)?.state).toBe(
+        'done',
+      );
+    }
   });
 
   it('規劃中：兩輪對話、四條方向（一條是人提的）、刻意不查的範圍', async () => {

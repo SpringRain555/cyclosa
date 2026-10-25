@@ -311,21 +311,57 @@ export function createOpenAiAgent(options: OpenAiAgentOptions): AgentProvider {
         return fail('PROVIDER_CAPABILITY_MISSING', `量過：${check.detail}`);
       }
 
-      const sent = await sendResponses(
-        root,
-        headers(),
-        searchBody(
-          model,
-          options.systemPrompt,
-          input.prompt,
-          'cyclosa_sources',
-          options.schema,
-          mode,
-          blind || mode === 'none' ? [] : WEB_SEARCH_ONLY,
-        ),
-        input.timeoutMs,
-        signal,
-      );
+      const sendWith = (tools: readonly Record<string, unknown>[]): Promise<ResponsesSent> =>
+        sendResponses(
+          root,
+          headers(),
+          searchBody(
+            model,
+            options.systemPrompt,
+            input.prompt,
+            'cyclosa_sources',
+            options.schema,
+            mode,
+            tools,
+          ),
+          input.timeoutMs,
+          signal,
+        );
+      const withTools = !blind && mode !== 'none';
+      let sent = await sendWith(withTools ? WEB_SEARCH_ONLY : []);
+      /**
+       * **還沒量過、而端點連搜尋工具都收不了**（2026-10-25 實跑：vLLM 的 gpt-oss 回 400
+       * `tool type 'web_search' is not supported`）。找來源由設定頁那一次量測擋下；
+       * 規劃對話是「有就用」，而找來源走別的服務時這個端點**永遠不會被量** —— 不重送的話每一輪都失敗。
+       *
+       * 所以不帶工具再送一次；**重送成功才記成「不會搜尋」**。重送也被拒，就不是工具的問題，
+       * 照原本那一次的錯回報、什麼都不記（跟 `measure` 同一條：量不出來的不當結論）。
+       */
+      if (
+        withTools &&
+        mode === 'optional' &&
+        sent.kind === 'http' &&
+        sent.status >= 400 &&
+        sent.status < 500 &&
+        transportFailure(sent) === null &&
+        !hasNoResponsesRoute(sent.status)
+      ) {
+        const refused = sent;
+        const retried = await sendWith([]);
+        if (retried.kind === 'body') {
+          await writeBrowseCheck(
+            root,
+            model,
+            {
+              ok: false,
+              checkedAt: Date.now(),
+              detail: `帶搜尋工具的請求被拒：HTTP ${refused.status} ${snippet(refused.text, secret())}`,
+            },
+            env,
+          );
+          sent = retried;
+        }
+      }
       const blocked = transportFailure(sent);
       if (blocked !== null) return fail(blocked.code, blocked.detail);
       if (sent.kind === 'http') {

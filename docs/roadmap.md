@@ -50,7 +50,7 @@
 **公開在 GitHub**（main 與 v0.25.0／v0.26.0／v0.26.1／v0.26.2 四個 tag）：第一次推之前（2026-10-04）照 `operations/release-checklist.md` 過了一輪，結果在那份最後一節。
 
 **3　接上 AMD 的雲端 LLM**（2026-10-03 使用者定）：AMD 提供 vLLM＋GPT-OSS-120B 的 OpenAI 相容端點。規劃、初讀、抽取可依任務接該端點；找來源仍走 Claude Code。
-**2026-10-05 拿到端點**並檢查模型清單、Chat Completions、Responses API 串流及 JSON schema strict。v1.0.0-rc.1 加入 gpt-oss-120b 設定說明與唯讀抽取量測工具；**實際抽取品質比較尚未執行，數字待補**，判準與步驟見 `research/gpt-oss-extract-measurement.md`。正式改用它排在 rc.1 之後、量測數字出來再決定。
+**2026-10-05 拿到端點**並檢查模型清單、Chat Completions、Responses API 串流及 JSON schema strict。v1.0.0-rc.1 加入 gpt-oss-120b 設定說明與唯讀抽取量測工具；**2026-10-25 已量並用它走完整條流程**（找來源仍走 Claude Code：端點不支援搜尋工具），數字與觀察見 `research/gpt-oss-extract-measurement.md`。要不要把它當預設由維護者決定。
 
 ### 二　v0.25.0：Stage 19–22 一次出貨（2026-10-03 出貨）
 
@@ -59,7 +59,7 @@
 
 ### 三　v0.25.0 之後
 
-**Stage 23 與 Stage 24 已實作，納入 v1.0.0-rc.1 候選版。** Stage 24 的五種操作與單一獨立來源關聯清單都已完成；AMD 抽取比較仍待實測，見前一節與 research/gpt-oss-extract-measurement.md。
+**Stage 23 與 Stage 24 已實作，納入 v1.0.0-rc.1 候選版。** Stage 24 的五種操作與單一獨立來源關聯清單都已完成；AMD 抽取比較 2026-10-25 已量，見前一節與 research/gpt-oss-extract-measurement.md。
 
 | 什麼 | 細節在 |
 |---|---|
@@ -706,7 +706,7 @@ v0.20.0 先做了一半 —— 來源清單進了 agent 的提示詞，「多半
 Stage 21 的初讀與原文／繁中切換、Stage 22 的確認與建圖、匯入頁收尾都已接上；刪研究前預覽與初讀／抽取花費也已完成。
 舊擴展與 `angles` 已退場；升級先備份、保留人工判定與跨作業參照，清留數字在「匯入與研究」頁最上方的「專題升級通知」看。
 初讀建議值的實測在待處理表「四」。
-Stage 23（筆記檔）已實作，納入 v1.0.0-rc.1。Stage 24 在 v0.26.0 先交付「抽進圖」，本輪完成整理殼與五種操作及單一獨立來源清單，納入 v1.0.0-rc.1；issue #4–#9 均已實作。AMD 的 gpt-oss 抽取比較尚未實測，判準與方法見 `research/gpt-oss-extract-measurement.md`。
+Stage 23（筆記檔）已實作，納入 v1.0.0-rc.1。Stage 24 在 v0.26.0 先交付「抽進圖」，本輪完成整理殼與五種操作及單一獨立來源清單，納入 v1.0.0-rc.1；issue #4–#9 均已實作。AMD 的 gpt-oss 抽取比較 2026-10-25 已量，見 `research/gpt-oss-extract-measurement.md`。
 
 **Stage 20 的收尾**：`Verify.ps1` 全綠（1226 條測試）、`npm run build` 過、
 **對著真的伺服器走過一次**（假的 Claude Code ＋ 假來源網站 ＋ 無頭瀏覽器，在 scratch 的資料根裡）：

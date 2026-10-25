@@ -16,6 +16,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 
 import {
+  DEFAULT_PROJECTION_THRESHOLDS,
   planProjection,
   projectionFor,
   type ComentionLine,
@@ -199,10 +200,20 @@ export function nodeKindOf(db: DatabaseSync, id: string): 'item' | 'entity' | nu
  * 所以改成**連得最多的那一個**：打開一張圖的時候，人要看的是
  * 「這堆東西長什麼樣」，而那個問題的答案在最密的地方，不在最新的地方。
  * 一條邊都沒有時才退回最近匯入的那一份。
+ *
+ * ## 2026-10-25：度數最高，不代表畫得出東西
+ *
+ * 一份資料提到 20 個實體，卻是**唯一一份**提到它們；那些實體沒有具名關係，
+ * 所以依 `projectionFor` 全是 attribute，畫面上只剩焦點。另一份只提到 10 個，
+ * 其中幾個帶著具名關係，反而畫得出一張圖。舊規則數的是資料庫裡有幾條邊，
+ * 畫面問的卻是鄰居能不能通過投影。
+ *
+ * 現在先取度數前 50 名，再按可畫出的 item 鄰居與實體鄰居數排序；同分仍看度數、
+ * 再看 id。若候選全都沒有可畫鄰居，才退回度數最高的有效資料。
  */
 export function defaultFocusId(db: DatabaseSync): string | null {
   // 先問「哪幾個 item 的度數最高」。**只掃 edge 表**，不跟 item 做 OR join ——
-  // 那種 join 在 20 萬條邊上用不到索引。
+  // 那種 join 在 20 萬條邊上用不到索引。SQL 的次序也固定住同度數時的 id 順序。
   const candidates = db
     .prepare(
       `SELECT id, SUM(n) AS deg FROM (
@@ -211,17 +222,100 @@ export function defaultFocusId(db: DatabaseSync): string | null {
          UNION ALL
          SELECT target_id AS id, COUNT(*) AS n FROM edge
            WHERE target_kind = 'item' GROUP BY target_id
-       ) GROUP BY id ORDER BY deg DESC LIMIT 8`,
+       ) GROUP BY id ORDER BY deg DESC, id ASC LIMIT 50`,
     )
     .all() as Raw[];
 
+  // 預設焦點不知道圖例上的投影滑桿值，所以跟伺服器端其他預設投影一樣用預設門檻。
+  // 第一輪掃描並分組 E 條 edge，排序的最壞成本 O(E log E)；第二輪 C ≤ 50，
+  // 每個候選兩次走索引，範圍掃描只隨候選的鄰接數增長，不在整張圖做 item OR join。
+  const directItemNeighbors = db.prepare(
+    `SELECT
+       (SELECT COUNT(*) FROM item AS focus
+          WHERE focus.id = ? AND focus.status != 'excluded') AS active,
+       COUNT(DISTINCT direct.item_id) AS n
+     FROM (
+       SELECT target_id AS item_id FROM edge
+         WHERE source_id = ? AND source_kind = 'item' AND target_kind = 'item'
+           AND status IN ('pending', 'confirmed')
+       UNION
+       SELECT source_id AS item_id FROM edge
+         WHERE target_id = ? AND target_kind = 'item' AND source_kind = 'item'
+           AND status IN ('pending', 'confirmed')
+     ) AS direct
+     JOIN item AS neighbor ON neighbor.id = direct.item_id AND neighbor.status != 'excluded'`,
+  );
+  const projectedEntityNeighbors = db.prepare(
+    `WITH candidate_entities(id) AS (
+       SELECT target_id FROM edge
+         WHERE source_id = ? AND source_kind = 'item' AND target_kind = 'entity'
+           AND status IN ('pending', 'confirmed')
+       UNION
+       SELECT source_id FROM edge
+         WHERE target_id = ? AND target_kind = 'item' AND source_kind = 'entity'
+           AND status IN ('pending', 'confirmed')
+     )
+     SELECT candidate_entities.id,
+       (
+         SELECT COUNT(DISTINCT mention.item_id)
+         FROM (
+           SELECT source_id AS item_id FROM edge
+             WHERE target_id = candidate_entities.id AND target_kind = 'entity'
+               AND source_kind = 'item' AND status IN ('pending', 'confirmed')
+           UNION
+           SELECT target_id AS item_id FROM edge
+             WHERE source_id = candidate_entities.id AND source_kind = 'entity'
+               AND target_kind = 'item' AND status IN ('pending', 'confirmed')
+         ) AS mention
+         JOIN item AS mentioned_item
+           ON mentioned_item.id = mention.item_id AND mentioned_item.status != 'excluded'
+       ) AS mention_count,
+       EXISTS (
+         SELECT 1 FROM edge AS named_edge
+         WHERE named_edge.layer = 'named' AND named_edge.status IN ('pending', 'confirmed')
+           AND ((named_edge.source_kind = 'entity' AND named_edge.source_id = candidate_entities.id)
+             OR (named_edge.target_kind = 'entity' AND named_edge.target_id = candidate_entities.id))
+           AND NOT (
+             named_edge.source_kind = 'entity' AND named_edge.target_kind = 'entity'
+             AND EXISTS (
+               SELECT 1 FROM entity AS merged_endpoint
+               WHERE (merged_endpoint.id = named_edge.source_id AND merged_endpoint.merged_into = named_edge.target_id)
+                  OR (merged_endpoint.id = named_edge.target_id AND merged_endpoint.merged_into = named_edge.source_id)
+             )
+           )
+       ) AS carries_named
+     FROM candidate_entities`,
+  );
+
+  let degreeFirstActive: string | null = null;
+  let bestId: string | null = null;
+  let bestVisibleNeighbors = 0;
   for (const candidate of candidates) {
     const id = String(candidate['id']);
-    const row = db
-      .prepare("SELECT 1 AS x FROM item WHERE id = ? AND status != 'excluded'")
-      .get(id) as Raw | undefined;
-    if (row !== undefined) return id;
+    const direct = directItemNeighbors.get(id, id, id) as Raw | undefined;
+    if (Number(direct?.['active'] ?? 0) === 0) continue;
+    if (degreeFirstActive === null) degreeFirstActive = id;
+
+    let visibleNeighbors = Number(direct?.['n'] ?? 0);
+    const entities = projectedEntityNeighbors.all(id, id) as Raw[];
+    for (const entity of entities) {
+      const projection = projectionFor(
+        Number(entity['mention_count'] ?? 0),
+        DEFAULT_PROJECTION_THRESHOLDS,
+        Number(entity['carries_named'] ?? 0) !== 0,
+      );
+      if (projection !== 'attribute') visibleNeighbors += 1;
+    }
+
+    // 候選 SQL 已依 degree DESC、id ASC 排序；只在分數嚴格變大時更新，讓同分結果固定。
+    if (visibleNeighbors > bestVisibleNeighbors) {
+      bestId = id;
+      bestVisibleNeighbors = visibleNeighbors;
+    }
   }
+
+  if (bestId !== null) return bestId;
+  if (degreeFirstActive !== null) return degreeFirstActive;
 
   const newest = db
     .prepare(

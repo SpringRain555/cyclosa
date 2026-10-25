@@ -26,6 +26,7 @@ import ExportPanel from '../components/graph/ExportPanel.vue';
 import SearchPanel from '../components/graph/SearchPanel.vue';
 import MergePanel from '../components/graph/MergePanel.vue';
 import GraphView from '../components/graph/GraphView.vue';
+import FocusNotice from '../components/graph/FocusNotice.vue';
 import SelectionPanel from '../components/graph/SelectionPanel.vue';
 
 const route = useRoute();
@@ -124,6 +125,18 @@ watch(
 
 function openInReader(itemId: string): void {
   void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(itemId)}`);
+}
+
+/**
+ * 「換一個焦點」：回到伺服器挑的預設焦點。網址帶著 `?focus=` 的話一併拿掉 ——
+ * 不然重新整理又會回到那一份畫不出鄰居的資料。
+ */
+async function resetFocus(): Promise<void> {
+  await store.resetFocus();
+  if (wantedFocus.value === null) return;
+  const query = { ...route.query };
+  delete query['focus'];
+  await router.replace({ query });
 }
 
 function openResearch(): void {
@@ -265,6 +278,11 @@ function createEdge(payload: { target: string; rel: string; layer: EdgeLayer }):
             :show-rejected="store.showRejected"
             @select="store.select($event)"
             @focus="store.setFocus($event)"
+          />
+          <FocusNotice
+            :action="store.isolatedFocusAction"
+            @change-focus="void resetFocus()"
+            @open-search="searchOpen = true"
           />
         </div>
 

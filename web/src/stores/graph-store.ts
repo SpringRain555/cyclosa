@@ -24,6 +24,8 @@ import {
 export const useGraphStore = defineStore('graph', () => {
   const slug = ref('');
   const focus = ref<string | null>(null);
+  /** 伺服器挑出的焦點，用來決定孤立畫面上的按鈕要還原焦點還是打開搜尋。 */
+  const defaultFocusId = ref<string | null>(null);
   /**
    * 焦點是誰定的。**回到這一頁的時候，只有使用者自己選的焦點值得保留。**
    *
@@ -74,6 +76,18 @@ export const useGraphStore = defineStore('graph', () => {
 
   const queue = ref<QueuePayload | null>(null);
   const pendingCount = computed(() => queue.value?.total ?? 0);
+  /**
+   * 圖上只剩焦點時要不要說原因、按鈕做什麼（2026-10-25）。
+   *
+   * 專題一條關聯都沒有時不在這裡說 —— 那一句（`t.graph.noEdges`）另外有，兩句疊在一起會互相矛盾。
+   * 按鈕回到伺服器挑的預設焦點；**預設焦點就是這一份**時沒有別的可回，改成打開搜尋。
+   */
+  const isolatedFocusAction = computed<'none' | 'change-focus' | 'open-search'>(() => {
+    const view = subgraph.value;
+    if (view === null || view.totalEdgeCount === 0) return 'none';
+    if (view.visibleNodeCount !== 1 || view.totalNodeCount <= 1) return 'none';
+    return defaultFocusId.value === view.focus ? 'open-search' : 'change-focus';
+  });
 
   /**
    * 正在拉一條線：起點是哪個節點。
@@ -118,19 +132,22 @@ export const useGraphStore = defineStore('graph', () => {
       subgraph.value = null;
       selectedId.value = null;
       focus.value = null;
+      defaultFocusId.value = null;
       focusSource.value = 'default';
     }
+
+    const start = await api.subgraphFocus(next);
+    if (!start.ok) {
+      error.value = start.error;
+      return;
+    }
+    defaultFocusId.value = start.data.focus;
+    totalNodeCount.value = start.data.totalNodeCount;
 
     if (wanted !== null) {
       focus.value = wanted;
       focusSource.value = 'user';
     } else if (!(sameCase && focusSource.value === 'user' && focus.value !== null)) {
-      const start = await api.subgraphFocus(next);
-      if (!start.ok) {
-        error.value = start.error;
-        return;
-      }
-      totalNodeCount.value = start.data.totalNodeCount;
       if (start.data.focus === null) {
         empty.value = true;
         subgraph.value = null;
@@ -183,6 +200,12 @@ export const useGraphStore = defineStore('graph', () => {
     focus.value = id;
     focusSource.value = 'user';
     await reload();
+  }
+
+  /** 回到伺服器目前挑出的焦點。`open()` 會重新讀取 `/subgraph/focus`。 */
+  async function resetFocus(): Promise<void> {
+    focusSource.value = 'default';
+    await open(slug.value);
   }
 
   /** 搜尋命中後，同時移動焦點與選取，孤立實體也能打開側欄。 */
@@ -296,6 +319,8 @@ export const useGraphStore = defineStore('graph', () => {
   return {
     slug,
     focus,
+    defaultFocusId,
+    isolatedFocusAction,
     focusSource,
     hops,
     layers,
@@ -321,6 +346,7 @@ export const useGraphStore = defineStore('graph', () => {
     open,
     reload,
     setFocus,
+    resetFocus,
     focusAndSelect,
     setHops,
     select,

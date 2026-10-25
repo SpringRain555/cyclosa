@@ -80,6 +80,7 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 | D9 | **互動 fps 親手量過**：2k 節點 ≥ 30（REQ-0005）、8k 節點掉到 30 以下就是 **ADR-0007 換渲染器的觸發條件**。方法在 `docs/environment/performance.md`（網址加 `?fps=1`，左上角出現讀數）。**六項預算裡只有這兩項伺服器量不到** —— 它們在瀏覽器裡，而且跟 GPU 有關 | ✅ 已實測（issue #2，筆電各拖曳 10 秒）：1,893 節點最低 **33 fps**；7,720 節點最低 **7 fps**。**完成量測不代表效能全過：8k 已觸發 ADR-0007**。環境與方法見效能文件 |
 | D6 | **節流真的照設定值走**（預設 3 秒）—— 看日誌的時間戳序列，不是看程式碼 | ✅ 現在就能查（`tests/e2e/ingest-flow.test.ts` 從**伺服器端**量，另外 `run_item.waited_ms` 每一列都記）|
 | D10 | **版面在各種長寬下量過一輪**，做法見下。**判準是數字，不是截圖** —— 截圖會被視窗邊緣裁掉，而那跟真的溢出長得一樣；**但截圖仍然要逐張看**（見下）| 🟡 2026-09-11 起可跑；2026-09-19（v0.24.1）六個畫面 × 八種長寬 48／48 全過，對著真實專題的複本 |
+| D11 | **rc.1 實機驗收**：筆記檔、整理操作、單一出處清單、深層網址重新整理、Node 版本檢查；有本機 Ollama 時另驗抽取、初讀與未設定嵌入模型時的規劃 | ⬜ 待 rc.1 實機驗收 |
 
 ### D10 怎麼量
 
@@ -114,6 +115,73 @@ D:\Projects\_meta\scripts\Test-PublishReadiness.ps1 -Slug cyclosa
 它守的是**寫法**（捲動容器不要同時負責行長、頂列只有名稱可縮、
 寬表格要有自己的捲動容器），而不是量出來的數字。
 數字要一顆瀏覽器，而這個專案不為了一條版面測試多一個相依。
+
+### D11 怎麼驗
+
+#### 準備隔離環境與整理確認中的合成資料
+
+從乾淨 clone 用 Node 24.20 以上的 24.x，在 PowerShell 執行：
+
+```powershell
+npm ci
+$testLocalAppData = Join-Path $env:TEMP ('Cyclosa-rc1-' + [guid]::NewGuid().ToString('N'))
+.\tools\Launch.ps1 -LocalAppData $testLocalAppData
+```
+
+這會把本輪資料放在臨時的 Local AppData，不會讀平常的資料位置。啟動後在 App 建一個空專題，從網址記下它的 slug，再回 repo 根目錄執行：
+
+```powershell
+$dataRoot = Join-Path $testLocalAppData 'Cyclosa\data'
+$slug = '填入剛建立的專題 slug'
+npx tsx tools/dev/seed-research.ts --data-root $dataRoot --slug $slug --state consolidate-reviewing
+```
+
+重新整理「匯入與研究」頁，確認整理殼停在確認中，並有合併、改型別、兩個抽取、補關聯與補繁中六列提案。這支工具只往空專題寫合成資料，不要在有資料的專題執行。
+
+#### 不需要模型
+
+| 項目 | 怎麼做 → 預期看到什麼 |
+|---|---|
+| 筆記檔 | 在合成來源的閱讀器「這一份上的點註」按「附上筆記檔…」，選一份小於 1 MB 的 UTF-8 `.md`，內容放一個獨特字串（例如 `D11-NOTE-INDEX-CHECK`）→ 清單顯示原檔名、全文唯讀顯示。到關聯圖工具列開搜尋，切「全文」並搜尋該字串 → 找到這則筆記。回閱讀器刪除筆記檔並確認 → 搜尋不再找到字串，筆記與圖上的「註於」關聯一併消失。|
+| 筆記檔拒收 | 在 PowerShell 另外產生一份超過 1 MB 與一份無效 UTF-8 的 `.md`，各自嘗試附上 → 前者說明超過 1 MB，後者說明必須是 UTF-8；兩者都不會出現在筆記清單。可用下列位元組建立拒收樣本：<br>`$oversize = Join-Path $env:TEMP 'cyclosa-note-over-1mb.md'`<br>`[IO.File]::WriteAllBytes($oversize, [byte[]]::new(1MB + 1))`<br>`$invalidUtf8 = Join-Path $env:TEMP 'cyclosa-note-invalid-utf8.md'`<br>`[IO.File]::WriteAllBytes($invalidUtf8, [byte[]](0xC3, 0x28))` |
+| 整理三種免模型操作 | 在「整理專題」核對改型別列顯示「合成實體丙 · 組織 → 概念」，再只勾合併、改型別、補關聯三列並執行 → 作業完成，歷次紀錄顯示三項成功，改型別沒有 stale。回關聯圖用搜尋找「合成實體甲」，在實體面板取消「合成實體乙」的合併；再用搜尋找「合成實體丙」，在「型別修改紀錄」復原型別 → 兩個人工復原都完成。回這次整理的作業紀錄按「復原這次作業」→ 新補的關聯消失。|
+| 單一出處清單 | 另建一個空的合成專題，並記下 slug；執行下列合成 fixture 後，到「匯入與研究」展開「只有一條出處的關聯」→ 第一頁顯示 100 條且總數大於 100；按「載入更多」→ 顯示筆數增加；點一列 → 開到關聯圖的關聯面板，可看到端點與出處。|
+| 深層網址 | 直接在瀏覽器開 `/case/<slug>/runs`，按重新整理 → App 外框與作業頁都正常出現，沒有白畫面。|
+| Node 版本 | 先在 App 按「結束 Cyclosa」，將 `CYCLOSA_NODE` 暫設為一個低於 24.20 的 `node.exe` 路徑，再執行 `Launch.ps1` → 啟動器擋下並顯示實際版本與「需要 24.20 以上的 24.x」。測完清掉這個 PowerShell 工作階段的 `CYCLOSA_NODE`。若手上沒有較舊的 Node，跳過並在紀錄註明。|
+
+單一出處清單的獨立合成專題要先在 App 建立空專題，將 `<slug>` 換成該專題網址中的 slug：
+
+```powershell
+$singleSlug = '填入新專題的 slug'
+npx tsx tools/dev/seed-single-evidence-list.ts --data-root $dataRoot --slug $singleSlug
+```
+
+這支工具產生 114 條合成具名關聯，並用 `applyExtraction` 確認每條引文都能在對應正文定位；它不呼叫模型。請只在臨時資料根的空專題執行。
+
+Node 版本檢查可用以下命令；把第一行換成已安裝的舊版 `node.exe` 完整路徑。若沒有舊版，依表格註明跳過。啟動器顯示版本錯誤後，再執行 `Remove-Item Env:CYCLOSA_NODE` 清除本次 PowerShell 的設定。
+
+```powershell
+$env:CYCLOSA_NODE = '替換成低於 24.20 的 node.exe 路徑'
+.\tools\Launch.ps1 -LocalAppData $testLocalAppData
+```
+
+#### 有本機 Ollama 才做
+
+先在 App 建立兩個新的空專題並記下 slug。在設定頁把整理規劃、抽取與初讀任務接到本機 Ollama，並保持嵌入模型未設定；在第一個專題以 `consolidate-reviewing` 建立合成整理殼：
+
+```powershell
+$modelSlug = '填入另一個空專題的 slug'
+npx tsx tools/dev/seed-research.ts --data-root $dataRoot --slug $modelSlug --state consolidate-reviewing
+```
+
+只勾一列抽取與一列補繁中並執行 → 兩項都完成，作業紀錄有結果。再建一個新專題並寫入研究合成資料：
+
+```powershell
+$planSlug = '填入新專題的 slug'
+npx tsx tools/dev/seed-research.ts --data-root $dataRoot --slug $planSlug --state done
+```
+
+已完成的研究不會擋整理；從「匯入與研究」開始整理規劃 → 規劃成功，畫面明確顯示「沒有設定嵌入模型，這次不列合併候選；其他操作照常。」
 
 ## E · 卡片與 registry（人工）
 

@@ -19,6 +19,7 @@ import { createOllamaChat } from '../../src/infrastructure/providers/chat-ollama
 import { createOpenAiChat } from '../../src/infrastructure/providers/chat-openai.js';
 import type { OpenAiProtocol } from '../../src/infrastructure/providers/json-checks.js';
 import type { ChatProvider } from '../../src/infrastructure/providers/types.js';
+import { isUsableSlug } from '../../src/domain/case/slug.js';
 import { casesDir } from '../../src/infrastructure/fs/paths.js';
 import { readDerived } from '../../src/infrastructure/fs/case-files.js';
 import { OLLAMA_DEFAULT_URL } from '../../src/infrastructure/providers/config.js';
@@ -157,7 +158,7 @@ async function main(): Promise<number> {
 
   const itemIds = itemArg.split(',').map((id) => id.trim());
   if (
-    !/^[A-Za-z0-9_-]+$/.test(slug) ||
+    !isUsableSlug(slug) ||
     itemIds.length !== 3 ||
     new Set(itemIds).size !== 3 ||
     itemIds.some((id) => !/^[A-Za-z0-9_-]+$/.test(id))

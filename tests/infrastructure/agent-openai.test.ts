@@ -61,6 +61,10 @@ type Mode =
   | 'missing'
   /** 收到帶工具的請求直接 400（回顯標頭） */
   | 'rejected'
+  /** 帶工具的請求一律 400，不帶工具照答（2026-10-25 的 vLLM gpt-oss） */
+  | 'rejects-tools'
+  /** 帶不帶工具都 400 —— 不是工具的問題 */
+  | 'rejects-all'
   | 'auth'
   /** 串流說沒完成 */
   | 'incomplete'
@@ -201,6 +205,12 @@ beforeEach(async () => {
             400,
             `{"error":"tools not supported" auth=${req.headers.authorization ?? ''}}`,
           );
+        case 'rejects-tools':
+          return Array.isArray(body['tools'])
+            ? send(400, `{"error":"tool type 'web_search' is not supported"}`)
+            : out(stream({ search: false, text: good }));
+        case 'rejects-all':
+          return send(400, '{"error":"bad request"}');
         case 'json-body':
           return send(
             200,
@@ -245,6 +255,17 @@ function agent(model = 'm1') {
     apiKeyEnv: KEY_ENV,
     schema: SOURCES_SCHEMA,
     systemPrompt: '找候選來源。',
+    env,
+  });
+}
+function planner() {
+  return createOpenAiAgent({
+    baseUrl: base,
+    model: 'm1',
+    apiKeyEnv: KEY_ENV,
+    schema: SOURCES_SCHEMA,
+    systemPrompt: '談方向。',
+    search: 'optional',
     env,
   });
 }
@@ -445,6 +466,35 @@ describe('run()', () => {
     mode = 'auth';
     const r = await run();
     expect(r.kind === 'error' && r.code).toBe('PROVIDER_AUTH_REJECTED');
+  });
+
+  it('規劃對話：端點不收搜尋工具 → 不帶工具重送、談得成，並記下「不會搜尋」', async () => {
+    mode = 'rejects-tools';
+    const r = await planner().run({ prompt: '主題', cwd: sandbox, timeoutMs: 10_000 });
+    expect(r.kind).toBe('ok');
+    expect(calls()).toBe(2);
+    expect(seen.at(-1)?.body['tools']).toBeUndefined();
+    const check = [...(await readBrowseChecks(env)).values()][0];
+    expect(check?.ok).toBe(false);
+    expect(check?.detail).toContain('400');
+    // 記下之後，下一輪一開始就不帶工具
+    await planner().run({ prompt: '主題', cwd: sandbox, timeoutMs: 10_000 });
+    expect(calls()).toBe(3);
+  });
+
+  it('規劃對話：不帶工具也被拒 → 回原本的錯，什麼都不記', async () => {
+    mode = 'rejects-all';
+    const r = await planner().run({ prompt: '主題', cwd: sandbox, timeoutMs: 10_000 });
+    expect(r.kind).toBe('error');
+    expect(calls()).toBe(2);
+    expect((await readBrowseChecks(env)).size).toBe(0);
+  });
+
+  it('找來源：端點不收搜尋工具 → 不重送', async () => {
+    mode = 'rejects-tools';
+    const r = await run();
+    expect(r.kind).toBe('error');
+    expect(calls()).toBe(1);
   });
 
   it('串流說沒完成 → 說得出理由', async () => {

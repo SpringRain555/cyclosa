@@ -119,3 +119,12 @@ gpt-oss 可能在 Chat Completions 的 `message.reasoning` 欄位，或 Response
 抽取品質與耗時不以一次 endpoint check 判定。`tools/dev/measure-extract.ts` 以三份指定資料逐份呼叫 `callExtract`，比較 OpenAI 相容 gpt-oss-120b 與 Ollama gemma4:12b 的 schema 有效性、關聯數、引文命中數與時間；結果只供觀察，不設門檻，報告不含正文或端點 URL。量測判準與空表先提交於 `docs/research/gpt-oss-extract-measurement.md`。
 
 2026-10-20 由 Claude 查證 Hugging Face API：`openai/gpt-oss-120b` 的 author 為 `openai`、license 為 `apache-2.0`，沒有 `base_model` 欄位。查證日已回寫 `tests/guards/model-origin.test.ts`；來源表每列仍要求日期，不接受待查標記。
+## 2026-10-25 追加：規劃對話遇到收不了搜尋工具的端點
+
+實跑 vLLM 上的 gpt-oss-120b：帶 `tools: [{type: 'web_search'}]` 的請求回 HTTP 400（`tool type 'web_search' is not supported`）。
+找來源由設定頁的量測擋下、記成「不會搜尋」，這條照舊；但規劃對話的搜尋是「有就用」（`search: 'optional'`），還沒量過時照樣帶工具送出，400 被當成連不上。
+**找來源走 Claude Code 時，這個端點永遠不會被量**（issue #10 的分工正是如此），規劃就每一輪都失敗。
+
+決定：規劃對話帶工具被 4xx 拒絕（401／403／429 與「沒有 `/responses`」除外）時，不帶工具重送一次；**重送成功才記成「不會搜尋」**，之後一開始就不帶工具。重送也被拒就照第一次的錯回報、什麼都不記 —— 不是工具的問題，不當結論（與 `measure` 同一條）。找來源（`search: 'required'`）不重送。
+
+抽取量測的數字與整條流程的實跑紀錄在 `docs/research/gpt-oss-extract-measurement.md`。

@@ -11,6 +11,8 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **CI 的 action 改釘 commit SHA**：`actions/checkout` 與 `actions/setup-node` 由 `@v7` 改成完整 SHA、註解寫版本（v7.0.1、v7.1.0）；釘的時候 `v7` 正指著同一份，行為不變。
+
 ---
 
 ## v1.0.0-rc.1 —— 2026-10-25　初版收尾：筆記檔、整理操作與 OpenAI 相容端點

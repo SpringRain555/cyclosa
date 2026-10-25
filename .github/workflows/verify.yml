@@ -38,11 +38,15 @@ jobs:
     # 同一種 runner 差到將近一倍，45 分鐘的上限在建置那一步被撞到。時間上限的理由在 vitest.config.ts 的 ON_CI
     timeout-minutes: 75
 
+    # **action 一律釘完整的 commit SHA，版本號寫在註解。** 標籤（`@v7`）可以被移到別的 commit ——
+    # action 的 repo 被入侵時，改的就是標籤；釘 SHA 之後跑的永遠是查過的那一份。
+    # 換版本：到那個 action 的 release 頁找 tag，用 `gh api repos/<owner>/<action>/git/ref/tags/<tag>` 查 SHA
+    # （annotated tag 要再解一層到 commit），兩行一起改。2026-10-25 釘的時候 `v7` 正指著這兩個 SHA。
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # .node-version 寫的是 24，解出來是 runner 上最新的 24.x
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: npm

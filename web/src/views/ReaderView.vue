@@ -42,6 +42,10 @@ const itemId = computed(() => {
   const raw = route.params['itemId'];
   return typeof raw === 'string' && raw.length > 0 ? raw : null;
 });
+const requestedNote = computed(() => {
+  const raw = route.query['note'];
+  return typeof raw === 'string' ? raw : null;
+});
 
 const list = ref<Item[]>([]);
 const nextCursor = ref<string | null>(null);
@@ -790,6 +794,7 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
       :slug="slug"
       :item-id="detail.item.id"
       :notes="notes"
+      :focused-id="requestedNote"
       :pending="pending"
       :pending-rect="pendingRect"
       :is-image="isImage"

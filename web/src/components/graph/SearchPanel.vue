@@ -41,7 +41,7 @@ import ErrorPanel from '../ErrorPanel.vue';
 const props = defineProps<{ slug: string }>();
 const emit = defineEmits<{
   (e: 'focus', id: string): void;
-  (e: 'open-reader', itemId: string): void;
+  (e: 'open-reader', itemId: string, noteId: string | null): void;
 }>();
 
 const q = ref('');
@@ -231,10 +231,10 @@ function parts(hit: SearchHit): { before: string; match: string; after: string }
             <span v-else-if="hit.check === 'no-text'" class="why">{{ t.search.noText }}</span>
           </button>
           <button
-            v-if="hit.kind === 'item'"
+            v-if="hit.readerTarget"
             type="button"
             class="small"
-            @click="emit('open-reader', hit.id)"
+            @click="emit('open-reader', hit.readerTarget.itemId, hit.readerTarget.noteId)"
           >
             {{ t.search.openReader }}
           </button>

@@ -506,6 +506,7 @@ export const t = {
     fileLabel: '筆記檔：{name}',
     unknownFile: '原檔名未留存',
     wholeDocument: '整份資料的筆記附件（唯讀）',
+    searchTarget: '搜尋到的筆記',
     panelTitle: '這一份上的點註',
     empty: '這一份還沒有點註。在正文裡選一段文字，或在圖片上框一塊。',
     emptyImage: '在圖片上按住拖曳，框出要註記的那一塊。',

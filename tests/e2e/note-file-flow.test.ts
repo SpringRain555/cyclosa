@@ -74,6 +74,28 @@ async function attach(body: string, name?: string) {
 }
 
 describe('筆記檔的真實接收、儲存與關聯', () => {
+  it('搜尋一般點註開所屬資料，來源已刪除的筆記不提供錯誤閱讀目標', async () => {
+    const ordinary = await createNote(root, slug, itemId, {
+      start: 0,
+      end: 6,
+      body: 'ordinaryreadertarget',
+    });
+    if (!ordinary.ok) throw new Error('note failed');
+    const noteId = ordinary.data.note.note.id;
+    const found = await searchCase(root, slug, { q: 'ordinaryreadertarget' });
+    expect(found.ok && found.data.hits.find((hit) => hit.id === noteId)).toMatchObject({
+      readerTarget: { itemId, noteId },
+    });
+    db.prepare('UPDATE note SET item_id = NULL WHERE id = ?').run(noteId);
+    const orphan = await searchCase(root, slug, { q: 'ordinaryreadertarget' });
+    expect(orphan.ok && orphan.data.hits.find((hit) => hit.id === noteId)).toMatchObject({
+      readerTarget: null,
+    });
+    const source = await searchCase(root, slug, { q: '合成測試正文' });
+    expect(source.ok && source.data.hits.find((hit) => hit.id === itemId)).toMatchObject({
+      readerTarget: { itemId, noteId: null },
+    });
+  });
   it('附件排在一般點註前、讀回原檔名，並拒絕繞過畫面的編輯請求', async () => {
     const ordinary = await createNote(root, slug, itemId, { body: '手寫點註', start: 2, end: 4 });
     expect(ordinary.ok).toBe(true);
@@ -174,6 +196,9 @@ describe('筆記檔的真實接收、儲存與關聯', () => {
     });
     const found = await searchCase(root, slug, { q: 'needleattachment', mode: 'text' });
     expect(found.ok && found.data.hits.some((hit) => hit.id === note.id)).toBe(true);
+    expect(found.ok && found.data.hits.find((hit) => hit.id === note.id)).toMatchObject({
+      readerTarget: { itemId, noteId: note.id },
+    });
     expect((await rebuildDerived(root, slug)).ok).toBe(true);
     const listed = await listNotesForItem(root, slug, itemId);
     expect(listed.ok && listed.data[0]?.hit.kind).toBe('exact');

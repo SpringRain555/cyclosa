@@ -110,6 +110,8 @@ export const errorMessages: Readonly<Record<string, string>> = {
   PROVIDER_CAPABILITY_MISSING:
     '目前設定的模型缺少這個任務需要的能力，所以停下來了。請換一個模型，或改用不需要那個能力的做法 —— 這個工具不會自動換一個能力較弱的來跑。',
   PROVIDER_UNREACHABLE: '連不上這個模型。檢查它是不是沒開，或指令不在系統路徑上。',
+  PROVIDER_REQUEST_REJECTED:
+    '模型端點有回應，但拒絕了這個請求。請查看細節中的端點訊息，確認請求與模型設定是否相容。',
   PROVIDER_TIMEOUT: '這次作業逾時了。已經寫進去的節點與關聯都保留著，可以再跑一次補剩下的。',
   PROVIDER_BUDGET_EXCEEDED:
     '這次作業達到設定的用量上限。已寫入的都保留著；要繼續請調高上限再跑一次。',

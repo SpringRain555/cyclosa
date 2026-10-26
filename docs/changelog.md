@@ -9,6 +9,8 @@
 
 ## 未發行
 
+- **區分模型端點拒絕請求與連不上（issue #25）**：OpenAI 相容端點的一般 HTTP 4xx 改回 `PROVIDER_REQUEST_REJECTED`，畫面說明端點有回應但拒絕請求，細節保留遮蔽金鑰後的端點訊息。5xx、連線失敗、金鑰拒絕、限流、Responses 路由缺失及能力量測各自保留既有判斷；規劃帶工具被拒的不帶工具重送與退避行為不變。格式量測過期的 400 仍提示重新檢查，不自動切換模式。
+
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
 - **CI 的 action 改釘 commit SHA**：`actions/checkout` 與 `actions/setup-node` 由 `@v7` 改成完整 SHA、註解寫版本（v7.0.1、v7.1.0）；釘的時候 `v7` 正指著同一份，行為不變。

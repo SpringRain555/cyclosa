@@ -65,6 +65,7 @@ type Mode =
   | 'rejects-tools'
   /** 帶不帶工具都 400 —— 不是工具的問題 */
   | 'rejects-all'
+  | 'server-error'
   | 'auth'
   /** 串流說沒完成 */
   | 'incomplete'
@@ -211,6 +212,8 @@ beforeEach(async () => {
             : out(stream({ search: false, text: good }));
         case 'rejects-all':
           return send(400, '{"error":"bad request"}');
+        case 'server-error':
+          return send(500, 'temporary failure');
         case 'json-body':
           return send(
             200,
@@ -494,7 +497,21 @@ describe('run()', () => {
     mode = 'rejects-tools';
     const r = await run();
     expect(r.kind).toBe('error');
+    expect(r).toMatchObject({ code: 'PROVIDER_REQUEST_REJECTED' });
     expect(calls()).toBe(1);
+  });
+
+  it('實際找來源400保留遮蔽訊息，500仍是連線問題', async () => {
+    mode = 'rejected';
+    const rejected = await run();
+    expect(rejected).toMatchObject({ kind: 'error', code: 'PROVIDER_REQUEST_REJECTED' });
+    if (rejected.kind === 'error') {
+      expect(rejected.detail).toContain('tools not supported');
+      expect(rejected.detail).toContain('***');
+      expect(rejected.detail).not.toContain(KEY);
+    }
+    mode = 'server-error';
+    expect(await run()).toMatchObject({ kind: 'error', code: 'PROVIDER_UNREACHABLE' });
   });
 
   it('串流說沒完成 → 說得出理由', async () => {

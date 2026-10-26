@@ -739,7 +739,7 @@ async function fetchCandidate(
     input.folder,
     input.crawler,
     ctx.state.runId,
-    { id: runItemId, url: candidate.url },
+    { id: runItemId, url: candidate.url, candidateTitle: candidate.title },
     ctx.providers,
   );
   ctx.state.channel.emit({

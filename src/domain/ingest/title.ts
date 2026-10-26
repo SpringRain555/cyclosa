@@ -8,7 +8,7 @@
  *
  * 所以規則是：**檔案裡的那一格像預設名，就改用檔名**（去副檔名）；檔名也像預設名的話，
  * 留檔案裡的那一格（兩邊都爛的時候，至少不要把一個看得出來源的網址換成 `download (3)`）。
- * 兩邊都像預設名的那一格，之後交給模型讀前幾頁提一個名字 —— 那是使用者按了才改的事，不在這裡。
+ * 研究下載若已有搜尋候選標題，兩邊都像預設名時才用它；不另叫模型、不回頭改既有資料。
  *
  * **「像預設名」是一張刻意保守的清單**：網址、帶副檔名的檔名、辦公軟體與掃描器的預設名、
  * 一串雜湊或數字。認錯的代價不對稱 —— 把一個真標題當成預設名，換上的是使用者自己取的檔名（還行）；
@@ -60,6 +60,8 @@ export interface TitleSources {
   readonly embedded: string | null;
   /** 檔名（含副檔名也可以） */
   readonly fileName: string;
+  /** 研究搜尋已取得的標題；手動匯入不提供。 */
+  readonly candidateTitle?: string | null;
 }
 
 /** 這份檔案在清單、關聯圖、閱讀器上顯示的名字。 */
@@ -68,6 +70,8 @@ export function pickTitle(sources: TitleSources): string {
   const fromFile = stripDocumentExtension(sources.fileName.trim());
   if (embedded.length > 0 && !looksLikeDefaultName(embedded)) return embedded;
   if (fromFile.length > 0 && !looksLikeDefaultName(fromFile)) return fromFile;
+  const candidate = sources.candidateTitle?.trim() ?? '';
+  if (candidate.length > 0 && !looksLikeDefaultName(candidate)) return candidate;
   // 兩邊都像預設名：留檔案裡的那一格（它多半還看得出來源），再不行才用檔名。
   return embedded.length > 0 ? embedded : fromFile.length > 0 ? fromFile : sources.fileName;
 }

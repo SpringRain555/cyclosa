@@ -48,6 +48,21 @@ describe('looksLikeDefaultName', () => {
 });
 
 describe('pickTitle', () => {
+  it.each([
+    [null, '000123.pdf', '虛構資料研究標題', '虛構資料研究標題'],
+    ['Document1', '000123.pdf', '  虛構資料研究標題  ', '虛構資料研究標題'],
+    ['檔案內的標題', '000123.pdf', '搜尋標題', '檔案內的標題'],
+    [null, '有意義的檔名.pdf', '搜尋標題', '有意義的檔名'],
+    [null, '000123.pdf', 'Untitled', '000123'],
+    ['Document1', '000123.pdf', '000456', 'Document1'],
+    [null, '000123.pdf', '   ', '000123'],
+  ] as const)(
+    '候選標題只補兩個預設名：%s / %s / %s',
+    (embedded, fileName, candidateTitle, expected) => {
+      expect(pickTitle({ embedded, fileName, candidateTitle })).toBe(expected);
+    },
+  );
+
   it('**這次的情形**：檔案裡是網址、檔名是章名 → 用檔名（去副檔名）', () => {
     expect(
       pickTitle({

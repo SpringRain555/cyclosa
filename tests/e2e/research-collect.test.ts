@@ -31,6 +31,8 @@ import type { DatabaseSync } from 'node:sqlite';
 
 import { createCase } from '../../src/application/case-service.js';
 import { getItem } from '../../src/application/item-service.js';
+import { importFile } from '../../src/application/ingest-service.js';
+import { readDerived } from '../../src/infrastructure/fs/case-files.js';
 import {
   finishCollecting,
   markCandidateUnavailable,
@@ -68,6 +70,27 @@ function article(title: string): string {
 
 /** 每一條路徑被抓了幾次 —— **「已抓的不重抓」只看得到這個**。 */
 const hits = new Map<string, number>();
+
+/** 虛構資料：沒有 Info.Title 的單頁 PDF，使用標準字型與真正的 xref。 */
+function untitledPdf(): Buffer {
+  const stream = 'BT /F1 12 Tf 50 750 Td (Fictional research fixture.) Tj ET';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((object, i) => {
+    const offset = Buffer.byteLength(pdf);
+    pdf += `${i + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = Buffer.byteLength(pdf);
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf);
+}
 
 // ══ 假 Ollama：初讀的模型（Stage 21）═════════════════════════
 
@@ -227,6 +250,11 @@ beforeAll(async () => {
       res.end('User-agent: *\nAllow: /\n');
       return;
     }
+    if (path === '/000123.pdf') {
+      res.writeHead(200, { 'content-type': 'application/pdf' });
+      res.end(untitledPdf());
+      return;
+    }
     if (path === '/a' || path === '/b' || path.startsWith('/many/')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       res.end(article(`合成文章 ${path}`));
@@ -331,6 +359,38 @@ afterEach(async () => {
 // ══ 蒐集 ═══════════════════════════════════════════════════
 
 describe('蒐集：每條方向搜一次，能抓的抓', () => {
+  it('虛構資料：無標題數字檔名 PDF 採用候選標題，正文與衍生標題一致', async () => {
+    process.env['CYCLOSA_FAKE_CLAUDE_CANDIDATES'] = JSON.stringify({
+      [D1]: [candidate(`${base}/000123.pdf`, '虛構資料研究標題')],
+    });
+    const gate = await openAndStart([D1]);
+    await waitIdle();
+    const acquired = byUrl(await view(gate.id), `${base}/000123.pdf`);
+    expect(acquired.acquisition).toBe('fetched');
+    expect(acquired.itemId).not.toBeNull();
+    const item = await getItem(dataRoot, slug, acquired.itemId!);
+    expect(item.ok && item.data.item.title).toBe('虛構資料研究標題');
+    const derived = await readDerived(join(dataRoot, 'cases', slug), acquired.itemId!);
+    expect(derived?.title).toBe('虛構資料研究標題');
+    expect(derived?.text).toContain('Fictional research fixture.');
+  });
+
+  it('虛構資料：手動匯入與研究去重不會替既有資料改名', async () => {
+    const imported = await importFile(dataRoot, slug, '000123.pdf', untitledPdf());
+    if (!imported.ok || imported.data.itemId === null) throw new Error('匯入失敗');
+    const itemId = imported.data.itemId;
+    const before = await getItem(dataRoot, slug, itemId);
+    expect(before.ok && before.data.item.title).toBe('000123');
+    process.env['CYCLOSA_FAKE_CLAUDE_CANDIDATES'] = JSON.stringify({
+      [D1]: [candidate(`${base}/000123.pdf`, '虛構資料搜尋標題')],
+    });
+    const gate = await openAndStart([D1]);
+    await waitIdle();
+    expect(byUrl(await view(gate.id), `${base}/000123.pdf`).itemId).toBe(itemId);
+    const after = await getItem(dataRoot, slug, itemId);
+    expect(after.ok && after.data.item.title).toBe('000123');
+  });
+
   it('候選表、取得狀態、方向的數字都對，而且一條關聯都沒寫（R7／R8／R9／R12）', async () => {
     const gate = await openAndStart();
     expect(gate.status).toBe('collecting');

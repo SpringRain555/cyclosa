@@ -117,6 +117,7 @@
 ### `research/` —— 調查區
 
 Codex CLI 的規劃與找來源接線設計、實測判準見 [`codex-cli-provider-design.md`](research/codex-cli-provider-design.md)。
+單次關閉內建網路、改接指定搜尋的結果見 [`codex-cli-isolated-search.md`](research/codex-cli-isolated-search.md)。
 
 | 文件 | 現況 | 它是什麼的權威 | **不要**寫在這裡 |
 |---|:--:|---|---|

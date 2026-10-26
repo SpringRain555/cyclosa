@@ -86,6 +86,7 @@
 ## 這一區有哪些文件
 
 - [`codex-cli-provider-design.md`](codex-cli-provider-design.md)：Codex CLI 作為規劃與找來源服務的設計、能力限制與可重跑實測。
+- [`codex-cli-isolated-search.md`](codex-cli-isolated-search.md)：單次關閉內建網路、指定 MCP 搜尋的第二輪實測與未完成門檻。
 
 | 檔案 | 是什麼 | 日期 |
 |---|---|---|

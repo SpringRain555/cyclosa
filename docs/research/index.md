@@ -97,6 +97,7 @@
 | `gpt-oss-extract-measurement.md` | **gpt-oss 抽取量測**：vLLM OpenAI 相容端點與 Ollama gemma4:12b 的對照，兩輪結果與同一天走完整條流程的紀錄 | 2026-10-25（判準 10-20）|
 | `codex-cli-provider-design.md` | **Codex CLI 當規劃與找來源服務**：能力探針 P0–P6、啟動方式、結構化輸出、設定形狀與接線門檻（issue #28）| 2026-10-26 |
 | `codex-cli-isolated-search.md` | **第二輪實測**：單次關閉內建網路、只接受控搜尋 MCP（Q1–Q5），通過與未完成的都列，附重跑腳本 | 2026-10-26 |
+| `digest-measurement.md` | **初讀建議值實測**（issue #11）：28 章＋8 條法規對照組、固定主題與方向、正確率／反轉數／unsure 率／秒數；判準先登記 | 2026-10-27（判準）|
 | `open-questions.md` | 還沒答的設計問題 | 持續 |
 | `query-log.md` | 查過什麼、何時、查到什麼、級別 | 持續 |
 | `sources/manifest.jsonl` | 每一次擷取的 URL、時間、狀態、SHA-256 | 持續 |

@@ -148,6 +148,7 @@ export async function startUrlImport(
 export interface QueuedUrl {
   readonly id: string;
   readonly url: string;
+  readonly candidateTitle?: string;
 }
 
 async function processUrls(
@@ -359,6 +360,7 @@ export async function processOneUrl(
     providers: providers ?? null,
     requestedUrl: parsed.url,
     finalUrl: outcome.finalUrl,
+    ...(entry.candidateTitle === undefined ? {} : { candidateTitle: entry.candidateTitle }),
     bytes: outcome.bytes,
     contentType: outcome.contentType,
     hops: outcome.hops.map((h) => h.host),
@@ -390,6 +392,7 @@ export async function ingestBytes(
     readonly bytes: Uint8Array;
     readonly contentType: string | null;
     readonly fileName?: string;
+    readonly candidateTitle?: string;
     readonly hops: readonly string[];
     /** 為了節流等了多久。檔案匯入沒有等，所以是 0。 */
     readonly waitedMs?: number;
@@ -474,7 +477,18 @@ export async function ingestBytes(
     );
   }
 
-  const payload = extracted.payload;
+  // 只在研究新下載時補標題；去重已在前面返回，手動匯入與重算不帶候選。
+  const payload =
+    input.candidateTitle === undefined
+      ? extracted.payload
+      : {
+          ...extracted.payload,
+          title: pickTitle({
+            embedded: extracted.payload.title,
+            fileName: fileNameOf(input.finalUrl),
+            candidateTitle: input.candidateTitle,
+          }),
+        };
   await writeDerived(folder, input.itemId, payload);
 
   const lang = detectLanguage(payload.text);

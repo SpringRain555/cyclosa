@@ -11,6 +11,8 @@
 
 （PR 在這一節底下加一條，發版時由維護者整理成新的一版 —— `CONTRIBUTING.md`。）
 
+- **初讀建議值實測（issue #11）**：判準先登記、同日量完 —— 公開教科書 28 章＋範例專題 8 條法規當對照組，`granite4.2:8b` 與 `gemma4:12b` 各兩輪。兩個都沒贏多數類基準線（64%：61%、56–58%），對照組全部判無關；granite 反轉少、兩輪一致，但繁中標題 28 份只翻 1 份、把 `unsure` 當逃生口；gemma 標題有翻、反轉多一倍以上、前後附件一份都沒說不準。**建議值不改**（ADR-0035 追記），兩件產品的事記在 roadmap「四」。新增 `tools/research/measure-digest.ts`（只讀 `derived/`、走共用 `callDigest`、報告寫 repo 與資料根之外）與純函式計分 `score-digest.ts`（有測試）。數字在 `docs/research/digest-measurement.md`。
+
 ---
 
 ## v1.0.0 —— 2026-10-27　初版：rc.1 驗收過，組員的五件修正與設計收進來

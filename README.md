@@ -93,7 +93,7 @@ Cyclosa 是在自己電腦上運作的資料整理工具：把網頁與檔案收
 | --- | --- | --- |
 | 嵌入（語意檢索） | `hf.co/mykor/granite-embedding-311m-multilingual-r2-GGUF:BF16` | IBM 模型，GGUF 由第三方 mykor 轉換 |
 | 本機規劃與抽取 | `granite4.2:8b` | IBM 模型；不同任務可共用一個模型 |
-| 初讀 | `granite4.2:8b` | `digest` 的建議值與抽取相同；初讀建議值的實測仍待補 |
+| 初讀 | `granite4.2:8b` | `digest` 的建議值與抽取相同；2026-10-27 的同語料實測見 `docs/research/digest-measurement.md`（兩個候選都沒贏基準線，建議值不改）|
 | 抽取的較大選項 | `gemma4:12b` | Google 模型，記憶體足夠時可選 |
 
 在終端機下載基本的兩個模型：

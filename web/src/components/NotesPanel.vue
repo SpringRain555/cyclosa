@@ -14,7 +14,7 @@
  * （ADR-0018 規則 2：每個狀態都有第二重編碼）。
  * 尤其是第三種 —— **「內容還在」是使用者最需要立刻知道的一句**。
  */
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 
 import { api, type ApiError, type ResolvedNote } from '../api';
 import { fill, t } from '../i18n/zh-TW';
@@ -30,7 +30,24 @@ const props = defineProps<{
   pendingRect: { x: number; y: number; w: number; h: number } | null;
   isImage: boolean;
   canAttach: boolean;
+  focusedId?: string | null;
 }>();
+
+const panel = ref<HTMLElement | null>(null);
+watch(
+  () => [props.focusedId, props.notes],
+  async () => {
+    const id = props.focusedId;
+    if (!id || !props.notes.some((note) => note.note.id === id)) return;
+    await nextTick();
+    if (props.focusedId !== id) return;
+    const card = [...(panel.value?.querySelectorAll<HTMLElement>('[data-note-card]') ?? [])].find(
+      (element) => element.dataset['noteCard'] === id,
+    );
+    card?.scrollIntoView({ block: 'nearest' });
+  },
+  { immediate: true, flush: 'post' },
+);
 
 const emit = defineEmits<{
   changed: [];
@@ -141,7 +158,7 @@ const unresolvedCount = computed(
 </script>
 
 <template>
-  <aside class="notes compact">
+  <aside ref="panel" class="notes compact">
     <header>
       <h3>{{ t.notes.panelTitle }}</h3>
       <p class="muted count">
@@ -193,7 +210,15 @@ const unresolvedCount = computed(
     </p>
 
     <ul v-else class="rows">
-      <li v-for="n in notes" :key="n.note.id" class="note">
+      <li
+        v-for="n in notes"
+        :key="n.note.id"
+        class="note"
+        :class="{ focused: n.note.id === focusedId }"
+        :data-note-card="n.note.id"
+        :aria-current="n.note.id === focusedId ? 'true' : undefined"
+      >
+        <p v-if="n.note.id === focusedId" class="hint">{{ t.notes.searchTarget }}</p>
         <p v-if="n.note.selectorJson === '[]'" class="file-label">
           {{ fill(t.notes.fileLabel, { name: n.fileName ?? t.notes.unknownFile }) }}
         </p>
@@ -232,6 +257,11 @@ const unresolvedCount = computed(
 </template>
 
 <style scoped>
+.note.focused {
+  outline: 2px solid var(--line-strong);
+  outline-offset: 4px;
+}
+
 .notes {
   display: flex;
   flex-direction: column;

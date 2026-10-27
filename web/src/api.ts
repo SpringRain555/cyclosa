@@ -708,6 +708,7 @@ export type ConfidenceTier = 'weak' | 'medium' | 'strong';
 
 /** 檢索的一筆。**`check` 是三種狀態，不是一個布林值**（`search-service.ts`）。 */
 export interface SearchHit {
+  readerTarget: { itemId: string; noteId: string | null } | null;
   kind: 'item' | 'entity';
   id: string;
   title: string;

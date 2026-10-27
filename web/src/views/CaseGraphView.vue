@@ -102,8 +102,11 @@ watch(
   () => void store.reload(),
 );
 
-function openInReader(itemId: string): void {
-  void router.push(`/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(itemId)}`);
+function openInReader(itemId: string, noteId: string | null = null): void {
+  void router.push({
+    path: `/case/${encodeURIComponent(slug.value)}/reader/${encodeURIComponent(itemId)}`,
+    query: noteId === null ? {} : { note: noteId },
+  });
 }
 
 /**

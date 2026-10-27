@@ -51,6 +51,7 @@ import {
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import { loadItems, type ItemRow } from '../infrastructure/db/repositories/item-repo.js';
+import { getNote } from '../infrastructure/db/repositories/note-repo.js';
 import {
   countItemsMissingVectors,
   vectorModels,
@@ -85,6 +86,8 @@ export const DEFAULT_LIMIT = 30;
 export type SearchMode = 'text' | 'semantic' | 'hybrid';
 
 export interface SearchHit {
+  /** 筆記要開所屬資料並定位自己；實體與無所屬資料的筆記沒有閱讀器入口。 */
+  readonly readerTarget: { readonly itemId: string; readonly noteId: string | null } | null;
   readonly kind: 'item' | 'entity';
   readonly id: string;
   readonly title: string;
@@ -248,6 +251,7 @@ export async function searchCase(
 
   const db: DatabaseSync = opened.db;
   let items: readonly ItemRow[];
+  const readerTargets = new Map<string, SearchHit['readerTarget']>();
   let scores: ReadonlyMap<string, number>;
   let ranks: ReadonlyMap<string, string>;
   let entities: readonly SearchHit[];
@@ -295,11 +299,21 @@ export async function searchCase(
 
     const ids = [...scores.keys()];
     items = loadItems(db, ids.slice(0, VERIFY_CAP));
+    for (const item of items) {
+      const targetId = item.kind === 'note' ? (getNote(db, item.id)?.itemId ?? null) : item.id;
+      readerTargets.set(
+        item.id,
+        targetId === null
+          ? null
+          : { itemId: targetId, noteId: item.kind === 'note' ? item.id : null },
+      );
+    }
     ranks = titleRanks(db, ids.slice(0, VERIFY_CAP));
 
     // **實體不必驗** —— `instr` 本身就是精確的子字串比對，
     // 而實體沒有正文可以回去看：它只有一個名字。
     entities = entityCandidates(db, parsed.raw, ENTITY_CAP).map((e) => ({
+      readerTarget: null,
       kind: 'entity' as const,
       id: e.id,
       title: e.name,
@@ -391,6 +405,7 @@ export async function searchCase(
       indexScore: score,
       titleRank: ranks.get(id) ?? '',
       hit: {
+        readerTarget: readerTargets.get(id) ?? null,
         kind: 'item',
         id,
         title: item.title,

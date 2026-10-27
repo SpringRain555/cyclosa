@@ -710,6 +710,10 @@ schema 太新或升級失敗回 `CASE_SCHEMA_TOO_NEW`／`CASE_SCHEMA_MIGRATE_FAI
 
 ### 回應：索引找候選，**正文確認**
 
+每筆命中另含 `readerTarget: { itemId: string, noteId: string | null } | null`。
+一般資料的 `itemId` 是自身 id、`noteId` 為 `null`；點註與筆記附件的 `itemId` 是所屬資料 id、`noteId` 是筆記 id。
+實體與來源已刪除的筆記為 `null`，不提供閱讀器入口。搜尋命中的 `id` 仍是原節點 id，圖上焦點與搜尋排序不變。
+
 ```jsonc
 { "query": "台積電", "route": "bigram", "candidates": 2, "checked": 2, "verified": 1,
   "hits": [ { "kind": "item", "id": "…", "title": "…",

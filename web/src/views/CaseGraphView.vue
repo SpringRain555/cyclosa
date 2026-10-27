@@ -19,6 +19,7 @@ import { useRoute, useRouter } from 'vue-router';
 import type { EdgeLayer } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import { useGraphStore } from '../stores/graph-store';
+import { useGraphFocusRoute } from '../graph-focus-route';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import EdgePanel from '../components/graph/EdgePanel.vue';
 import GraphLegend from '../components/graph/GraphLegend.vue';
@@ -93,29 +94,7 @@ function hopTitle(hop: number): string {
   return '';
 }
 
-/** 網址上的 `?focus=`：作業紀錄那頁「在關聯圖上看這一次抓到的」帶過來的。 */
-const wantedFocus = computed(() => {
-  const raw = route.query['focus'];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return typeof value === 'string' && value.length > 0 ? value : null;
-});
-
-const wantedEdge = computed(() => {
-  const raw = route.query['edge'];
-  return typeof raw === 'string' && raw.length > 0 ? raw : null;
-});
-
-// 回到這一頁一律重查（store 不再靠快取）—— 跑完一次擴展回來，圖要是新的。
-watch(
-  [slug, wantedFocus, wantedEdge],
-  async ([next, wanted, edge]) => {
-    if (next.length === 0) return;
-    await store.open(next, wanted);
-    if (slug.value === next && wantedEdge.value === edge && edge !== null)
-      await store.openEdge(edge);
-  },
-  { immediate: true },
-);
+useGraphFocusRoute(store, router);
 
 // 篩選一動就重查 —— **前端手上只有一屏，它沒有資料可以自己重算**
 watch(
@@ -133,10 +112,6 @@ function openInReader(itemId: string): void {
  */
 async function resetFocus(): Promise<void> {
   await store.resetFocus();
-  if (wantedFocus.value === null) return;
-  const query = { ...route.query };
-  delete query['focus'];
-  await router.replace({ query });
 }
 
 function openResearch(): void {

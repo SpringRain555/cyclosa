@@ -50,14 +50,17 @@ beforeEach(() => {
 it('預設焦點畫不出鄰居 → 沒有別的預設可回，按鈕打開搜尋', async () => {
   const store = useGraphStore();
   await store.open('synthetic');
+  expect(store.focusQuery).toBeNull();
   expect(store.isolatedFocusAction).toBe('open-search');
 });
 
 it('使用者自己選的焦點畫不出鄰居 → 按鈕回到伺服器挑的預設焦點', async () => {
   const store = useGraphStore();
   await store.open('synthetic', 'itm-b');
+  expect(store.focusQuery).toBe('itm-b');
   expect(store.isolatedFocusAction).toBe('change-focus');
   await store.resetFocus();
+  expect(store.focusQuery).toBeNull();
   expect(store.focus).toBe('itm-a');
 });
 

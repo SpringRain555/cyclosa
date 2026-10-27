@@ -35,6 +35,8 @@ export const useGraphStore = defineStore('graph', () => {
    * 預設算出來的焦點也重算，使用者選過的才留著。
    */
   const focusSource = ref<'default' | 'user'>('default');
+  /** 只有人指定的焦點寫入網址；伺服器預設保持網址乾淨。 */
+  const focusQuery = computed(() => (focusSource.value === 'user' ? focus.value : null));
   const hops = ref(2);
   const layers = ref<EdgeLayer[]>([]);
   const minTier = ref<ConfidenceTier | null>(null);
@@ -322,6 +324,7 @@ export const useGraphStore = defineStore('graph', () => {
     defaultFocusId,
     isolatedFocusAction,
     focusSource,
+    focusQuery,
     hops,
     layers,
     minTier,

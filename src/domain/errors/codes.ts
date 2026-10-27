@@ -211,6 +211,12 @@ export const ERROR_CODES = {
    */
   PROVIDER_AUTH_REJECTED: 'error',
   /**
+   * 端點已回應，但拒絕了這個請求（其他 HTTP 4xx）。
+   * 不是 PROVIDER_UNREACHABLE：服務已開著，應看遮蔽金鑰後的端點訊息來檢查請求。
+   * 金鑰、限流、協定缺失與能力量測仍走各自既有判斷。
+   */
+  PROVIDER_REQUEST_REJECTED: 'error',
+  /**
    * 端點說太多請求了（HTTP 429），**而且照它說的等過、再試了兩次還是 429**
    * （`domain/provider/rate-limit.ts`，SDK 式退避）。2026-09-13 之前是「立刻停不重試」。
    */

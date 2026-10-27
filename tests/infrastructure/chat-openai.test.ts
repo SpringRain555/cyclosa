@@ -57,6 +57,7 @@ interface Behaviour {
   reasoning: string | null;
   /** 錯誤內文要不要把請求標頭回顯出來 —— 有的伺服器真的會 */
   echoHeaders: boolean;
+  requestStatus: number | null;
   /** 前幾次 chat 請求先回 429（帶 `Retry-After: 0`），之後照常 —— 演「排隊一下就好」 */
   rateLimitFirst: number;
   /**
@@ -148,6 +149,7 @@ beforeEach(async () => {
     finish: 'stop',
     reasoning: null,
     echoHeaders: false,
+    requestStatus: null,
     rateLimitFirst: 0,
     responses: 'none',
   };
@@ -170,6 +172,12 @@ beforeEach(async () => {
         return send(
           200,
           JSON.stringify({ data: [{ id: 'm1', context_length: 128000 }, { id: 'm2' }] }),
+        );
+      }
+      if (behaviour.requestStatus !== null) {
+        return send(
+          behaviour.requestStatus,
+          `unsupported request; auth=${req.headers.authorization ?? ''}`,
         );
       }
 
@@ -285,6 +293,30 @@ const OK_SCHEMA = {
 function chat(model = 'm1') {
   return createOpenAiChat(base, model, KEY_ENV, env);
 }
+
+describe('端點拒絕請求與伺服器故障分開回報', () => {
+  it.each(['chat', 'responses'] as const)(
+    '%s 的400保留遮蔽後訊息，500仍是連線問題',
+    async (protocol) => {
+      behaviour.responses = protocol === 'responses' ? 'enforced' : 'none';
+      await chat().checkJson!();
+      behaviour.requestStatus = 400;
+      const rejected = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
+      expect(rejected).toMatchObject({ kind: 'error', code: 'PROVIDER_REQUEST_REJECTED' });
+      if (rejected.kind === 'error') {
+        expect(rejected.detail).toContain('HTTP 400');
+        expect(rejected.detail).toContain('unsupported request');
+        expect(rejected.detail).toContain('***');
+        expect(rejected.detail).not.toContain(KEY);
+      }
+      behaviour.requestStatus = 500;
+      expect(await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA })).toMatchObject({
+        kind: 'error',
+        code: 'PROVIDER_UNREACHABLE',
+      });
+    },
+  );
+});
 
 const REASONING_TASKS = [{ name: 'plan' }, { name: 'digest' }, { name: 'extract' }] as const;
 
@@ -558,10 +590,15 @@ describe('json()', () => {
   it('schema 模式被拒 → 說量測可能舊了，而且不換模式重送', async () => {
     await chat().checkJson!();
     behaviour.schema = 'rejected';
+    behaviour.echoHeaders = true;
     const n = completions();
     const r = await chat().json({ system: 's', user: 'u', schema: OK_SCHEMA });
-    expect(r.kind === 'error' && r.code).toBe('PROVIDER_JSON_UNSUPPORTED');
-    if (r.kind === 'error') expect(r.detail).toContain('重新檢查');
+    expect(r.kind === 'error' && r.code).toBe('PROVIDER_REQUEST_REJECTED');
+    if (r.kind === 'error') {
+      expect(r.detail).toContain('重新檢查');
+      expect(r.detail).toContain('unsupported response_format');
+      expect(r.detail).not.toContain(KEY);
+    }
     expect(completions()).toBe(n + 1);
   });
 

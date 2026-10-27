@@ -113,6 +113,7 @@
 | `PROVIDER_NOT_CONFIGURED` | error | 這個角色（`agent`／`chat`／`embed`）沒有設定任何 provider | 到設定頁指定一個 |
 | `PROVIDER_CAPABILITY_MISSING` | error | **這個任務需要某個能力，而目前的 provider 沒有** | 訊息會寫「需要什麼、目前的有什麼」。換一個 provider，或改用不需要那個能力的做法。**工具不會自動換一個能力較弱的**（ADR-0006）|
 | `PROVIDER_UNREACHABLE` | error | 子程序起不來，或 HTTP 端點連不上 | `claude` 不在 PATH 上？Ollama 沒開？訊息會說是哪一種 |
+| `PROVIDER_REQUEST_REJECTED` | error | OpenAI 相容端點已回應，但拒絕請求（其他 HTTP 4xx） | 查看細節中的 HTTP 狀態與遮蔽金鑰後的端點訊息，檢查請求與模型設定；不是連不上。401／403、429、Responses 路由缺失及能力量測保留既有判斷 |
 | `PROVIDER_TIMEOUT` | partial | 單次請求或整個 run 逾時 | **已經寫進去的節點與關聯保留。** 可以再跑一次補剩下的 |
 | `PROVIDER_BUDGET_EXCEEDED` | partial | 超過這次 run 的請求數或成本上限 | **已寫入的保留。** 要繼續就調高上限再跑一次 |
 | `PROVIDER_OUTPUT_UNPARSEABLE` | partial | 模型的輸出解析不出來（不是預期的結構）| 那一項略過，其餘照常。反覆發生通常代表這個模型不適合這個任務 |

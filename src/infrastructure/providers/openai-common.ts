@@ -87,10 +87,12 @@ export function snippet(text: string, secret: string | null): string {
 /**
  * 狀態碼 → 我們的碼。**401／403 與 429 不能歸成「連不上」** ——
  * 前者的下一步是檢查金鑰，後者是等一下，而「連不上」叫人去看它有沒有開。
+ * 其他 4xx 也代表端點已回應但拒絕請求；協定缺失與能力量測由呼叫端先判斷。
  */
 export function codeForStatus(status: number): ErrorCode {
   if (status === 401 || status === 403) return 'PROVIDER_AUTH_REJECTED';
   if (status === 429) return 'PROVIDER_RATE_LIMITED';
+  if (status >= 400 && status < 500) return 'PROVIDER_REQUEST_REJECTED';
   return 'PROVIDER_UNREACHABLE';
 }
 

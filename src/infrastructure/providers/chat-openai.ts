@@ -502,7 +502,12 @@ export function createOpenAiChat(
             ? `（${new Date(check.checkedAt).toISOString().slice(0, 10)} 量的是 ${PROTOCOL_NAME[check.protocol]} 支援 ${check.mode === 'schema' ? 'json_schema' : 'json_object'}；到設定頁重新檢查）`
             : '';
         if (stale.length > 0) {
-          return fail('PROVIDER_JSON_UNSUPPORTED', `HTTP ${res.status}${stale}`);
+          return fail(
+            check.protocol === 'responses' && hasNoResponsesRoute(res.status)
+              ? 'PROVIDER_JSON_UNSUPPORTED'
+              : codeForStatus(res.status),
+            `HTTP ${res.status} ${snippet(res.text, secret())}${stale}`,
+          );
         }
         return fail(codeForStatus(res.status), `HTTP ${res.status} ${snippet(res.text, secret())}`);
       }

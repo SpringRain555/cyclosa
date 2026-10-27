@@ -116,9 +116,6 @@
 
 ### `research/` —— 調查區
 
-Codex CLI 的規劃與找來源接線設計、實測判準見 [`codex-cli-provider-design.md`](research/codex-cli-provider-design.md)。
-單次關閉內建網路、改接指定搜尋的結果見 [`codex-cli-isolated-search.md`](research/codex-cli-isolated-search.md)。
-
 | 文件 | 現況 | 它是什麼的權威 | **不要**寫在這裡 |
 |---|:--:|---|---|
 | `index.md` | ✅ | 可信度分級、重查門檻、擷取紀律 | 調查結論本身 |
@@ -129,12 +126,14 @@ Codex CLI 的規劃與找來源接線設計、實測判準見 [`codex-cli-provid
 | `embedding-choice.md` | ✅ | **嵌入模型的量測**（七個候選、1955 段真實網頁）與選定的理由 | 語意檢索怎麼接（那是 roadmap）|
 | `embedding-eval-queries.jsonl` | ✅ | （**先登記後量測**）50 條查詢與它們的關聯判定 | 量測結果 |
 | `chat-choice.md` | ✅ | **`chat` 角色的量測**：`json_schema: true` 這個宣告實際上是什麼樣子 | 該選哪個模型（結論在文件裡，設定值由使用者填）|
-| `gpt-oss-extract-measurement.md` | ✅ | **gpt-oss 抽取量測的判準與方法**：三份固定資料對照 gemma4:12b，記錄格式、關聯、引文與時間，結果待實測 | 模型推薦或尚未量到的結果 |
+| `gpt-oss-extract-measurement.md` | ✅ | **gpt-oss 抽取量測的判準、方法與結果**（2026-10-25 量了兩輪）：三份固定資料對照 gemma4:12b，記錄格式、關聯、引文與時間；同一天用 AMD 端點走完整條流程 | 模型推薦（不設門檻、不推薦）|
 | `sample-corpus-licence.md` | ✅ | **範例專題語料的授權查證**（兩個獨立依據、官方下載管道、robots 那一條） | 範例專題怎麼產生（那是 `sample-service.ts`）|
 | `openai-compat-json-schema.md` | ✅ | **OpenAI 相容端點對 `response_format` 的支援度**（v0.18.0 的第一條收尾條件）：量測設計、Ollama `/v1` 的結果、以及**為什麼本機 Ollama 仍然走原生協定** | 支援度的表 —— **刻意沒有**，每個端點＋模型各自量（ADR-0030）|
 | `openai-responses-web-search.md` | ✅ | **OpenAI 相容端點的 Responses API 與網頁搜尋**（2026-09-19，對使用者那一條端點的 11 次量測）：不串流回空的 `output`、帶 `web_search` 真的搜、json_schema 同一個請求就成立、`max_output_tokens` 被忽略；順帶查的搜尋服務比較 | 別家端點的行為 —— 每個端點各自量（ADR-0034）|
 | `security-sources.md` | ✅ | **資安領域的來源**（2026-09-16 使用者給的清單）：17 列怎麼進內建清單、三條探針的實查、會議與期刊各住在哪個網域、`cve.mitre.org` 的轉址與 Google Scholar 的 robots | 來源清單本身（那是 `catalog.ts`）|
 | `model-tasks-review.md` | ✅ | **模型任務的盤點**（2026-09-16）：四個任務與對應模型、切換的限制、agent 沒有 `kind`、四個任務各量過什麼與缺什麼、**缺的四個任務**（摘要／翻譯／掃描件／實體對齊）與下一輪的量法 | 任何一次量測的數字（在 `chat-choice.md`／`embedding-choice.md`）|
+| `codex-cli-provider-design.md` | ✅ | **Codex CLI 當規劃與找來源服務的設計與實測**（2026-10-26，issue #28）：P0–P6 能力探針、`--search` 會直接開頁的反例、不經 `cmd.exe` 的兩種啟動、結構化輸出的驗收條件、設定形狀與接線門檻 | 接線的程式（還沒有）—— 它是設計，不是承諾 |
+| `codex-cli-isolated-search.md` | ✅ | **第二輪實測**（2026-10-26）：單次關閉內建網路、只接受控搜尋 MCP 的 Q1–Q5，通過的與未完成的都列，附重跑腳本 | 通用搜尋後端選哪個（未定）|
 | `sources/manifest.jsonl` | ✅ | （產生物）來源的 URL、時間、SHA-256 | —— |
 
 > 後兩份**在 2026-09-06 之前標 ❌ 不是 ⬜**：2026-09-04 那次調查沒有留紀錄，

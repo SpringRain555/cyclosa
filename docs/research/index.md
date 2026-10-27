@@ -85,9 +85,6 @@
 
 ## 這一區有哪些文件
 
-- [`codex-cli-provider-design.md`](codex-cli-provider-design.md)：Codex CLI 作為規劃與找來源服務的設計、能力限制與可重跑實測。
-- [`codex-cli-isolated-search.md`](codex-cli-isolated-search.md)：單次關閉內建網路、指定 MCP 搜尋的第二輪實測與未完成門檻。
-
 | 檔案 | 是什麼 | 日期 |
 |---|---|---|
 | `market-scan.md` | 七個賽道，以及它們的設計怎麼解同一個問題；09-28 加了模組對照與五條更正 | 2026-09-28（部分條目 09-06、09-04）|
@@ -97,7 +94,9 @@
 | `embedding-eval-queries.jsonl` | 上面那份實測的**查詢集**（跑模型之前就寫死並提交）| 2026-09-09 |
 | `security-sources.md` | **資安領域的來源**：17 列怎麼進內建清單、探針實查、會議與期刊住在哪個網域 | 2026-09-16 |
 | `model-tasks-review.md` | **模型任務的盤點**：切換、劃分、模組化、評估依據、缺的任務、下一輪的量法 | 2026-09-16 |
-| `gpt-oss-extract-measurement.md` | **gpt-oss 抽取量測**：vLLM OpenAI 相容端點與 Ollama gemma4:12b 的對照規格；端點已接線，抽取結果待實測 | 2026-10-20 |
+| `gpt-oss-extract-measurement.md` | **gpt-oss 抽取量測**：vLLM OpenAI 相容端點與 Ollama gemma4:12b 的對照，兩輪結果與同一天走完整條流程的紀錄 | 2026-10-25（判準 10-20）|
+| `codex-cli-provider-design.md` | **Codex CLI 當規劃與找來源服務**：能力探針 P0–P6、啟動方式、結構化輸出、設定形狀與接線門檻（issue #28）| 2026-10-26 |
+| `codex-cli-isolated-search.md` | **第二輪實測**：單次關閉內建網路、只接受控搜尋 MCP（Q1–Q5），通過與未完成的都列，附重跑腳本 | 2026-10-26 |
 | `open-questions.md` | 還沒答的設計問題 | 持續 |
 | `query-log.md` | 查過什麼、何時、查到什麼、級別 | 持續 |
 | `sources/manifest.jsonl` | 每一次擷取的 URL、時間、狀態、SHA-256 | 持續 |

@@ -1,6 +1,6 @@
 # Codex CLI 作為規劃與找來源服務：設計與實測
 
-對應 [issue #28](https://github.com/SpringRain555/cyclosa/issues/28)。這份只設計，不修改 Cyclosa 程式。
+對應 issue #28。這份只設計，不修改 Cyclosa 程式。
 
 ## 實測前固定的判準
 

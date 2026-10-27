@@ -95,6 +95,8 @@ git branch -d 3-attach-note-file
 **issue、PR、留言、commit、分支，一推上去或一送出就公開。**
 
 - 不寫真實姓名、學校、私人路徑（含使用者名稱的 `C:\Users\…`）、帳號、金鑰，也不寫自己專題裡的內容
+- 引用 issue 或 PR 寫 `issue #N`／`PR #N` 就好，**不要貼含帳號名的 GitHub 網址**（`github.com/<帳號>/cyclosa/…`）——
+  公開前的自檢會把擁有者的帳號名當成使用者名擋下來，2026-10-27 第一次撞到
 - **GitHub 網頁上的文字，守門查不到**（hooks 只看得到 commit）—— issue、PR 描述與留言要自己注意
 - 截圖只用範例專題或合成資料
 - 金鑰的值不放進任何檔案或留言（規則在 `CLAUDE.md`）

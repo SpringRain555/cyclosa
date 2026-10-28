@@ -733,6 +733,15 @@ function digestByOf(c: Candidate): string {
   });
 }
 
+function duplicateLineOf(c: Candidate): string {
+  const d = c.duplicateOf;
+  if (d === null) return '';
+  const title = d.title.length > 0 ? d.title : d.id;
+  return fill(d.kind === 'item' ? t.research.duplicateOfItem : t.research.duplicateOfCandidate, {
+    title,
+  });
+}
+
 const hitsText = computed(() => {
   const row = current.value;
   if (row === null) return '';
@@ -1018,6 +1027,10 @@ defineExpose({ reload: load });
                 <p v-if="c.buildCode" class="hint">
                   {{ errorMessages[c.buildCode] ?? c.buildCode }}
                 </p>
+                <!-- 同一篇換了一個網址（試用回饋 8）：說得出跟哪一份撞在一起。 -->
+                <p v-if="c.duplicateOf !== null" class="hint duplicate">
+                  {{ duplicateLineOf(c) }}
+                </p>
                 <!-- 初讀（Stage 21）：繁中標題是衍生物，原文在上面那一行（R15）。 -->
                 <p
                   v-if="c.titleZh !== null && c.titleZh !== c.title"
@@ -1257,6 +1270,10 @@ defineExpose({ reload: load });
                 </p>
                 <p v-if="c.buildCode" class="hint">
                   {{ errorMessages[c.buildCode] ?? c.buildCode }}
+                </p>
+                <!-- 同一篇換了一個網址（試用回饋 8）：說得出跟哪一份撞在一起。 -->
+                <p v-if="c.duplicateOf !== null" class="hint duplicate">
+                  {{ duplicateLineOf(c) }}
                 </p>
                 <p v-if="c.titleZh !== null && c.titleZh !== c.title" class="small zh-title">
                   {{ c.titleZh }}

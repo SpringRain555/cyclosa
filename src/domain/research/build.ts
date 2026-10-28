@@ -11,9 +11,15 @@ export interface CandidateDecision {
   readonly relevance: Relevance | null;
   readonly digestCode: string | null;
   readonly decision: Decision | null;
+  /**
+   * 可能跟專題裡已有的、或這次另一個候選是同一篇（`duplicates.ts`，2026-10-28 試用回饋 8）。
+   * **預設不進圖**：同一篇抽兩次，圖上就有兩個節點講同一件事。這是預設，人可以改。
+   */
+  readonly duplicate?: boolean;
 }
 
 export function defaultDecision(candidate: Omit<CandidateDecision, 'decision'>): Decision {
+  if (candidate.duplicate === true) return 'discard';
   if (candidate.acquisition !== 'fetched' && candidate.acquisition !== 'uploaded') {
     return 'reference';
   }

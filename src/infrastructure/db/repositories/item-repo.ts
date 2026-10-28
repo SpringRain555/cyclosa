@@ -522,6 +522,29 @@ function decodeCursor(cursor: string): { readonly key: string; readonly id: stri
   return { key: cursor.slice(0, at), id: cursor.slice(at + 1) };
 }
 
+/**
+ * 每一份資料的 id、標題與網址 —— 認「同一篇換了一個網址」用（`domain/research/duplicates.ts`）。
+ * 點註不算（它不是一份來源）。
+ */
+export function listItemIdentities(db: DatabaseSync): readonly {
+  readonly id: string;
+  readonly title: string;
+  readonly url: string;
+  readonly createdAt: number;
+}[] {
+  const rows = db
+    .prepare(
+      "SELECT id, title, requested_url, source_url, created_at FROM item WHERE kind != 'note'",
+    )
+    .all() as Raw[];
+  return rows.map((row) => ({
+    id: String(row['id']),
+    title: String(row['title'] ?? ''),
+    url: str(row['source_url']) ?? str(row['requested_url']) ?? '',
+    createdAt: Number(row['created_at'] ?? 0),
+  }));
+}
+
 export function listItems(db: DatabaseSync, query: ListItemsQuery): ItemPage {
   const where: string[] = [];
   const params: (string | number)[] = [];

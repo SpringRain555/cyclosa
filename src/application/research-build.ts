@@ -40,6 +40,7 @@ import {
   type ProvidersLoader,
   type ResearchView,
 } from './research-view.js';
+import { candidateDuplicates, withDuplicateFlags } from './research-duplicates.js';
 import * as registry from './run-registry.js';
 
 export async function editCandidateDecision(
@@ -69,8 +70,14 @@ export async function editCandidateDecision(
       return err('RESEARCH_STEP_INVALID', cid);
     const decision =
       input.decision === undefined ? candidate.decision : (input.decision as Decision | null);
+    // 預設跟畫面同一支算：「可能是同一篇」的預設不進圖（`research-duplicates.ts`）。
+    const duplicate = candidateDuplicates(
+      db,
+      research.listCandidates(db, researchId),
+      row.createdAt,
+    ).has(candidate.id);
     if (
-      effectiveDecision({ ...candidate, decision }) === 'include' &&
+      effectiveDecision({ ...candidate, decision, duplicate }) === 'include' &&
       !(await hasCandidateBody(join(casesDir(dataRoot), slug), candidate.itemId))
     )
       return err('RESEARCH_STEP_INVALID', cid, { why: 'no-body' });
@@ -123,15 +130,19 @@ export async function startBuilding(
     if (row.kind !== 'research')
       return err('RESEARCH_STEP_INVALID', cid, { kind: row.kind, want: 'research' });
     const candidates = research.listCandidates(db, researchId);
+    const decided = withDuplicateFlags(
+      candidates,
+      candidateDuplicates(db, candidates, row.createdAt),
+    );
     if (
-      !mayStartBuilding(row.status, candidates.map(effectiveDecision)) &&
+      !mayStartBuilding(row.status, decided.map(effectiveDecision)) &&
       !mayResumeBuilding(row.status, row.buildRunId !== null && registry.isActive(row.buildRunId))
     )
       return err('RESEARCH_STEP_INVALID', cid, { status: row.status });
     const providers = await load();
     const checked = await checkExtract(providers, cid);
     if (!checked.ok) return checked;
-    for (const candidate of candidates.filter(
+    for (const candidate of decided.filter(
       (entry) => entry.buildState !== 'done' && effectiveDecision(entry) === 'include',
     )) {
       if (!(await hasCandidateBody(join(casesDir(dataRoot), slug), candidate.itemId)))
@@ -238,9 +249,12 @@ async function processBuild(
     const abort = new AbortController();
     state.cancellable = { stop: () => abort.abort() };
     runs.startRun(db, state.runId, Date.now());
-    const candidates = research
-      .listCandidates(db, researchId)
-      .filter((entry) => entry.buildState !== 'done');
+    const all = research.listCandidates(db, researchId);
+    // 預設跟畫面同一支算（`research-duplicates.ts`）：「可能是同一篇」的那一份預設不進圖。
+    const candidates = withDuplicateFlags(
+      all,
+      candidateDuplicates(db, all, research.getResearch(db, researchId)?.createdAt ?? 0),
+    ).filter((entry) => entry.buildState !== 'done');
     state.channel.emit({ type: 'started', runId: state.runId, total: candidates.length });
     for (const candidate of candidates) {
       await state.gate();

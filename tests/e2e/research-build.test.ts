@@ -763,3 +763,54 @@ it('逐任務模型真的送到抽取端點，紀錄保留提示詞、回覆與�
   expect((lines[0]?.['request'] as { user: string }).user).toContain(quote);
   expect(JSON.stringify(lines[0]?.['response'])).toContain('測試關係');
 });
+
+it('同一篇換了一個網址（DOI 相同）：後面那一份標成可能重複、預設不進圖，建圖只抽正本（2026-10-28 試用回饋 8）', async () => {
+  const [first, second] = await inDb(
+    (db) =>
+      db
+        .prepare("SELECT id FROM item WHERE status = 'included' ORDER BY id LIMIT 2 OFFSET 3")
+        .all() as { id: string }[],
+  );
+  const original = newId();
+  const copy = newId();
+  await inDb((db) => {
+    const directionId = research.listDirections(db, researchId)[0]!.id;
+    for (const [id, url, itemId] of [
+      [original, 'https://preprint.example.test/content/10.1101/2020.04.17.046672v1', first!.id],
+      [copy, 'https://preprint.example.test/content/10.1101/2020.04.17.046672v2.full', second!.id],
+    ] as const) {
+      research.addCandidate(db, {
+        id,
+        researchId,
+        directionId,
+        url,
+        title: `合成預印本 ${id.slice(0, 4)}`,
+        why: '測試理由',
+        bib: { authors: '', year: '', venue: '' },
+        expectedAccess: 'unknown',
+        acquisition: 'uploaded',
+        now: Date.now(),
+      });
+      research.setCandidateItem(db, id, itemId, Date.now());
+    }
+  });
+
+  const before = await view();
+  const shown = new Map(before.candidates.map((c) => [c.id, c]));
+  expect(shown.get(original)).toMatchObject({ duplicateOf: null, defaultDecision: 'include' });
+  expect(shown.get(copy)).toMatchObject({
+    duplicateOf: { kind: 'candidate', id: original, reason: 'doi' },
+    defaultDecision: 'discard',
+    effectiveDecision: 'discard',
+  });
+
+  const started = await startBuilding(root, slug, researchId);
+  expect(started.ok, JSON.stringify(started)).toBe(true);
+  await idle();
+  // 進圖的只有第 0 個（人選的）與正本 —— 可能重複的那一份照畫面上的預設不抽。
+  expect(calls).toBe(2);
+  await inDb((db) => {
+    expect(items.getItem(db, first!.id)?.extractedBy).toBe('ollama:fake-extract');
+    expect(items.getItem(db, second!.id)?.extractedAt).toBeNull();
+  });
+});

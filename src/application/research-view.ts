@@ -52,6 +52,8 @@ import { readDerived } from '../infrastructure/fs/case-files.js';
 import type { Providers } from '../infrastructure/providers/registry.js';
 import { gapOf, type GapAssessment } from '../domain/research/gap.js';
 import type { ConnectionKind } from '../infrastructure/providers/config.js';
+import type { DuplicateReason } from '../domain/research/duplicates.js';
+import { candidateDuplicates, withDuplicateFlags } from './research-duplicates.js';
 import { isActive, isPaused } from './run-registry.js';
 import { sweepStaleRuns } from './run-sweep.js';
 
@@ -154,6 +156,16 @@ export interface CandidateView {
   readonly unavailableReason: UnavailableReason | null;
   readonly reasonNote: string;
   readonly itemId: string | null;
+  /**
+   * 可能跟哪一份是同一篇（2026-10-28 試用回饋 8，`research-duplicates.ts`）。有值的時候預設不進圖；
+   * `kind: 'item'` 是專題裡已經有的那一份，`'candidate'` 是這次找到的另一個候選。`null` ＝ 沒認出來。
+   */
+  readonly duplicateOf: {
+    readonly kind: 'item' | 'candidate';
+    readonly id: string;
+    readonly title: string;
+    readonly reason: DuplicateReason;
+  } | null;
   /**
    * 初讀（Stage 21）。`relevance` 是 `null` 而 `digestCode` 也是 `null` ＝ 還沒讀；
    * 有碼 ＝ 讀過但失敗（`PARSE_EMPTY_CONTENT` 以外的，「繼續蒐集」會再讀）。
@@ -377,6 +389,19 @@ export async function viewOf(
   const live = run !== null && isActive(run.id);
   const directions = research.listDirections(db, row.id);
   const candidates = research.listCandidates(db, row.id);
+  // 「可能是同一篇」會改預設（試用回饋 8）—— 建圖用的是同一支（`research-duplicates.ts`）。
+  const duplicates = candidateDuplicates(db, candidates, row.createdAt);
+  const flagged = withDuplicateFlags(candidates, duplicates);
+  const titleOfCandidate = new Map(candidates.map((c) => [c.id, c.title]));
+  const duplicateView = (id: string): CandidateView['duplicateOf'] => {
+    const d = duplicates.get(id);
+    if (d === undefined) return null;
+    const title =
+      d.kind === 'candidate'
+        ? (titleOfCandidate.get(d.id) ?? '')
+        : (items.getItem(db, d.id)?.title ?? '');
+    return { kind: d.kind, id: d.id, title, reason: d.reason };
+  };
   const buildRun = row.buildRunId === null ? null : runs.getRun(db, row.buildRunId);
   const building = buildRun !== null && isActive(buildRun.id);
   const extractSetting = providers.config.tasks.extract;
@@ -392,7 +417,7 @@ export async function viewOf(
   );
 
   const candidateViews: CandidateView[] = await Promise.all(
-    candidates.map(async (c) => {
+    flagged.map(async (c) => {
       // 作業沒有在跑，就沒有東西「正在抓」—— 停在半路的那幾列是還沒抓（見 `CandidateView`）。
       const acquisition: Acquisition =
         c.acquisition === 'fetching' && !live ? 'found' : c.acquisition;
@@ -419,6 +444,7 @@ export async function viewOf(
         unavailableReason: c.unavailableReason,
         reasonNote: c.reasonNote,
         itemId: c.itemId,
+        duplicateOf: duplicateView(c.id),
         relevance: c.relevance,
         relevanceWhy: c.relevanceWhy,
         digestCode: c.digestCode,
@@ -469,7 +495,7 @@ export async function viewOf(
       searchCode: d.searchCode,
       tally: tallyDirection(
         d.id,
-        candidates.map((candidate) => ({
+        flagged.map((candidate) => ({
           ...candidate,
           directionIds: [
             ...(candidate.directionId === null ? [] : [candidate.directionId]),

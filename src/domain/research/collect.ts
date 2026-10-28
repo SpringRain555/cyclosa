@@ -318,6 +318,7 @@ export function tallyDirection(
     readonly relevance?: CandidateDecision['relevance'];
     readonly digestCode?: CandidateDecision['digestCode'];
     readonly decision?: CandidateDecision['decision'];
+    readonly duplicate?: boolean;
   }[],
 ): DirectionTally {
   let found = 0;

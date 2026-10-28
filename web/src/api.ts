@@ -347,6 +347,13 @@ export interface Candidate {
   unavailableReason: UnavailableReason | null;
   reasonNote: string;
   itemId: string | null;
+  /** 可能跟哪一份是同一篇（2026-10-28）；有值的時候預設不進圖 */
+  duplicateOf: {
+    kind: 'item' | 'candidate';
+    id: string;
+    title: string;
+    reason: 'url' | 'doi' | 'arxiv' | 'pmc' | 'pmid' | 'title' | 'content';
+  } | null;
   /**
    * 初讀（Stage 21）。`relevance` 與 `digestCode` 都是 `null` ＝ 還沒讀；有碼 ＝ 讀過但失敗。
    * **判斷是這一次研究的**，所以在候選上；繁中標題與摘要是那一份資料的，原文是上面的 `title`。

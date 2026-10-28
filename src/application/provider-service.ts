@@ -162,6 +162,8 @@ export interface ProviderTest {
   readonly task: ModelTask;
   readonly ok: boolean;
   readonly code: string | null;
+  /** 失敗時服務自己回的那一句（CLI 的 `result`、端點的訊息）；成功是 `null`。2026-10-28 起畫面會顯示。 */
+  readonly detail: string | null;
   /** provider 回報的實際花費。**`null` ＝ 它沒回報，不是 0** */
   readonly costUsd: number | null;
   readonly elapsedMs: number;
@@ -211,6 +213,7 @@ export async function testProvider(
         task: entry.task,
         ok: call.kind === 'ok',
         code: call.kind === 'ok' ? null : call.code,
+        detail: call.kind === 'ok' ? null : call.detail,
         costUsd: call.cost.costUsd,
         elapsedMs: call.cost.elapsedMs,
         jsonMode: null,
@@ -243,6 +246,7 @@ export async function testProvider(
             task: entry.task,
             ok: false,
             code: check.code,
+            detail: check.detail,
             costUsd: check.cost.costUsd,
             elapsedMs: measureMs,
             jsonMode: null,
@@ -266,6 +270,7 @@ export async function testProvider(
         code: call.kind === 'ok' ? null : call.code,
         costUsd: call.cost.costUsd,
         elapsedMs: measureMs + call.cost.elapsedMs,
+        detail: call.kind === 'ok' ? null : call.detail,
         jsonMode: measured ?? (await chat.jsonMode()),
         browse: null,
       },
@@ -301,6 +306,7 @@ export async function testProvider(
           task: entry.task,
           ok: false,
           code: check.code,
+          detail: check.detail,
           costUsd: check.cost.costUsd,
           elapsedMs: check.cost.elapsedMs,
           jsonMode: null,
@@ -318,6 +324,7 @@ export async function testProvider(
         elapsedMs: check.cost.elapsedMs,
         jsonMode: null,
         browse: check.value,
+        detail: null,
       },
       cid,
     );
@@ -334,6 +341,7 @@ export async function testProvider(
       task: entry.task,
       ok: call.kind === 'ok',
       code: call.kind === 'ok' ? null : call.code,
+      detail: call.kind === 'ok' ? null : call.detail,
       costUsd: call.cost.costUsd,
       elapsedMs: call.cost.elapsedMs,
       jsonMode: null,

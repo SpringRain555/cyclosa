@@ -1685,6 +1685,8 @@ export const t = {
     },
     testOk: '成功，花了 {ms} 毫秒',
     testFailed: '失敗',
+    /** 失敗時服務自己回的原話（多半是英文），照原樣放在括號裡。 */
+    testSaid: '（服務回的原話：{said}）',
     testJsonMode: '格式保證：{mode}',
     /**
      * 「會不會上網搜尋」那一行（v0.24.2，ADR-0034）。CLI 是參數給的、不是量的；

@@ -693,6 +693,8 @@ export interface ProviderTest {
   task: ModelTask;
   ok: boolean;
   code: string | null;
+  /** 失敗時服務自己回的那一句；成功是 `null` */
+  detail: string | null;
   costUsd: number | null;
   elapsedMs: number;
   /** 線上端點按這顆按鈕會重量一次，所以這一格是剛量出來的結果 */

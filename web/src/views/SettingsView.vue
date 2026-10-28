@@ -564,9 +564,14 @@ async function testAll(): Promise<void> {
     if (!r.ok) {
       testResults.value[task] = errorMessages[r.error.code] ?? r.error.code;
     } else {
+      // 失敗時連服務自己回的那一句一起寫（2026-10-28：模型名稱不存在時，CLI 說得很清楚，畫面之前沒寫）。
+      const said =
+        !r.data.ok && r.data.detail !== null && r.data.detail.trim().length > 0
+          ? ` ${fill(t.settings.testSaid, { said: r.data.detail.trim() })}`
+          : '';
       const outcome = r.data.ok
         ? fill(t.settings.testOk, { ms: r.data.elapsedMs })
-        : `${t.settings.testFailed}：${errorMessages[r.data.code ?? ''] ?? String(r.data.code)}`;
+        : `${t.settings.testFailed}：${errorMessages[r.data.code ?? ''] ?? String(r.data.code)}${said}`;
       // 線上端點按這顆會重量一次格式支援與搜尋 —— 量到什麼要當場說出來，不是等重新整理。
       const measured =
         r.data.jsonMode !== null && r.data.jsonMode.checkedAt !== null

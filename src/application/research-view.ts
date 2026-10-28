@@ -85,7 +85,10 @@ export interface ResearchHit {
   readonly itemId: string;
   readonly title: string;
   readonly excerpt: string;
-  /** 那一份的網址（2026-10-28 起才存；之前的研究讀出來是空字串）。找來源的提示詞拿它說「已經有了」。 */
+  /**
+   * 那一份的網址。找來源的提示詞拿它說「已經有了」。v1.0.1 起寫入時就帶；之前開的研究由 v17 migration 補上
+   * （ADR-0039 第五節）。那一份資料已經刪掉的是空字串。
+   */
   readonly url: string;
 }
 

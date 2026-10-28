@@ -16,7 +16,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(HERE, 'migrations');
 
 /** 這一版程式認得的 schema 版本。**比資料庫的版本小就代表資料庫被新版寫過。** */
-export const SUPPORTED_SCHEMA_VERSION = 16;
+export const SUPPORTED_SCHEMA_VERSION = 17;
 
 const PRE_MIGRATIONS: Readonly<Record<number, (db: DatabaseSync) => readonly string[]>> = {
   13: cleanupExpansion,

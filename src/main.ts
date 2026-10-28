@@ -7,6 +7,7 @@
  * 而它壞掉的方式是「測試 import 它時默默起了一個真的 server」。
  */
 import { probeHealthz } from '@local-app/lifecycle/healthz';
+import { releaseLocalModels } from './application/provider-service.js';
 import { buildServer, HOST, PORT, VERSION } from './server.js';
 import { shutdownSequence, targetOf } from './interface/http/shutdown.js';
 import { installCrashTrace } from './shared/crash-trace.js';
@@ -72,12 +73,14 @@ logger.info('Cyclosa 已啟動', { url: `http://${HOST}:${PORT}/`, version: VERS
  */
 const shutdown = (signal: string): void => {
   logger.info('收到結束訊號', { signal });
-  void shutdownSequence(targetOf(app), { flushMs: 0, graceMs: 1_500, closeMs: 2_000 }).then(
-    (outcome) => {
-      logger.info('關閉序列完成', { ...outcome });
-      process.exit(0);
-    },
-  );
+  void shutdownSequence(targetOf(app, releaseLocalModels), {
+    flushMs: 0,
+    graceMs: 1_500,
+    closeMs: 2_000,
+  }).then((outcome) => {
+    logger.info('關閉序列完成', { ...outcome });
+    process.exit(0);
+  });
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -160,3 +160,37 @@ describe('真的開一條 SSE 連線', () => {
     expect(outcome.closed).toBe(true);
   });
 });
+
+describe('targetOf 的卸載（2026-10-28 試用回饋 13）', () => {
+  function fakeApp(log: string[]): {
+    server: { closeAllConnections: () => void };
+    close: () => Promise<void>;
+  } {
+    return {
+      server: { closeAllConnections: () => log.push('destroy') },
+      close: async () => {
+        log.push('close');
+      },
+    };
+  }
+
+  it('收掉伺服器之前先卸載本機模型', async () => {
+    const log: string[] = [];
+    await targetOf(fakeApp(log), async () => {
+      log.push('release');
+    }).close();
+    expect(log).toEqual(['release', 'close']);
+  });
+
+  it('卸載失敗不擋關閉', async () => {
+    const log: string[] = [];
+    await targetOf(fakeApp(log), () => Promise.reject(new Error('Ollama 沒開'))).close();
+    expect(log).toEqual(['close']);
+  });
+
+  it('沒傳卸載就只收伺服器 —— 測試不會因為關閉序列去碰真的 Ollama', async () => {
+    const log: string[] = [];
+    await targetOf(fakeApp(log)).close();
+    expect(log).toEqual(['close']);
+  });
+});

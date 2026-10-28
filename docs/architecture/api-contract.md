@@ -104,6 +104,7 @@
 | 找不到（`*_NOT_FOUND`、`CASE_NOT_FOUND`）| 404 |
 | **請求本身不合法**（`*_EMPTY`、`GRAPH_SELF_EDGE`）| 400 |
 | **跟既有狀態衝突**（`*_DUPLICATE`、`CASE_FOLDER_EXISTS`、`CASE_ARCHIVED`、`GRAPH_EVIDENCE_REQUIRED`、`PROVIDER_*`）| 409 |
+| **還沒選資料位置**（`IO_POINTER_MISSING`：第一次啟動的正常狀態，畫面照 body 問三選一；2026-10-28 起不再是 500）| 409 |
 | 超過界線（`GRAPH_SUBGRAPH_TOO_LARGE`、`FETCH_TOO_LARGE`）| 413 |
 | 逾時（`*_TIMEOUT`）| 504 |
 | **不是這個工具自己的頁面送來的**（`IO_REQUEST_FOREIGN`，ADR-0036）| 403（`text/plain` 之類前端不送的型別：415）|

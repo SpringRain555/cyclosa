@@ -37,15 +37,26 @@ export function shutdownSequence(
   }));
 }
 
-/** From a Fastify instance, create the application-specific callbacks. */
-export function targetOf(app: {
-  server: { closeAllConnections: () => void };
-  close: () => Promise<void>;
-}): ShutdownTarget {
+/**
+ * From a Fastify instance, create the application-specific callbacks.
+ *
+ * `release` 在收掉伺服器之前跑：卸載本機模型（2026-10-28 試用回饋 13 —— 結束 Cyclosa 之後模型還佔著記憶體）。
+ * **它失敗不擋關閉**，而且由呼叫端傳進來：測試不該因為一個關閉序列去碰真的 Ollama。
+ */
+export function targetOf(
+  app: {
+    server: { closeAllConnections: () => void };
+    close: () => Promise<void>;
+  },
+  release?: () => Promise<void>,
+): ShutdownTarget {
   return {
     cancelAll,
     activeCount,
     destroyConnections: () => app.server.closeAllConnections(),
-    close: () => app.close(),
+    close: async () => {
+      if (release !== undefined) await release().catch(() => undefined);
+      await app.close();
+    },
   };
 }

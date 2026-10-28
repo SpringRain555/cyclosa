@@ -90,6 +90,7 @@ import {
 import {
   listModelsFor,
   listProviders,
+  releaseLocalModels,
   saveProviders,
   testProvider,
 } from '../../application/provider-service.js';
@@ -364,7 +365,7 @@ export function registerRoutes(app: FastifyInstance, ctx: AppContext): void {
      * 開著的 SSE 進度通道走 `reply.hijack()`，Fastify 預設收不掉它。
      * 那正是二次確認對話框在講的那個情境。詳見 `shutdown.ts` 的檔頭。
      */
-    void shutdownSequence(targetOf(app)).then((outcome) => {
+    void shutdownSequence(targetOf(app, releaseLocalModels)).then((outcome) => {
       logger.info('關閉序列完成', { ...outcome });
       process.exit(0);
     });

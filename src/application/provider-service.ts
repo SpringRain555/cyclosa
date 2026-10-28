@@ -44,9 +44,11 @@ import type { BrowseReport, JsonModeReport } from '../infrastructure/providers/t
 import {
   apiKeyEnvOf,
   parseConfig,
+  readProvidersConfig,
   writeProvidersConfig,
   type ConnectionKind,
 } from '../infrastructure/providers/config.js';
+import { releaseOllamaModels } from '../infrastructure/providers/ollama-release.js';
 import { tmpDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
@@ -339,4 +341,19 @@ export async function testProvider(
     },
     cid,
   );
+}
+
+/** 關閉時每一個模型的卸載請求等多久。關閉序列的 `close` 上限是 2 秒，這一步不能吃掉全部。 */
+export const SHUTDOWN_RELEASE_MS = 1_000;
+
+/**
+ * 結束 Cyclosa 時卸載**每一個走 Ollama 的任務**的模型（2026-10-28 試用回饋 13）。
+ * 只卸模型、不關 Ollama 服務；連不上或逾時只記日誌。
+ */
+export async function releaseLocalModels(): Promise<void> {
+  const config = await readProvidersConfig();
+  await releaseOllamaModels(config, {
+    tasks: MODEL_TASKS.map((entry) => entry.task),
+    timeoutMs: SHUTDOWN_RELEASE_MS,
+  });
 }

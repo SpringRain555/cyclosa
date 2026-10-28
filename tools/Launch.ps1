@@ -56,6 +56,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 輸出被導向（另一支腳本呼叫、存成紀錄檔）時改用 UTF-8：PS 5.1 照系統字碼頁（cp950）寫，
+# 讀的那一邊多半當成 UTF-8，中文就變成亂碼（2026-10-28 試用回饋 13）。直接開在主控台的時候不動。
+if ([Console]::IsOutputRedirected) {
+    [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+}
 # 這支住在 tools\，專案根目錄是它的上一層。
 $root = Split-Path -Parent $PSScriptRoot
 $lifecycleModule = Join-Path $root 'vendor\AppLifecycle.psm1'

@@ -393,6 +393,9 @@ export function httpStatusOf(code: ErrorCode): number {
   if (code === 'NOTE_FILE_READ_ONLY') return 409;
   // 不是「伺服器出錯」（IO_ 預設的 500），是「這個請求不准」。
   if (code === 'IO_REQUEST_FOREIGN') return 403;
+  // 第一次啟動、還沒選資料位置：**正常的狀態，不是伺服器壞了**（2026-10-28 試用回饋 13）。
+  // 畫面照讀 body 的碼問三選一；回 500 會讓瀏覽器主控台與日誌每次開啟都記一筆「伺服器錯誤」。
+  if (code === 'IO_POINTER_MISSING') return 409;
   // 400 只給**請求本身就不合法**的：空字串、自己連自己。
   // 「名稱重複」與「資料夾已存在」不是格式錯，是**跟既有狀態衝突** —— 那是 409。
   if (

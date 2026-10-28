@@ -943,6 +943,12 @@ describe('停在半路、繼續、放棄、刪除', () => {
         .map((line) => JSON.parse(line) as { prompt: string });
       return calls.some((call) => call.prompt.includes(D2));
     });
+    // **邊搜邊抓**（2026-10-28 試用回饋 12）：第二條還在搜，第一條找到的已經在抓、在讀。
+    // 等它們做完再「關掉程式」—— 那一刻的狀態才是確定的。
+    await waitUntil(async () => {
+      const v = await view(gate.id);
+      return hits.get('/a') === 1 && v.collect.work.fetches === 0 && v.collect.work.digests === 0;
+    });
     cancel(firstRun, 'shutdown');
     await waitIdle();
 
@@ -951,12 +957,12 @@ describe('停在半路、繼續、放棄、刪除', () => {
     expect(halfway.status).toBe('collecting');
     expect(halfway.collect.live).toBe(false);
     expect(halfway.collect.endedReason).toBe('shutdown');
-    // 第二條被打斷，**不算搜過**；第一條找到的還沒抓（先搜完每一條，再抓）。
+    // 第二條被打斷，**不算搜過**；第一條找到的在第二條搜的時候就抓完、讀完了。
     expect(halfway.directions.map((d) => d.searchState)).toEqual(['done', 'pending']);
-    expect(halfway.collect.work).toEqual({ searches: 1, fetches: 2, digests: 0 });
+    expect(halfway.collect.work).toEqual({ searches: 1, fetches: 0, digests: 0 });
     expect(halfway.collect.mayResume).toBe(true);
     expect(halfway.collect.mayFinish).toBe(true);
-    expect(hits.get('/a')).toBeUndefined();
+    expect(hits.get('/a')).toBe(1);
 
     delete process.env['CYCLOSA_FAKE_CLAUDE_SLOW_KEY'];
     const resumed = await resumeCollecting(dataRoot, slug, gate.id);

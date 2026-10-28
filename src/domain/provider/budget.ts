@@ -116,6 +116,61 @@ export function chargeTask(
 }
 
 /**
+ * 兩段同時跑的時候，把**一次呼叫**加在最新的累計上（2026-10-28，蒐集改成邊搜邊抓）。
+ *
+ * 呼叫的那一支拿到的是呼叫前的快照，回來的是「快照＋這一次」。直接拿它蓋回去，
+ * 會把另一段在 `await` 那段時間裡加進來的抹掉 —— 所以算出「這一次」是多少（`after − before`），
+ * 加到 `current` 上。沒回報金額的那一次不動 `costUsd`（跟 `charge` 同一條規則）。
+ */
+export function absorbBudget(
+  current: BudgetState,
+  before: BudgetState,
+  after: BudgetState,
+  elapsedMs: number,
+): BudgetState {
+  const reported = after.costUsd !== before.costUsd;
+  return {
+    requests: current.requests + (after.requests - before.requests),
+    costUsd: reported
+      ? (current.costUsd ?? 0) + ((after.costUsd ?? 0) - (before.costUsd ?? 0))
+      : current.costUsd,
+    unpriced: current.unpriced + (after.unpriced - before.unpriced),
+    elapsedMs,
+  };
+}
+
+/** `absorbBudget` 的逐任務那一份。 */
+export function absorbTaskCosts(
+  current: TaskCosts,
+  before: TaskCosts,
+  after: TaskCosts,
+): TaskCosts {
+  let out: Record<string, TaskCost> = { ...current };
+  for (const [task, next] of Object.entries(after)) {
+    const prev = before[task] ?? { requests: 0, costUsd: null, unpriced: 0 };
+    if (
+      next.requests === prev.requests &&
+      next.unpriced === prev.unpriced &&
+      next.costUsd === prev.costUsd
+    )
+      continue;
+    const now = out[task] ?? { requests: 0, costUsd: null, unpriced: 0 };
+    const reported = next.costUsd !== prev.costUsd;
+    out = {
+      ...out,
+      [task]: {
+        requests: now.requests + (next.requests - prev.requests),
+        costUsd: reported
+          ? (now.costUsd ?? 0) + ((next.costUsd ?? 0) - (prev.costUsd ?? 0))
+          : now.costUsd,
+        unpriced: now.unpriced + (next.unpriced - prev.unpriced),
+      },
+    };
+  }
+  return out;
+}
+
+/**
  * 把幾筆作業的逐任務花費加起來（一次研究的每一筆蒐集作業）。
  * **讀進來的是外部資料**（資料庫裡的 JSON），形狀不對的那一格略過，不讓整份加總失敗。
  */

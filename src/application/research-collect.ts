@@ -36,6 +36,8 @@ import { levelOf, type ErrorCode } from '../domain/errors/codes.js';
 import { settleRun, type RunStatus } from '../domain/ingest/state.js';
 import { displayHost, normalizeUrl } from '../domain/ingest/url.js';
 import {
+  absorbBudget,
+  absorbTaskCosts,
   charge,
   chargeTask,
   EMPTY_BUDGET_STATE,
@@ -296,6 +298,26 @@ interface CollectContext {
   readonly accessOf: AccessOf;
 }
 
+/**
+ * 「有新的東西可以做了」的訊號（蒐集的三段之間，2026-10-28）。
+ *
+ * `wait()` 等下一次 `notify()`。用法一律是**先查有沒有事做、沒有才等**，而查與等之間沒有 `await` ——
+ * 單執行緒，所以不會漏掉一次在兩者之間送來的通知。
+ */
+class Wakeup {
+  private waiters: (() => void)[] = [];
+
+  wait(): Promise<void> {
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+
+  notify(): void {
+    const waiting = this.waiters;
+    this.waiters = [];
+    for (const resolve of waiting) resolve();
+  }
+}
+
 async function processCollect(ctx: CollectContext): Promise<void> {
   const { state } = ctx;
   const opened = await openResearchCase(ctx.dataRoot, ctx.slug);
@@ -336,56 +358,28 @@ async function processCollect(ctx: CollectContext): Promise<void> {
       ctx.only === 'digest' ? [] : research.listDirections(db, ctx.researchId).filter(needsSearch);
     state.channel.emit({ type: 'started', runId: state.runId, total: pending.length });
 
+    /**
+     * **三段同時跑：搜尋、抓取、初讀**（2026-10-28 試用回饋 12）。
+     *
+     * 原本是 ①全部方向搜完 → ②全部抓 → ③全部初讀：前兩條方向找到的候選，要空等最後一條搜完才開始抓
+     * （試用時約 3 分鐘）。現在一條方向搜完，它的候選就交給抓的那一段；抓到一份就交給初讀那一段。
+     * **每一段裡面仍然一件一件做**（搜尋一次一條、爬蟲照網域節流、本機模型一次讀一份），只是段與段同時跑。
+     *
+     * 不變的：每一件之間過 `state.gate()`（暫停停在兩件之間）；取消停全部；`needsSearch`／`needsFetch`／
+     * `needsDigest` 照舊（「繼續蒐集」接著做）；作業跑著時上傳的照樣在這一筆裡讀。
+     *
+     * **花費是三段共用的一份累計**：每一次呼叫完，把「這一次」加在最新的累計上（`absorbBudget`），
+     * 不是拿呼叫前的快照蓋回去 —— 那樣兩段在 `await` 之間會互相蓋掉。
+     */
     let budget: BudgetState = EMPTY_BUDGET_STATE;
     // 逐任務的那一份（v11）：總數還是 `budget`（上限只看總數），這一份拆開給人看（R29）。
     let taskCosts: TaskCosts = EMPTY_TASK_COSTS;
-    let searched = 0;
-    let searchFailed = 0;
-    let fatal: ErrorCode | null = null;
-
-    // ① 每條方向各搜一次。
-    for (const direction of pending) {
-      if (state.cancelled) break;
-      // **暫停停在方向與方向之間。** 一次搜尋中途砍掉的話，花掉的那一次就白花了。
-      await state.gate();
-      if (state.cancelled) break;
-      if (ctx.agent === null) break;
-
-      budget = { ...budget, elapsedMs: Date.now() - startedAt };
-      if (mayContinue(budget, COLLECT_BUDGET).kind !== 'ok') {
-        // **沒有被嘗試過**，所以是「失敗、可以重來」—— 「繼續蒐集」會接著做。
-        research.markDirectionSearched(db, {
-          id: direction.id,
-          state: 'failed',
-          code: 'PROVIDER_BUDGET_EXCEEDED',
-          now: Date.now(),
-        });
-        searchFailed += 1;
-        state.channel.emit({
-          type: 'direction',
-          directionId: direction.id,
-          title: direction.title,
-          found: 0,
-          code: 'PROVIDER_BUDGET_EXCEEDED',
-        });
-        continue;
-      }
-
-      const outcome = await searchDirection(db, {
-        ctx,
-        agent: ctx.agent,
-        direction,
-        topic: row?.topic ?? '',
-        relation: plan.relation,
-        outOfScope: plan.outOfScope,
-        existing,
-        abort,
-        startedAt,
-        budget,
-        taskCosts,
-      });
-      budget = outcome.budget;
-      taskCosts = outcome.taskCosts;
+    const charged = (
+      before: { readonly budget: BudgetState; readonly taskCosts: TaskCosts },
+      after: { readonly budget: BudgetState; readonly taskCosts: TaskCosts },
+    ): void => {
+      budget = absorbBudget(budget, before.budget, after.budget, Date.now() - startedAt);
+      taskCosts = absorbTaskCosts(taskCosts, before.taskCosts, after.taskCosts);
       runs.updateRunBudget(
         db,
         state.runId,
@@ -394,125 +388,210 @@ async function processCollect(ctx: CollectContext): Promise<void> {
         budget.unpriced,
         taskCosts,
       );
-
-      if (outcome.interrupted) {
-        // 你按了取消、子程序被殺掉 —— **這一條沒有搜完**，留在「還沒搜」，下一次接著做。
-        break;
-      }
-      const failed = outcome.code !== null && levelOf(outcome.code) !== 'notice';
-      research.markDirectionSearched(db, {
-        id: direction.id,
-        state: failed ? 'failed' : 'done',
-        code: outcome.code,
-        now: Date.now(),
-      });
-      if (failed) searchFailed += 1;
-      else searched += 1;
-      state.channel.emit({
-        type: 'direction',
-        directionId: direction.id,
-        title: direction.title,
-        found: outcome.found,
-        code: outcome.code,
-      });
-      // **只有 `error` 級的碼會讓整批停下來**（目前只有沙箱違規）—— 同擴展。
-      if (outcome.fatal) {
-        fatal = outcome.code;
-        break;
-      }
-    }
-
-    // ② 能抓的抓。**已抓的不重抓**（R13）：只挑還沒抓的與被限流的。
-    if (!state.cancelled && fatal === null && ctx.only !== 'digest') {
-      for (const candidate of research.listCandidates(db, ctx.researchId).filter(needsFetch)) {
-        if (state.cancelled || crawler.isStopped) break;
-        await state.gate();
-        if (state.cancelled) break;
-        await fetchCandidate(db, { ctx, folder, crawler, candidate });
-      }
-    }
-
-    // ③ 初讀（Stage 21）：拿到的每一份讀一次。**讀好的不重讀**（`needsDigest`）。
+    };
+    let searched = 0;
+    let searchFailed = 0;
     let digested = 0;
     let digestFailed = 0;
-    if (ctx.digest !== null && !state.cancelled && fatal === null) {
-      const directions = research
-        .listDirections(db, ctx.researchId)
-        .filter((d) => d.adopted)
-        .map((d) => d.title);
-      const tried = new Set<string>();
-      let stop = false;
-      // **讀完一輪再查一次**：作業跑著的時候你上傳的那幾份，也在這一筆裡讀掉。
-      // `tried` 讓一份讀失敗的不會在同一筆裡被重讀（那要等「繼續蒐集」）。
-      while (!stop && !state.cancelled) {
-        const batch = research
-          .listCandidates(db, ctx.researchId)
-          .filter((c) => needsDigest(c) && !tried.has(c.id));
-        if (batch.length === 0) break;
-        runs.updateRunTotal(db, state.runId, pending.length + tried.size + batch.length);
-        for (const candidate of batch) {
-          if (state.cancelled) break;
-          // **暫停與取消停在兩份之間** —— 一次讀到一半砍掉的話，花掉的那一次就白花了。
+    let fatal: ErrorCode | null = null;
+    let searchDone = false;
+    let fetchDone = false;
+    const fetchWake = new Wakeup();
+    const digestWake = new Wakeup();
+    // 取消的時候也叫醒在等的那兩段，讓它們自己看到「取消了」離開。
+    const stopAll = state.cancellable.stop;
+    state.cancellable = {
+      stop: () => {
+        stopAll();
+        fetchWake.notify();
+        digestWake.notify();
+      },
+    };
+    const halted = (): boolean => state.cancelled || fatal !== null;
+
+    // ① 每條方向各搜一次。搜完一條就叫醒抓的那一段。
+    const searchStage = async (): Promise<void> => {
+      try {
+        for (const direction of pending) {
+          if (halted()) break;
+          // **暫停停在方向與方向之間。** 一次搜尋中途砍掉的話，花掉的那一次就白花了。
           await state.gate();
-          if (state.cancelled) break;
-          tried.add(candidate.id);
+          if (halted()) break;
+          if (ctx.agent === null) break;
 
           budget = { ...budget, elapsedMs: Date.now() - startedAt };
           if (mayContinue(budget, COLLECT_BUDGET).kind !== 'ok') {
-            // **沒有被嘗試過**，所以是可以重來的失敗 —— 「繼續蒐集」會接著讀。
-            research.setCandidateDigest(db, {
-              id: candidate.id,
-              relevance: null,
-              why: '',
+            // **沒有被嘗試過**，所以是「失敗、可以重來」—— 「繼續蒐集」會接著做。
+            research.markDirectionSearched(db, {
+              id: direction.id,
+              state: 'failed',
               code: 'PROVIDER_BUDGET_EXCEEDED',
               now: Date.now(),
             });
-            digestFailed += 1;
+            searchFailed += 1;
             state.channel.emit({
-              type: 'digest',
-              candidateId: candidate.id,
-              itemId: candidate.itemId,
-              relevance: null,
+              type: 'direction',
+              directionId: direction.id,
+              title: direction.title,
+              found: 0,
               code: 'PROVIDER_BUDGET_EXCEEDED',
             });
             continue;
           }
 
-          const outcome = await digestCandidate(db, {
+          const before = { budget, taskCosts };
+          const outcome = await searchDirection(db, {
             ctx,
-            chat: ctx.digest,
-            candidate,
-            folder,
+            agent: ctx.agent,
+            direction,
             topic: row?.topic ?? '',
             relation: plan.relation,
-            directions,
+            outOfScope: plan.outOfScope,
+            existing,
             abort,
             startedAt,
-            budget,
-            taskCosts,
+            budget: before.budget,
+            taskCosts: before.taskCosts,
           });
-          budget = outcome.budget;
-          taskCosts = outcome.taskCosts;
-          runs.updateRunBudget(
-            db,
-            state.runId,
-            budget.requests,
-            budget.costUsd,
-            budget.unpriced,
-            taskCosts,
-          );
-          // 你按了取消、請求被中斷 —— **這一份沒讀完**，留在「還沒讀」，下一次接著讀。
-          if (outcome.interrupted) break;
-          if (outcome.code === null) digested += 1;
-          else digestFailed += 1;
-          // 被限流、金鑰被拒、連不上：接下來每一份都會一樣，這一筆不再讀下去。
-          if (stopsDigesting(outcome.code)) {
-            stop = true;
+          charged(before, outcome);
+
+          if (outcome.interrupted) {
+            // 你按了取消、子程序被殺掉 —— **這一條沒有搜完**，留在「還沒搜」，下一次接著做。
+            break;
+          }
+          const failed = outcome.code !== null && levelOf(outcome.code) !== 'notice';
+          research.markDirectionSearched(db, {
+            id: direction.id,
+            state: failed ? 'failed' : 'done',
+            code: outcome.code,
+            now: Date.now(),
+          });
+          if (failed) searchFailed += 1;
+          else searched += 1;
+          state.channel.emit({
+            type: 'direction',
+            directionId: direction.id,
+            title: direction.title,
+            found: outcome.found,
+            code: outcome.code,
+          });
+          // 這一條的候選可以開始抓了。
+          fetchWake.notify();
+          // **只有 `error` 級的碼會讓整批停下來**（目前只有沙箱違規）—— 同擴展。
+          if (outcome.fatal) {
+            fatal = outcome.code;
             break;
           }
         }
+      } finally {
+        searchDone = true;
+        fetchWake.notify();
       }
-    }
+    };
+
+    // ② 能抓的抓。**已抓的不重抓**（R13）：只挑還沒抓的與被限流的；這一筆裡抓過的不再抓。
+    const fetchTried = new Set<string>();
+    const fetchStage = async (): Promise<void> => {
+      try {
+        if (ctx.only === 'digest') return;
+        for (;;) {
+          if (halted() || crawler.isStopped) break;
+          const next = research
+            .listCandidates(db, ctx.researchId)
+            .find((c) => needsFetch(c) && !fetchTried.has(c.id));
+          if (next === undefined) {
+            // 沒有可抓的：搜尋那一段也做完了就收工，否則等它的下一條。**查與等之間沒有 `await`**，不會漏掉通知。
+            if (searchDone) break;
+            await fetchWake.wait();
+            continue;
+          }
+          await state.gate();
+          if (halted() || crawler.isStopped) break;
+          fetchTried.add(next.id);
+          await fetchCandidate(db, { ctx, folder, crawler, candidate: next });
+          // 抓到一份就可以開始讀。
+          digestWake.notify();
+        }
+      } finally {
+        fetchDone = true;
+        digestWake.notify();
+      }
+    };
+
+    // ③ 初讀（Stage 21）：拿到的每一份讀一次。**讀好的不重讀**（`needsDigest`）。
+    // `digestTried` 讓一份讀失敗的不會在同一筆裡被重讀（那要等「繼續蒐集」）。
+    const digestTried = new Set<string>();
+    const digestStage = async (): Promise<void> => {
+      const chat = ctx.digest;
+      if (chat === null) return;
+      const directions = research
+        .listDirections(db, ctx.researchId)
+        .filter((d) => d.adopted)
+        .map((d) => d.title);
+      for (;;) {
+        if (halted()) break;
+        const batch = research
+          .listCandidates(db, ctx.researchId)
+          .filter((c) => needsDigest(c) && !digestTried.has(c.id));
+        const candidate = batch[0];
+        if (candidate === undefined) {
+          // **抓的那一段做完了、而且再查一次也沒有**才收工 —— 作業跑著的時候你上傳的那幾份，也在這一筆裡讀掉。
+          if (fetchDone) break;
+          await digestWake.wait();
+          continue;
+        }
+        runs.updateRunTotal(db, state.runId, pending.length + digestTried.size + batch.length);
+        // **暫停與取消停在兩份之間** —— 一次讀到一半砍掉的話，花掉的那一次就白花了。
+        await state.gate();
+        if (halted()) break;
+        digestTried.add(candidate.id);
+
+        budget = { ...budget, elapsedMs: Date.now() - startedAt };
+        if (mayContinue(budget, COLLECT_BUDGET).kind !== 'ok') {
+          // **沒有被嘗試過**，所以是可以重來的失敗 —— 「繼續蒐集」會接著讀。
+          research.setCandidateDigest(db, {
+            id: candidate.id,
+            relevance: null,
+            why: '',
+            code: 'PROVIDER_BUDGET_EXCEEDED',
+            now: Date.now(),
+          });
+          digestFailed += 1;
+          state.channel.emit({
+            type: 'digest',
+            candidateId: candidate.id,
+            itemId: candidate.itemId,
+            relevance: null,
+            code: 'PROVIDER_BUDGET_EXCEEDED',
+          });
+          continue;
+        }
+
+        const before = { budget, taskCosts };
+        const outcome = await digestCandidate(db, {
+          ctx,
+          chat,
+          candidate,
+          folder,
+          topic: row?.topic ?? '',
+          relation: plan.relation,
+          directions,
+          abort,
+          startedAt,
+          budget: before.budget,
+          taskCosts: before.taskCosts,
+        });
+        charged(before, outcome);
+        // 你按了取消、請求被中斷 —— **這一份沒讀完**，留在「還沒讀」，下一次接著讀。
+        if (outcome.interrupted) break;
+        if (outcome.code === null) digested += 1;
+        else digestFailed += 1;
+        // 被限流、金鑰被拒、連不上：接下來每一份都會一樣，這一筆不再讀下去。
+        if (stopsDigesting(outcome.code)) break;
+      }
+    };
+
+    await Promise.all([searchStage(), fetchStage(), digestStage()]);
 
     const now = Date.now();
     research.resetFetching(db, ctx.researchId, now);

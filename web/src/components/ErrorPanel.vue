@@ -40,6 +40,17 @@ function taskName(): string | null {
   const names: Record<string, string> = t.settings.taskNames;
   return names[task] ?? null;
 }
+
+/**
+ * 模型服務自己回的那一句（2026-10-28）。`PROVIDER_REQUEST_REJECTED` 的說明叫人「查看細節中的端點訊息」，
+ * 而這一塊之前根本沒畫出來 —— 試用時 CLI 說「模型不存在」，畫面上一個字都看不到。
+ * **只在模型那一類的錯誤顯示**：其他錯誤的 `detail` 是給識別碼查日誌用的，不是給人讀的。
+ */
+function providerSaid(): string | null {
+  if (!props.error.code.startsWith('PROVIDER_')) return null;
+  const said = detailString('detail')?.trim() ?? '';
+  return said.length > 0 ? said : null;
+}
 </script>
 
 <template>
@@ -50,6 +61,11 @@ function taskName(): string | null {
     <dl v-if="taskName()" class="detail">
       <dt>{{ t.error.task }}</dt>
       <dd>{{ taskName() }} —— {{ t.error.taskWhere }}</dd>
+    </dl>
+
+    <dl v-if="providerSaid()" class="detail">
+      <dt>{{ t.error.providerSaid }}</dt>
+      <dd class="mono">{{ providerSaid() }}</dd>
     </dl>
 
     <dl v-if="detailString('pointerPath') || detailString('dataRoot')" class="detail">

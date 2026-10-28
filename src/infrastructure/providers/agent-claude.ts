@@ -80,6 +80,7 @@ interface ResultEvent {
   readonly total_cost_usd?: unknown;
   readonly is_error?: unknown;
   readonly rate_limit_info?: unknown;
+  readonly errors?: unknown;
 }
 
 export interface RateLimitInfo {
@@ -161,6 +162,10 @@ interface StreamSummary {
   structured: unknown;
   costUsd: number | null;
   isError: boolean;
+  /** `result` 事件的 `subtype`。**失敗的時候它常常還是 `success`**（見 `classifyFailure`）。 */
+  subtype: string | null;
+  /** 失敗時 CLI 自己說的那一句（`result` 的文字，沒有就拿 `errors`）。成功時是 `null`。 */
+  errorText: string | null;
   rateLimit: RateLimitInfo | null;
 }
 
@@ -170,6 +175,8 @@ export function parseStreamJson(lines: readonly string[]): StreamSummary {
     structured: undefined,
     costUsd: null,
     isError: false,
+    subtype: null,
+    errorText: null,
     rateLimit: null,
   };
   for (const line of lines) {
@@ -199,9 +206,63 @@ export function parseStreamJson(lines: readonly string[]): StreamSummary {
     if (typeof event.result === 'string') out.text = event.result;
     if (event.structured_output !== undefined) out.structured = event.structured_output;
     if (typeof event.total_cost_usd === 'number') out.costUsd = event.total_cost_usd;
-    if (event.is_error === true || event.subtype === 'error_max_turns') out.isError = true;
+    out.subtype = typeof event.subtype === 'string' ? event.subtype : null;
+    if (event.is_error === true || out.subtype?.startsWith('error_') === true) {
+      out.isError = true;
+      out.errorText = errorTextOf(event);
+    }
   }
   return out;
+}
+
+function errorTextOf(event: ResultEvent): string | null {
+  if (typeof event.result === 'string' && event.result.trim().length > 0) {
+    return event.result.trim();
+  }
+  if (Array.isArray(event.errors)) {
+    const parts = event.errors.filter((e): e is string => typeof e === 'string' && e.length > 0);
+    if (parts.length > 0) return parts.join('；');
+  }
+  return null;
+}
+
+/** 失敗時交給畫面的細節最多幾個字。CLI 的錯誤訊息一兩句就說完了。 */
+export const FAILURE_DETAIL_CHARS = 300;
+
+/**
+ * CLI 回了 `is_error` 之後，**這次失敗是哪一種**。
+ *
+ * 2026-10-28 之前一律記成 `PROVIDER_BUDGET_EXCEEDED`，連「模型名稱不存在」也是 ——
+ * 而 CLI 自己說的那一句被丟掉，畫面上只剩「這一輪沒有交出可以用的規劃」。
+ * 真樣本（CLI 2.1.116、`--model` 給一個不存在的名字）長這樣：
+ * `subtype: 'success'`、`is_error: true`、`api_error_status: 404`，
+ * `result` 是「There's an issue with the selected model …」。**`subtype` 說成功，`is_error` 說失敗**，
+ * 所以分類不能只看 `subtype`。
+ *
+ * | 情形 | 碼 |
+ * |---|---|
+ * | 撞到 provider 自己的用量限制（`rate_limit_event` 的 `rejected`）| `PROVIDER_BUDGET_EXCEEDED`，細節說哪一種限制、何時重置 |
+ * | `--max-budget-usd` 到了（`error_max_budget_usd`）、回合數到了（`error_max_turns`）| `PROVIDER_BUDGET_EXCEEDED` |
+ * | 其餘（模型不存在、沒登入、執行中出錯…）| `PROVIDER_REQUEST_REJECTED`，**細節就是 CLI 自己那一句** |
+ *
+ * 用量限制不用 `PROVIDER_RATE_LIMITED`：那一碼的說明是「照它說的等過、再試了兩次」，
+ * 這一支沒有重試，借過來就是一句錯話。
+ */
+export function classifyFailure(
+  summary: Pick<StreamSummary, 'subtype' | 'errorText' | 'rateLimit'>,
+  stderr: string,
+): {
+  readonly code: 'PROVIDER_BUDGET_EXCEEDED' | 'PROVIDER_REQUEST_REJECTED';
+  readonly detail: string;
+} {
+  const limited = summary.rateLimit === null ? null : rateLimitDetail(summary.rateLimit);
+  const said = summary.errorText?.slice(0, FAILURE_DETAIL_CHARS) ?? null;
+  const fallback = stderr.trim().slice(0, 200);
+  if (limited !== null) return { code: 'PROVIDER_BUDGET_EXCEEDED', detail: limited };
+  if (summary.subtype === 'error_max_budget_usd' || summary.subtype === 'error_max_turns') {
+    return { code: 'PROVIDER_BUDGET_EXCEEDED', detail: said ?? fallback };
+  }
+  return { code: 'PROVIDER_REQUEST_REJECTED', detail: said ?? fallback };
 }
 
 export interface ClaudeAgentOptions {
@@ -393,14 +454,8 @@ export function createClaudeAgent(options: ClaudeAgentOptions): AgentProvider {
             return;
           }
           if (summary.isError) {
-            settle({
-              kind: 'error',
-              code: 'PROVIDER_BUDGET_EXCEEDED',
-              detail:
-                (summary.rateLimit === null ? null : rateLimitDetail(summary.rateLimit)) ??
-                stderr.slice(0, 200),
-              cost,
-            });
+            const failure = classifyFailure(summary, stderr);
+            settle({ kind: 'error', code: failure.code, detail: failure.detail, cost });
             return;
           }
 

@@ -113,9 +113,9 @@
 | `PROVIDER_NOT_CONFIGURED` | error | 這個角色（`agent`／`chat`／`embed`）沒有設定任何 provider | 到設定頁指定一個 |
 | `PROVIDER_CAPABILITY_MISSING` | error | **這個任務需要某個能力，而目前的 provider 沒有** | 訊息會寫「需要什麼、目前的有什麼」。換一個 provider，或改用不需要那個能力的做法。**工具不會自動換一個能力較弱的**（ADR-0006）|
 | `PROVIDER_UNREACHABLE` | error | 子程序起不來，或 HTTP 端點連不上 | `claude` 不在 PATH 上？Ollama 沒開？訊息會說是哪一種 |
-| `PROVIDER_REQUEST_REJECTED` | error | OpenAI 相容端點已回應，但拒絕請求（其他 HTTP 4xx） | 查看細節中的 HTTP 狀態與遮蔽金鑰後的端點訊息，檢查請求與模型設定；不是連不上。401／403、429、Responses 路由缺失及能力量測保留既有判斷 |
+| `PROVIDER_REQUEST_REJECTED` | error | OpenAI 相容端點已回應，但拒絕請求（其他 HTTP 4xx）；**Claude Code CLI 回 `is_error`、而且不是用量或預算**（例如模型名稱不存在，2026-10-28 起） | 錯誤面板「服務回的原話」那一列是對方自己說的；檢查請求與模型設定，不是連不上。OpenAI 相容端點的 401／403、429、Responses 路由缺失及能力量測保留既有判斷 |
 | `PROVIDER_TIMEOUT` | partial | 單次請求或整個 run 逾時 | **已經寫進去的節點與關聯保留。** 可以再跑一次補剩下的 |
-| `PROVIDER_BUDGET_EXCEEDED` | partial | 超過這次 run 的請求數或成本上限 | **已寫入的保留。** 要繼續就調高上限再跑一次 |
+| `PROVIDER_BUDGET_EXCEEDED` | partial | 超過這次 run 的請求數或成本上限；Claude Code 的 `--max-budget-usd` 或回合數到了，或撞到它自己的用量限制（細節寫哪一種、何時重置）| **已寫入的保留。** 要繼續就調高上限再跑一次；用量限制就等重置 |
 | `PROVIDER_OUTPUT_UNPARSEABLE` | partial | 模型的輸出解析不出來（不是預期的結構）| 那一項略過，其餘照常。反覆發生通常代表這個模型不適合這個任務 |
 | `PROVIDER_QUOTE_NOT_FOUND` | partial | **模型給的引文在原文裡找不到**| 那幾條關聯不寫進去，其餘照常。這不是「解析不出來」—— 那份輸出解析得很成功，它只是在講一句原文沒有講過的話。**一個指不到原文的出處比沒有出處更糟**，因為它看起來已經被驗過了 |
 | `PROVIDER_SANDBOX_VIOLATION` | error | **`agent` 的沙箱目錄裡出現了抓取產物** | 這違反「agent 找到的東西不能自己抓」。run 會停下來。把 `correlation_id` 交出來 |

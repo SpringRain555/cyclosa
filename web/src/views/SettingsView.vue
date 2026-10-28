@@ -525,7 +525,20 @@ function contextText(row: TaskRow): string {
 }
 const testing = ref<{ done: number; total: number } | null>(null);
 const testResults = ref<Partial<Record<ModelTask, string>>>({});
+/** 這一次打開設定頁之後，「儲存並測試」真的跑成功的任務。 */
+const testedOk = ref<Partial<Record<ModelTask, boolean>>>({});
 const testSummary = ref('');
+
+/**
+ * 狀態那一格的字。**Claude Code 那幾列的 `ready` 只代表找得到 CLI**（`probe()` 只跑 `--version`），
+ * 模型名稱與登入要真的呼叫一次才知道 —— 所以沒實測過就照實說。
+ */
+function stateText(row: TaskRow): string {
+  if (row.via === 'cli' && row.state === 'ready' && testedOk.value[row.task] !== true) {
+    return t.settings.cliUntested;
+  }
+  return t.settings.taskState[row.state];
+}
 
 /**
  * 「儲存並測試」：先存這一頁，再對每一個設好的任務**真的打一次**，逐列寫結果。
@@ -534,6 +547,7 @@ const testSummary = ref('');
  */
 async function testAll(): Promise<void> {
   testResults.value = {};
+  testedOk.value = {};
   testSummary.value = '';
   // 測的是存檔那一份 —— 還在打的那一格先存，不然測到的是上一版。最上面那一行會說存了沒。
   await flush();
@@ -563,6 +577,7 @@ async function testAll(): Promise<void> {
           ? ` ${fill(t.settings.testBrowse, { state: browseText(r.data.browse) })}`
           : '';
       testResults.value[task] = `${outcome}${measured}${browse}`;
+      testedOk.value[task] = r.data.ok;
       if (r.data.ok) okCount++;
     }
     testing.value = { done: testing.value.done + 1, total: targets.length };
@@ -796,7 +811,7 @@ function connectionSummary(kind: ConnectionKind): string {
                               :class="['state-dot', dotOf(rowOf(task))]"
                               aria-hidden="true"
                             ></span>
-                            {{ t.settings.taskState[rowOf(task)!.state] }}
+                            {{ stateText(rowOf(task)!) }}
                             <span v-if="rowOf(task)!.version" class="muted">
                               · {{ rowOf(task)!.version }}
                             </span>

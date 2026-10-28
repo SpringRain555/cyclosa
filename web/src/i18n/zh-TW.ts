@@ -352,6 +352,8 @@ export const t = {
      */
     task: '哪一個任務',
     taskWhere: '到設定頁「模型分工」那一列改',
+    /** 模型服務自己回的原話（多半是英文）。照原樣顯示，不翻譯 —— 要拿它去查的人需要原文。 */
+    providerSaid: '服務回的原話',
   },
   itemStatus: {
     pending: '待處理',
@@ -1611,6 +1613,11 @@ export const t = {
       'not-configured': '還沒設定',
       unreachable: '連不上',
     },
+    /**
+     * Claude Code 那幾列打開設定頁時只跑過 `--version`（不花錢），**模型名對不對、登入了沒都還不知道**。
+     * 2026-10-28 試用時模型名不對，這一格照樣寫「可以用」。按「儲存並測試」成功之後才換成「可以用」。
+     */
+    cliUntested: '找得到 CLI，還沒用模型實測',
     /** 模型欄空著的時候的提示。CLI 那一列空著是一個有效的選擇。 */
     modelPick: '選一個',
     modelPickText: '輸入模型名稱',

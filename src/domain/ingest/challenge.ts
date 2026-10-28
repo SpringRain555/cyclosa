@@ -99,13 +99,20 @@ const VENDOR_HEADERS: readonly {
  * | 產品 | 標記 | 依據 |
  * |---|---|---|
  * | Anubis | `id="anubis_version"`、樣式表路徑 `/.within.website/x/xess` | 2026-09-18 實際抓 `dblp.org` 的探針網址，回應是 200 ＋ text/html ＋ 這兩個標記 |
+ * | Google reCAPTCHA 的驗證頁 | 腳本模組名 `boq-recaptcha.RecaptchaChallengePageUi` | 2026-10-27 試用時研究抓 PubMed 的論文頁，兩份都回 200 ＋ text/html、21.4 KB、標題「正在檢查瀏覽器 - reCAPTCHA」，當成正文存了下來（快照 SHA-256 `280afdc6…`、`e49afbac…`），標記在第 8 KB 處 |
  *
- * 兩條都是產品自己的識別字（版本標籤與它自家的靜態資源路徑），
+ * 都是產品自己的識別字（版本標籤、它自家的靜態資源路徑與模組名），
  * 不是「看起來像」的句子。
+ *
+ * **reCAPTCHA 那一條收的是「驗證頁」的模組，不是 reCAPTCHA 本身**：正常的內容頁也會嵌 reCAPTCHA
+ * （同一次試用抓到的 bioRxiv 論文頁載 `recaptcha/api.js`、另一個網站載 `recaptcha/enterprise.js?render=`），
+ * 那些頁面一個都不該被擋。PubMed 那兩頁 21.4 KB，剛好超過第三層的「很小」，也沒有自稱 noindex ——
+ * 第三層看不到它，這一條是唯一認得出它的地方。
  */
 const VENDOR_BODY: readonly { readonly needle: string; readonly vendor: string }[] = [
   { needle: 'id="anubis_version"', vendor: 'anubis' },
   { needle: '/.within.website/x/xess', vendor: 'anubis' },
+  { needle: 'boq-recaptcha.RecaptchaChallengePageUi', vendor: 'recaptcha' },
 ];
 
 /** `<meta name="robots" … content="…noindex…">` —— 驗證頁會自己說別收錄它。 */

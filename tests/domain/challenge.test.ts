@@ -103,6 +103,48 @@ describe('第二層：廠商自己宣告的標頭', () => {
   });
 });
 
+describe('第二層：Google reCAPTCHA 的驗證頁（2026-10-27 試用回饋 3）', () => {
+  /**
+   * PubMed 論文頁回來的那一張：200、text/html、21.4 KB，標記在第 8 KB 處。
+   * 內文只留那一行腳本 —— 前面是 Google 的樣式與設定，跟判斷無關。
+   */
+  const PUBMED_CHALLENGE_HEAD =
+    '<!DOCTYPE html><html lang="zh-TW"><head><title>正在檢查瀏覽器 - reCAPTCHA</title>' +
+    '<script nonce="x" src="https://www.gstatic.com/_/mss/boq-recaptcha/_/js/k=boq-recaptcha.RecaptchaChallengePageUi.zh_TW.x.O/m=_b,_tp"></script>';
+
+  it('認得 PubMed 那一張：就算它比第三層的「很小」大、也沒說 noindex', () => {
+    const verdict = classifyChallenge(
+      facts({
+        expect: 'any',
+        headers: { 'content-type': 'text/html' },
+        contentType: 'text/html',
+        bodySize: 21_404,
+        bodyHead: PUBMED_CHALLENGE_HEAD,
+      }),
+    );
+    expect(21_404).toBeGreaterThan(WEAK_MAX_BYTES);
+    expect(verdict).toEqual({ verdict: 'challenge', basis: 'vendor', vendor: 'recaptcha' });
+  });
+
+  it('正常頁面嵌的 reCAPTCHA 不算 —— bioRxiv 與另一個網站的兩種載法', () => {
+    for (const script of [
+      '<script src="https://www.google.com/recaptcha/api.js?hl=en&amp;render=explicit&amp;onload=drupalRecaptchaOnload"></script>',
+      '<script src="https://www.google.com/recaptcha/enterprise.js?render=SITEKEY"></script>',
+    ]) {
+      const verdict = classifyChallenge(
+        facts({
+          expect: 'any',
+          headers: { 'content-type': 'text/html' },
+          contentType: 'text/html',
+          bodySize: 329_159,
+          bodyHead: `<html><head><title>論文</title>${script}</head><body><article>正文…</article>`,
+        }),
+      );
+      expect(verdict.verdict).toBe('content');
+    }
+  });
+});
+
 describe('不要誤判正常的東西', () => {
   it('API 回 JSON 是正常的', () => {
     const verdict = classifyChallenge(

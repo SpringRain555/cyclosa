@@ -397,6 +397,28 @@ export function markReextracted(
   );
 }
 
+/**
+ * 升級要處理的資料（ADR-0039 第五節）：有正文、而且是用比 `below` 舊的抽取器抽的。
+ * 點註與書目節點沒有快照可以重抽；抽取失敗過的（`extractor_version` 是 NULL）本來就沒有正文。
+ */
+export function listOlderThan(db: DatabaseSync, below: number): readonly string[] {
+  return (
+    db
+      .prepare(
+        `SELECT id FROM item
+         WHERE kind NOT IN ('note', 'reference') AND extractor_version IS NOT NULL
+           AND extractor_version < ?
+         ORDER BY created_at, id`,
+      )
+      .all(below) as { id?: unknown }[]
+  ).map((row) => String(row['id']));
+}
+
+/** 只換版號（升級時，抽取沒改過的那幾種：正文一字不動）。 */
+export function setExtractorVersion(db: DatabaseSync, id: string, version: number): void {
+  db.prepare('UPDATE item SET extractor_version = ? WHERE id = ?').run(version, id);
+}
+
 /** 點註改標題時用。**圖上那個節點的標籤就是它。** */
 export function setTitle(db: DatabaseSync, id: string, title: string, now: number): void {
   db.prepare('UPDATE item SET title = ?, title_rank = ?, updated_at = ? WHERE id = ?').run(

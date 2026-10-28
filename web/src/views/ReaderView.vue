@@ -2,16 +2,16 @@
 /**
  * 閱讀器。**這一頁回答：「這份到底寫了什麼，而我能不能信它」**（ui-workflows）。
  *
- * ## 正文為什麼是純文字段落，不是重構後的 HTML
+ * ## 正文為什麼不是重構後的 HTML
  *
  * 抓回來的 HTML 是**外部輸入**，而這一頁跑在 `127.0.0.1:7433` ——
  * 跟 API 同一個 origin。把它 `v-html` 進來，那份頁面的腳本就能打我們的 API。
  * Readability 會拿掉 `<script>`，但它不是消毒器，也沒有宣稱自己是。
  *
- * 要顯示完整排版得先引一個消毒器（DOMPurify 之類），而那是一個要查授權、
- * 要驗、要維護的新依賴 —— **是一個獨立的決定，不是這一階段順手做的事**。
- * 在那之前：正文顯示純文字段落，而**「看原始快照」給的是完整的原件**
- * （那一條走 `sandbox` ＋ CSP，在瀏覽器層隔離）。
+ * 所以網頁與 PDF 的正文顯示純文字段落，**「看原始快照」給的是完整的原件**
+ * （那一條走 `sandbox` ＋ CSP，在瀏覽器層隔離）。**Markdown 有排版**（v1.1.0，ADR-0039）：
+ * 伺服器解析成「畫面上的字＋結構」，這裡照結構用範本畫（`MarkdownBlocks.vue`）——
+ * 一樣沒有 `v-html`，所以不需要消毒器（`tests/guards/no-v-html.test.ts` 守著整個前端）。
  *
  * ## PDF 有兩種檢視（v0.24.1）
  *
@@ -27,6 +27,7 @@ import { api, type DerivedPayload, type Item, type ItemDetail, type ResolvedNote
 import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from '../components/ErrorPanel.vue';
 import LowConfidenceBadge from '../components/LowConfidenceBadge.vue';
+import MarkdownBlocks from '../components/MarkdownBlocks.vue';
 import NotesPanel from '../components/NotesPanel.vue';
 import PdfPages from '../components/pdf/PdfPages.vue';
 import TranslationSwitch from '../components/TranslationSwitch.vue';
@@ -61,8 +62,6 @@ const hasTranslation = computed(() =>
 const showTranslation = computed(() => translation.translated && hasTranslation.value);
 const derived = ref<DerivedPayload | null>(null);
 const detailError = ref<import('../api').ApiError | null>(null);
-/** 這份正文是舊版抽取器抽的 —— 要說出來，不然使用者以為重排壞了。 */
-const stale = ref(false);
 const loading = ref(false);
 
 function query(cursor?: string): Record<string, string> {
@@ -92,7 +91,6 @@ async function loadDetail(): Promise<void> {
   detail.value = null;
   derived.value = null;
   detailError.value = null;
-  stale.value = false;
   if (id === null) return;
 
   loading.value = true;
@@ -109,7 +107,6 @@ async function loadDetail(): Promise<void> {
   detail.value = meta.data;
   if (content.ok) {
     derived.value = content.data.derived;
-    stale.value = content.data.stale;
   }
 
   // **開起來就是讀過了。** 已讀是正交旗標，不是狀態轉移 —— 它不影響管線。
@@ -180,7 +177,13 @@ const blocks = computed<readonly PageBlock[]>(() => {
   }
   return [{ page: null, text: d.text, paragraphs: splitParagraphs(d.text) }];
 });
-const hasContent = computed(() => blocks.value.some((b) => b.paragraphs.length > 0));
+/** Markdown 照結構畫（ADR-0039）：有 `blocks` 就交給 `MarkdownBlocks`，選取換算照舊（`data-start` 一樣在）。 */
+const markdown = computed(() => derived.value?.blocks ?? null);
+const hasContent = computed(() =>
+  markdown.value !== null
+    ? (derived.value?.text.trim().length ?? 0) > 0
+    : blocks.value.some((b) => b.paragraphs.length > 0),
+);
 function textOfPage(page: number | null): string {
   return blocks.value.find((b) => b.page === page)?.text ?? '';
 }
@@ -325,6 +328,15 @@ interface Segment {
   readonly text: string;
   readonly noteId: string | null;
 }
+
+/** Markdown 那一種的高亮：解得出位置的點註（Markdown 沒有頁）。 */
+const noteSpans = computed(() =>
+  notes.value.flatMap((n) =>
+    (n.hit.kind === 'exact' || n.hit.kind === 'shifted') && n.hit.page === null
+      ? [{ id: n.note.id, start: n.hit.start, end: n.hit.end }]
+      : [],
+  ),
+);
 
 function segmentsOf(para: Para, page: number | null): readonly Segment[] {
   const paraEnd = para.start + para.text.length;
@@ -735,8 +747,6 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
         </template>
 
         <template v-else-if="derived">
-          <!-- 舊版抽取器抽的正文：讀得到，但要說 —— 不然使用者以為重排壞了。 -->
-          <p v-if="stale" class="callout">{{ t.reader.staleDerived }}</p>
           <p v-if="selectionNote" class="callout pending">{{ selectionNote }}</p>
 
           <p v-if="!hasContent" class="muted">{{ t.reader.noContent }}</p>
@@ -745,6 +755,15 @@ async function act(action: 'exclude' | 'restore' | 'retry'): Promise<void> {
             v0.23.0 之前一次一頁、翻頁鈕 —— 而使用者要的是整份往下讀。
             `data-start` 是選取換算的依據（相對於那一頁），`@mouseup` 是它的觸發點。
           -->
+          <!-- Markdown 照結構畫（ADR-0039）：放文字的那一層一樣帶 `data-start`，選取換算不必改。 -->
+          <div v-else-if="markdown !== null" ref="textPane" class="body-text" @mouseup="onSelect">
+            <MarkdownBlocks
+              :text="derived.text"
+              :blocks="markdown"
+              :notes="noteSpans"
+              :located-id="locatedId"
+            />
+          </div>
           <div v-else ref="textPane" class="body-text" @mouseup="onSelect">
             <section
               v-for="block in blocks"

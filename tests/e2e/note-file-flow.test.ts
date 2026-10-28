@@ -97,7 +97,8 @@ describe('筆記檔的真實接收、儲存與關聯', () => {
     });
   });
   it('附件排在一般點註前、讀回原檔名，並拒絕繞過畫面的編輯請求', async () => {
-    const ordinary = await createNote(root, slug, itemId, { body: '手寫點註', start: 2, end: 4 });
+    // 正文是解析過的 Markdown：「來源\n\n合成測試正文。」（ADR-0039），選「合成測試」。
+    const ordinary = await createNote(root, slug, itemId, { body: '手寫點註', start: 4, end: 8 });
     expect(ordinary.ok).toBe(true);
     const file = await attach('# 附件\n保留原文', '原始檔名.md');
     const listed = await listNotesForItem(root, slug, itemId);

@@ -167,6 +167,51 @@ export interface ItemPage {
   nextCursor: string | null;
 }
 
+/**
+ * Markdown 的結構（ADR-0039）。**只有位置，沒有 HTML** —— 跟 `src/domain/text/markdown-blocks.ts` 同一個形狀。
+ * 每個片段是正文的 `[start, end)`。
+ */
+export type MdInline =
+  | { kind: 'strong' | 'em' | 'del' | 'mark' | 'code' | 'html'; start: number; end: number }
+  | { kind: 'link'; start: number; end: number; href: string | null; target: string }
+  | { kind: 'wikilink' | 'embed'; start: number; end: number; target: string }
+  | { kind: 'image'; start: number; end: number; src: string };
+
+export interface MdLeaf {
+  start: number;
+  end: number;
+  inline: MdInline[];
+}
+
+export interface MdListItem {
+  task: boolean;
+  checked: boolean;
+  children: MdBlock[];
+}
+
+export type MdBlock =
+  | ({ kind: 'paragraph' } & MdLeaf)
+  | ({ kind: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6 } & MdLeaf)
+  | { kind: 'frontmatter'; start: number; end: number }
+  | { kind: 'code'; start: number; end: number; lang: string | null }
+  | { kind: 'html'; start: number; end: number }
+  | { kind: 'hr' }
+  | { kind: 'list'; ordered: boolean; first: number | null; items: MdListItem[] }
+  | { kind: 'quote'; children: MdBlock[] }
+  | {
+      kind: 'callout';
+      callout: string;
+      fold: '+' | '-' | null;
+      title: MdLeaf | null;
+      children: MdBlock[];
+    }
+  | {
+      kind: 'table';
+      align: ('left' | 'center' | 'right' | null)[];
+      head: MdLeaf[];
+      rows: MdLeaf[][];
+    };
+
 export interface DerivedPayload {
   extractorVersion: number;
   kind: 'web' | 'pdf' | 'image' | 'text';
@@ -174,6 +219,8 @@ export interface DerivedPayload {
   text: string;
   html: string | null;
   pages: string[] | null;
+  /** Markdown 才有（ADR-0039）；其餘是 `null` */
+  blocks: MdBlock[] | null;
   excerpt: string;
   lowConfidence: boolean;
   reasons: string[];
@@ -941,6 +988,8 @@ export type AnchorHit =
 
 export interface ResolvedNote {
   readonly fileName?: string | null;
+  /** 筆記附件（`selectorJson === '[]'`）解析過的正文（ADR-0039 第七節）；點註沒有 */
+  readonly attachment?: { readonly text: string; readonly blocks: MdBlock[] };
   readonly note: NoteRow;
   readonly hit: AnchorHit;
   readonly quote: string;
@@ -1324,7 +1373,7 @@ export const api = {
   item: (slug: string, itemId: string) =>
     request<ItemDetail>(`/api/cases/${enc(slug)}/items/${enc(itemId)}`),
   itemContent: (slug: string, itemId: string) =>
-    request<{ item: Item; derived: DerivedPayload | null; stale: boolean }>(
+    request<{ item: Item; derived: DerivedPayload | null }>(
       `/api/cases/${enc(slug)}/items/${enc(itemId)}/content`,
     ),
   snapshotUrl: (slug: string, itemId: string) =>

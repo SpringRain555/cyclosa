@@ -14,8 +14,8 @@
  * | 4 | 正文第一行非空的字（去掉開頭的 `#`）| 原本的規則，留作退路 |
  *
  * frontmatter 只認頂層的 `key: value` 純量（引號會拿掉）；清單、多行字串一律不解析 ——
- * 這裡只要一個標題，不是 YAML 解析器。**正文不動**：frontmatter 仍在正文裡，
- * 閱讀器怎麼顯示它是 v1.1.0（Markdown 渲染）的事。
+ * 這裡只要一個標題，不是 YAML 解析器。標題用的是**原文**（含 frontmatter）；v1.1.0 起正文是解析過的
+ * `{ text, blocks }`，frontmatter 成為最上面的「文件屬性」那一塊（`infrastructure/extract/markdown.ts`，ADR-0039）。
  */
 import { looksLikeDefaultName, stripDocumentExtension } from './title.js';
 
@@ -41,6 +41,42 @@ function unquote(value: string): string {
     return v.slice(1, -1).trim();
   }
   return v;
+}
+
+/** frontmatter 在原文裡的位置：兩條 `---` 中間那幾行，與收尾那一行之後（正文）從哪裡開始。 */
+export interface FrontmatterSpan {
+  readonly contentStart: number;
+  readonly contentEnd: number;
+  readonly bodyStart: number;
+}
+
+/**
+ * frontmatter 的位置（v1.1.0 渲染要它，ADR-0039）。規則跟 `splitFrontmatter` 一樣；沒有或沒收尾回 `null`。
+ * 位置是**傳進來那個字串**的位置（BOM、`\r\n` 都照算）。
+ */
+export function frontmatterSpan(text: string): FrontmatterSpan | null {
+  const lines: { readonly start: number; readonly end: number; readonly next: number }[] = [];
+  let at = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  for (;;) {
+    const nl = text.indexOf('\n', at);
+    const end = nl < 0 ? text.length : nl;
+    const lineEnd = end > at && text[end - 1] === '\r' ? end - 1 : end;
+    lines.push({ start: at, end: lineEnd, next: nl < 0 ? text.length : nl + 1 });
+    if (nl < 0) break;
+    at = nl + 1;
+  }
+  const lineText = (i: number): string => {
+    const l = lines[i];
+    return l === undefined ? '' : text.slice(l.start, l.end).trim();
+  };
+  if (lineText(0) !== '---') return null;
+  for (let i = 1; i < lines.length; i++) {
+    if (lineText(i) !== '---' && lineText(i) !== '...') continue;
+    const closing = lines[i] as { readonly start: number; readonly next: number };
+    const first = lines[1] as { readonly start: number };
+    return { contentStart: first.start, contentEnd: closing.start, bodyStart: closing.next };
+  }
+  return null;
 }
 
 /** 切出 YAML frontmatter：第一行是 `---`，到下一個 `---` 或 `...` 為止。沒收尾就當沒有。 */

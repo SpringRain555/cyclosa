@@ -141,6 +141,7 @@ beforeEach(async () => {
     text: '合成來源正文，用於整理抽取與初讀建議。',
     html: null,
     pages: null,
+    blocks: null,
     excerpt: '合成來源正文',
     lowConfidence: false,
     reasons: [],

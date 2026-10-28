@@ -246,6 +246,25 @@ export function allEvidence(db: DatabaseSync): readonly {
  * 引文搬家之後把位置對回去。**只動位置，不動引文本身** —— 引文是寫進去那一刻的事實，
  * 位置是「它現在在正文的哪裡」，而後者會跟著抽取器改版而變（`domain/export/verify.ts`）。
  */
+/**
+ * 引文的字與位置一起換（ADR-0039 第五節）：Markdown 的正文拿掉記號之後，舊引文裡的 `**` 已經不在正文裡了，
+ * 換成新正文的那一段。**只有升級用** —— 一般的重算只動位置（`setEvidenceSpan`）。
+ */
+export function setEvidenceQuote(
+  db: DatabaseSync,
+  id: string,
+  quote: string,
+  start: number,
+  end: number,
+): void {
+  db.prepare('UPDATE edge_evidence SET quote = ?, char_start = ?, char_end = ? WHERE id = ?').run(
+    quote,
+    start,
+    end,
+    id,
+  );
+}
+
 export function setEvidenceSpan(db: DatabaseSync, id: string, start: number, end: number): void {
   db.prepare('UPDATE edge_evidence SET char_start = ?, char_end = ? WHERE id = ?').run(
     start,

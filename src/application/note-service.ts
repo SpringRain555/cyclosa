@@ -40,6 +40,8 @@ import {
   type Selector,
 } from '../domain/annotation/index.js';
 import type { ErrorCode } from '../domain/errors/codes.js';
+import { markdownTitle } from '../domain/ingest/markdown.js';
+import type { MdBlock } from '../domain/text/markdown-blocks.js';
 import {
   openCaseDatabase,
   withTransaction,
@@ -51,6 +53,7 @@ import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as notes from '../infrastructure/db/repositories/note-repo.js';
 import { insertEdge } from '../infrastructure/db/repositories/edge-repo.js';
 import { dropIndexFor, indexText } from '../infrastructure/index/writer.js';
+import { parseMarkdown } from '../infrastructure/extract/markdown.js';
 import { notesDir, readDerived, type DerivedPayload } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId, newId } from '../shared/id.js';
@@ -115,9 +118,33 @@ async function withCase<T>(
 
 // ── 解析 ──────────────────────────────────────────────────
 
+/**
+ * 筆記附件畫面上看到的字（ADR-0039 第七節）：解析過的 Markdown。整份都是記號的話退回原文 ——
+ * 一份附件不該因為解析而變成空白。
+ */
+export function visibleText(body: string): string {
+  const parsed = parseMarkdown(body);
+  return parsed.text.trim().length > 0 ? parsed.text : body;
+}
+
+/** 筆記附件交給閱讀器畫的那一份。**每次讀的時候解析**，不存 —— 附件不大，存一份就多一份要同步的副本。 */
+function renderAttachment(body: string): AttachmentView {
+  const parsed = parseMarkdown(body);
+  return parsed.text.trim().length > 0
+    ? { text: parsed.text, blocks: parsed.blocks }
+    : { text: body, blocks: [{ kind: 'paragraph', start: 0, end: body.length, inline: [] }] };
+}
+
+export interface AttachmentView {
+  readonly text: string;
+  readonly blocks: readonly MdBlock[];
+}
+
 /** 一則點註 ＋ **它現在解到哪裡**。位置是算出來的，不存。 */
 export interface ResolvedNote {
   readonly fileName?: string | null;
+  /** 筆記附件（`selectorJson === '[]'`）解析過的正文；點註是 `undefined` */
+  readonly attachment?: AttachmentView;
   readonly note: notes.NoteRow;
   readonly hit: AnchorHit;
   /** 引文（從選擇器讀出來的，不是重新切的）。清單上要顯示它。 */
@@ -128,7 +155,7 @@ export interface ResolvedNote {
   readonly edgeCount: number;
 }
 
-function targetOf(item: items.ItemRow, derived: DerivedPayload | null) {
+export function targetOf(item: items.ItemRow, derived: DerivedPayload | null) {
   return {
     kind: (derived?.kind ?? (item.kind === 'note' ? 'text' : item.kind)) as
       'web' | 'pdf' | 'image' | 'text',
@@ -172,12 +199,15 @@ export async function resolveNotes(
       }
     }
     const quote = selectors.find((s) => s.type === 'TextQuoteSelector')?.exact ?? '';
+    const attachment = note.selectorJson === '[]' ? renderAttachment(note.body) : undefined;
+    const view = attachment === undefined ? {} : { attachment };
 
     if (note.itemId === null) {
       // 標的那一份被刪掉了。**註記本身還在**（error-codes 的 `NOTE_TARGET_MISSING`）。
       out.push({
         note,
         fileName,
+        ...view,
         hit: NOT_FOUND,
         quote,
         targetTitle: null,
@@ -191,6 +221,7 @@ export async function resolveNotes(
       out.push({
         note,
         fileName,
+        ...view,
         hit: NOT_FOUND,
         quote,
         targetTitle: null,
@@ -219,6 +250,7 @@ export async function resolveNotes(
     out.push({
       note,
       fileName,
+      ...view,
       hit,
       quote,
       targetTitle: item.title,
@@ -315,7 +347,7 @@ function markdownFor(note: notes.NoteRow, quote: string, page: number | null): s
   return lines.join('\n');
 }
 
-async function writeMarkdown(
+export async function writeMarkdown(
   folder: string,
   note: notes.NoteRow,
   quote: string,
@@ -510,7 +542,9 @@ export async function attachNoteFile(
     const item = items.getItem(db, itemId);
     if (item === null) return err('GRAPH_NODE_NOT_FOUND', cid);
     if (item.kind === 'note') return err('NOTE_TARGET_MISSING', cid, { why: 'note-on-note' });
-    const title = /^# (.+)$/m.exec(body)?.[1]?.trim() || fileName.replace(/\.md$/i, '');
+    // 標題規則跟匯入的 Markdown 一樣（frontmatter、一級標題、檔名）；索引與摘要用看得到的字（ADR-0039 第七節）。
+    const title = markdownTitle(body, fileName);
+    const visible = visibleText(body);
     const id = newId();
     const now = Date.now();
     const path = join(notesDir(folder), `${id}.md`);
@@ -535,8 +569,8 @@ export async function attachNoteFile(
           now,
         });
         notes.setMdPath(db, id, path);
-        items.setExcerpt(db, id, body);
-        indexText(db, { ownerKind: 'item', ownerId: id, lang: item.lang, title, text: body });
+        items.setExcerpt(db, id, visible);
+        indexText(db, { ownerKind: 'item', ownerId: id, lang: item.lang, title, text: visible });
         insertEdge(
           db,
           {
@@ -564,6 +598,7 @@ export async function attachNoteFile(
           note: stored,
           hit: { kind: 'exact', start: 0, end: 0, page: null },
           fileName,
+          attachment: renderAttachment(body),
           quote: '',
           targetTitle: item.title,
           edgeCount: 0,

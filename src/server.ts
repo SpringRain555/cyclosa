@@ -14,6 +14,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { MAX_UPLOAD_BYTES } from './domain/ingest/upload.js';
 import { registerParamGuard } from './interface/http/param-guard.js';
+import { registerUpgradeGate } from './interface/http/upgrade-gate.js';
 import { registerRequestGuard } from './interface/http/request-guard.js';
 import { registerRoutes, type AppContext } from './interface/http/routes.js';
 import { pdfjsRoot, registerPdfjsAssets, registerStatic } from './interface/http/static.js';
@@ -65,6 +66,8 @@ export async function buildServer(): Promise<{ app: FastifyInstance; ctx: AppCon
   registerRequestGuard(app);
   // 路徑參數不得帶出資料夾（ADR-0038）—— 同樣掛在所有路由之前。
   registerParamGuard(app);
+  // 舊資料先升級到新格式再進路由（ADR-0039 第五節）—— 每個專題第一次被碰到時做一次。
+  registerUpgradeGate(app, ctx);
 
   /**
    * **拿掉 Fastify 預設的 `text/plain` 解析器。**

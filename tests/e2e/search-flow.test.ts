@@ -99,6 +99,7 @@ async function addDoc(
     text: input.text,
     html: null,
     pages: null,
+    blocks: null,
     excerpt: input.text.slice(0, 60),
     lowConfidence: false,
     reasons: [],

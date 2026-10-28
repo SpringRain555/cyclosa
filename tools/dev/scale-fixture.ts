@@ -286,6 +286,7 @@ export async function writeScaleFixture(
           text: p.text,
           html: null,
           pages: null,
+          blocks: null,
           excerpt: p.excerpt,
           lowConfidence: false,
           reasons: [],

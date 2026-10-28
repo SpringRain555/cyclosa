@@ -423,6 +423,44 @@ export const t = {
     'pdf-no-text-layer': '這份 PDF 沒有文字層（掃描件）',
   },
 
+  /** Markdown 照結構畫（ADR-0039）。這幾句都不在正文裡 —— 是樣式旁邊的說明。 */
+  markdown: {
+    /** frontmatter 那一塊的標籤（Obsidian 叫「屬性」）。 */
+    properties: '文件屬性',
+    /** 圖片的提示：**不載入**，網址寫在這裡、點了另開分頁（ADR-0039 第三節）。 */
+    imageNotLoaded: '圖片不在這裡載入（點了另開分頁看原網址）：{src}',
+    /** 提示框沒寫標題時用類型的名稱。沒列到的類型照原文顯示。 */
+    callouts: {
+      note: '附註',
+      abstract: '摘要',
+      summary: '摘要',
+      tldr: '摘要',
+      info: '資訊',
+      todo: '待辦',
+      tip: '提示',
+      hint: '提示',
+      important: '重要',
+      success: '完成',
+      check: '完成',
+      done: '完成',
+      question: '問題',
+      help: '問題',
+      faq: '問題',
+      warning: '注意',
+      caution: '注意',
+      attention: '注意',
+      failure: '失敗',
+      fail: '失敗',
+      missing: '缺漏',
+      danger: '危險',
+      error: '錯誤',
+      bug: '錯誤',
+      example: '範例',
+      quote: '引用',
+      cite: '引用',
+    },
+  },
+
   reader: {
     tab: '閱讀器',
     listTitle: '這個專題裡的資料',
@@ -454,9 +492,6 @@ export const t = {
     page: '第 {n} 頁',
     /** 跨頁的選取做不成點註：錨點是「頁碼＋頁內區間」，一則點註只能在一頁上。 */
     crossPage: '選取跨了兩頁，點註一次只能在一頁上 —— 請在同一頁裡選。',
-    /** 抽取器升版之後、按「重算全部正文」之前，舊版的產物還讀得到，但要說出來。 */
-    staleDerived:
-      '這一份的正文是舊版抽取器抽的（PDF 每一行都硬斷）。到「匯入與研究」按「重算全部正文」會重排成段落。',
     openSnapshot: '看原始快照',
     original: '原文',
     translated: '繁體中文',
@@ -489,8 +524,7 @@ export const t = {
     layoutLoading: '正在畫這份 PDF…',
     layoutFailed: '這份 PDF 畫不出來（{reason}）。改用「文字」檢視，或按「看原始快照」。',
     /** 選取換算不回正文的位置（`layer-map.ts` 回 not-found）。**不猜一個位置存下去。** */
-    layoutUnmatched:
-      '選到的這一段在正文裡對不到位置，沒辦法存成點註 —— 改在「文字」檢視裡選。這一份若標著舊版抽取器，先到「匯入與研究」按「重算全部正文」。',
+    layoutUnmatched: '選到的這一段在正文裡對不到位置，沒辦法存成點註 —— 改在「文字」檢視裡選。',
     layoutNoText:
       '這份 PDF 沒有文字層（多半是掃描件）：看得到版面，但選不了字，也就做不成點註。不是工具壞了。',
     layoutPage: '第 {n} / {total} 頁',
@@ -802,6 +836,22 @@ export const t = {
     noticeTitle: '專題升級通知',
     noticeDismiss: '知道了',
     noticeUnknown: '這個專題有一則升級通知；目前無法顯示詳細內容。',
+    /**
+     * 正文升級（ADR-0039 第五節）：v1.1.0 起 Markdown 照結構顯示，舊資料由 App 自己換成新格式。
+     * 下面幾句照有沒有那件事接在後面；數字是 0 的那一句不顯示。
+     */
+    noticeUpgrade: 'Markdown 改成照結構顯示，這個專題的資料已換成新格式。',
+    noticeUpgradeChanged: '{changed} 份的正文重抽了（記號拿掉、照結構顯示）。',
+    /** 只對原本有向量、正文變了而作廢的那幾份說 —— 沒有語意索引的專題不該被叫去按。 */
+    noticeUpgradeVectors:
+      '其中 {n} 份原本有語意索引，正文變了所以作廢：到搜尋面板按一次「建立語意索引」重建（要先在「設定」選好嵌入模型）。',
+    noticeUpgradeRewritten:
+      '{evidence} 條關聯引文與 {notes} 則點註原本帶著 Markdown 記號，已換成拿掉記號之後的字。',
+    noticeUpgradeUnresolved:
+      '{evidence} 條關聯引文與 {notes} 則點註在新的正文裡對不上 —— 都留著，閱讀器與匯出會標出來。',
+    noticeUpgradeAttachments: '{n} 份筆記附件的標題與索引已換成新的規則。',
+    noticeUpgradeFailed:
+      '{n} 份重抽不了（快照不見或抽不出正文），現在沒有正文；原始快照若還在可以直接看。',
     noticeCleanup:
       '已清除 {deletedRuns} 筆舊擴展作業、{deletedItems} 份資料與 {deletedEdges} 條關聯。留下 {keptItems} 份資料與 {keptEdges} 條人建立或裁決過的關聯：讀過 {read} 份、點註過 {annotated} 份、排除過 {excluded} 份；另外 {referenced} 份仍是留下的關聯的出處或端點。其中 {otherRuns} 份是別的作業還在用。原因可能重疊，不能直接相加。手動抽取保留，快照不動。',
     tab: '匯入與研究',

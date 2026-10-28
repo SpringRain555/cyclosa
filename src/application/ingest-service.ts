@@ -35,7 +35,9 @@ import { decodeHtml, decodeText } from '../infrastructure/extract/decode.js';
 import { extractHtml } from '../infrastructure/extract/html.js';
 import { imageDimensions } from '../infrastructure/extract/image.js';
 import { detectLanguage } from '../infrastructure/extract/language.js';
+import { parseMarkdown } from '../infrastructure/extract/markdown.js';
 import { extractPdf } from '../infrastructure/extract/pdf.js';
+import { prose } from '../domain/text/markdown-blocks.js';
 import { Crawler } from '../infrastructure/fetch/crawler.js';
 import {
   EXTRACTOR_VERSION,
@@ -492,7 +494,7 @@ export async function ingestBytes(
         };
   await writeDerived(folder, input.itemId, payload);
 
-  const lang = detectLanguage(payload.text);
+  const lang = languageOf(payload);
   items.markParsed(db, {
     id: input.itemId,
     title: payload.title,
@@ -543,6 +545,13 @@ export type ExtractOutcome =
       readonly payload: DerivedPayload;
       readonly notice: ErrorCode | null;
       readonly image?: { readonly width: number; readonly height: number } | undefined;
+      /**
+       * **只有 Markdown 有**：正文第 i 個字在原文（解碼後去頭尾空白的那一份，也就是 v2 存的正文）的位置。
+       * 不存檔 —— 升級時把舊正文上的引文與點註換到新正文用（ADR-0039 第五節）。
+       */
+      readonly sourceMap?: Int32Array | undefined;
+      /** `sourceMap` 指的那一份原文。升級時拿它跟舊正文比 —— 一字不差才用對照表 */
+      readonly source?: string | undefined;
     }
   | { readonly kind: 'failed'; readonly code: ErrorCode };
 
@@ -578,6 +587,7 @@ export async function extract(
         text: result.text,
         html: result.html,
         pages: null,
+        blocks: null,
         excerpt: result.excerpt.slice(0, 400),
         lowConfidence: result.verdict.lowConfidence,
         reasons: result.verdict.reasons,
@@ -605,6 +615,7 @@ export async function extract(
         text,
         html: null,
         pages: result.pages,
+        blocks: null,
         excerpt: text.slice(0, 400),
         lowConfidence: result.noTextLayer,
         reasons: result.noTextLayer ? ['pdf-no-text-layer'] : [],
@@ -625,6 +636,7 @@ export async function extract(
         text: '',
         html: null,
         pages: null,
+        blocks: null,
         excerpt: '',
         // 圖片沒有正文，所以「抽取信心」對它沒有意義 —— **不要標低信心**，
         // 那會讓標記在圖片上變成雜訊。
@@ -636,31 +648,57 @@ export async function extract(
 
   const decoded = decodeText(bytes, charsetOf(contentType));
   if (decoded.kind !== 'ok') return { kind: 'failed', code: 'PARSE_ENCODING' };
-  const text = decoded.text.trim();
-  if (text.length === 0) return { kind: 'failed', code: 'PARSE_EMPTY_CONTENT' };
+  const source = decoded.text.trim();
+  if (source.length === 0) return { kind: 'failed', code: 'PARSE_EMPTY_CONTENT' };
 
-  // **Markdown 另有一條標題規則**（frontmatter、一級標題、檔名 —— `domain/ingest/markdown.ts`）：
-  // Obsidian 的筆記以 `---` 開頭，原本的「第一行」讓它們全叫「---」（2026-10-28 試用回饋 4）。
-  // 正文沒變，所以**不升 `EXTRACTOR_VERSION`**（同 PDF 標題那一次）。
   const fileName = fileNameOf(url);
-  const firstLine = (text.split('\n')[0] ?? '').replace(/^#+\s*/, '').trim();
+  if (isMarkdown(contentType, fileName)) {
+    // **Markdown 解析成畫面上看到的字＋結構**（v1.1.0，ADR-0039）。標題規則（frontmatter、一級標題、檔名 ——
+    // `domain/ingest/markdown.ts`，2026-10-28 試用回饋 4）看的是原文。
+    const parsed = parseMarkdown(source);
+    if (parsed.text.trim().length === 0) return { kind: 'failed', code: 'PARSE_EMPTY_CONTENT' };
+    return {
+      kind: 'ok',
+      notice: null,
+      sourceMap: parsed.map,
+      source,
+      payload: {
+        extractorVersion: EXTRACTOR_VERSION,
+        kind: 'text',
+        title: markdownTitle(source, fileName),
+        text: parsed.text,
+        html: null,
+        pages: null,
+        blocks: parsed.blocks,
+        excerpt: prose(parsed.text, parsed.blocks).slice(0, 400),
+        lowConfidence: false,
+        reasons: [],
+      },
+    };
+  }
+
+  const firstLine = (source.split('\n')[0] ?? '').replace(/^#+\s*/, '').trim();
   return {
     kind: 'ok',
     notice: null,
     payload: {
       extractorVersion: EXTRACTOR_VERSION,
       kind: 'text',
-      title: isMarkdown(contentType, fileName)
-        ? markdownTitle(text, fileName)
-        : firstLine.slice(0, 120) || fileName,
-      text,
+      title: firstLine.slice(0, 120) || fileName,
+      text: source,
       html: null,
       pages: null,
-      excerpt: text.slice(0, 400),
+      blocks: null,
+      excerpt: source.slice(0, 400),
       lowConfidence: false,
       reasons: [],
     },
   };
+}
+
+/** 語言偵測看哪一段字：Markdown 跳過文件屬性（ADR-0039 第一節），其餘整份。 */
+export function languageOf(payload: DerivedPayload): string {
+  return detectLanguage(prose(payload.text, payload.blocks));
 }
 
 function fileNameOf(urlOrName: string): string {

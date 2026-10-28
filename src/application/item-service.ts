@@ -12,12 +12,7 @@ import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
 import { dropIndexFor } from '../infrastructure/index/writer.js';
-import {
-  isStaleDerived,
-  readDerived,
-  readSnapshot,
-  type DerivedPayload,
-} from '../infrastructure/fs/case-files.js';
+import { readDerived, readSnapshot, type DerivedPayload } from '../infrastructure/fs/case-files.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
@@ -136,11 +131,12 @@ export async function getItem(
 export interface ItemContent {
   readonly item: items.ItemRow;
   readonly derived: DerivedPayload | null;
-  /** 這份正文是舊版抽取器抽的 —— 按「重算全部正文」才會換成新的。閱讀器要說出來。 */
-  readonly stale: boolean;
 }
 
-/** 閱讀器的正文。**`derived/` 不見了不是災難** —— 重抽就有了，快照還在。 */
+/**
+ * 閱讀器的正文。**`derived/` 不見了不是災難** —— 重抽就有了，快照還在。
+ * 沒有「這份是舊版抽的」：抽取器升版之後，專題第一次被打開時就整個升級了（ADR-0039 第五節）。
+ */
 export async function getItemContent(
   dataRoot: string,
   slug: string,
@@ -150,10 +146,7 @@ export async function getItemContent(
     const cid = correlationId();
     const row = items.getItem(db, itemId);
     if (row === null) return err('GRAPH_NODE_NOT_FOUND', cid, { itemId });
-    const derived = await readDerived(folder, itemId);
-    // 只對「那一版之後這一種資料真的改過」的才說舊版（`EXTRACTOR_CHANGES`）——
-    // v2 只改了 PDF，網頁也標舊版的話只會叫人去按一顆沒有用的按鈕。
-    return ok({ item: row, derived, stale: derived !== null && isStaleDerived(derived) }, cid);
+    return ok({ item: row, derived: await readDerived(folder, itemId) }, cid);
   });
 }
 

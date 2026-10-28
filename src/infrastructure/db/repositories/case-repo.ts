@@ -5,6 +5,7 @@
  * 不要讓 `title_rank`、`read_at` 這種名字漏進 domain（glossary）。
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { EXTRACTOR_VERSION } from '../../fs/case-files.js';
 import type { CaseStatus } from '../../../domain/case/state.js';
 
 export interface CaseRow {
@@ -47,10 +48,22 @@ export function insertCase(
   db: DatabaseSync,
   input: { readonly name: string; readonly seed: string | null; readonly now: number },
 ): void {
+  // 新專題沒有舊資料：一建好就是現行版，不必升級（ADR-0039 第五節）。
   db.prepare(
-    `INSERT INTO "case" (id, name, seed, status, created_at, updated_at)
-     VALUES ('self', ?, ?, 'new', ?, ?)`,
-  ).run(input.name, input.seed, input.now, input.now);
+    `INSERT INTO "case" (id, name, seed, status, created_at, updated_at, derived_version)
+     VALUES ('self', ?, ?, 'new', ?, ?, ?)`,
+  ).run(input.name, input.seed, input.now, input.now, EXTRACTOR_VERSION);
+}
+
+/** 正文上一次升級做到第幾版抽取器（schema v16，ADR-0039）。0 ＝ 還沒做過。 */
+export function readDerivedVersion(db: DatabaseSync): number {
+  const row = db.prepare('SELECT derived_version FROM "case" WHERE id = ?').get('self') as
+    { derived_version?: unknown } | undefined;
+  return Number(row?.derived_version ?? 0);
+}
+
+export function setDerivedVersion(db: DatabaseSync, version: number): void {
+  db.prepare('UPDATE "case" SET derived_version = ? WHERE id = ?').run(version, 'self');
 }
 
 export function updateCaseStatus(db: DatabaseSync, status: CaseStatus, now: number): void {

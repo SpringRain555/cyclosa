@@ -32,7 +32,6 @@ import { join } from 'node:path';
 import { openCaseDatabase, type DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
-import { detectLanguage } from '../infrastructure/extract/language.js';
 import {
   clearDerived,
   readDerived,
@@ -43,11 +42,11 @@ import {
 import * as edges from '../infrastructure/db/repositories/edge-repo.js';
 import { checkQuote } from '../domain/export/verify.js';
 import { dropVectorsFor } from '../infrastructure/db/repositories/vector-repo.js';
-import { indexText } from '../infrastructure/index/writer.js';
+import { indexText, reindexTitleRank } from '../infrastructure/index/writer.js';
 import { backupsDir, casesDir } from '../infrastructure/fs/paths.js';
 import { correlationId } from '../shared/id.js';
 import { err, ok, type Result } from '../shared/result.js';
-import { extract } from './ingest-service.js';
+import { extract, languageOf } from './ingest-service.js';
 import { reresolveAll } from './note-service.js';
 
 const CASE_DB_FILE = 'case.sqlite';
@@ -187,7 +186,7 @@ export async function rebuildDerived(
       const payload: DerivedPayload = outcome.payload;
       await writeDerived(folder, id, payload);
 
-      const lang = detectLanguage(payload.text);
+      const lang = languageOf(payload);
       // **不是 `markParsed`。** 那一支會把 `status` 設回 `included`，
       // 而使用者排除掉的那幾份必須維持排除。
       items.markReextracted(db, {
@@ -225,6 +224,9 @@ export async function rebuildDerived(
       dropVectorsFor(db, 'item', id);
       reextracted++;
     }
+
+    // 標題可能換了（PDF 的檔名規則、Markdown 的標題規則），標題的排序名次跟著重排。
+    if (reextracted > 0) reindexTitleRank(db);
 
     // **重算完立刻重解錨點。** 分成兩顆按鈕的話，中間那段時間裡
     // `anchor_ok` 說的是上一次的事 —— 而那一欄的用途正是「現在對不對得上」。

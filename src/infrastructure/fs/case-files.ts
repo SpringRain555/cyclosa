@@ -13,6 +13,8 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import type { MdBlock } from '../../domain/text/markdown-blocks.js';
+
 /**
  * 抽取器版本。**改了抽取邏輯就要 +1** ——
  * `derived/` 的檔名帶著它，所以舊的產物不會被誤認成新的。
@@ -21,27 +23,28 @@ import { join } from 'node:path';
  * |---|---|
  * | 1 | 第一版 |
  * | 2 | PDF 重排成段落（`extract/pdf-reflow.ts`，v0.24.0）。HTML 與圖片沒變 |
+ * | 3 | Markdown 解析成 `{ text, blocks }`（`extract/markdown.ts`，v1.1.0，ADR-0039）。`.txt` 抽出來一字不差 |
  *
- * **升版不會讓舊產物立刻消失**：`readDerived` 找不到現在這一版就退回去讀最近的舊版
- * （payload 自己帶 `extractorVersion`，閱讀器會標「這份是舊版抽的」），
- * 按「重算全部正文」才整批換成新的。不然升級之後每一份資料都變成「沒有正文」。
+ * **升版之後舊產物由 App 升級，不留著讀**（ADR-0039 第五節）：第一次碰到一個專題時
+ * （`application/case-upgrade.ts`），改過的種類從快照重抽、沒改過的換成新版號；`readDerived` 只讀現行版。
  */
-export const EXTRACTOR_VERSION = 2;
+export const EXTRACTOR_VERSION = 3;
 
 /**
- * 每一版**改了哪幾種資料**的抽取。閱讀器只對真的變了的那幾種說「這份是舊版抽的」——
- * 網頁在 v2 沒變，把它也標成舊版只會叫人去按一顆沒有用的按鈕。
+ * 每一版**改了哪幾種資料**的抽取。升級時只重抽真的改過的那幾種 —— 網頁在 v2、v3 都沒變，
+ * 重抽它只是白花時間（Readability 的結果萬一跟當年差一個空白，點註就得重解一次）。
  *
  * **升 `EXTRACTOR_VERSION` 就要在這裡加一列**（`tests/guards/extractor-version.test.ts` 守著）。
  */
 export const EXTRACTOR_CHANGES: Readonly<Record<number, readonly DerivedPayload['kind'][]>> = {
   2: ['pdf'],
+  3: ['text'],
 };
 
-/** 這一份正文是不是舊版抽的，**而且那一版之後這一種資料的抽取真的改過**。 */
-export function isStaleDerived(payload: DerivedPayload): boolean {
-  for (let version = payload.extractorVersion + 1; version <= EXTRACTOR_VERSION; version++) {
-    if (EXTRACTOR_CHANGES[version]?.includes(payload.kind) === true) return true;
+/** 用 `fromVersion` 抽的這一種資料，**那一版之後的抽取有沒有改過**（有就要從快照重抽）。 */
+export function changedSince(kind: DerivedPayload['kind'], fromVersion: number): boolean {
+  for (let version = fromVersion + 1; version <= EXTRACTOR_VERSION; version++) {
+    if (EXTRACTOR_CHANGES[version]?.includes(kind) === true) return true;
   }
   return false;
 }
@@ -146,6 +149,11 @@ export interface DerivedPayload {
   readonly html: string | null;
   /** **PDF 專用**：每一頁的文字。頁碼是 1-based，`pages[0]` 是第 1 頁。 */
   readonly pages: readonly string[] | null;
+  /**
+   * **Markdown 專用**：結構與位置（ADR-0039），其餘種類是 `null`。必填 —— 升級時沒改過的種類換版號也補上 `null`，
+   * 所以讀到的每一份都有這一欄。
+   */
+  readonly blocks: readonly MdBlock[] | null;
   readonly excerpt: string;
   readonly lowConfidence: boolean;
   readonly reasons: readonly string[];
@@ -172,31 +180,35 @@ export async function writeDerived(
 }
 
 /**
- * 讀衍生物。**現在這一版沒有就退回讀最近的舊版** —— 抽取器升版之後、按「重算全部正文」之前，
- * 每一份資料都還是舊版抽的，而那時候讀不到正文比讀到舊版正文糟得多。
- * payload 自己帶 `extractorVersion`，呼叫端要分得出來就看那一欄。
+ * 讀衍生物。**只讀現行版**（ADR-0039 第五節）：舊版的由升級換掉（`application/case-upgrade.ts`），
+ * 不留「找不到新版就退回舊版」的路 —— 那條路讓同一個專題半新半舊，而且每一個讀的人都得記得分辨。
  */
 export async function readDerived(
   caseFolder: string,
   itemId: string,
 ): Promise<DerivedPayload | null> {
-  for (let version = EXTRACTOR_VERSION; version >= 1; version--) {
-    try {
-      const raw = await readFile(derivedPath(caseFolder, itemId, version), 'utf8');
-      return JSON.parse(raw) as DerivedPayload;
-    } catch {
-      // 這一版沒有 —— 試上一版。
-    }
+  return readDerivedAt(caseFolder, itemId, EXTRACTOR_VERSION);
+}
+
+/** 讀某一版的衍生物。**只給升級用**：它要讀舊版的正文，才能把引文與點註換到新正文上。 */
+export async function readDerivedAt(
+  caseFolder: string,
+  itemId: string,
+  version: number,
+): Promise<DerivedPayload | null> {
+  try {
+    const raw = await readFile(derivedPath(caseFolder, itemId, version), 'utf8');
+    return JSON.parse(raw) as DerivedPayload;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
  * 刪掉一份資料的衍生物，**每一版都刪**。
  *
- * 只刪現在這一版的話，抽取器升版之前留下的舊檔會變成沒有列指向它的孤兒 ——
- * 而 `readDerived` 找不到新版會退回去讀它。2026-09-19 升到 v2 的當下，
- * 一條「正文檔案不在」的測試就這樣變成了「命中」。
+ * 只刪現在這一版的話，抽取器升版之前留下的舊檔會變成沒有列指向它的孤兒
+ * （2026-09-19 升到 v2 的當下，那時的 `readDerived` 還會退回讀舊版，一條「正文檔案不在」的測試就這樣變成了「命中」）。
  */
 export async function removeDerived(caseFolder: string, itemId: string): Promise<void> {
   for (let version = EXTRACTOR_VERSION; version >= 1; version--) {

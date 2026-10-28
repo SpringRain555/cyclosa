@@ -20,6 +20,7 @@ import { api, type ApiError, type ResolvedNote } from '../api';
 import { fill, t } from '../i18n/zh-TW';
 import ErrorPanel from './ErrorPanel.vue';
 import AttachNoteFile from './AttachNoteFile.vue';
+import MarkdownBlocks from './MarkdownBlocks.vue';
 
 const props = defineProps<{
   slug: string;
@@ -223,7 +224,11 @@ const unresolvedCount = computed(
           {{ fill(t.notes.fileLabel, { name: n.fileName ?? t.notes.unknownFile }) }}
         </p>
         <blockquote v-if="n.quote" class="quote">{{ n.quote }}</blockquote>
-        <p v-if="n.note.body" class="body">{{ n.note.body }}</p>
+        <!-- 筆記附件照結構畫（ADR-0039 第七節）；點註的正文是使用者打的字，照原樣。 -->
+        <div v-if="n.attachment" class="body attachment">
+          <MarkdownBlocks :text="n.attachment.text" :blocks="n.attachment.blocks" />
+        </div>
+        <p v-else-if="n.note.body" class="body">{{ n.note.body }}</p>
 
         <p class="anchor" :class="n.hit.kind">
           <!-- 記號在顏色之外：對得上是實心點，移動過是箭頭，找不到是打叉。 -->
@@ -371,6 +376,10 @@ const unresolvedCount = computed(
   font-size: var(--fs-small);
   line-height: 1.6;
   white-space: pre-wrap;
+}
+/* 附件照結構畫：段落裡的換行由 MarkdownBlocks 自己處理。 */
+.body.attachment {
+  white-space: normal;
 }
 
 .anchor {

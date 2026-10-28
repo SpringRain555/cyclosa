@@ -13,6 +13,7 @@ import {
   EXTRACTOR_VERSION,
   appendManifest,
   readDerived,
+  readDerivedAt,
   removeDerived,
   sha256Of,
   writeDerived,
@@ -67,22 +68,23 @@ describe('快照不可變', () => {
 
 describe('衍生物可以整批重算', () => {
   /**
-   * **抽取器升版之後、按「重算全部正文」之前，舊版的產物還讀得到。**
-   * 沒有這一條的話，升級的下一秒每一份資料都變成「沒有正文」—— 而快照明明還在。
+   * **只讀現行版**（ADR-0039 第五節，v1.1.0）：舊版的由升級換掉（`application/case-upgrade.ts`），
+   * 不再「找不到新版就退回讀舊版」—— 那條路讓同一個專題半新半舊。舊版只有升級讀得到（`readDerivedAt`）。
    */
-  it('現在這一版沒有就退回讀舊版；兩版都在就讀新的', async () => {
+  it('只讀現行版；舊版只給升級讀；刪就每一版都刪', async () => {
     const base = {
       kind: 'text' as const,
       title: '標題',
       html: null,
       pages: null,
+      blocks: null,
       excerpt: '',
       lowConfidence: false,
       reasons: [] as string[],
     };
     await writeDerived(dir, 'item-2', { ...base, extractorVersion: 1, text: '舊版抽的' });
-    expect((await readDerived(dir, 'item-2'))?.text).toBe('舊版抽的');
-    expect((await readDerived(dir, 'item-2'))?.extractorVersion).toBe(1);
+    expect(await readDerived(dir, 'item-2')).toBeNull();
+    expect((await readDerivedAt(dir, 'item-2', 1))?.text).toBe('舊版抽的');
 
     await writeDerived(dir, 'item-2', {
       ...base,
@@ -91,21 +93,22 @@ describe('衍生物可以整批重算', () => {
     });
     expect((await readDerived(dir, 'item-2'))?.text).toBe('新版抽的');
 
-    // **刪就每一版都刪。** 只刪現在這一版的話，讀取會退回去讀舊版 ——
-    // 「正文不在」變成「讀到一份舊的」，而那一份沒有任何列指向它。
+    // **刪就每一版都刪** —— 沒有列指向的舊檔不該留著。
     await removeDerived(dir, 'item-2');
     expect(await readDerived(dir, 'item-2')).toBeNull();
+    expect(await readDerivedAt(dir, 'item-2', 1)).toBeNull();
   });
 
   it('寫得進、讀得回、刪得掉，而且刪它不會動到快照', async () => {
     const snapshot = await writeSnapshot(dir, new TextEncoder().encode('原始'), 'txt');
     await writeDerived(dir, 'item-1', {
-      extractorVersion: 1,
+      extractorVersion: EXTRACTOR_VERSION,
       kind: 'text',
       title: '標題',
       text: '正文',
       html: null,
       pages: null,
+      blocks: null,
       excerpt: '正文',
       lowConfidence: false,
       reasons: [],

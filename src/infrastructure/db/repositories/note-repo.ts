@@ -155,6 +155,25 @@ export function setAnchorOk(db: DatabaseSync, id: string, ok: boolean, now: numb
   db.prepare('UPDATE note SET anchor_ok = ?, updated_at = ? WHERE id = ?').run(ok ? 1 : 0, now, id);
 }
 
+/**
+ * 換一則點註的選擇器（ADR-0039 第五節的升級：Markdown 拿掉記號之後，引文與前後文換成新正文的字）。
+ * 一般的重算不呼叫它 —— 那時候選擇器不動，只重解。
+ */
+export function setSelectors(
+  db: DatabaseSync,
+  id: string,
+  selectorJson: string,
+  ok: boolean,
+  now: number,
+): void {
+  db.prepare('UPDATE note SET selector_json = ?, anchor_ok = ?, updated_at = ? WHERE id = ?').run(
+    selectorJson,
+    ok ? 1 : 0,
+    now,
+    id,
+  );
+}
+
 export function setMdPath(db: DatabaseSync, id: string, path: string | null): void {
   db.prepare('UPDATE note SET md_path = ? WHERE id = ?').run(path, id);
 }

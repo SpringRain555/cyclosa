@@ -113,9 +113,15 @@ export function replaceVectors(
   return written;
 }
 
-/** 一個節點的向量全部刪掉。**節點被刪或正文沒了的時候用。** */
-export function dropVectorsFor(db: DatabaseSync, ownerKind: OwnerKind, ownerId: string): void {
-  db.prepare('DELETE FROM vector WHERE owner_kind = ? AND owner_id = ?').run(ownerKind, ownerId);
+/**
+ * 一個節點的向量全部刪掉。**節點被刪或正文沒了的時候用。** 回刪了幾列 ——
+ * 升級的通知要說得出「幾份原本有語意索引、現在要重建」，沒有的不該被叫去按（ADR-0039 第五節）。
+ */
+export function dropVectorsFor(db: DatabaseSync, ownerKind: OwnerKind, ownerId: string): number {
+  return Number(
+    db.prepare('DELETE FROM vector WHERE owner_kind = ? AND owner_id = ?').run(ownerKind, ownerId)
+      .changes,
+  );
 }
 
 /** 這個模型有幾條向量、涵蓋幾個節點。**畫面上要說得出「建到哪了」。** */

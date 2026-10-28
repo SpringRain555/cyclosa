@@ -114,6 +114,7 @@ async function writeText(id: string, title: string, text: string): Promise<void>
     text,
     html: null,
     pages: null,
+    blocks: null,
     excerpt: text.slice(0, 100),
     lowConfidence: false,
     reasons: [],

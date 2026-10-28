@@ -73,6 +73,11 @@
 > pdf.js 資料檔（`cmaps`／`standard_fonts`／`wasm`／`iccs` 四個資料夾，從裝好的 `pdfjs-dist` 直接給，
 > 檔名只准英數與 `._-`）。它不是 API，所以不回信封；不在那四個資料夾裡就是 404。
 >
+> **v1.1.0 沒有新端點**（ADR-0039）。三件形狀的事：`GET …/items/:itemId/content` 的 `derived` 多一欄 **`blocks`**
+> （Markdown 的結構，其餘種類是 `null`）、**`stale` 那一欄拿掉**；筆記附件的 `ResolvedNote` 多一欄 **`attachment`**
+> （`{ text, blocks }`，解析過的全文）；**帶 `:slug` 的每一個請求進路由之前，先把那個專題的舊資料升到新格式**
+> （`interface/http/upgrade-gate.ts`，同一個程序裡每個專題只做一次），結果寫一則 `case_notice`（`kind: 'derived-upgrade'`）。
+>
 > **路徑用專題的 slug 當 `:id`** —— 一個專題就是一個資料夾，而資料夾名就是 slug。
 
 ---
@@ -378,7 +383,7 @@
 |---|---|
 | `GET /api/cases/:id/items` | cursor 分頁 ＋ 篩選 |
 | `GET /api/cases/:id/items/:itemId` | 含抽取信心、來源 URL、語言；`item` 另帶 `titleZh: string \| null`、`summaryZh: string \| null`、`digestedBy: string \| null`、`digestedAt: number \| null`（Unix 毫秒），未初讀四欄都是 `null`，原文欄位不變。v0.25.0 多一欄 `candidacy`：這一份是**哪一次還沒結束的研究**的候選（閱讀器那一行「候選 · 還沒確認」，ADR-0033 D8）|
-| `GET …/items/:itemId/content` | **重構後的正文**（`derived/`）。v0.24.0 起多一欄 `stale`：這份是舊版抽取器抽的，**而且那一版之後這一種資料的抽取真的改過**（`EXTRACTOR_CHANGES`）—— 閱讀器據此說一句「按重算全部正文會換成新的」 |
+| `GET …/items/:itemId/content` | **重構後的正文**（`derived/`，只讀現行版）。v1.1.0 起 `derived.blocks` 是 Markdown 的結構（ADR-0039，其餘種類 `null`）；v0.24.0 加的 `stale` 那一欄 **v1.1.0 拿掉** —— 舊資料由升級換成新格式，不再有「舊版抽的正文」 |
 | `GET …/items/:itemId/snapshot` | **原始快照位元組**（`sources/`，不可變）。v0.24.1 起閱讀器的版面檢視也讀它：pdf.js 整份拿（不分段），在瀏覽器裡畫 |
 | `GET …/subgraph/focus` | 打開關聯圖時的起點。**回一個焦點，不回一張圖** |
 | `POST …/items/:itemId/read` | 標記已讀。**正交旗標，不是狀態轉移** |
@@ -531,14 +536,14 @@
 
 - `Content-Type: application/octet-stream`；body 為單一檔案的位元組。
 - `x-file-name` 為 URI 編碼的檔名，只收 `.md`（不分大小寫），拒絕路徑及控制字元。
-- UTF-8 必須有效；可含開頭 BOM，解碼時移除。內文其餘部分原樣保留，不渲染 Markdown。
+- UTF-8 必須有效；可含開頭 BOM，解碼時移除。內文其餘部分原樣保留在檔案與 body 裡；畫面上的那一份是讀的時候解析的（v1.1.0，ADR-0039 第七節）。
 - 上限為 1,048,576 bytes（1 MB，包含 BOM）；即使未宣告 Content-Length，讀取串流時仍受相同上限保護。
 - 超限：HTTP 413／`NOTE_FILE_TOO_LARGE`；副檔名、UTF-8 或檔名標頭不合法：HTTP 400／`NOTE_FILE_UNSUPPORTED`。
 - 目標可為一般資料或書目；不存在回 `GRAPH_NODE_NOT_FOUND`，筆記不能再附筆記（`NOTE_TARGET_MISSING`）。
-- 標題取第一個 `# ` 標題，沒有則用去掉 `.md` 的檔名。全文原樣存入 body 與 `notes/<noteId>.md`，原檔名存於同 ID 的 `.filename.json`（`{ fileName }`），不修改資料庫結構。
+- 標題照匯入的 Markdown 同一條規則（frontmatter 的 `title` → 一級標題 → 檔名，v1.1.0 起；之前是第一個 `# ` 或檔名）。全文原樣存入 body 與 `notes/<noteId>.md`，原檔名存於同 ID 的 `.filename.json`（`{ fileName }`）；全文索引與摘要用解析過、看得到的字。
 - `selector_json='[]'` 表示整份資料的附件；不依賴正文位置或快照，重建後仍可定位。每次上傳建立新筆記，不覆寫既有附件。
 - 筆記節點、全文索引及 `named`／`註於`／`human`／`confirmed` 關聯在同一交易寫入。失敗時回滾並清理本次複本；刪除筆記同時清除複本、檔名資料、索引與關聯。
-- 閱讀器清單將附件排在一般點註之前，顯示原檔名及純文字全文，不提供編輯或正文定位。直接呼叫 `PATCH …/notes/:noteId` 修改附件也會回 HTTP 409／`NOTE_FILE_READ_ONLY`。
+- 閱讀器清單將附件排在一般點註之前，顯示原檔名及照結構畫的全文（`ResolvedNote.attachment`，v1.1.0），不提供編輯或正文定位。直接呼叫 `PATCH …/notes/:noteId` 修改附件也會回 HTTP 409／`NOTE_FILE_READ_ONLY`。
 - 閱讀器點註欄與關聯圖的資料節點面板均提供附檔入口；不在筆記或實體節點提供。上傳成功會重新載入清單或圖。
 - 沿用本機請求守門；不新增 multipart 或 text/plain 解析器。
 

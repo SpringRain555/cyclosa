@@ -87,7 +87,8 @@
 | 正文抽出來是空的／很爛 | 先看**抽取信心標記說了什麼理由**。門檻在 `extract-confidence.ts`，量測在 `research/extraction-confidence.md` | `tests/domain/extract-confidence.test.ts` |
 | 中文內容查不到 | 先看 `item.lang`。判成拉丁語系的話只會進 FTS5，而那等於沒有索引 | `multilingual.md`、`tests/domain/search-tokenize.test.ts` |
 | 語言判成一個完全不相干的 | **`franc` 判不出來時不會說判不出來。** 兩道證據閘門在 `extract/language.ts` | `docs/lessons.md` |
-| 改了抽取邏輯，舊的 `derived/` 還在 | `EXTRACTOR_VERSION` 沒有 +1。檔名帶版本，就是為了這件事 | `case-files.ts` |
+| 改了抽取邏輯，舊的 `derived/` 還在 | `EXTRACTOR_VERSION` 沒有 +1，或 `EXTRACTOR_CHANGES` 沒寫那一種 —— 升級只重抽寫在那裡的種類，其餘只換版號（ADR-0039 第五節）| `case-files.ts`、`case-upgrade.ts` |
+| 打開一個舊專題，第一個畫面慢了一下 | **正常，只有一次。** 抽取器升版之後第一次碰到的專題要先升級（重抽改過的種類、換引文與點註），做完寫一則專題升級通知 | `case-upgrade.ts`、`server.log` 的「專題的正文升級完成」|
 | 一鍵啟動打開的是舊版程式 | `Launch.ps1` 會比對 `/healthz` 的版本與 `package.json`，**不一樣就停下來說** | `docs/lessons.md` |
 
 ## 圖與裁決

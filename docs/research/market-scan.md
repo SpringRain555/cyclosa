@@ -178,7 +178,7 @@ Open Notebook（MIT，約 4 萬星）、SurfSense（桌面版、可離線）也�
 
 | 授權 | 專案 | 怎麼用 |
 |---|---|---|
-| **MIT** | Aleph、**followthemoney**、ArchiveBox、GraphRAG、LightRAG、STORM、sigma.js、cosmos.gl、`3d-force-graph`、`d3-force-3d` | 概念與程式碼都可借；後兩者直接當依賴 |
+| **MIT** | Aleph、**followthemoney**、ArchiveBox、GraphRAG、LightRAG、STORM、sigma.js、cosmos.gl、`3d-force-graph`、`d3-force-3d`、`marked`（v1.1.0 加，`LICENSE` 另附 Markdown.pl 的 BSD 條款）| 概念與程式碼都可借；最後三個直接當依賴 |
 | **Apache-2.0** | `@mozilla/readability`、`pdfjs-dist`、trafilatura、cognee、Graphiti、GPT-Researcher | 可當依賴 |
 | **ISC** | `linkedom` | 可當依賴 |
 | **AGPL-3.0** | **Datashare、SingleFile、Karakeep、Linkwarden、Zotero** | **只讀概念，一行程式碼都不抄、也不當依賴** |

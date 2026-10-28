@@ -196,8 +196,10 @@ OpenAI 相容端點先走串流 Responses API，搜尋與格式能力先量，�
    還是不行就**這一輪不再碰那個 host**（`Crawler.limitedHosts`，轉址的每一跳都查），其他 host 照跑。
    **`Crawler.stop()` 只代表使用者取消** —— 把它接回限流，一個網站的 429 又會變成整批停。
 5. **改抽取邏輯就要 +1 `EXTRACTOR_VERSION`，並在 `EXTRACTOR_CHANGES` 寫下那一版改了哪幾種資料**
-   （`tests/guards/extractor-version.test.ts`）。讀取找不到新版會退回舊版，所以**刪就要每一版都刪**
-   （`removeDerived`）；「重算全部正文」會重解點註，也把關聯引文的字元位置對回新的正文。
+   （`tests/guards/extractor-version.test.ts`）。**舊資料由 App 升級，不留著讀**（v1.1.0，ADR-0039 第五節）：
+   帶 `:slug` 的請求進路由前（`upgrade-gate.ts` → `case-upgrade.ts`），改過的種類從快照重抽、沒改過的換版號、
+   引文與點註換到新正文；`readDerived` **只讀現行版**。所以升版時**升級那一段要跟著想**（新的種類要不要對照表），
+   不要加回「讀不到新版就退回舊版」。刪就要每一版都刪（`removeDerived`）。
 6. **每一跳都要是公開位址**（ADR-0038）。`Crawler` 的 gate 在 robots 之前解析主機名，任何一筆是本機、區網或保留段就
    `FETCH_PRIVATE_ADDRESS`、不送請求 —— 外部網頁一個轉址就能讓爬蟲替它讀 Cyclosa 自己的 API。
    預設不准，`CYCLOSA_FETCH_ALLOW_PRIVATE=1` 放行（e2e 靠它連 `127.0.0.1` 的假網站）。**新建 `Crawler` 一律傳 `configuredPrivateAddressAllowed()`。**

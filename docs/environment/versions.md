@@ -67,6 +67,7 @@
 | `linkedom` | `^0.18` | **ISC** | 給 readability 一個 DOM，不用 jsdom（輕很多）|
 | `franc` | `^6.2` | MIT | 語言偵測。偵測不出來記 `und`，不猜 |
 | `pdfjs-dist` | `^6.4` | **Apache-2.0** | PDF 的文字層與頁碼。**第一版就要**（REQ-0006 ＋ ADR-0019 的頁碼錨點）|
+| `marked` | **`18.1.1`（釘死）** | **MIT**（`LICENSE` 另附它移植的 Markdown.pl 的 BSD 條款）| Markdown 解析，**只用 lexer、不產生 HTML**（v1.1.0，ADR-0039）。零相依。釘 18.1.1：18.1.2 在選定的那天（2026-10-28）才發佈兩天，選發佈滿兩週的那一版 |
 | `@local-app/lifecycle` | `file:vendor/local-app-lifecycle-0.3.0.tgz` | 本 repo 的 MIT（見下）| healthz 探測、有上限的關閉序列、資料根的四步（`data-location`，0.2.0 起；0.3.0 起「其他位置」也擋既有資料根裡面；ADR-0037），幾個本機 app 共用（`architecture/app-lifecycle.md`）|
 
 > **`@local-app/lifecycle` 不是從 npm 裝的**（2026-10-08 加，2026-10-09 補記在這裡）：tarball 與 `package-lock.json` 一起版控在

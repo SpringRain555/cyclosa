@@ -3,12 +3,12 @@
 **這份是表、欄位、值域、索引與資料模型決定的權威。** 查詢怎麼寫、UI 怎麼顯示
 不寫在這裡；狀態轉移在 `state-machines.md`。
 
-> **現況：`schema v15`，已實作（Stage 24 issue #6，尚未發行）。**
+> **現況：`schema v17`**（v1.1.0：`case.derived_version`、舊研究的命中補網址，ADR-0039）。
 > 正本是 `src/infrastructure/db/migrations/`（`001-initial.sql`、`002-ingest.sql`、
 > `003-adjudication.sql`、`004-expansion.sql`、`005-annotation.sql`、`006-entity-identity.sql`、
 > `007-vector-scan-index.sql`、`008-run-ended-reason.sql`、`009-research.sql`、
 > `010-research-collect.sql`、`011-research-digest.sql`、`012-research-build.sql`、`013-retire-expansion.sql`、
-> `014-consolidate-ops.sql`），
+> `014-consolidate-ops.sql`、`015-entity-type-manual.sql`、`016-derived-version.sql`、`017-research-hit-urls.sql`），
 > 版本號記在 `PRAGMA user_version`。**改那裡就要改這一份，反過來也一樣。**
 >
 > - **v1（2026-09-07）**：11 張表、18 個索引、3 條 trigger。
@@ -599,6 +599,8 @@ v12 當時先提供欄位、repository 與純函式；建圖作業、畫面與 v
 | `dismissed_at` | `INTEGER` | `NULL` ＝ 尚未收起；收起保留資料，重複收起不改第一次的時間 |
 
 repository 依建立時間、id 列出尚未收起的通知；v13 前置步驟寫入 `expansion-cleanup` 通知。
+v1.1.0 的正文升級寫 `derived-upgrade` 通知（`application/case-upgrade.ts` 的 `UpgradeReport`：重抽、換版號、失敗、
+作廢向量、附件的份數，與引文、點註各自換位置／換字／對不上的條數），只有真的有變才寫（ADR-0039 第五節）。
 `tests/infrastructure/migration-v12.test.ts` 從含合成資料的 v11 升級，逐欄核對舊資料、預設、CHECK 與外鍵。
 
 ### 舊擴展清除與作業種類（v13，ADR-0033 D17）
@@ -755,3 +757,19 @@ SQLite 改不了既有的 CHECK，只能「建新表 → 搬資料 → 刪舊表
 不新增欄位或 migration。初讀成功沿用 `setItemDigest`，只寫 item 的 `title_zh`、`summary_zh`、`digested_by` 與 `digested_at`，不改原文標題、正文、原始快照、狀態或 `updated_at`。已有任一初讀紀錄或非空繁中內容的資料保留，不因舊資料缺少初讀時間而覆寫。
 
 `run.providers_json` 沿用任務模型欄位，新增 `digestOnly: true` 表示只補衍生繁中，不做圖與資料復原；作業查詢回傳 `derivedOnly`。逐任務呼叫數、未知成本與 JSON 格式記在原本的 run 欄位／模型呼叫紀錄，未回報費用保留未知。
+
+## 舊資料升級：正文做到第幾版（v16）與研究命中的網址（v17）（v1.1.0，ADR-0039）
+
+`016-derived-version.sql` 在 `"case"` 加入 `derived_version INTEGER NOT NULL DEFAULT 0 CHECK (derived_version >= 0)`：
+這個專題的正文（`derived/`、全文索引、引文、點註、附件索引）**上一次升級做到第幾版抽取器**。0 ＝ 還沒做過 ——
+既有專題在 v16 migration 之後都是 0，第一次被碰到時由 App 升級（`application/case-upgrade.ts`），做完寫成 `EXTRACTOR_VERSION`。
+**新建的專題一建好就是現行版**（`insertCase` 直接寫 `EXTRACTOR_VERSION`）—— 它沒有舊資料可以升。
+
+逐份的版本仍是 `item.extractor_version`：升級只處理比現行版舊的那幾份（改過的種類重抽、沒改過的只換版號），
+所以中途停掉的話，下一次只重做還沒換掉的那幾份；`case.derived_version` 最後才寫。
+升級改寫的欄位：`edge_evidence.quote`／`char_start`／`char_end`（帶 Markdown 記號的舊引文換成新正文的那一段）、
+`note.selector_json`／`anchor_ok`（點註換到新正文）、附件那一列 `item` 的 `title`／`excerpt` 與索引；結果寫一則 `case_notice`（`derived-upgrade`）。
+
+**v17（`017-research-hit-urls.sql`）**：`research.hits_json` 每一筆命中帶 `url`（v1.0.1 起寫入時就帶，`sourceUrl ?? requestedUrl ?? ''`）。
+v1.0.1 之前開的研究沒有這一欄 —— 照同一條規則補上，資料已經刪掉的補空字串；不是每一筆都是物件的那幾列不碰。
+**舊資料在 migration 裡升級，不靠讀取時退回空字串**（同 ADR-0039 第五節的原則）。

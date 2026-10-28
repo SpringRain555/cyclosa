@@ -176,29 +176,43 @@ describe('寬鬆比對：開研究時找「專題裡跟這個主題有關的」�
     // 量子、子重、重力、實驗、驗設、設計 —— 「力的」「的實」含虛字，拿掉
     expect(q?.grams).toEqual(['量子', '子重', '重力', '實驗', '驗設', '設計']);
     expect(q?.minGrams).toBe(3);
-    expect(q?.terms).toBeNull();
+    expect(q?.terms).toEqual([]);
+    expect(q?.minTerms).toBe(0);
   });
 
-  it('拉丁詞拆成一個一個、去掉停用詞，用 OR 接起來', () => {
+  it('拉丁詞拆成一個一個、去掉停用詞，每個包成片語；也要中一半', () => {
     const q = relatedQuery('Contoso Cup 2026：GNN/GNN node classification of the benchmarks');
-    expect(q?.terms).toBe(
-      '"contoso" OR "cup" OR "2026" OR "gnn" OR "node" OR "classification" OR "benchmarks"',
-    );
+    expect(q?.terms).toEqual([
+      '"contoso"',
+      '"cup"',
+      '"2026"',
+      '"gnn"',
+      '"node"',
+      '"classification"',
+      '"benchmarks"',
+    ]);
+    expect(q?.minTerms).toBe(4);
   });
 
-  it('同一個詞只出現一次', () => {
-    expect(relatedQuery('GNN/GNN gnn')?.terms).toBe('"gnn"');
+  it('一個不相干、只共用一個常見詞的主題不算 —— 第一版「任一個中」在真實專題上撈到 28 份裡 13 份', () => {
+    const q = relatedQuery('medieval castle architecture in Scotland');
+    expect(q?.terms).toHaveLength(4);
+    expect(q?.minTerms).toBe(2);
+  });
+
+  it('同一個詞只出現一次；只有一個詞時中一個就算', () => {
+    const q = relatedQuery('GNN/GNN gnn');
+    expect(q?.terms).toEqual(['"gnn"']);
+    expect(q?.minTerms).toBe(1);
   });
 
   it('拉丁詞有上限', () => {
     const words = Array.from({ length: MAX_RELATED_TERMS + 5 }, (_, i) => `word${String(i)}`);
-    const terms = relatedQuery(words.join(' '))?.terms ?? '';
-    expect(terms.split(' OR ')).toHaveLength(MAX_RELATED_TERMS);
+    expect(relatedQuery(words.join(' '))?.terms).toHaveLength(MAX_RELATED_TERMS);
   });
 
   it('FTS5 的運算子字（NEAR）也只是一個被包成片語的詞', () => {
-    // 拆詞時引號本來就是分隔符；這一條釘的是「每個詞都包成片語」
-    expect(relatedQuery('alpha NEAR beta')?.terms).toBe('"alpha" OR "near" OR "beta"');
+    expect(relatedQuery('alpha NEAR beta')?.terms).toEqual(['"alpha"', '"near"', '"beta"']);
   });
 
   it('只有虛字與標點 → null', () => {
@@ -211,6 +225,6 @@ describe('寬鬆比對：開研究時找「專題裡跟這個主題有關的」�
     const q = relatedQuery('圖譜 GNN/GNN 節點分類');
     expect(q?.grams).toEqual(['圖譜', '節點', '點分', '分類']);
     expect(q?.minGrams).toBe(2);
-    expect(q?.terms).toBe('"gnn"');
+    expect(q?.terms).toEqual(['"gnn"']);
   });
 });

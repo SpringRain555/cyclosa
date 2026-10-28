@@ -94,11 +94,15 @@ export function parseQuery(raw: string): ParsedQuery | null {
  * 拉丁字接成一個片語）幾乎一定是 0 份 —— 2026-10-28 試用時同一句主題，
  * 嚴格比對查到 0 份、混合查到 9 份，畫面說「這是新方向」，規劃模型也照著寫錯了推論。
  *
- * 所以開研究另走這一條：**CJK 字組中一半以上即入選、拉丁詞任一個中即入選**，
+ * 所以開研究另走這一條：**CJK 字組中一半以上、拉丁詞中一半以上即入選**，
  * 照中了幾個排。搜尋框不走這一條 —— 它的約定是「這串字出現在這份文件裡」。
  *
  * 含虛字的字組先拿掉（「的實」「是在」）：它們幾乎每一份都有，
  * 留著的話「中一半」會被它們湊滿。
+ *
+ * 拉丁詞第一版是「任一個中就算」，在試用專題的複本上量：一句不相干的英文主題
+ * （中世紀城堡建築）28 份命中 13 份 —— 「architecture」在機器學習論文裡到處都是。
+ * 改成跟字組同一條「中一半」之後是 0 份，試用那一句主題仍然找得到。
  */
 export interface RelatedQuery {
   readonly raw: string;
@@ -106,8 +110,10 @@ export interface RelatedQuery {
   readonly grams: readonly string[];
   /** 至少要中幾個字組 */
   readonly minGrams: number;
-  /** 送進 FTS5 `MATCH` 的 OR 查詢；沒有拉丁詞時是 `null` */
-  readonly terms: string | null;
+  /** 拉丁詞，**每個都已經包成 FTS5 片語**（一個詞查一次）；沒有拉丁詞時是空的 */
+  readonly terms: readonly string[];
+  /** 至少要中幾個拉丁詞 */
+  readonly minTerms: number;
 }
 
 /** 含這些字的字組不算數。只列最常見的虛字 —— 列多了會吃掉真正的詞。 */
@@ -178,16 +184,11 @@ export function relatedQuery(raw: string): RelatedQuery | null {
     }
   }
   // 每個詞各自包成片語、內部雙引號重複一次（`toPhrase` 的同一個理由：不讓使用者的字變成 FTS5 語法）。
-  const terms =
-    words.length === 0
-      ? null
-      : words
-          .slice(0, MAX_RELATED_TERMS)
-          .map((w) => `"${w.replace(/"/g, '""')}"`)
-          .join(' OR ');
+  const terms = words.slice(0, MAX_RELATED_TERMS).map((w) => `"${w.replace(/"/g, '""')}"`);
+  const minTerms = terms.length === 0 ? 0 : Math.max(1, Math.ceil(terms.length / 2));
 
-  if (grams.length === 0 && terms === null) return null;
-  return { raw: trimmed, grams, minGrams, terms };
+  if (grams.length === 0 && terms.length === 0) return null;
+  return { raw: trimmed, grams, minGrams, terms, minTerms };
 }
 
 // ── 正文確認 ────────────────────────────────────────────────

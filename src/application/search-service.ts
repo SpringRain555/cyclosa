@@ -62,6 +62,7 @@ import {
   bigramSomeCandidates,
   entityCandidates,
   ftsCandidates,
+  ftsSomeCandidates,
   hasRunningRun,
   titleRanks,
   type IndexCandidate,
@@ -292,11 +293,16 @@ export async function searchCase(
             ? []
             : bigramSomeCandidates(db, related.grams, related.minGrams, CANDIDATE_CAP)
           : bigramCandidates(db, parsed.grams, CANDIDATE_CAP);
-    const literalFts = input.match === 'some' ? (related?.terms ?? null) : parsed.phrase;
     const fromFts =
-      mode === 'semantic' || literalFts === null
+      mode === 'semantic'
         ? []
-        : ftsCandidates(db, literalFts, CANDIDATE_CAP);
+        : input.match === 'some'
+          ? related === null
+            ? []
+            : ftsSomeCandidates(db, related.terms, related.minTerms, CANDIDATE_CAP)
+          : parsed.phrase === null
+            ? []
+            : ftsCandidates(db, parsed.phrase, CANDIDATE_CAP);
     const fromVector =
       queryVector === null || embedModel === null
         ? []

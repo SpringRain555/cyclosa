@@ -85,6 +85,41 @@ export function bigramSomeCandidates(
 }
 
 /**
+ * FTS5 的寬鬆候選：**一個詞查一次，至少中 `minMatch` 個詞**，中得越多排越前（`relatedQuery`）。
+ *
+ * FTS5 的 `MATCH` 說不出「n 個裡中 k 個」，所以拆成每詞一查（最多 `MAX_RELATED_TERMS` 次，
+ * 都走索引）再數。同分照 bm25 加總排。
+ */
+export function ftsSomeCandidates(
+  db: DatabaseSync,
+  terms: readonly string[],
+  minMatch: number,
+  limit: number,
+): readonly IndexCandidate[] {
+  if (terms.length === 0 || minMatch <= 0) return [];
+  const statement = db.prepare(
+    `SELECT owner_id AS id, -bm25(fts_text) AS score
+       FROM fts_text
+      WHERE fts_text MATCH ? AND owner_kind = 'item'
+      ORDER BY score DESC
+      LIMIT ?`,
+  );
+  const tally = new Map<string, { matched: number; score: number }>();
+  for (const term of terms) {
+    for (const row of statement.all(term, limit) as Record<string, unknown>[]) {
+      const id = str(row['id']);
+      const seen = tally.get(id) ?? { matched: 0, score: 0 };
+      tally.set(id, { matched: seen.matched + 1, score: seen.score + num(row['score']) });
+    }
+  }
+  return [...tally]
+    .filter(([, t]) => t.matched >= minMatch)
+    .sort(([, a], [, b]) => b.matched - a.matched || b.score - a.score)
+    .slice(0, limit)
+    .map(([id, t]) => ({ id, score: t.matched }));
+}
+
+/**
  * FTS5 候選。
  *
  * `bm25()` 越小越相關（它回的是負數），而這一層對外的約定是「越大越相關」——

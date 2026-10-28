@@ -18,7 +18,7 @@
 /** 去掉最後一個副檔名（只認常見的文件與網頁副檔名，`v1.2` 這種不動）。 */
 export function stripDocumentExtension(name: string): string {
   return name.replace(
-    /\.(pdf|html?|xhtml|php|aspx?|jsp|docx?|pptx?|xlsx?|odt|rtf|txt|md|epub)$/i,
+    /\.(pdf|html?|xhtml|php|aspx?|jsp|docx?|pptx?|xlsx?|odt|rtf|txt|md|markdown|epub)$/i,
     '',
   );
 }

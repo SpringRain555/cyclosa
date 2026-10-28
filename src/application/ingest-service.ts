@@ -17,6 +17,7 @@ import {
   type IngestKind,
 } from '../domain/ingest/media-type.js';
 import { settleRun, type RunStatus } from '../domain/ingest/state.js';
+import { isMarkdown, markdownTitle } from '../domain/ingest/markdown.js';
 import { pickTitle } from '../domain/ingest/title.js';
 import { exceedsUploadLimit } from '../domain/ingest/upload.js';
 import { configuredIntervalMs, configuredPrivateAddressAllowed } from './fetch-policy.js';
@@ -638,6 +639,10 @@ export async function extract(
   const text = decoded.text.trim();
   if (text.length === 0) return { kind: 'failed', code: 'PARSE_EMPTY_CONTENT' };
 
+  // **Markdown 另有一條標題規則**（frontmatter、一級標題、檔名 —— `domain/ingest/markdown.ts`）：
+  // Obsidian 的筆記以 `---` 開頭，原本的「第一行」讓它們全叫「---」（2026-10-28 試用回饋 4）。
+  // 正文沒變，所以**不升 `EXTRACTOR_VERSION`**（同 PDF 標題那一次）。
+  const fileName = fileNameOf(url);
   const firstLine = (text.split('\n')[0] ?? '').replace(/^#+\s*/, '').trim();
   return {
     kind: 'ok',
@@ -645,7 +650,9 @@ export async function extract(
     payload: {
       extractorVersion: EXTRACTOR_VERSION,
       kind: 'text',
-      title: firstLine.slice(0, 120) || fileNameOf(url),
+      title: isMarkdown(contentType, fileName)
+        ? markdownTitle(text, fileName)
+        : firstLine.slice(0, 120) || fileName,
       text,
       html: null,
       pages: null,

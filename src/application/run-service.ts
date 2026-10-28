@@ -62,10 +62,15 @@ export interface RunSummary extends runs.RunRow {
 /** 資料庫的一列 → 清單上的一列（加上三個執行時或跨表的事實）。 */
 function summarize(db: DatabaseSync, row: runs.RunRow): RunSummary {
   const owner = row.researchId === null ? null : research.getResearch(db, row.researchId);
+  const live = isActive(row.id);
+  // **跑著的時候從逐項紀錄數**：`succeeded`／`failed` 收尾才寫。研究那一種的「一項」是方向與初讀，
+  // 不在逐項紀錄裡（逐項紀錄是抓取），照舊等收尾。
+  const counts = live && row.kind !== 'research' ? runs.liveItemCounts(db, row.id) : null;
   return {
     ...row,
+    ...(counts ?? {}),
     derivedOnly: runs.isDigestOnlyRun(row),
-    live: isActive(row.id),
+    live,
     paused: isPaused(row.id),
     heldByResearch: owner !== null && isOpen(owner.status),
   };

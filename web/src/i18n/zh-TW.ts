@@ -850,6 +850,8 @@ export const t = {
     service: '抽取走{service}',
     count: '還沒抽過的：{n} 份',
     empty: '專題裡有正文的資料都抽過了。',
+    /** 空專題不是「都抽過了」（2026-10-28 試用回饋 9）。 */
+    noItems: '專題裡還沒有能抽的資料 —— 先匯入網頁、PDF 或文字檔，或做一次研究。',
     selectAll: '全選',
     selectNone: '全不選',
     start: '抽進圖（{n} 份）',

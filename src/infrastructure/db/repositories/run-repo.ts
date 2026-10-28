@@ -295,6 +295,24 @@ export function updateRunItem(
   );
 }
 
+/**
+ * 跑著的作業的「成功／失敗」，從逐項紀錄數（2026-10-28 試用回饋 9）。
+ * `run.succeeded`／`failed` 是收尾才寫的 —— 標題列原本一路寫「成功 0」到結束。
+ */
+export function liveItemCounts(
+  db: DatabaseSync,
+  runId: string,
+): { readonly succeeded: number; readonly failed: number } {
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(outcome IN ('ok', 'duplicate')), 0) AS succeeded,
+              COALESCE(SUM(outcome = 'failed'), 0) AS failed
+         FROM run_item WHERE run_id = ?`,
+    )
+    .get(runId) as Raw;
+  return { succeeded: Number(row['succeeded'] ?? 0), failed: Number(row['failed'] ?? 0) };
+}
+
 export function listRunItems(db: DatabaseSync, runId: string): readonly RunItemRow[] {
   const rows = db
     .prepare('SELECT * FROM run_item WHERE run_id = ? ORDER BY id')

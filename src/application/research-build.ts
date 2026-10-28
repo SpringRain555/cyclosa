@@ -317,12 +317,14 @@ async function processBuild(
                   outcome: 'ok',
                   code: result.code,
                   itemId,
+                  newNodes: result.newNodes,
                   now: Date.now(),
                 });
                 runs.setRunItemEdges(activeDb, runItemId, result.newEdges);
               },
             );
             newEdges = applied.newEdges;
+            newNodes = applied.newNodes;
             code = applied.code;
           } catch (error) {
             if (

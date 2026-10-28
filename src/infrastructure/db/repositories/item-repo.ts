@@ -116,6 +116,20 @@ export function clearItemExtracted(db: DatabaseSync, id: string, now: number): v
  * 連同**有幾筆機器建的關聯拿它當出處**。v12 以前抽過的資料那一欄是空的，要靠後者認出來；
  * 有沒有正文要讀檔，這一層不做 —— 最後的判斷在 `isUnextracted`。
  */
+/**
+ * 專題裡**能抽的**資料有幾份（抽過的也算）：不是書目、不是點註、已解析或已納入。
+ * 抽進圖的清單是空的時候，靠它分「還沒有資料」與「都抽過了」（2026-10-28 試用回饋 9）。
+ */
+export function countExtractable(db: DatabaseSync): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM item
+        WHERE kind NOT IN ('reference', 'note') AND status IN ('parsed', 'included')`,
+    )
+    .get() as Raw;
+  return Number(row['n'] ?? 0);
+}
+
 export function listExtractionCandidates(
   db: DatabaseSync,
 ): readonly { readonly item: ItemRow; readonly machineEvidence: number }[] {

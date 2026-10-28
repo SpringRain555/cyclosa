@@ -79,6 +79,11 @@ export interface UnextractedItem {
 
 export interface ConsolidateView {
   readonly items: readonly UnextractedItem[];
+  /**
+   * 能抽的資料總共幾份（抽過的也算）。`items` 空的時候，0 是「專題裡還沒有資料」，
+   * 不是 0 才是「都抽過了」—— 之前一律說後者，空專題也是（2026-10-28 試用回饋 9）。
+   */
+  readonly extractable: number;
   /** 走哪一個服務、哪一個模型（「從正文抽實體與關係」那一列）。 */
   readonly extractService: ServiceView;
   /** 這個專題**正在跑的**那一筆「抽進圖」；有的話不能再開一筆。 */
@@ -141,6 +146,7 @@ export async function listUnextracted(
     return ok(
       {
         items: list,
+        extractable: items.countExtractable(db),
         extractService: serviceOf(await load()),
         runId: activeConsolidateRun(db),
         researchOpen: research.openResearch(db) !== null,
@@ -358,6 +364,7 @@ async function processConsolidate(
       });
       let code: ErrorCode | null = null;
       let newEdges = 0;
+      let newNodes = 0;
       let merged = false;
       let digestWritten = false;
       if (entry.merge !== undefined) {
@@ -590,12 +597,14 @@ async function processConsolidate(
                     outcome: 'ok',
                     code: result.code,
                     itemId: entry.itemId,
+                    newNodes: result.newNodes,
                     now: Date.now(),
                   });
                   runs.setRunItemEdges(activeDb, entry.runItemId, result.newEdges);
                 },
               });
               newEdges = applied.newEdges;
+              newNodes = applied.newNodes;
               code = applied.code;
             } catch (error) {
               if (!isConstraintError(error)) throw error;
@@ -617,6 +626,7 @@ async function processConsolidate(
         outcome: outcome === 'failed' ? 'failed' : 'ok',
         code,
         itemId: entry.itemId === null ? null : (items.getItem(db, entry.itemId)?.id ?? null),
+        newNodes,
         now: Date.now(),
       });
       runs.setRunItemEdges(db, entry.runItemId, newEdges);

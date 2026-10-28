@@ -11,6 +11,11 @@ const MENTION_CONFIDENCE = 0.9;
 
 export interface AppliedExtraction {
   readonly newEdges: number;
+  /**
+   * 這一份新建了幾個實體（認得的舊實體不算）。作業紀錄的「新增節點」就是它 ——
+   * 2026-10-28 之前沒有回報，抽進圖那一欄一路是 0（試用時其實建了 142 個實體）。
+   */
+  readonly newNodes: number;
   readonly code: ErrorCode | null;
 }
 
@@ -23,6 +28,7 @@ export function applyExtraction(
   completed?: (result: AppliedExtraction) => void,
 ): AppliedExtraction {
   let quoteMisses = 0;
+  let newNodes = 0;
   const newEdges = withTransaction(db, () => {
     const now = Date.now();
     let known = entities.listEntities(db);
@@ -36,6 +42,7 @@ export function applyExtraction(
       }
       const id = newId();
       entities.insertEntity(db, { id, type: draft.type, name: draft.name, now });
+      newNodes++;
       known = [...known, { id, name: draft.name, type: draft.type, aliases: [], mergedInto: null }];
       idOf.set(draft.name, id);
     }
@@ -90,8 +97,12 @@ export function applyExtraction(
       );
       if (result.kind === 'created' || result.kind === 'revived') written++;
     }
-    completed?.({ newEdges: written, code: quoteMisses > 0 ? 'PROVIDER_QUOTE_NOT_FOUND' : null });
+    completed?.({
+      newEdges: written,
+      newNodes,
+      code: quoteMisses > 0 ? 'PROVIDER_QUOTE_NOT_FOUND' : null,
+    });
     return written;
   });
-  return { newEdges, code: quoteMisses > 0 ? 'PROVIDER_QUOTE_NOT_FOUND' : null };
+  return { newEdges, newNodes, code: quoteMisses > 0 ? 'PROVIDER_QUOTE_NOT_FOUND' : null };
 }

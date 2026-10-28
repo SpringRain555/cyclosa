@@ -108,7 +108,9 @@ async function start(): Promise<void> {
         </button>
       </p>
 
-      <p v-if="view.items.length === 0" class="muted empty">{{ t.consolidate.empty }}</p>
+      <p v-if="view.items.length === 0" class="muted empty">
+        {{ view.extractable === 0 ? t.consolidate.noItems : t.consolidate.empty }}
+      </p>
       <template v-else>
         <div class="pick-head">
           <span>{{ fill(t.consolidate.count, { n: view.items.length }) }}</span>

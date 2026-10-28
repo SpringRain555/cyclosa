@@ -354,6 +354,8 @@ it('清單只列還沒抽過的：有機器關聯拿它當出處的（v12 以前
     researchOpen: false,
     extractService: { via: 'ollama', model: 'fake-extract', costs: false },
   });
+  // 清單不是空的，能抽的總數至少有清單那麼多（抽過的也算在內）。
+  expect(view.data.extractable).toBeGreaterThanOrEqual(view.data.items.length);
   expect(view.data.items.every((entry) => entry.chars > 0)).toBe(true);
   expect(calls).toBe(0);
 });
@@ -372,6 +374,10 @@ it('勾兩份抽進圖：一筆 consolidate 作業、走真抽取、標「抽過
     const runItems = runs.listRunItems(db, run.id);
     expect(runItems.map((entry) => entry.itemId).sort()).toEqual([...picked].sort());
     expect(runItems.every((entry) => entry.outcome === 'ok' && entry.newEdges > 0)).toBe(true);
+    // 「新增節點」是這一份新建的實體數 —— 之前一路是 0（2026-10-28 試用回饋 9）。
+    const created = db.prepare('SELECT COUNT(*) AS n FROM entity').get() as { n: number };
+    expect(runItems.reduce((sum, entry) => sum + entry.newNodes, 0)).toBeGreaterThan(0);
+    expect(runItems.reduce((sum, entry) => sum + entry.newNodes, 0)).toBeLessThanOrEqual(created.n);
     for (const id of picked) {
       expect(items.getItem(db, id)?.extractedBy).toBe('ollama:fake-extract');
     }

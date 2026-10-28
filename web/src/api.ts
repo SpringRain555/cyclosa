@@ -392,6 +392,8 @@ export interface UnextractedItem {
 }
 
 export interface ConsolidateView {
+  /** 能抽的資料總共幾份（抽過的也算）；清單空的時候分「還沒有資料」與「都抽過了」 */
+  extractable: number;
   items: UnextractedItem[];
   extractService: ServiceView;
   /** 正在跑的那一筆「抽進圖」；有的話不能再開一筆。 */

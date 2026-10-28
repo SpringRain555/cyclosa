@@ -138,7 +138,14 @@ function subscribe(id: string): void {
     if (event['type'] === 'throttled') {
       throttleNow.value = { host: String(event['host']), ms: Number(event['waitedMs']) };
     }
-    if (event['type'] === 'item' || event['type'] === 'direction' || event['type'] === 'settled') {
+    // `progress`：抽進圖與研究建圖一份做完送一次；`digest`：初讀一份讀完送一次 —— 都要更新標題列的數字。
+    if (
+      event['type'] === 'item' ||
+      event['type'] === 'direction' ||
+      event['type'] === 'progress' ||
+      event['type'] === 'digest' ||
+      event['type'] === 'settled'
+    ) {
       throttleNow.value = null;
       void refreshRun(id);
     }
@@ -566,7 +573,10 @@ async function rebuild(): Promise<void> {
                 <span class="row-title">{{ titleOf(r) }}</span>
                 <span class="row-meta">
                   <span :class="['badge', r.status]">{{ t.runStatus[r.status] }}</span>
-                  <span v-if="r.live" class="live">{{ t.runs.live }}</span>
+                  <!-- 狀態已經寫「執行中」的時候不再寫一次（2026-10-28 試用回饋 9：同一列出現兩個「執行中」）。 -->
+                  <span v-if="r.live && r.status !== 'running'" class="live">{{
+                    t.runs.live
+                  }}</span>
                   <span>{{ when(r.createdAt) }}</span>
                 </span>
               </button>

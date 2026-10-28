@@ -71,6 +71,8 @@ it('別名對到同一實體不產生自連，其他關係仍寫入', () => {
     }),
   );
   expect(result.newEdges).toBe(3);
+  // 認得的舊實體（合成甲、它的別名）不算新節點，只有合成丙是新建的（2026-10-28 試用回饋 9）。
+  expect(result.newNodes).toBe(1);
   expect(db.prepare("SELECT rel FROM edge WHERE layer = 'named'").all()).toEqual([{ rel: '支持' }]);
   expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
 });

@@ -65,7 +65,7 @@ function providerSaid(): string | null {
 
     <dl v-if="providerSaid()" class="detail">
       <dt>{{ t.error.providerSaid }}</dt>
-      <dd class="mono">{{ providerSaid() }}</dd>
+      <dd class="said">{{ providerSaid() }}</dd>
     </dl>
 
     <dl v-if="detailString('pointerPath') || detailString('dataRoot')" class="detail">
@@ -120,6 +120,11 @@ function providerSaid(): string | null {
   margin: 0;
   color: var(--text-secondary);
   word-break: break-all;
+}
+/* 服務回的原話是一句話，不是路徑：照字斷行，長網址才在任意處斷。 */
+.detail dd.said {
+  word-break: normal;
+  overflow-wrap: anywhere;
 }
 .actions {
   display: flex;

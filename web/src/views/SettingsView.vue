@@ -478,6 +478,8 @@ function connectionOf(kind: ConnectionKind): ConnectionStatus | null {
 /** 狀態點的形狀：實心＝可以用、空心＝還沒設定、虛線＝連不上或配不上（跟頂列同一套）。 */
 function dotOf(row: TaskRow | null): 'ready' | 'none' | 'problem' {
   if (row === null || row.state === 'not-configured') return 'none';
+  // 按過「儲存並測試」而沒過的那一列，點也要說有問題 —— 跟旁邊那一句一致。
+  if (testedOk.value[row.task] === false) return 'problem';
   return row.ok ? 'ready' : 'problem';
 }
 function missingText(row: TaskRow): string {
@@ -534,8 +536,10 @@ const testSummary = ref('');
  * 模型名稱與登入要真的呼叫一次才知道 —— 所以沒實測過就照實說。
  */
 function stateText(row: TaskRow): string {
-  if (row.via === 'cli' && row.state === 'ready' && testedOk.value[row.task] !== true) {
-    return t.settings.cliUntested;
+  if (row.via === 'cli' && row.state === 'ready') {
+    const tested = testedOk.value[row.task];
+    if (tested === undefined) return t.settings.cliUntested;
+    if (!tested) return t.settings.cliTestFailed;
   }
   return t.settings.taskState[row.state];
 }
@@ -567,7 +571,7 @@ async function testAll(): Promise<void> {
       // 失敗時連服務自己回的那一句一起寫（2026-10-28：模型名稱不存在時，CLI 說得很清楚，畫面之前沒寫）。
       const said =
         !r.data.ok && r.data.detail !== null && r.data.detail.trim().length > 0
-          ? ` ${fill(t.settings.testSaid, { said: r.data.detail.trim() })}`
+          ? fill(t.settings.testSaid, { said: r.data.detail.trim() })
           : '';
       const outcome = r.data.ok
         ? fill(t.settings.testOk, { ms: r.data.elapsedMs })

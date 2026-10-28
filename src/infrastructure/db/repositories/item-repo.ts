@@ -7,6 +7,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 
 import type { ItemKind, ItemStatus } from '../../../domain/ingest/state.js';
+import { translatedTitleOf } from '../../../domain/provider/digest.js';
 
 export interface ItemRow {
   readonly id: string;
@@ -189,7 +190,8 @@ function toItem(row: Raw): ItemRow {
     runId: str(row['run_id']),
     createdAt: Number(row['created_at']),
     updatedAt: Number(row['updated_at']),
-    titleZh: str(row['title_zh']),
+    // 沒翻的（一個中文字都沒有）當沒有：畫面退回原文，不冒充譯文（`translatedTitleOf`）。
+    titleZh: translatedTitleOf(str(row['title_zh'])),
     summaryZh: str(row['summary_zh']),
     digestedBy: str(row['digested_by']),
     digestedAt: num(row['digested_at']),

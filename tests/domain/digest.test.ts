@@ -12,6 +12,7 @@ import {
   MAX_DIGEST_TITLE_CHARS,
   digestExcerpt,
   normalizeDigest,
+  translatedTitleOf,
 } from '../../src/domain/provider/digest.js';
 
 describe('normalizeDigest', () => {
@@ -68,5 +69,21 @@ describe('digestExcerpt', () => {
     const body = `  ${'甲'.repeat(DIGEST_TEXT_CHARS + 100)}`;
     expect(digestExcerpt(body)).toHaveLength(DIGEST_TEXT_CHARS);
     expect(digestExcerpt('短的')).toBe('短的');
+  });
+});
+
+describe('translatedTitleOf：沒翻的繁中標題當沒有（2026-10-28 試用回饋 7）', () => {
+  it('一個中日韓的字都沒有：沒翻', () => {
+    expect(translatedTitleOf('Synthetic Paper A: a benchmark for graph models')).toBeNull();
+    expect(translatedTitleOf('   ')).toBeNull();
+    expect(translatedTitleOf(null)).toBeNull();
+  });
+
+  it('有翻的留著；中英夾雜、原文就是中文照抄的也留著', () => {
+    expect(translatedTitleOf('Synthetic Paper A：圖模型的評測基準')).toBe(
+      'Synthetic Paper A：圖模型的評測基準',
+    );
+    expect(translatedTitleOf(' 著作權法第六十五條 ')).toBe('著作權法第六十五條');
+    expect(translatedTitleOf('グラフのための深層学習')).toBe('グラフのための深層学習');
   });
 });

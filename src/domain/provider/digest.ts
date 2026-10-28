@@ -92,6 +92,23 @@ export function normalizeDigest(raw: unknown): Digest | null {
   };
 }
 
+/** 中日韓的字（漢字、假名、諺文）。 */
+const HAS_CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+/**
+ * 初讀交回的「繁中標題」，**沒翻就當沒有**（2026-10-28 試用回饋 7；roadmap 四(a)）。
+ *
+ * 初讀的提示詞要的是繁中翻譯（原文已是繁中就照抄），但 granite 在 #11 量測裡 28 份只翻 1 份，
+ * 試用時 22 份有 15 份是原文照抄 —— 畫面切到「繁中」看到的是英文，還標著「譯文」。
+ * 判準刻意簡單：**一個中日韓的字都沒有，就不是繁中標題**。原文是中文、照抄過來的那種有中文字，照樣留著。
+ * 這是讀的時候的判斷，資料庫裡模型交回的那一格不動。
+ */
+export function translatedTitleOf(titleZh: string | null): string | null {
+  if (titleZh === null) return null;
+  const trimmed = titleZh.trim();
+  return trimmed.length > 0 && HAS_CJK.test(trimmed) ? trimmed : null;
+}
+
 /**
  * 送出去的正文：**開頭那一段**，切在上限。
  *

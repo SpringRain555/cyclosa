@@ -91,10 +91,12 @@ import {
   DIGEST_SYSTEM,
 } from './research-prompts.js';
 import {
+  hitsOf,
   openResearchCase,
   planOf,
   viewOf,
   type ProvidersLoader,
+  type ResearchHit,
   type ResearchView,
 } from './research-view.js';
 import * as registry from './run-registry.js';
@@ -328,6 +330,8 @@ async function processCollect(ctx: CollectContext): Promise<void> {
     runs.startRun(db, state.runId, startedAt);
     const row = research.getResearch(db, ctx.researchId);
     const plan = planOf(row?.planJson ?? '{}');
+    // 開研究時找到的「專題裡已經有的」—— 找來源時告訴模型不用再找（2026-10-28）。
+    const existing = hitsOf(row?.hitsJson ?? '[]');
     const pending =
       ctx.only === 'digest' ? [] : research.listDirections(db, ctx.researchId).filter(needsSearch);
     state.channel.emit({ type: 'started', runId: state.runId, total: pending.length });
@@ -374,6 +378,7 @@ async function processCollect(ctx: CollectContext): Promise<void> {
         topic: row?.topic ?? '',
         relation: plan.relation,
         outOfScope: plan.outOfScope,
+        existing,
         abort,
         startedAt,
         budget,
@@ -558,6 +563,7 @@ interface SearchInput {
   readonly topic: string;
   readonly relation: string;
   readonly outOfScope: readonly string[];
+  readonly existing: readonly ResearchHit[];
   readonly abort: AbortController;
   readonly startedAt: number;
   readonly budget: BudgetState;
@@ -593,6 +599,7 @@ async function searchDirection(db: DatabaseSync, input: SearchInput): Promise<Se
     },
     outOfScope: input.outOfScope,
     hints: ctx.hints,
+    existing: input.existing.map((hit) => ({ title: hit.title, url: hit.url })),
   });
   // 建沙箱是一次 await —— 你可能正好在這時候按了取消。**那就不要開始這一次搜尋**：
   // 它還沒花錢，而這一條留在「還沒搜」，下一次接著做。

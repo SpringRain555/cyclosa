@@ -10,7 +10,9 @@ import { describe, expect, it } from 'vitest';
 import {
   checkText,
   parseQuery,
+  MAX_RELATED_TERMS,
   rankHits,
+  relatedQuery,
   snippetAround,
   type RankableHit,
 } from '../../src/domain/search/query.js';
@@ -165,5 +167,50 @@ describe('摘要：位置一起回，前端不用自己再找一次', () => {
     const s = snippetAround('短短一句', { start: 0, end: 2 }, 50);
     expect(s.cutHead).toBe(false);
     expect(s.cutTail).toBe(false);
+  });
+});
+
+describe('寬鬆比對：開研究時找「專題裡跟這個主題有關的」（2026-10-28）', () => {
+  it('一整句中文：含虛字的字組拿掉，中一半就算', () => {
+    const q = relatedQuery('量子重力的實驗設計');
+    // 量子、子重、重力、實驗、驗設、設計 —— 「力的」「的實」含虛字，拿掉
+    expect(q?.grams).toEqual(['量子', '子重', '重力', '實驗', '驗設', '設計']);
+    expect(q?.minGrams).toBe(3);
+    expect(q?.terms).toBeNull();
+  });
+
+  it('拉丁詞拆成一個一個、去掉停用詞，用 OR 接起來', () => {
+    const q = relatedQuery('Contoso Cup 2026：GNN/GNN node classification of the benchmarks');
+    expect(q?.terms).toBe(
+      '"contoso" OR "cup" OR "2026" OR "gnn" OR "node" OR "classification" OR "benchmarks"',
+    );
+  });
+
+  it('同一個詞只出現一次', () => {
+    expect(relatedQuery('GNN/GNN gnn')?.terms).toBe('"gnn"');
+  });
+
+  it('拉丁詞有上限', () => {
+    const words = Array.from({ length: MAX_RELATED_TERMS + 5 }, (_, i) => `word${String(i)}`);
+    const terms = relatedQuery(words.join(' '))?.terms ?? '';
+    expect(terms.split(' OR ')).toHaveLength(MAX_RELATED_TERMS);
+  });
+
+  it('FTS5 的運算子字（NEAR）也只是一個被包成片語的詞', () => {
+    // 拆詞時引號本來就是分隔符；這一條釘的是「每個詞都包成片語」
+    expect(relatedQuery('alpha NEAR beta')?.terms).toBe('"alpha" OR "near" OR "beta"');
+  });
+
+  it('只有虛字與標點 → null', () => {
+    expect(relatedQuery('的了是')).toBeNull();
+    expect(relatedQuery('  ')).toBeNull();
+    expect(relatedQuery('—— ！')).toBeNull();
+  });
+
+  it('中英混合兩邊都有', () => {
+    const q = relatedQuery('圖譜 GNN/GNN 節點分類');
+    expect(q?.grams).toEqual(['圖譜', '節點', '點分', '分類']);
+    expect(q?.minGrams).toBe(2);
+    expect(q?.terms).toBe('"gnn"');
   });
 });

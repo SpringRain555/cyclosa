@@ -38,6 +38,7 @@ import {
   startCollecting,
   startResearch,
 } from '../../src/application/research-service.js';
+import { searchCase } from '../../src/application/search-service.js';
 import { MAX_DIRECTIONS } from '../../src/domain/provider/plan.js';
 import { clearFakeClaudeEnv, writeFakeClaude } from './fake-claude.js';
 
@@ -209,6 +210,22 @@ describe('開一次研究', () => {
     expect(started.data.plan.directions).toEqual([]);
     // 走本機 Ollama：不花錢、不會上網查（D5）。
     expect(started.data.service).toMatchObject({ via: 'ollama', costs: false, browses: false });
+  });
+
+  it('一整句主題也找得到已有的資料 —— 搜尋框的嚴格比對同一句是 0 份（2026-10-28 試用回饋 2）', async () => {
+    // 範例專題的合理使用條文裡有「非營利教育目的」「合理使用」「判斷」，但沒有這一整串字。
+    const topic = '非營利教育目的之合理使用判斷';
+    const strict = await searchCase(dataRoot, slug, { q: topic, mode: 'text' });
+    expect(strict.ok).toBe(true);
+    if (strict.ok) expect(strict.data.hits.filter((h) => h.kind === 'item')).toEqual([]);
+
+    const started = await startResearch(dataRoot, slug, { topic });
+    expect(started.ok, JSON.stringify(started)).toBe(true);
+    if (!started.ok) return;
+    expect(prompts).toEqual([]);
+    expect(started.data.hits.length).toBeGreaterThan(0);
+    // 網址一起存下 —— 找來源的提示詞拿它說「已經有了」。
+    for (const hit of started.data.hits) expect(typeof hit.url).toBe('string');
   });
 
   it('一個字都沒命中也照開，而且照實說 0 份', async () => {

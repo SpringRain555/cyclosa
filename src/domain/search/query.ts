@@ -87,6 +87,109 @@ export function parseQuery(raw: string): ParsedQuery | null {
   return { raw: trimmed, grams, phrase, route };
 }
 
+// ── 寬鬆比對：開研究時「專題裡跟這個主題有關的」（2026-10-28）──────
+
+/**
+ * 研究的主題是**一整句話**，不是一個詞。拿它走上面那條嚴格比對（CJK 字組全部要中、
+ * 拉丁字接成一個片語）幾乎一定是 0 份 —— 2026-10-28 試用時同一句主題，
+ * 嚴格比對查到 0 份、混合查到 9 份，畫面說「這是新方向」，規劃模型也照著寫錯了推論。
+ *
+ * 所以開研究另走這一條：**CJK 字組中一半以上即入選、拉丁詞任一個中即入選**，
+ * 照中了幾個排。搜尋框不走這一條 —— 它的約定是「這串字出現在這份文件裡」。
+ *
+ * 含虛字的字組先拿掉（「的實」「是在」）：它們幾乎每一份都有，
+ * 留著的話「中一半」會被它們湊滿。
+ */
+export interface RelatedQuery {
+  readonly raw: string;
+  /** 去掉虛字之後的 CJK 字組 */
+  readonly grams: readonly string[];
+  /** 至少要中幾個字組 */
+  readonly minGrams: number;
+  /** 送進 FTS5 `MATCH` 的 OR 查詢；沒有拉丁詞時是 `null` */
+  readonly terms: string | null;
+}
+
+/** 含這些字的字組不算數。只列最常見的虛字 —— 列多了會吃掉真正的詞。 */
+const FUNCTION_CHARS = new Set([...'的了是在和與及或之於為也而並對就都但把被讓從向以']);
+
+/** 拉丁詞的停用詞。**只用在寬鬆比對**；嚴格比對本來就是整個片語。 */
+const STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'into',
+  'that',
+  'this',
+  'are',
+  'was',
+  'were',
+  'not',
+  'but',
+  'its',
+  'our',
+  'their',
+  'has',
+  'have',
+  'had',
+  'how',
+  'what',
+  'which',
+  'who',
+  'why',
+  'when',
+  'where',
+  'use',
+  'using',
+  'via',
+  'of',
+  'to',
+  'in',
+  'on',
+  'at',
+  'by',
+  'an',
+  'or',
+  'as',
+  'is',
+  'be',
+  'it',
+]);
+
+/** 拉丁詞最多取幾個 —— 主題是一句話，不是一篇文章。 */
+export const MAX_RELATED_TERMS = 12;
+
+export function relatedQuery(raw: string): RelatedQuery | null {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+
+  const grams = [...bigrams(trimmed).keys()].filter(
+    (gram) => ![...gram].some((ch) => FUNCTION_CHARS.has(ch)),
+  );
+  const minGrams = grams.length === 0 ? 0 : Math.max(1, Math.ceil(grams.length / 2));
+
+  const words: string[] = [];
+  for (const run of latinRuns(trimmed)) {
+    for (const word of normalize(run).split(/[^\p{L}\p{N}]+/u)) {
+      if (word.length < 2 || STOP_WORDS.has(word) || words.includes(word)) continue;
+      words.push(word);
+    }
+  }
+  // 每個詞各自包成片語、內部雙引號重複一次（`toPhrase` 的同一個理由：不讓使用者的字變成 FTS5 語法）。
+  const terms =
+    words.length === 0
+      ? null
+      : words
+          .slice(0, MAX_RELATED_TERMS)
+          .map((w) => `"${w.replace(/"/g, '""')}"`)
+          .join(' OR ');
+
+  if (grams.length === 0 && terms === null) return null;
+  return { raw: trimmed, grams, minGrams, terms };
+}
+
 // ── 正文確認 ────────────────────────────────────────────────
 
 /**

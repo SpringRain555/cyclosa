@@ -83,6 +83,8 @@ export interface ResearchHit {
   readonly itemId: string;
   readonly title: string;
   readonly excerpt: string;
+  /** 那一份的網址（2026-10-28 起才存；之前的研究讀出來是空字串）。找來源的提示詞拿它說「已經有了」。 */
+  readonly url: string;
 }
 
 export interface DirectionView extends DirectionDraft {
@@ -293,6 +295,7 @@ export function hitsOf(raw: string): readonly ResearchHit[] {
         itemId: String(row['itemId'] ?? ''),
         title: String(row['title'] ?? ''),
         excerpt: String(row['excerpt'] ?? ''),
+        url: typeof row['url'] === 'string' ? row['url'] : '',
       };
     });
   } catch {

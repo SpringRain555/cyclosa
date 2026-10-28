@@ -44,6 +44,7 @@ import {
   checkText,
   parseQuery,
   rankHits,
+  relatedQuery,
   snippetAround,
   type CheckStatus,
   type QueryRoute,
@@ -58,6 +59,7 @@ import {
 } from '../infrastructure/db/repositories/vector-repo.js';
 import {
   bigramCandidates,
+  bigramSomeCandidates,
   entityCandidates,
   ftsCandidates,
   hasRunningRun,
@@ -84,6 +86,12 @@ export const ENTITY_CAP = 10;
 export const DEFAULT_LIMIT = 30;
 
 export type SearchMode = 'text' | 'semantic' | 'hybrid';
+
+/**
+ * 字面那兩路怎麼比。**`all` 是搜尋框的約定**（CJK 字組全部要中、拉丁字是一個片語）；
+ * `some` 只給開研究用（`findRelated`），主題是一句話，不是一個詞。
+ */
+export type LiteralMatch = 'all' | 'some';
 
 export interface SearchHit {
   /** 筆記要開所屬資料並定位自己；實體與無所屬資料的筆記沒有閱讀器入口。 */
@@ -189,7 +197,12 @@ async function textOf(folder: string, item: ItemRow): Promise<string | null> {
 export async function searchCase(
   dataRoot: string,
   slug: string,
-  input: { readonly q: string; readonly mode?: SearchMode; readonly limit?: number },
+  input: {
+    readonly q: string;
+    readonly mode?: SearchMode;
+    readonly limit?: number;
+    readonly match?: LiteralMatch;
+  },
   load: () => Promise<Providers> = loadProviders,
 ): Promise<Result<SearchResponse>> {
   const cid = correlationId();
@@ -270,11 +283,20 @@ export async function searchCase(
 
     // **`semantic` 模式不跑字面那兩路。** 使用者要的就是「用字不同的那些」——
     // 混進字面命中會讓這個模式跟 `hybrid` 沒有差別，而那樣它就沒有存在的理由。
-    const fromBigram = mode === 'semantic' ? [] : bigramCandidates(db, parsed.grams, CANDIDATE_CAP);
-    const fromFts =
-      mode === 'semantic' || parsed.phrase === null
+    const related = input.match === 'some' ? relatedQuery(input.q) : null;
+    const fromBigram =
+      mode === 'semantic'
         ? []
-        : ftsCandidates(db, parsed.phrase, CANDIDATE_CAP);
+        : input.match === 'some'
+          ? related === null
+            ? []
+            : bigramSomeCandidates(db, related.grams, related.minGrams, CANDIDATE_CAP)
+          : bigramCandidates(db, parsed.grams, CANDIDATE_CAP);
+    const literalFts = input.match === 'some' ? (related?.terms ?? null) : parsed.phrase;
+    const fromFts =
+      mode === 'semantic' || literalFts === null
+        ? []
+        : ftsCandidates(db, literalFts, CANDIDATE_CAP);
     const fromVector =
       queryVector === null || embedModel === null
         ? []
@@ -449,4 +471,21 @@ export async function searchCase(
     },
     cid,
   );
+}
+
+/**
+ * 開研究時「專題裡跟這個主題有關的」（2026-10-28）。**搜尋框不走這一支。**
+ *
+ * 字面那兩路寬鬆比（`relatedQuery`），有設嵌入模型就連語意那一路一起跑（混合）——
+ * 沒設或連不上照樣回字面的結果（`SEARCH_EMBED_UNAVAILABLE` 只是 notice）。
+ * 之前走的是搜尋框那條嚴格比對，一整句主題幾乎一定是 0 份。
+ */
+export async function findRelated(
+  dataRoot: string,
+  slug: string,
+  topic: string,
+  limit: number,
+  load: () => Promise<Providers> = loadProviders,
+): Promise<Result<SearchResponse>> {
+  return searchCase(dataRoot, slug, { q: topic, mode: 'hybrid', limit, match: 'some' }, load);
 }

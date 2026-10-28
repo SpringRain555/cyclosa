@@ -59,6 +59,32 @@ export function bigramCandidates(
 }
 
 /**
+ * bigram 的寬鬆候選：**至少中 `minMatch` 個字組**，中得越多排越前（`relatedQuery`，2026-10-28）。
+ * 只給開研究時「專題裡跟這個主題有關的」用；搜尋框走上面那一支（全部要中）。
+ */
+export function bigramSomeCandidates(
+  db: DatabaseSync,
+  grams: readonly string[],
+  minMatch: number,
+  limit: number,
+): readonly IndexCandidate[] {
+  if (grams.length === 0 || minMatch <= 0) return [];
+  const holes = grams.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT owner_id AS id, COUNT(DISTINCT gram) AS matched, SUM(freq) AS score
+         FROM bigram
+        WHERE owner_kind = 'item' AND gram IN (${holes})
+        GROUP BY owner_id
+       HAVING COUNT(DISTINCT gram) >= ?
+        ORDER BY matched DESC, score DESC
+        LIMIT ?`,
+    )
+    .all(...grams, minMatch, limit) as Record<string, unknown>[];
+  return rows.map((r) => ({ id: str(r['id']), score: num(r['matched']) }));
+}
+
+/**
  * FTS5 候選。
  *
  * `bm25()` 越小越相關（它回的是負數），而這一層對外的約定是「越大越相關」——

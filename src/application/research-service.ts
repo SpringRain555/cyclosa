@@ -47,6 +47,7 @@ import {
   mayStartCollecting,
   type ResearchKind,
 } from '../domain/research/index.js';
+import type { DatabaseSync } from '../infrastructure/db/database.js';
 import { readCase } from '../infrastructure/db/repositories/case-repo.js';
 import * as items from '../infrastructure/db/repositories/item-repo.js';
 import * as research from '../infrastructure/db/repositories/research-repo.js';
@@ -80,7 +81,7 @@ import {
   type PlanHit,
   type PlanTurn,
 } from './research-prompts.js';
-import { searchCase } from './search-service.js';
+import { ENTITY_CAP, findRelated } from './search-service.js';
 
 /** 相關性命中最多顯示幾份。**這一步不花錢，但畫面要放得下**（R1）。 */
 export const MAX_HITS = 5;
@@ -112,11 +113,34 @@ function capabilityError(cid: string, flags: readonly CapabilityFlag[]): Result<
 
 // ── 開一次研究：一次模型呼叫都沒有 ──────────────────────────
 
+/** 這個專題現在能不能開一次研究。能就回 `null`。 */
+function refuseToOpen(db: DatabaseSync, cid: string, slug: string): Result<never> | null {
+  const caseRow = readCase(db);
+  if (caseRow === null) return err('CASE_NOT_FOUND', cid, { slug });
+  if (caseRow.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
+
+  /**
+   * **同一個專題同時只有一次研究或整理沒結束**（D4）。
+   *
+   * 這裡先查一次是為了給一個說得出原因的錯誤碼；真正擋住它的是資料庫的部分唯一索引
+   * —— 兩個請求同時進來的時候，先查再寫擋不住。
+   */
+  const open = research.openResearch(db);
+  if (open !== null) return err('RESEARCH_ALREADY_OPEN', cid, { researchId: open.id });
+  // 「抽進圖」（整理的第一片）不開殼，索引擋不到它 —— D4 的另一半在這裡查（`consolidate-service.ts` 檔頭）。
+  const consolidating = activeConsolidateRun(db);
+  if (consolidating !== null) return err('CONSOLIDATE_RUNNING', cid, { runId: consolidating });
+  return null;
+}
+
 /**
  * 開一次研究。**這一步不花錢**（R1／R5）。
  *
- * 輸入主題的當下跑一次全文檢索，回「你已有的 N 份裡 K 份提到它」。
- * K 是 0 也照說 —— 那本身就是一個資訊（「這是一個新的方向」）。
+ * 輸入主題的當下找一次「專題裡跟它有關的」，回「你已有的 N 份裡，這幾份跟它有關」。
+ * 找不到也照說 —— 那本身就是一個資訊（「這可能是一個新的方向」）。
+ *
+ * **找的方法是寬鬆比對＋語意**（`findRelated`，2026-10-28）。之前走搜尋框的嚴格比對，
+ * 一整句主題幾乎一定是 0 份：規劃模型因此以為專題是空的，找來源又把已經有的論文找回來。
  *
  * 命中的結果**存下來**（`hits_json`）：它同時是給模型看的素材，
  * 而之後回頭看這次研究時，要知道當時它看到的是什麼。
@@ -135,42 +159,49 @@ export async function startResearch(
     return err('SEARCH_QUERY_EMPTY', cid, { why: 'no-topic' });
   }
 
-  // 全文檢索自己會開一次資料庫，所以**在我們開之前做完** ——
+  // **先查擋不擋**（D4、封存）：被擋下來的話不必去問嵌入模型 —— 混合檢索的語意那一路是一次網路呼叫。
+  const pre = await openResearchCase(dataRoot, slug);
+  if (typeof pre === 'string') return err(pre, cid, { slug });
+  try {
+    const refused = refuseToOpen(pre, cid, slug);
+    if (refused !== null) return refused;
+  } finally {
+    pre.close();
+  }
+
+  // 檢索自己會開一次資料庫，所以**在我們開之前做完** ——
   // 同一個檔開兩次連線不會壞（WAL），但一個開著卻在等別人的連線沒有意義。
-  const found =
-    topic.length === 0
-      ? null
-      : await searchCase(dataRoot, slug, { q: topic, mode: 'text', limit: MAX_HITS });
-  const hits: ResearchHit[] =
-    found === null || !found.ok
-      ? []
-      : found.data.hits
-          .filter((hit) => hit.kind === 'item')
-          .slice(0, MAX_HITS)
-          .map((hit) => ({
-            itemId: hit.id,
-            title: hit.title,
-            excerpt: hit.snippet.slice(0, MAX_HIT_EXCERPT_CHARS),
-          }));
+  // 上限多留實體那一份：檢索把實體排在前面，只拿 `MAX_HITS` 的話資料可能被擠掉。
+  const found = await findRelated(dataRoot, slug, topic, MAX_HITS + ENTITY_CAP, load);
+  const matched: ResearchHit[] = !found.ok
+    ? []
+    : found.data.hits
+        .filter((hit) => hit.kind === 'item')
+        .slice(0, MAX_HITS)
+        .map((hit) => ({
+          itemId: hit.id,
+          title: hit.title,
+          excerpt: hit.snippet.slice(0, MAX_HIT_EXCERPT_CHARS),
+          url: '',
+        }));
 
   const db = await openResearchCase(dataRoot, slug);
   if (typeof db === 'string') return err(db, cid, { slug });
   try {
-    const caseRow = readCase(db);
-    if (caseRow === null) return err('CASE_NOT_FOUND', cid, { slug });
-    if (caseRow.status === 'archived') return err('CASE_ARCHIVED', cid, { slug });
+    // 檢索的那段時間裡可能有人開了一次 —— 再查一次（真正擋住的是下面那個索引）。
+    const refused = refuseToOpen(db, cid, slug);
+    if (refused !== null) return refused;
 
-    /**
-     * **同一個專題同時只有一次研究或整理沒結束**（D4）。
-     *
-     * 這裡先查一次是為了給一個說得出原因的錯誤碼；真正擋住它的是資料庫的部分唯一索引
-     * —— 兩個請求同時進來的時候，先查再寫擋不住。
-     */
-    const open = research.openResearch(db);
-    if (open !== null) return err('RESEARCH_ALREADY_OPEN', cid, { researchId: open.id });
-    // 「抽進圖」（整理的第一片）不開殼，索引擋不到它 —— D4 的另一半在這裡查（`consolidate-service.ts` 檔頭）。
-    const consolidating = activeConsolidateRun(db);
-    if (consolidating !== null) return err('CONSOLIDATE_RUNNING', cid, { runId: consolidating });
+    // 網址一起存下：找來源的提示詞要拿它說「這幾份已經有了，不用再找」。
+    const urlOf = new Map(
+      items
+        .loadItems(
+          db,
+          matched.map((hit) => hit.itemId),
+        )
+        .map((item) => [item.id, item.sourceUrl ?? item.requestedUrl ?? ''] as const),
+    );
+    const hits = matched.map((hit) => ({ ...hit, url: urlOf.get(hit.itemId) ?? '' }));
 
     const id = newId();
     const now = Date.now();

@@ -267,11 +267,13 @@ export interface Run {
 export type ResearchStatus =
   'planning' | 'collecting' | 'awaiting-user' | 'reviewing' | 'building' | 'done' | 'abandoned';
 
-/** 全文檢索命中的一份資料（不花錢算出來的，R1）。 */
+/** 開研究時找到、跟主題可能有關的一份資料（不花錢算出來的，R1；2026-10-28 起是寬鬆比對＋語意）。 */
 export interface ResearchHit {
   itemId: string;
   title: string;
   excerpt: string;
+  /** 那一份的網址；2026-10-28 之前開的研究是空字串 */
+  url: string;
 }
 
 export interface Direction {

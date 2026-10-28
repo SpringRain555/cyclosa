@@ -11,6 +11,7 @@ import {
   type QueuePayload,
   type Subgraph,
 } from '../api.js';
+import { nextPendingIndex } from './queue-next.js';
 
 /**
  * 關聯圖這一頁的狀態。
@@ -309,10 +310,23 @@ export const useGraphStore = defineStore('graph', () => {
     return true;
   }
 
-  /** 跳到佇列裡的下一條：把焦點移到它的來源，並打開它。 */
+  /** 上一次「跳到下一條」跳到佇列的第幾條（`nextPendingIndex`）。 */
+  let lastPendingIndex = -1;
+
+  /**
+   * 跳到佇列裡的下一條：把焦點移到它的來源，並打開它。
+   * **從現在開著的那一條往後算**，不是永遠回到第一條（`queue-next.ts`）。
+   */
   async function focusNextPending(): Promise<void> {
-    const next = queue.value?.entries[0];
-    if (next === undefined) return;
+    const entries = queue.value?.entries ?? [];
+    const index = nextPendingIndex(
+      entries.map((entry) => entry.id),
+      selectedEdgeId.value,
+      lastPendingIndex,
+    );
+    const next = index === null ? undefined : entries[index];
+    if (index === null || next === undefined) return;
+    lastPendingIndex = index;
     selectedId.value = next.source;
     await setFocus(next.source);
     await openEdge(next.id);
